@@ -29,4 +29,17 @@ describe("get-plan-blocks action", () => {
       "Never write a bare opening tag like `<RichText ...>`",
     );
   });
+
+  it("teaches when to show or hide visual frames", async () => {
+    const result = (await (
+      getPlanBlocksAction.run as (args: {
+        format: "reference";
+      }) => Promise<unknown>
+    )({ format: "reference" })) as { reference: string };
+
+    expect(result.reference).toContain("Visual frames");
+    expect(result.reference).toContain('frame: "auto" | "show" | "hide"');
+    expect(result.reference).toContain("recap surfaces default to framed");
+    expect(result.reference).toContain('frame: "hide"');
+  });
 });

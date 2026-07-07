@@ -21,8 +21,15 @@ let claimStateRows: Array<{
   started_at?: number | null;
   heartbeat_at?: number | null;
 }> = [];
+let runListRows: Array<Record<string, unknown>> = [];
+let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
+let runListSelectCount = 0;
 let runOwnerRows: Array<{ owner_email: string | null }> = [];
 let insertEventBehavior: () => void = () => {};
+let abortRowsAffected = 1;
+let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
+let runCountRows: Array<{ run_count: number }> = [];
 
 const mockDb = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
@@ -46,12 +53,35 @@ const mockDb = {
     ) {
       return { rows: claimSlotRows, rowsAffected: 0 };
     }
+    // listUnclaimedBackgroundRunIds: SELECT id FROM agent_runs WHERE status =
+    // 'running' AND dispatch_mode = 'background' AND ... Must also come before
+    // the broader stale-run SELECT check below, which matches the same shape.
+    if (
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(rawSql) &&
+      /dispatch_mode = 'background'/i.test(rawSql)
+    ) {
+      return { rows: unclaimedBackgroundRunRows, rowsAffected: 0 };
+    }
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
     }
     // getRunStatus: SELECT status FROM agent_runs WHERE id = ?
     if (/SELECT status FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: runStatusRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage/i.test(
+        rawSql,
+      ) &&
+      /WHERE thread_id = \?/i.test(rawSql) &&
+      /LIMIT \?/i.test(rawSql)
+    ) {
+      const rows =
+        refreshedRunListRows && runListSelectCount > 0
+          ? refreshedRunListRows
+          : runListRows;
+      runListSelectCount++;
+      return { rows, rowsAffected: 0 };
     }
     // readBackgroundRunClaim: SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ?
     if (
@@ -69,9 +99,20 @@ const mockDb = {
       insertEventBehavior();
       return { rows: [], rowsAffected: 1 };
     }
+    if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
+      return { rows: [], rowsAffected: abortRowsAffected };
+    }
     // Tool-call result ledger: SELECT result_summary FROM agent_tool_ledger
     if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
       return { rows: ledgerRows, rowsAffected: 0 };
+    }
+    // readRunDispatchPayload: SELECT dispatch_payload FROM agent_runs WHERE id = ?
+    if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
+      return { rows: dispatchPayloadRows, rowsAffected: 0 };
+    }
+    // countRunsForTurn: SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?
+    if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
+      return { rows: runCountRows, rowsAffected: 0 };
     }
 
     return {
@@ -101,12 +142,19 @@ const {
   cleanupOldRuns,
   tryClaimRunSlot,
   updateRunStatusIfRunning,
+  updateRunStatus,
   getRunStatus,
+  listRunsForThread,
   readBackgroundRunClaim,
   getRunOwnerEmail,
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
+  insertRun,
+  readRunDispatchPayload,
+  clearRunDispatchPayload,
+  listUnclaimedBackgroundRunIds,
+  countRunsForTurn,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -120,9 +168,16 @@ describe("run store", () => {
     claimSlotRows = [];
     runStatusRows = [];
     claimStateRows = [];
+    runListRows = [];
+    refreshedRunListRows = null;
+    runListSelectCount = 0;
     runOwnerRows = [];
     ledgerRows = [];
+    dispatchPayloadRows = [];
+    unclaimedBackgroundRunRows = [];
+    runCountRows = [];
     insertEventBehavior = () => {};
+    abortRowsAffected = 1;
     vi.clearAllMocks();
   });
 
@@ -215,6 +270,21 @@ describe("run store", () => {
     expect(eventInserts).toHaveLength(0);
   });
 
+  it("does not rewrite a run that is already terminal", async () => {
+    abortRowsAffected = 0;
+
+    await markRunAborted("run-already-completed", "user");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = 'aborted'/i.test(call.sql),
+    );
+    expect(update?.sql).toMatch(/AND status = 'running'/i);
+    const eventInserts = execCalls.filter((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(eventInserts).toHaveLength(0);
+  });
+
   it("retries a failed terminal-event insert before giving up", async () => {
     let attempts = 0;
     insertEventBehavior = () => {
@@ -287,8 +357,10 @@ describe("run store", () => {
     );
     expect(repair?.args[0]).toBe("completed");
     expect(repair?.args[1]).toBe(123_456);
-    expect(repair?.args[6]).toBe("done");
-    expect(repair?.args[7]).toBe("run-done-event");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
     expect(
       execCalls.some(
         (call) =>
@@ -315,6 +387,58 @@ describe("run store", () => {
     expect(repair?.sql).toContain("heartbeat_at");
     expect(repair?.args[0]).toBe("completed");
     expect(repair?.args[1]).toBeNull();
+  });
+
+  it("repairs terminal event rows before listing runs for debug surfaces", async () => {
+    runListRows = [
+      {
+        id: "run-done-event",
+        thread_id: "thread-done",
+        turn_id: null,
+        status: "running",
+        started_at: 1000,
+        heartbeat_at: 1500,
+        completed_at: null,
+        last_progress_at: 1500,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: null,
+        diag_stage: null,
+      },
+    ];
+    refreshedRunListRows = [
+      {
+        ...runListRows[0],
+        status: "completed",
+        completed_at: 123_456,
+        terminal_reason: "done",
+      },
+    ];
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    const runs = await listRunsForThread("thread-done");
+
+    expect(runs[0]?.status).toBe("completed");
+    expect(runs[0]?.completedAt).toBe(123_456);
+    expect(runs[0]?.terminalReason).toBe("done");
+    expect(runListSelectCount).toBe(2);
+    const repair = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repair?.args[0]).toBe("completed");
+    expect(repair?.args[2]).toBeNull();
+    expect(repair?.args[3]).toBeNull();
+    expect(repair?.args[4]).toBe("done");
+    expect(repair?.args[5]).toBe("run-done-event");
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
@@ -564,5 +688,175 @@ describe("run store", () => {
   it("clearLedgerForThread never throws on DB error (best-effort)", async () => {
     mockDb.execute.mockRejectedValueOnce(new Error("DB unavailable"));
     await expect(clearLedgerForThread("thread-err")).resolves.toBeUndefined();
+  });
+
+  // ─── dispatch_payload persistence (payload-ref rehydration) ────────────────
+
+  it("insertRun persists dispatchPayload into the dispatch_payload column", async () => {
+    await insertRun("run-payload", "thread-1", "turn-1", {
+      dispatchMode: "background",
+      dispatchPayload: '{"messages":[]}',
+    });
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("dispatch_payload");
+    expect(insert?.args).toEqual([
+      "run-payload",
+      "thread-1",
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      "turn-1",
+      "background",
+      '{"messages":[]}',
+    ]);
+  });
+
+  it("insertRun binds null dispatch_payload when no payload is given", async () => {
+    await insertRun("run-no-payload", "thread-1");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.args[7]).toBeNull();
+  });
+
+  it("insertRun is idempotent for retried or pre-claimed run rows", async () => {
+    await insertRun("run-retry", "thread-1");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("ON CONFLICT (id) DO NOTHING");
+  });
+
+  it("readRunDispatchPayload returns the persisted payload string", async () => {
+    dispatchPayloadRows = [{ dispatch_payload: '{"foo":"bar"}' }];
+    const payload = await readRunDispatchPayload("run-payload");
+    expect(payload).toBe('{"foo":"bar"}');
+
+    const select = execCalls.find((call) =>
+      /SELECT dispatch_payload FROM agent_runs WHERE id/i.test(call.sql),
+    );
+    expect(select?.args[0]).toBe("run-payload");
+  });
+
+  it("readRunDispatchPayload returns null when missing, cleared, or empty", async () => {
+    dispatchPayloadRows = [];
+    expect(await readRunDispatchPayload("run-missing")).toBeNull();
+
+    dispatchPayloadRows = [{ dispatch_payload: null }];
+    expect(await readRunDispatchPayload("run-cleared")).toBeNull();
+
+    dispatchPayloadRows = [{ dispatch_payload: "" }];
+    expect(await readRunDispatchPayload("run-empty")).toBeNull();
+  });
+
+  it("clearRunDispatchPayload issues an UPDATE setting dispatch_payload to NULL", async () => {
+    await clearRunDispatchPayload("run-clear-me");
+
+    const update = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs SET dispatch_payload = NULL/i.test(call.sql) &&
+        /WHERE id = \?/i.test(call.sql),
+    );
+    expect(update?.args).toEqual(["run-clear-me"]);
+  });
+
+  it("updateRunStatus also NULLs dispatch_payload on the terminal write", async () => {
+    await updateRunStatus("run-terminal", "completed");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \?/i.test(
+        call.sql,
+      ),
+    );
+    expect(update).toBeDefined();
+    expect(update?.args).toEqual([
+      "completed",
+      expect.any(Number),
+      "run-terminal",
+    ]);
+  });
+
+  it("updateRunStatusIfRunning also NULLs dispatch_payload on the conditional terminal write", async () => {
+    await updateRunStatusIfRunning("run-terminal-if-running", "errored");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \? AND status = 'running'/i.test(
+        call.sql,
+      ),
+    );
+    expect(update).toBeDefined();
+    expect(update?.args).toEqual([
+      "errored",
+      expect.any(Number),
+      "run-terminal-if-running",
+    ]);
+  });
+
+  // ─── countRunsForTurn (durable per-turn ledger) ─────────────────────────────
+
+  it("countRunsForTurn returns the SQL count, scoped by thread_id AND turn_id", async () => {
+    runCountRows = [{ run_count: 7 }];
+    const count = await countRunsForTurn("thread-x", "turn-y");
+    expect(count).toBe(7);
+
+    const select = execCalls.find((call) =>
+      /SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(call.sql),
+    );
+    expect(select?.sql).toContain("thread_id = ?");
+    expect(select?.sql).toContain("turn_id = ?");
+    expect(select?.args).toEqual(["thread-x", "turn-y"]);
+  });
+
+  it("countRunsForTurn returns 0 for a non-finite/missing count", async () => {
+    runCountRows = [];
+    expect(await countRunsForTurn("thread-x", "turn-missing")).toBe(0);
+
+    runCountRows = [{ run_count: Number.NaN }];
+    expect(await countRunsForTurn("thread-x", "turn-nan")).toBe(0);
+  });
+
+  // ─── listUnclaimedBackgroundRunIds (lost-handoff sweep) ────────────────────
+
+  it("listUnclaimedBackgroundRunIds filters running+background rows past the grace window", async () => {
+    unclaimedBackgroundRunRows = [{ id: "run-lost-1" }, { id: "run-lost-2" }];
+    const ids = await listUnclaimedBackgroundRunIds();
+    expect(ids).toEqual(["run-lost-1", "run-lost-2"]);
+
+    const select = execCalls.find((call) =>
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(call.sql),
+    );
+    expect(select?.sql).toContain("dispatch_mode = 'background'");
+    expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
+  });
+
+  it("listUnclaimedBackgroundRunIds casts the now param to BIGINT and binds a full ms epoch", async () => {
+    // Regression guard mirroring the tryClaimRunSlot BIGINT-cast test: without
+    // an explicit cast, Postgres can infer the parameter as int4 from the
+    // literal grace-window subtraction, and a ms epoch overflows int4.
+    unclaimedBackgroundRunRows = [];
+    await listUnclaimedBackgroundRunIds();
+
+    const select = execCalls.find((call) =>
+      /SELECT id FROM agent_runs\s*WHERE status = 'running'/i.test(call.sql),
+    );
+    expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)/i);
+    expect(Number(select?.args[0])).toBeGreaterThan(2_147_483_647);
+  });
+
+  it("listUnclaimedBackgroundRunIds ignores non-string/empty ids defensively", async () => {
+    unclaimedBackgroundRunRows = [
+      { id: "run-ok" },
+      // @ts-expect-error -- exercising defensive filtering of malformed rows
+      { id: null },
+      // @ts-expect-error -- exercising defensive filtering of malformed rows
+      { id: "" },
+    ];
+    const ids = await listUnclaimedBackgroundRunIds();
+    expect(ids).toEqual(["run-ok"]);
   });
 });

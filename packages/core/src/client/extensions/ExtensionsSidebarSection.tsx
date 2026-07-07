@@ -940,7 +940,7 @@ export function ExtensionsSidebarSection() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className="pointer-events-none inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-all hover:bg-accent hover:text-accent-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/extensions-section:pointer-events-auto group-hover/extensions-section:opacity-100 group-focus-within/extensions-section:pointer-events-auto group-focus-within/extensions-section:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
                   aria-label={copy.newExtension}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
@@ -949,7 +949,8 @@ export function ExtensionsSidebarSection() {
               <PopoverContent
                 side="right"
                 align="start"
-                className="w-[420px] p-3"
+                collisionPadding={8}
+                className="relative z-[360] w-[min(420px,calc(100vw-16px))] p-3"
               >
                 <p className="px-1 pb-2 text-sm font-semibold text-foreground">
                   {copy.newExtension}

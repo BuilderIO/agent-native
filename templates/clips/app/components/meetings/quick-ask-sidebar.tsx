@@ -43,8 +43,16 @@ const QUICK_PROMPTS: Array<{ labelKey: string; promptKey: string }> = [
     promptKey: "quickAsk.whatDidIMissPrompt",
   },
   {
+    labelKey: "quickAsk.suggestQuestions",
+    promptKey: "quickAsk.suggestQuestionsPrompt",
+  },
+  {
     labelKey: "quickAsk.summarizeLastFive",
     promptKey: "quickAsk.summarizeLastFivePrompt",
+  },
+  {
+    labelKey: "quickAsk.makeMeSoundSmart",
+    promptKey: "quickAsk.makeMeSoundSmartPrompt",
   },
   {
     labelKey: "quickAsk.actionItemsForMe",

@@ -3,7 +3,6 @@ import {
   AgentToggleButton,
   DevDatabaseLink,
   FeedbackButton,
-  NotificationsBell,
   agentNativePath,
   useT,
 } from "@agent-native/core/client";
@@ -1299,8 +1298,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             <TooltipContent>{t("mail.toolbar.refreshInbox")}</TooltipContent>
           </Tooltip>
 
-          <NotificationsBell />
-
           {/* Compose — prominent outline button */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1416,13 +1413,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           <>
             {(!sidebarPinned || isMobile) && (
               <div
-                className="fixed inset-0 z-30 bg-black/20"
+                className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
                 onClick={() => setSidebarOpen(false)}
               />
             )}
             <div
               className={cn(
-                "flex flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-e border-border/30 shadow-2xl transition-[width] duration-200 ease-out",
+                "flex flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl border-e border-border/30 shadow-2xl transition-[width] duration-200 ease-out",
                 showCollapsedSidebar ? "w-12" : "w-64",
                 sidebarPinned && !isMobile
                   ? "absolute start-0 top-12 bottom-0 z-10"
@@ -1946,8 +1943,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
 /**
  * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton + NotificationsBell) instead of the inbox-specific top bar
- * (tabs, search, account stack, compose pen, etc.).
+ * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
+ * account stack, compose pen, etc.).
  *
  * Pages can hoist a custom title or right-side actions via
  * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
@@ -1962,7 +1959,7 @@ function StandardLayout({ children }: AppLayoutProps) {
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton inside the shared
+  // toolbar inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
@@ -2003,7 +2000,6 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <NotificationsBell />
             <AgentToggleButton />
           </div>
         </header>
@@ -2012,10 +2008,10 @@ function StandardLayout({ children }: AppLayoutProps) {
       {sidebarOpen && (
         <>
           <div
-            className="fixed inset-0 z-30 bg-black/20"
+            className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-background/70 backdrop-blur-2xl border-e border-border/30 shadow-2xl">
+          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl border-e border-border/30 shadow-2xl">
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="space-y-0.5">
                 {[

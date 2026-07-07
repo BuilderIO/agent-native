@@ -122,6 +122,10 @@ const messages = {
     restoreFailed: "Falha ao restaurar",
     permanentlyDeleted: "Excluído permanentemente",
     deleteFailed: "Falha ao excluir",
+    clipsRestored: "{{count}} clipes restaurados",
+    clipsRestoreFailed: "{{count}} clipes não puderam ser restaurados",
+    clipsPermanentlyDeleted: "{{count}} clipes excluídos permanentemente",
+    clipsDeleteFailed: "{{count}} clipes não puderam ser excluídos",
   },
   recordingRoute: {
     pageTitle: "Gravação de clip · Clips",
@@ -345,6 +349,14 @@ const messages = {
     copyTranscript: "Copiar transcrição",
     copyFullTranscript: "Copiar transcrição completa",
     attendee_many: "{{count}} attendees",
+    timeRemaining_one: "{{count}} min restante",
+    timeRemaining_other: "{{count}} min restantes",
+    timeRemaining_many: "{{count}} min restantes",
+    endMeeting: "Encerrar reunião",
+    endThisMeeting: "Encerrar esta reunião?",
+    endMeetingDescription:
+      "Isso interrompe a gravação e a transcrição desta reunião. Você ainda pode gerar notas com o que foi capturado até agora.",
+    couldNotEndMeeting: "Não foi possível encerrar a reunião",
   },
   transcriptPanel: {
     transcribing: "Transcrevendo…",
@@ -429,7 +441,9 @@ const messages = {
     agentPrompt:
       "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
     agentTokenDescription:
-      "Este agente URL usa um token de curta duração, para que os agentes possam ler o clipe sem expor a senha.",
+      "Esta URL temporaria para agentes permite ler o clipe sem torna-lo publico. Ela expira em duas horas.",
+    agentLinkUnavailable: "Não foi possível criar o link para agentes.",
+    retryAgentLink: "Tentar novamente",
     gifPreview: "visualização de GIF",
     openPlayer: "Jogador aberto",
     downloadMp4: "Baixar MP4",
@@ -489,6 +503,12 @@ const messages = {
     quickPrompts: "Prompts rápidos",
     whatDidIMiss: "O que eu perdi?",
     whatDidIMissPrompt: "O que eu perdi?",
+    suggestQuestions: "Sugerir perguntas para eu fazer",
+    suggestQuestionsPrompt:
+      "Sugira algumas boas perguntas que eu poderia fazer em seguida nesta reunião, com base no que foi discutido até agora.",
+    makeMeSoundSmart: "Me faça parecer inteligente",
+    makeMeSoundSmartPrompt:
+      "Me dê um comentário ou uma pergunta perspicaz que eu possa acrescentar agora, com base nesta reunião até o momento.",
     summarizeLastFive: "Resumir os últimos 5 minutos",
     summarizeLastFivePrompt:
       "Resuma os últimos 5 minutos desta reunião em 3 a 5 tópicos.",
@@ -652,6 +672,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     s3SecretAccessKeyLabel: "Chave de acesso secreta",
     s3RegionLabel: "Região",
     s3PublicBaseUrlLabel: "URL base pública",
+    s3UrlInvalid:
+      "Deve ser uma URL válida (ex.: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "O nome do bucket deve ter 3–63 letras minúsculas, números ou hifens",
+    s3RegionInvalid: 'Deve ser uma região válida (ex.: us-east-1) ou "auto"',
     apiSetup: "Configuração de IA",
     apiSetupDescription:
       "Conecte IA com créditos grátis da Builder.io ou suas próprias chaves LLM.",
@@ -666,6 +691,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     providerKeysSet: "{{count}} configuradas",
     checkingProviderKeys: "Verificando chaves de provedor…",
     keySet: "Configurada",
+    keyCleared: "Credenciais de armazenamento limpas",
+    clearAllS3: "Limpar credenciais",
     replaceKey: "Substituir chave…",
     pasteProviderKey: "Cole primeiro uma chave de provedor.",
     apiKeySaved: "Chave de API salva",
@@ -764,6 +791,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     anonymous: "Anônimo",
     anon: "Anôn.",
     moreViewers: "+{{count}} mais",
+    viewedBy: "Visualizado por",
+    someone: "Alguém",
+    noViewsYet: "Ainda sem visualizações.",
   },
   libraryGrid: {
     spaceRoot: "Raiz do espaço",
@@ -782,6 +812,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     clipsArchiveFailed: "{{count}} clipes não puderam ser arquivados",
     clipsMovedToTrash: "{{count}} clipes movidos para a lixeira",
     clipsTrashFailed: "{{count}} clipes não puderam ser movidos para a lixeira",
+    loadFailedTitle: "Não foi possível carregar suas gravações",
+    loadFailedBody:
+      "Algo deu errado ao carregar esta lista. Suas gravações estão seguras — tente novamente.",
+    retry: "Tentar novamente",
   },
   notificationsRoute: {
     pageTitle: "Notificações · Clips",
@@ -920,6 +954,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     noVideo: "Nenhum vídeo disponível",
     thanks: "Obrigado por assistir",
     playClip: "Reproduzir clipe",
+    unsupportedFormat:
+      "Este navegador não consegue reproduzir este vídeo. Tente abrir o link no Chrome, Edge ou Firefox.",
   },
   searchBar: {
     placeholder: "Pesquisar gravações…",
@@ -984,6 +1020,13 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",
     them: "Eles",
+    searchTranscript: "Pesquisar na transcrição",
+    searchPlaceholder: "Pesquisar na transcrição…",
+    searchMatchCount: "{{current}} de {{total}}",
+    searchNoMatches: "Nenhuma correspondência",
+    searchPrevMatch: "Correspondência anterior",
+    searchNextMatch: "Próxima correspondência",
+    searchClose: "Fechar pesquisa",
   },
   editorLayout: {
     trimmed: "Recortado",
@@ -1258,6 +1301,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     browserDictation: "Browser dictation (Localizado)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (Localizado)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Localizado)",
+    quickNoteTitle: "Quick dictation note (Localizado)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (Localizado)",
     desktopShortcuts: "Desktop shortcuts (Localizado)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (Localizado)",
     holdFn: "Hold Fn (Localizado)",
@@ -1290,6 +1338,18 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (Localizado)",
     loadFailed: "Couldn't load dictations. (Localizado)",
     noFilterMatches: "No dictations matching this filter. (Localizado)",
+    dictionaryTitle: "Dictionary (Localizado)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (Localizado)",
+    dictionaryTermPlaceholder: "Term (Localizado)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (Localizado)",
+    dictionaryAdd: "Add (Localizado)",
+    dictionaryLoading: "Loading dictionary... (Localizado)",
+    dictionaryEmpty: "No learned terms yet. (Localizado)",
+    dictionaryUsesCount: "Used {{count}}x (Localizado)",
+    dictionaryRemove: "Remove (Localizado)",
+    vocabularyAddFailed: "Couldn't add term (Localizado)",
+    vocabularyRemoveFailed: "Couldn't remove term (Localizado)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Dividir no cursor (S)",

@@ -89,8 +89,12 @@ pub fn run() {
             clips::close_signin,
             clips::show_flow_bar,
             clips::hide_flow_bar,
+            clips::hide_onboarding_window,
             clips::complete_voice_dictation,
+            clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::set_meeting_active,
+            clips::quit_teardown_done,
             clips::reset_state,
             clips::save_bubble_position,
             clips::bubble_drag_start,
@@ -117,6 +121,8 @@ pub fn run() {
             native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
+            native_screen::native_fullscreen_take_upload_finished,
+            native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_capture_thumbnail,
@@ -161,12 +167,14 @@ pub fn run() {
             system_audio::system_audio_open_privacy_settings,
             system_audio::audio_transcription_start,
             system_audio::audio_transcription_stop,
+            system_audio::audio_transcription_reset_timeline,
             // silence detector — Granola-style auto-stop heuristics
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,
             // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
+            shortcuts::set_dictation_escape_active,
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
@@ -229,6 +237,15 @@ pub fn run() {
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
             let feature_config = config::feature_config(app.handle());
+            // ONBOARD-WINDOW: first-run onboarding never had a Rust-side
+            // window to appear in — the `#onboarding` hash route and overlay
+            // component existed, but nothing ever called
+            // WebviewWindowBuilder for it. Build it here, after the popover
+            // exists, gated on the persisted `onboarding_complete` flag so
+            // returning users never see it again.
+            if !feature_config.onboarding_complete {
+                clips::show_onboarding_window(app.handle());
+            }
             screen_memory::sync_from_config(app.handle(), &feature_config);
             // Re-show always-on region guides after relaunch/reboot when the
             // setting is on (no-op if a recording owns the window or the
@@ -355,6 +372,68 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 toggle_popover(_app_handle);
+            }
+            // `app.exit()` (tray Quit, Cmd+Q, OS shutdown) delivers
+            // `ExitRequested` first, then `Exit` unless prevented. A live
+            // meeting session lives entirely in JS/React state
+            // (`useMeetingTranscription`) that Rust has no direct access to,
+            // so if a meeting is active we briefly hold the process open and
+            // let the popover webview run its normal stop/flush/finalize
+            // path before actually exiting — otherwise the last ~1.5s of
+            // transcript is lost and the recording is stuck "uploading"
+            // forever (nothing else ever stamps `meetings.actualEnd`).
+            if let tauri::RunEvent::ExitRequested { api, .. } = &_event {
+                let meeting_active = _app_handle
+                    .try_state::<MeetingActive>()
+                    .and_then(|s| s.0.lock().ok().map(|g| *g))
+                    .unwrap_or(false);
+                let teardown_state =
+                    clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
+                // Gate on MeetingActive so quitting with no active meeting
+                // stays instant — zero added latency, no event emitted, no
+                // watchdog spawned. teardown_state != 0 means either the
+                // teardown handshake is already underway (first pass already
+                // ran) or already done (the watchdog's own forced exit —
+                // must NOT prevent_exit again, or quit would hang forever).
+                if meeting_active && teardown_state == 0 {
+                    clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
+                    api.prevent_exit();
+                    let _ = _app_handle.emit("meetings:quit-requested", ());
+                    let watchdog_handle = _app_handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        // If the JS side never called `quit_teardown_done`
+                        // (dead webview, hung network call, etc.) force the
+                        // exit anyway — quit must never hang indefinitely.
+                        // compare_exchange (not load-then-store) so this
+                        // watchdog and a concurrent `quit_teardown_done` call
+                        // can't both observe state==1, both transition to 2,
+                        // and both call app.exit(); only whichever wins the
+                        // CAS proceeds.
+                        if clips::QUIT_TEARDOWN_STATE
+                            .compare_exchange(
+                                1,
+                                2,
+                                std::sync::atomic::Ordering::SeqCst,
+                                std::sync::atomic::Ordering::SeqCst,
+                            )
+                            .is_ok()
+                        {
+                            eprintln!(
+                                "[clips-tray] quit-teardown watchdog fired — forcing exit after 3s"
+                            );
+                            watchdog_handle.exit(0);
+                        }
+                    });
+                }
+            }
+            // The app is quitting (tray Quit, Cmd+Q, or OS shutdown). `Exit`
+            // fires just before the process actually terminates, which
+            // otherwise skips Rust destructors — make sure a live
+            // `screencapture` fallback child doesn't survive us.
+            if let tauri::RunEvent::Exit = _event {
+                let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
+                native_screen::kill_active_screencapture_child(&state);
             }
         });
 }

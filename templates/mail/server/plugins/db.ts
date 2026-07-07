@@ -1,6 +1,35 @@
-import { runMigrations, intType } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+  intType,
+} from "@agent-native/core/db";
 
-export default runMigrations(
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently.
+const runMailMigrations = runMigrations(
   [
     {
       version: 1,
@@ -130,6 +159,67 @@ export default runMigrations(
 CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_email)`,
     },
+    {
+      version: 15,
+      name: "snippets-table",
+      sql: `CREATE TABLE IF NOT EXISTS snippets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
+    },
+    {
+      // listPendingJobs (jobs.ts) scopes its WHERE clause to
+      // (status, owner_email) on every inbox/unread list load. The v14 index
+      // only covers (status, run_at), which doesn't serve the owner-scoped
+      // lookup, so add the composite index so that read stays indexed as the
+      // scheduled_jobs table grows across all users.
+      version: 16,
+      name: "scheduled-jobs-owner-status-run-at-idx",
+      sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_status_run_at ON scheduled_jobs(owner_email, status, run_at)`,
+    },
+    {
+      version: 17,
+      name: "queued-draft-send-claim",
+      sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
+    },
   ],
   { table: "mail_migrations" },
 );
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
+export default async (nitroApp: any): Promise<void> => {
+  await runMailMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};

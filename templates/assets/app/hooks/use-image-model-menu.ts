@@ -22,6 +22,7 @@ const IMAGE_MODEL_OPTIONS = [
     descriptorKey: "create.modelFast",
   },
   { value: "gemini-2.5-flash-image", modelName: "Gemini 2.5 Flash" },
+  { value: "gpt-image-2", modelName: "GPT Image 2" },
 ] as const;
 
 export function useImageModelMenu() {

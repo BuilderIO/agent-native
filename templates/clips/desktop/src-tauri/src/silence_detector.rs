@@ -307,12 +307,25 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             // If it was front during this session and has been background for
             // > threshold_ms, fire `meetings:call-ended`. On the first session
             // tick we just record state and wait.
-            let known_vc_bundles: &[&str] = &[
+            // Native VC clients are a strong signal on their own: a Zoom/Teams
+            // window backgrounding for a while means the user almost
+            // certainly left the call. Generic browsers are NOT included
+            // here — Meet/Zoom-web/Teams-web all run inside Chrome/Arc, so
+            // "Chrome was frontmost" just means the user was in some tab, not
+            // that any call ended. Browser-hosted calls fall back to
+            // `strong_vc_bundles` below only when corroborated by the
+            // mic+system silence tracking this same detector already keeps
+            // (DetectorInner.mic/system), never on the frontmost-app poll
+            // alone — matching the granola-ux.md "transcript length +
+            // calendar times" model instead of raw frontmost tracking.
+            let strong_vc_bundles: &[&str] = &[
                 "us.zoom.xos",
                 "us.zoom.ZoomClips",
                 "com.microsoft.teams2",
                 "com.microsoft.teams",
-                "com.google.Chrome", // meet runs inside Chrome; weak signal
+            ];
+            let generic_browser_bundles: &[&str] = &[
+                "com.google.Chrome",
                 "company.thebrowser.Browser", // Arc
             ];
             let mut ever_seen_front = false;
@@ -329,19 +342,35 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     continue;
                 }
                 let front = frontmost_bundle_id();
-                let is_vc = front
+                let is_strong_vc = front
                     .as_ref()
-                    .map(|b| known_vc_bundles.iter().any(|k| k == b))
+                    .map(|b| strong_vc_bundles.iter().any(|k| k == b))
                     .unwrap_or(false);
-                if is_vc {
+                let is_generic_browser = front
+                    .as_ref()
+                    .map(|b| generic_browser_bundles.iter().any(|k| k == b))
+                    .unwrap_or(false);
+                if is_strong_vc || is_generic_browser {
                     ever_seen_front = true;
                     last_front_at = Some(Instant::now());
                 }
                 if ever_seen_front && !fired {
                     if let Some(t) = last_front_at {
-                        if Instant::now().duration_since(t).as_millis() as u64 >= threshold_ms {
-                            let _ = app.emit("meetings:call-ended", ());
-                            fired = true;
+                        let backgrounded_ms = Instant::now().duration_since(t).as_millis() as u64;
+                        if backgrounded_ms >= threshold_ms {
+                            // Require audio corroboration before auto-stopping
+                            // for a generic browser: the frontmost-app signal
+                            // alone is too weak (backgrounding Chrome to check
+                            // email doesn't mean the Meet tab's call ended).
+                            // Native VC clients keep the fast, uncorroborated
+                            // path since a dedicated conferencing app losing
+                            // focus for minutes is a much stronger signal.
+                            let audio_corroborates =
+                                !is_generic_browser || audio_recently_silent(&state, threshold_ms);
+                            if audio_corroborates {
+                                let _ = app.emit("meetings:call-ended", ());
+                                fired = true;
+                            }
                         }
                     }
                 }
@@ -352,6 +381,33 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
 
 #[cfg(not(target_os = "macos"))]
 fn install_call_ended_watcher(_app: &AppHandle, _threshold_ms: u64) {}
+
+/// Corroboration check for the generic-browser call-ended signal: true only
+/// if BOTH mic and system audio have been quiet for at least `threshold_ms`.
+/// Reuses the same per-source `last_loud_at` tracking the silence-stop
+/// supervisor already maintains — no new subsystem, no new lock ordering
+/// beyond the existing `DetectorState.inner` mutex. Missing/never-seen
+/// sources count as "not corroborating" (conservative — when in doubt, keep
+/// recording rather than auto-stop).
+#[cfg(target_os = "macos")]
+fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: u64) -> bool {
+    let Ok(g) = state.inner.lock() else {
+        return false;
+    };
+    let window = Duration::from_millis(threshold_ms);
+    let now = Instant::now();
+    let mic_silent = g
+        .mic
+        .as_ref()
+        .map(|s| now.duration_since(s.last_loud_at) >= window)
+        .unwrap_or(false);
+    let system_silent = g
+        .system
+        .as_ref()
+        .map(|s| now.duration_since(s.last_loud_at) >= window)
+        .unwrap_or(false);
+    mic_silent && system_silent
+}
 
 #[cfg(target_os = "macos")]
 fn frontmost_bundle_id() -> Option<String> {

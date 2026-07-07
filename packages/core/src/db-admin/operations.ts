@@ -1,18 +1,24 @@
 /**
- * Dev-mode database admin operations.
+ * Database admin operations.
  *
  * Pure, dialect-agnostic, RAW/UNSCOPED helpers backing the Supabase-Studio-like
  * DB admin. These run the FULL database with no per-user `accessFilter`
- * scoping — they are a developer tool, gated to dev + localhost at the route
- * and agent-tool layers. Do NOT call these from any production-reachable
- * surface.
+ * scoping. Callers MUST gate access before invoking them. The built-in core
+ * route gates this to dev + localhost; production-reachable surfaces must pass
+ * an explicit runtime for the target database and enforce their own admin-only
+ * checks before reading or mutating.
  *
  * All access goes through the unified `getDbExec()` client, which uses `?`
  * placeholders (auto-converted to `$1,$2,…` for Postgres) and returns rows
  * keyed by column name. Identifiers are validated against a strict pattern and
  * always double-quoted; values are ALWAYS parameterized — never interpolated.
  */
-import { getDbExec, getDialect, isPostgres } from "../db/client.js";
+import {
+  getDbExec,
+  getDialect,
+  type DbExec,
+  type Dialect,
+} from "../db/client.js";
 import { notifyActionChange } from "../server/action-change.js";
 import type {
   DbAdminColumn,
@@ -35,6 +41,12 @@ import type {
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+export interface DbAdminRuntime {
+  db?: DbExec;
+  dialect?: Dialect;
+  notifyChange?: () => Promise<void>;
+}
+
 /** Throw on any identifier that isn't a plain `[A-Za-z_][A-Za-z0-9_]*`. */
 function assertIdent(name: string, kind = "identifier"): string {
   if (typeof name !== "string" || !IDENT_RE.test(name)) {
@@ -48,15 +60,27 @@ function quoteIdent(name: string): string {
   return `"${assertIdent(name)}"`;
 }
 
-function dialect(): DbAdminDialect {
-  return getDialect();
+function db(runtime?: DbAdminRuntime): DbExec {
+  return runtime?.db ?? getDbExec();
+}
+
+function dialect(runtime?: DbAdminRuntime): DbAdminDialect {
+  return (runtime?.dialect ?? getDialect()) as DbAdminDialect;
+}
+
+function isPostgresRuntime(runtime?: DbAdminRuntime): boolean {
+  return dialect(runtime) === "postgres";
 }
 
 // ---------------------------------------------------------------------------
 // Notify the UI after a real mutation so polling refetches.
 // ---------------------------------------------------------------------------
 
-async function notifyDbAdminChange(): Promise<void> {
+async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
+  if (runtime?.notifyChange) {
+    await runtime.notifyChange();
+    return;
+  }
   // The UI keys on useChangeVersions(["db-admin","action"]). notifyActionChange
   // records a "db-admin" change AND a marker; the action route layer's generic
   // "action" source is covered by passing the db-admin action name through the
@@ -68,15 +92,15 @@ async function notifyDbAdminChange(): Promise<void> {
 // listTables
 // ---------------------------------------------------------------------------
 
-export async function listTables(): Promise<{
+export async function listTables(runtime?: DbAdminRuntime): Promise<{
   dialect: DbAdminDialect;
   tables: DbAdminTableSummary[];
 }> {
-  const db = getDbExec();
+  const client = db(runtime);
   const summaries: DbAdminTableSummary[] = [];
 
-  if (isPostgres()) {
-    const res = await db.execute(
+  if (isPostgresRuntime(runtime)) {
+    const res = await client.execute(
       `SELECT table_name AS name, table_type AS type
        FROM information_schema.tables
        WHERE table_schema = 'public'
@@ -89,11 +113,11 @@ export async function listTables(): Promise<{
       summaries.push({
         name,
         type,
-        rowCount: type === "view" ? null : await safeRowCount(name),
+        rowCount: type === "view" ? null : await safeRowCount(name, runtime),
       });
     }
   } else {
-    const res = await db.execute(
+    const res = await client.execute(
       `SELECT name, type FROM sqlite_master
        WHERE type IN ('table', 'view')
          AND name NOT LIKE 'sqlite_%'
@@ -105,18 +129,21 @@ export async function listTables(): Promise<{
       summaries.push({
         name,
         type,
-        rowCount: type === "view" ? null : await safeRowCount(name),
+        rowCount: type === "view" ? null : await safeRowCount(name, runtime),
       });
     }
   }
 
-  return { dialect: dialect(), tables: summaries };
+  return { dialect: dialect(runtime), tables: summaries };
 }
 
-async function safeRowCount(table: string): Promise<number | null> {
+async function safeRowCount(
+  table: string,
+  runtime?: DbAdminRuntime,
+): Promise<number | null> {
   try {
-    const db = getDbExec();
-    const res = await db.execute(
+    const client = db(runtime);
+    const res = await client.execute(
       `SELECT COUNT(*) AS c FROM ${quoteIdent(table)}`,
     );
     const c = (res.rows[0] as any)?.c;
@@ -133,26 +160,28 @@ async function safeRowCount(table: string): Promise<number | null> {
 
 export async function getTableSchema(
   table: string,
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminTableSchema> {
   assertIdent(table, "table name");
-  return isPostgres()
-    ? getTableSchemaPostgres(table)
-    : getTableSchemaSqlite(table);
+  return isPostgresRuntime(runtime)
+    ? getTableSchemaPostgres(table, runtime)
+    : getTableSchemaSqlite(table, runtime);
 }
 
 async function getTableSchemaPostgres(
   table: string,
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminTableSchema> {
-  const db = getDbExec();
+  const client = db(runtime);
 
-  const typeRes = await db.execute({
+  const typeRes = await client.execute({
     sql: `SELECT table_type AS type FROM information_schema.tables
           WHERE table_schema = 'public' AND table_name = ?`,
     args: [table],
   });
   const type = (typeRes.rows[0] as any)?.type === "VIEW" ? "view" : "table";
 
-  const colRes = await db.execute({
+  const colRes = await client.execute({
     sql: `SELECT
             column_name AS name,
             data_type AS type,
@@ -164,7 +193,7 @@ async function getTableSchemaPostgres(
     args: [table],
   });
 
-  const pkRes = await db.execute({
+  const pkRes = await client.execute({
     sql: `SELECT kcu.column_name AS col
           FROM information_schema.table_constraints tc
           JOIN information_schema.key_column_usage kcu
@@ -179,7 +208,7 @@ async function getTableSchemaPostgres(
   const primaryKey = pkRes.rows.map((r) => String((r as any).col));
   const pkSet = new Set(primaryKey);
 
-  const fkRes = await db.execute({
+  const fkRes = await client.execute({
     sql: `SELECT
             kcu.column_name AS col,
             ccu.table_name AS ref_table,
@@ -202,7 +231,7 @@ async function getTableSchemaPostgres(
     refColumn: String((r as any).ref_col),
   }));
 
-  const idxRes = await db.execute({
+  const idxRes = await client.execute({
     sql: `SELECT indexname AS name, indexdef AS def
           FROM pg_indexes
           WHERE schemaname = 'public' AND tablename = ?`,
@@ -248,22 +277,25 @@ async function getTableSchemaPostgres(
     primaryKey,
     foreignKeys,
     indexes,
-    rowCount: type === "view" ? null : await safeRowCount(table),
+    rowCount: type === "view" ? null : await safeRowCount(table, runtime),
   };
 }
 
 async function getTableSchemaSqlite(
   table: string,
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminTableSchema> {
-  const db = getDbExec();
+  const client = db(runtime);
 
-  const typeRes = await db.execute({
+  const typeRes = await client.execute({
     sql: `SELECT type FROM sqlite_master WHERE name = ? AND type IN ('table','view')`,
     args: [table],
   });
   const type = (typeRes.rows[0] as any)?.type === "view" ? "view" : "table";
 
-  const colRes = await db.execute(`PRAGMA table_info(${quoteIdent(table)})`);
+  const colRes = await client.execute(
+    `PRAGMA table_info(${quoteIdent(table)})`,
+  );
   const columns: DbAdminColumn[] = colRes.rows.map((r) => {
     const name = String((r as any).name);
     const dflt = (r as any).dflt_value;
@@ -290,7 +322,7 @@ async function getTableSchemaSqlite(
     }
   }
 
-  const fkRes = await db.execute(
+  const fkRes = await client.execute(
     `PRAGMA foreign_key_list(${quoteIdent(table)})`,
   );
   const foreignKeys: DbAdminForeignKey[] = fkRes.rows.map((r) => ({
@@ -299,14 +331,14 @@ async function getTableSchemaSqlite(
     refColumn: String((r as any).to),
   }));
 
-  const idxListRes = await db.execute(
+  const idxListRes = await client.execute(
     `PRAGMA index_list(${quoteIdent(table)})`,
   );
   const indexes: DbAdminIndex[] = [];
   for (const idx of idxListRes.rows) {
     const idxName = String((idx as any).name);
     if (idxName.startsWith("sqlite_")) continue;
-    const infoRes = await db.execute(
+    const infoRes = await client.execute(
       `PRAGMA index_info(${quoteIdent(idxName)})`,
     );
     indexes.push({
@@ -325,7 +357,7 @@ async function getTableSchemaSqlite(
     primaryKey,
     foreignKeys,
     indexes,
-    rowCount: type === "view" ? null : await safeRowCount(table),
+    rowCount: type === "view" ? null : await safeRowCount(table, runtime),
   };
 }
 
@@ -358,7 +390,10 @@ const OP_SQL: Record<string, string> = {
 };
 
 /** Build a parameterized WHERE clause + args from filters. */
-function buildWhere(filters: DbAdminFilter[] | undefined): {
+function buildWhere(
+  filters: DbAdminFilter[] | undefined,
+  runtime?: DbAdminRuntime,
+): {
   clause: string;
   args: unknown[];
 } {
@@ -391,7 +426,7 @@ function buildWhere(filters: DbAdminFilter[] | undefined): {
       case "ilike": {
         // SQLite LIKE is case-insensitive for ASCII by default; Postgres has
         // a dedicated ILIKE operator.
-        if (isPostgres()) {
+        if (isPostgresRuntime(runtime)) {
           parts.push(`${col} ILIKE ?`);
         } else {
           parts.push(`${col} LIKE ?`);
@@ -421,26 +456,27 @@ function buildOrderBy(sort: DbAdminRowsRequest["sort"]): string {
 export async function getRows(
   table: string,
   req: DbAdminRowsRequest,
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminRowsResult> {
   assertIdent(table, "table name");
-  const db = getDbExec();
-  const schema = await getTableSchema(table);
+  const client = db(runtime);
+  const schema = await getTableSchema(table, runtime);
 
   const page = Math.max(1, Math.floor(req.page) || 1);
   const pageSize = Math.min(1000, Math.max(1, Math.floor(req.pageSize) || 50));
   const offset = (page - 1) * pageSize;
 
-  const where = buildWhere(req.filters);
+  const where = buildWhere(req.filters, runtime);
   const orderBy = buildOrderBy(req.sort);
   const quoted = quoteIdent(table);
 
-  const countRes = await db.execute({
+  const countRes = await client.execute({
     sql: `SELECT COUNT(*) AS c FROM ${quoted}${where.clause}`,
     args: where.args,
   });
   const total = Number((countRes.rows[0] as any)?.c ?? 0) || 0;
 
-  const rowsRes = await db.execute({
+  const rowsRes = await client.execute({
     sql: `SELECT * FROM ${quoted}${where.clause}${orderBy} LIMIT ? OFFSET ?`,
     args: [...where.args, pageSize, offset],
   });
@@ -512,6 +548,7 @@ function buildDelete(
 export async function applyMutations(
   table: string,
   m: DbAdminMutation,
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminMutationResult> {
   assertIdent(table, "table name");
 
@@ -540,13 +577,13 @@ export async function applyMutations(
   // sequentially. A failure mid-batch surfaces as a thrown error with the
   // counts accumulated so far; callers should treat a partial batch as a
   // failure and re-run with a corrected payload.
-  const db = getDbExec();
+  const client = db(runtime);
   const insertCount = m.inserts?.length ?? 0;
   const updateCount = m.updates?.length ?? 0;
 
   let executed = 0;
   for (const stmt of statements) {
-    const res = await db.execute({ sql: stmt.sql, args: stmt.args });
+    const res = await client.execute({ sql: stmt.sql, args: stmt.args });
     if (executed < insertCount) {
       result.inserted += 1;
     } else if (executed < insertCount + updateCount) {
@@ -557,7 +594,7 @@ export async function applyMutations(
     executed += 1;
   }
 
-  if (statements.length > 0) await notifyDbAdminChange();
+  if (statements.length > 0) await notifyDbAdminChange(runtime);
   return result;
 }
 
@@ -611,6 +648,7 @@ export async function runSql(
   sql: string,
   params: unknown[] | undefined,
   opts: { confirmDestructive?: boolean } = {},
+  runtime?: DbAdminRuntime,
 ): Promise<DbAdminQueryResult> {
   if (typeof sql !== "string" || !sql.trim()) {
     throw new Error("SQL is required");
@@ -629,9 +667,9 @@ export async function runSql(
     finalSql = `${finalSql} LIMIT 100`;
   }
 
-  const db = getDbExec();
+  const client = db(runtime);
   const started = Date.now();
-  const res = await db.execute(
+  const res = await client.execute(
     params && params.length > 0 ? { sql: finalSql, args: params } : finalSql,
   );
   const durationMs = Date.now() - started;
@@ -642,7 +680,7 @@ export async function runSql(
       ? Object.keys(rows[0])
       : [];
 
-  if (isMutatingSql(finalSql)) await notifyDbAdminChange();
+  if (isMutatingSql(finalSql)) await notifyDbAdminChange(runtime);
 
   return {
     columns,

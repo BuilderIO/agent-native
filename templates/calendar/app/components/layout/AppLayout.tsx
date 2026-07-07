@@ -1,7 +1,6 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  NotificationsBell,
   useAppearanceSync,
   useT,
 } from "@agent-native/core/client";
@@ -14,6 +13,8 @@ import {
   useContext,
   useState,
   useEffect,
+  useMemo,
+  useCallback,
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router";
@@ -37,9 +38,8 @@ const SIDEBAR_COLLAPSE_KEY = "calendar.sidebar.collapsed";
 const BARE_ROUTES = new Set(["/event"]);
 
 /**
- * Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
- * Layout still mounts Sidebar + AgentSidebar, but skips its own header so
- * there's no double-header.
+ * Routes whose page renders its own toolbar. Layout still mounts Sidebar +
+ * AgentSidebar, but skips its own header so there's no double-header.
  */
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/") return true;
@@ -88,33 +88,109 @@ interface CalendarContextValue {
   openSidebar: () => void;
 }
 
-const CalendarContext = createContext<CalendarContextValue>({
-  selectedDate: new Date(),
+/**
+ * Setter-only slice. Every value here is a stable function reference (state
+ * setters, or callbacks with empty/near-empty dep arrays), so this context's
+ * value object only needs to be rebuilt when AppLayout itself remounts.
+ * Consumers that only dispatch changes (not read current values) should read
+ * from this context so they don't re-render on every focus/selection change.
+ */
+interface CalendarSettersValue {
+  setSelectedDate: (date: Date) => void;
+  setViewMode: (mode: ViewMode) => void;
+  setPeopleSearchOpen: (open: boolean) => void;
+  setAddCalendarOpen: (open: boolean) => void;
+  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
+  setEventDetailSidebar: (sidebar: boolean) => void;
+  setSidebarEvent: (event: CalendarEvent | null) => void;
+  setFocusedEvent: (event: CalendarEvent | null) => void;
+  setEventDraft: (draft: CalendarEventDraft | null) => void;
+  openSidebar: () => void;
+}
+
+/** Values that change on navigation/preference actions, not on every event interaction. */
+interface CalendarRareValuesContextValue {
+  selectedDate: Date;
+  viewMode: ViewMode;
+  peopleSearchOpen: boolean;
+  addCalendarOpen: boolean;
+  addCalendarDefaultTab: "people" | "url";
+  hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
+  isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
+  eventDetailSidebar: boolean;
+}
+
+/** Values that change on nearly every event click/drag — kept separate so
+ * rare-value and setter-only consumers don't re-render alongside them. */
+interface CalendarHighFrequencyContextValue {
+  sidebarEvent: CalendarEvent | null;
+  focusedEvent: CalendarEvent | null;
+  eventDraft: CalendarEventDraft | null;
+}
+
+const noopSetters: CalendarSettersValue = {
   setSelectedDate: () => {},
-  viewMode: "week",
   setViewMode: () => {},
-  peopleSearchOpen: false,
   setPeopleSearchOpen: () => {},
-  addCalendarOpen: false,
   setAddCalendarOpen: () => {},
-  addCalendarDefaultTab: "people",
   setAddCalendarDefaultTab: () => {},
-  hiddenCalendars: { people: [], external: [], accounts: [] },
   toggleHiddenCalendar: () => {},
-  isHiddenCalendar: () => false,
-  eventDetailSidebar: false,
   setEventDetailSidebar: () => {},
-  sidebarEvent: null,
   setSidebarEvent: () => {},
-  focusedEvent: null,
   setFocusedEvent: () => {},
-  eventDraft: null,
   setEventDraft: () => {},
   openSidebar: () => {},
-});
+};
 
-export function useCalendarContext() {
-  return useContext(CalendarContext);
+const CalendarSettersContext = createContext<CalendarSettersValue>(noopSetters);
+
+const CalendarRareValuesContext = createContext<CalendarRareValuesContextValue>(
+  {
+    selectedDate: new Date(),
+    viewMode: "week",
+    peopleSearchOpen: false,
+    addCalendarOpen: false,
+    addCalendarDefaultTab: "people",
+    hiddenCalendars: { people: [], external: [], accounts: [] },
+    isHiddenCalendar: () => false,
+    eventDetailSidebar: false,
+  },
+);
+
+const CalendarHighFrequencyContext =
+  createContext<CalendarHighFrequencyContextValue>({
+    sidebarEvent: null,
+    focusedEvent: null,
+    eventDraft: null,
+  });
+
+/**
+ * Full merged calendar context, for consumers that need a mix of setters and
+ * values. Prefer the narrower `useCalendarSetters`, `useCalendarRareValues`,
+ * or `useCalendarHighFrequency` hooks in render-hot components so they only
+ * re-render for the slice they actually read.
+ */
+export function useCalendarContext(): CalendarContextValue {
+  const setters = useContext(CalendarSettersContext);
+  const rare = useContext(CalendarRareValuesContext);
+  const highFrequency = useContext(CalendarHighFrequencyContext);
+  return { ...setters, ...rare, ...highFrequency };
+}
+
+/** Setter-only slice — safe for components that dispatch but never read focus/selection state. */
+export function useCalendarSetters(): CalendarSettersValue {
+  return useContext(CalendarSettersContext);
+}
+
+/** Rarely-changing slice (view mode, hidden calendars, selected date, dialogs). */
+export function useCalendarRareValues(): CalendarRareValuesContextValue {
+  return useContext(CalendarRareValuesContext);
+}
+
+/** High-frequency slice (focused/sidebar event, in-progress draft). */
+export function useCalendarHighFrequency(): CalendarHighFrequencyContextValue {
+  return useContext(CalendarHighFrequencyContext);
 }
 
 type HeaderControls = {
@@ -229,12 +305,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     };
   }, []);
 
-  // Render chromeless for embed/preview routes — all hooks must be called above
-  if (BARE_ROUTES.has(location.pathname)) {
-    return <>{children}</>;
-  }
-
-  const setEventDetailSidebar = (sidebar: boolean) => {
+  const setEventDetailSidebar = useCallback((sidebar: boolean) => {
     setEventDetailSidebarState(sidebar);
     try {
       localStorage.setItem(
@@ -242,117 +313,141 @@ export function AppLayout({ children }: AppLayoutProps) {
         sidebar ? "sidebar" : "popover",
       );
     } catch {}
-  };
+  }, []);
+
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+
+  const settersValue = useMemo<CalendarSettersValue>(
+    () => ({
+      setSelectedDate,
+      setViewMode,
+      setPeopleSearchOpen,
+      setAddCalendarOpen,
+      setAddCalendarDefaultTab,
+      toggleHiddenCalendar,
+      setEventDetailSidebar,
+      setSidebarEvent,
+      setFocusedEvent,
+      setEventDraft,
+      openSidebar,
+    }),
+    [toggleHiddenCalendar, setEventDetailSidebar, openSidebar],
+  );
+
+  const rareValuesValue = useMemo<CalendarRareValuesContextValue>(
+    () => ({
+      selectedDate,
+      viewMode,
+      peopleSearchOpen,
+      addCalendarOpen,
+      addCalendarDefaultTab,
+      hiddenCalendars,
+      isHiddenCalendar,
+      eventDetailSidebar,
+    }),
+    [
+      selectedDate,
+      viewMode,
+      peopleSearchOpen,
+      addCalendarOpen,
+      addCalendarDefaultTab,
+      hiddenCalendars,
+      isHiddenCalendar,
+      eventDetailSidebar,
+    ],
+  );
+
+  const highFrequencyValue = useMemo<CalendarHighFrequencyContextValue>(
+    () => ({ sidebarEvent, focusedEvent, eventDraft }),
+    [sidebarEvent, focusedEvent, eventDraft],
+  );
+
+  // Render chromeless for embed/preview routes — all hooks must be called above
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
 
   return (
-    <CalendarContext.Provider
-      value={{
-        selectedDate,
-        setSelectedDate,
-        viewMode,
-        setViewMode,
-        peopleSearchOpen,
-        setPeopleSearchOpen,
-        addCalendarOpen,
-        setAddCalendarOpen,
-        addCalendarDefaultTab,
-        setAddCalendarDefaultTab,
-        hiddenCalendars,
-        toggleHiddenCalendar,
-        isHiddenCalendar,
-        eventDetailSidebar,
-        setEventDetailSidebar,
-        sidebarEvent,
-        setSidebarEvent,
-        focusedEvent,
-        setFocusedEvent,
-        eventDraft,
-        setEventDraft,
-        openSidebar: () => setSidebarOpen(true),
-      }}
-    >
-      <NavigationSync />
-      <AddCalendarDialog
-        open={addCalendarOpen}
-        onOpenChange={setAddCalendarOpen}
-        defaultTab={addCalendarDefaultTab}
-      />
-      <KeyboardShortcutsHelp
-        open={shortcutsHelpOpen}
-        onClose={() => setShortcutsHelpOpen(false)}
-      />
-      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
-        <Sidebar
-          open={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          collapsed={!isMobile && sidebarCollapsed}
-          onCollapsedChange={setSidebarCollapsed}
-        />
-        <AgentSidebar
-          position="right"
-          defaultOpen
-          emptyStateText={t("agentSidebar.emptyState")}
-          suggestions={[
-            t("agentSidebar.suggestions.today"),
-            t("agentSidebar.suggestions.findSlot"),
-            t("agentSidebar.suggestions.scheduleZoom"),
-          ]}
-        >
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {!pageOwnsToolbar(location.pathname) && (
-              <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 lg:hidden"
-                    onClick={() => setSidebarOpen(true)}
-                    aria-label={t("calendarView.openNavigation")}
-                  >
-                    <IconMenu className="h-5 w-5" />
-                  </Button>
-                  {headerControls?.left ?? (
-                    <span className="text-sm font-semibold lg:hidden">
-                      {t("navigation.calendar")}
-                    </span>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {headerControls?.right}
-                  {!isMobile && (
-                    <NotificationsBell
-                      emptyDescription={t(
-                        "calendarView.notificationEmptyDescription",
+    <CalendarSettersContext.Provider value={settersValue}>
+      <CalendarRareValuesContext.Provider value={rareValuesValue}>
+        <CalendarHighFrequencyContext.Provider value={highFrequencyValue}>
+          <NavigationSync />
+          <AddCalendarDialog
+            open={addCalendarOpen}
+            onOpenChange={setAddCalendarOpen}
+            defaultTab={addCalendarDefaultTab}
+          />
+          <KeyboardShortcutsHelp
+            open={shortcutsHelpOpen}
+            onClose={() => setShortcutsHelpOpen(false)}
+          />
+          <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+            <Sidebar
+              open={sidebarOpen}
+              onClose={() => setSidebarOpen(false)}
+              collapsed={!isMobile && sidebarCollapsed}
+              onCollapsedChange={setSidebarCollapsed}
+            />
+            <AgentSidebar
+              position="right"
+              defaultOpen
+              emptyStateText={t("agentSidebar.emptyState")}
+              suggestions={[
+                t("agentSidebar.suggestions.today"),
+                t("agentSidebar.suggestions.findSlot"),
+                t("agentSidebar.suggestions.scheduleZoom"),
+              ]}
+            >
+              <div className="flex flex-1 flex-col overflow-hidden">
+                {!pageOwnsToolbar(location.pathname) && (
+                  <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 shrink-0 lg:hidden"
+                        onClick={() => setSidebarOpen(true)}
+                        aria-label={t("calendarView.openNavigation")}
+                      >
+                        <IconMenu className="h-5 w-5" />
+                      </Button>
+                      {headerControls?.left ?? (
+                        <span className="text-sm font-semibold lg:hidden">
+                          {t("navigation.calendar")}
+                        </span>
                       )}
-                    />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {headerControls?.right}
+                      <AgentToggleButton />
+                    </div>
+                  </header>
+                )}
+
+                <HeaderControlsContext.Provider value={setHeaderControls}>
+                  <InvitationBanner />
+
+                  {/* Show the full-page Google prompt only on the calendar view. */}
+                  {!googleStatus.isLoading &&
+                  !googleStatus.isError &&
+                  !hasAccounts &&
+                  !eventDraft &&
+                  isCalendarPage &&
+                  !isSettingsPage ? (
+                    <main className="agent-native-app-main flex-1 overflow-y-auto">
+                      <GoogleConnectBanner variant="hero" />
+                    </main>
+                  ) : (
+                    <main className="agent-native-app-main flex-1 overflow-y-auto">
+                      {children}
+                    </main>
                   )}
-                  <AgentToggleButton />
-                </div>
-              </header>
-            )}
-
-            <HeaderControlsContext.Provider value={setHeaderControls}>
-              <InvitationBanner />
-
-              {/* Show the full-page Google prompt only on the calendar view. */}
-              {!googleStatus.isLoading &&
-              !googleStatus.isError &&
-              !hasAccounts &&
-              !eventDraft &&
-              isCalendarPage &&
-              !isSettingsPage ? (
-                <main className="agent-native-app-main flex-1 overflow-y-auto">
-                  <GoogleConnectBanner variant="hero" />
-                </main>
-              ) : (
-                <main className="agent-native-app-main flex-1 overflow-y-auto">
-                  {children}
-                </main>
-              )}
-            </HeaderControlsContext.Provider>
+                </HeaderControlsContext.Provider>
+              </div>
+            </AgentSidebar>
           </div>
-        </AgentSidebar>
-      </div>
-    </CalendarContext.Provider>
+        </CalendarHighFrequencyContext.Provider>
+      </CalendarRareValuesContext.Provider>
+    </CalendarSettersContext.Provider>
   );
 }

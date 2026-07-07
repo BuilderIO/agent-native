@@ -3,9 +3,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function readDatabaseSource() {
-  return readFileSync(new URL("./database/DatabaseView.tsx", import.meta.url), {
-    encoding: "utf8",
-  });
+  return [
+    "./database/DatabaseView.tsx",
+    "./database/settings.tsx",
+    "./database/shared.tsx",
+    "./database/view-config.ts",
+    "./database/view-state.ts",
+  ]
+    .map((path) =>
+      readFileSync(new URL(path, import.meta.url), {
+        encoding: "utf8",
+      }),
+    )
+    .join("\n");
 }
 
 describe("document database layout", () => {

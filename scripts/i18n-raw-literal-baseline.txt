@@ -6,8 +6,18 @@ templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY 
 templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
-templates/design/app/components/design/CodeWorkbenchHost.tsx|Could not preview source edit
-templates/design/app/components/design/CodeWorkbenchHost.tsx|Could not save source file
-templates/design/app/components/design/EditPanel.tsx|Migration failed. Please try again.
+templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
+templates/design/app/components/design/FusionAppBanner.tsx|Push failed
+templates/design/app/components/design/code-workbench/commands.ts|Command failed
+templates/design/app/components/design/code-workbench/commands.ts|Could not save file
+templates/design/app/components/design/code-workbench/editor/EditorTabs.tsx|Could not save file
+templates/design/app/components/design/code-workbench/format/prettier-format.ts|Could not format file
+templates/design/app/components/design/code-workbench/search/SearchView.tsx|Match Case
+templates/design/app/components/design/code-workbench/search/SearchView.tsx|Use Regular Expression
+templates/design/app/components/design/code-workbench/search/SearchView.tsx|Whole Word
+templates/design/app/components/design/code-workbench/search/search-engine.ts|Invalid pattern
+templates/design/app/components/design/code-workbench/store.tsx|Could not read file
+templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
+templates/design/app/components/design/code-workbench/workspace/types.ts|` or `localhost:
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/DesignEditor.tsx|Migration failed

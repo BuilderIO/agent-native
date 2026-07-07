@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 
-import { extractCommentMentions } from "../../shared/comment-context.js";
+import {
+  SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+  extractCommentMentions,
+} from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -29,6 +32,7 @@ function normalizeEmail(email: string | null | undefined): string | null {
 
 function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
+  if (trimmed === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL) return true;
   const at = trimmed.lastIndexOf("@");
   if (at <= 0) return false;
   const local = trimmed.slice(0, at);
@@ -150,9 +154,11 @@ export function planCommentNotificationRecipients(input: {
   comment: PlanComment;
   comments: PlanComment[];
   planOwnerEmail?: string | null;
+  sourceAuthorEmail?: string | null;
 }): NotificationRecipient[] {
   if (input.comment.createdBy !== "human") return [];
   const actorEmail = normalizeEmail(input.comment.authorEmail);
+  const sourceAuthorEmail = normalizeEmail(input.sourceAuthorEmail);
   const recipients = new Map<string, NotificationRecipient>();
   const addRecipient = (
     email: string | null | undefined,
@@ -166,12 +172,22 @@ export function planCommentNotificationRecipients(input: {
     recipients.set(normalized, { email: normalized, reason });
   };
 
-  addRecipient(input.planOwnerEmail, "plan-owner");
   const mentionedPeople =
     input.comment.mentions && input.comment.mentions.length > 0
       ? input.comment.mentions
       : extractCommentMentions(input.comment.message);
+  const mentionsSourceAuthor = mentionedPeople.some(
+    (mention) =>
+      normalizeEmail(mention.email) === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+  );
+  if (!(mentionsSourceAuthor && sourceAuthorEmail)) {
+    addRecipient(input.planOwnerEmail, "plan-owner");
+  }
   for (const mention of mentionedPeople) {
+    if (normalizeEmail(mention.email) === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL) {
+      addRecipient(sourceAuthorEmail, "mention");
+      continue;
+    }
     addRecipient(mention.email, "mention");
   }
 
@@ -238,10 +254,12 @@ export async function notifyPlanCommentRecipients({
       id: schema.plans.id,
       title: schema.plans.title,
       ownerEmail: schema.plans.ownerEmail,
+      sourceAuthorEmail: schema.plans.sourceAuthorEmail,
     })
     .from(schema.plans)
     .where(eq(schema.plans.id, bundle.plan.id));
   const planOwnerEmail = planRow?.ownerEmail ?? null;
+  const sourceAuthorEmail = planRow?.sourceAuthorEmail ?? null;
   const planTitle = planRow?.title ?? bundle.plan.title;
   const insertedById = new Map(
     bundle.comments
@@ -261,6 +279,7 @@ export async function notifyPlanCommentRecipients({
       comment,
       comments: commentsForRecipients,
       planOwnerEmail,
+      sourceAuthorEmail,
     });
     for (const recipient of recipients) {
       try {

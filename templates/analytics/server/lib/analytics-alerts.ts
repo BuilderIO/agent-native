@@ -1,8 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -114,6 +125,7 @@ function nowIso(): string {
 }
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
+const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
@@ -189,6 +201,79 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
     normalized.push(email);
   }
   return normalized;
+}
+
+function boolEnv(name: string): boolean | null {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return null;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return null;
+}
+
+function currentDeployHostname(): string {
+  const raw = process.env.URL || process.env.DEPLOY_URL || "";
+  if (!raw) return "";
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function defaultHttp5xxAlertEnabled(): boolean {
+  const configured = boolEnv("ANALYTICS_DEFAULT_HTTP_5XX_ALERT_ENABLED");
+  if (configured !== null) return configured;
+  return currentDeployHostname() === "analytics.agent-native.com";
+}
+
+function envInt(name: string, fallback: number, min: number, max: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed)
+    ? Math.max(min, Math.min(max, parsed))
+    : fallback;
+}
+
+function defaultHttp5xxAlertId(ownerEmail: string, orgId: string | null) {
+  const hash = createHash("sha256")
+    .update(`${ownerEmail.toLowerCase()}|${orgId ?? ""}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-${hash}`;
+}
+
+async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
+  const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
+  const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
+  if (ownerEmail) return [{ email: ownerEmail, orgId }];
+
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      ownerEmail: schema.analyticsPublicKeys.ownerEmail,
+      orgId: schema.analyticsPublicKeys.orgId,
+    })
+    .from(schema.analyticsPublicKeys)
+    .where(isNull(schema.analyticsPublicKeys.revokedAt))
+    .limit(1000);
+
+  const seen = new Set<string>();
+  const scopes: AccessCtx[] = [];
+  for (const row of rows) {
+    const email = String(row.ownerEmail ?? "").trim();
+    if (!email) continue;
+    const scopeOrgId =
+      typeof row.orgId === "string" && row.orgId.trim()
+        ? row.orgId.trim()
+        : null;
+    const key = `${email.toLowerCase()}|${scopeOrgId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    scopes.push({ email, orgId: scopeOrgId });
+  }
+  return scopes;
 }
 
 function rowToRule(row: any): AnalyticsAlertRule {
@@ -359,6 +444,107 @@ export async function deleteAnalyticsAlertRule(
     owner: existing.ownerEmail,
     orgId: existing.orgId ?? undefined,
   });
+}
+
+const DEFAULT_ALERT_SEED_CHUNK_SIZE = 500;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
+  checked: number;
+  created: number;
+}> {
+  if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
+
+  const scopes = await defaultHttp5xxAlertScopes();
+  if (!scopes.length) return { checked: 0, created: 0 };
+
+  const db = getDb() as any;
+  const threshold = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
+    5,
+    1,
+    1000,
+  );
+  const windowMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
+    5,
+    1,
+    60,
+  );
+  const cooldownMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
+    30,
+    0,
+    24 * 60,
+  );
+
+  const scopesById = new Map<string, AccessCtx>();
+  for (const scope of scopes) {
+    scopesById.set(defaultHttp5xxAlertId(scope.email, scope.orgId), scope);
+  }
+  const allIds = Array.from(scopesById.keys());
+
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
+    const rows = await db
+      .select({ id: schema.analyticsAlertRules.id })
+      .from(schema.analyticsAlertRules)
+      .where(inArray(schema.analyticsAlertRules.id, idChunk));
+    for (const row of rows) existingIds.add(row.id);
+  }
+
+  const missingIds = allIds.filter((id) => !existingIds.has(id));
+  if (!missingIds.length) return { checked: scopes.length, created: 0 };
+
+  const now = nowIso();
+  const rowsToInsert = missingIds.map((id) => {
+    const scope = scopesById.get(id)!;
+    return {
+      id,
+      name: "Hosted app HTTP 5xx spike",
+      description:
+        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+      eventName: "http.response",
+      filters: JSON.stringify([
+        { field: "properties.status_class", value: "5xx" },
+      ]),
+      thresholdMode: "event_count" as const,
+      distinctBy: null,
+      threshold,
+      windowMinutes,
+      cooldownMinutes,
+      severity: "critical" as const,
+      channels: JSON.stringify(["inbox"]),
+      emailRecipients: JSON.stringify([]),
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      ownerEmail: scope.email,
+      orgId: scope.orgId,
+    };
+  });
+
+  let created = 0;
+  for (const rowChunk of chunkArray(
+    rowsToInsert,
+    DEFAULT_ALERT_SEED_CHUNK_SIZE,
+  )) {
+    const inserted = await db
+      .insert(schema.analyticsAlertRules)
+      .values(rowChunk)
+      .onConflictDoNothing()
+      .returning({ id: schema.analyticsAlertRules.id });
+    created += inserted.length;
+  }
+
+  return { checked: scopes.length, created };
 }
 
 export async function listEnabledAnalyticsAlertRules(options: {

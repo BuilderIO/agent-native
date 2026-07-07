@@ -68,7 +68,7 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     id: "design.asset-library",
     name: "Asset Library",
     description:
-      "Browse and insert Design-native primitives, generated or uploaded media, and rendered Figma library components into the active design screen. " +
+      "Browse and insert Design primitives, generated or uploaded media, and rendered Figma library components into the active design screen. " +
       "Selection-aware: inserts near the selected element when one is active.",
     icon: "Photo",
     availability: "available",
@@ -77,7 +77,7 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     capabilities: [
       {
         id: "native",
-        label: "Browse Design-native assets",
+        label: "Browse Design assets",
         status: "available",
         reason:
           "Uses list-design-native-assets and insert-design-native-asset for editable HTML primitives/components.",

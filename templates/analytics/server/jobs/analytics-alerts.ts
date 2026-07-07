@@ -1,11 +1,13 @@
 import {
   claimAnalyticsAlertRuleEvaluation,
+  ensureDefaultHttp5xxSpikeAlertRules,
   evaluateAndNotifyAnalyticsAlertRule,
   listEnabledAnalyticsAlertRules,
   markAnalyticsAlertRuleError,
 } from "../lib/analytics-alerts";
 
 let running = false;
+let listRulesFailureLogged = false;
 const DEFAULT_MAX_RULES_PER_SWEEP = 100;
 
 function maxRulesPerSweep(input?: number): number {
@@ -43,11 +45,31 @@ export async function runAnalyticsAlertsOnce(
 
   try {
     const sweepLimit = maxRulesPerSweep(options.limit);
-    const rules = await listEnabledAnalyticsAlertRules({
-      limit: sweepLimit,
-      ownerEmail: options.ownerEmail,
-      orgId: options.orgId,
+    await ensureDefaultHttp5xxSpikeAlertRules().catch((err) => {
+      console.error("[analytics-alerts] Default 5xx alert seed failed:", err);
     });
+    let rules: Awaited<ReturnType<typeof listEnabledAnalyticsAlertRules>>;
+    try {
+      rules = await listEnabledAnalyticsAlertRules({
+        limit: sweepLimit,
+        ownerEmail: options.ownerEmail,
+        orgId: options.orgId,
+      });
+    } catch (err) {
+      // Schema not migrated yet (e.g. a deploy that hasn't picked up the
+      // analytics_alert_rules migration) or a transient DB error — don't let
+      // one bad sweep crash the whole interval/cron invocation every time it
+      // fires. Log once per process so the failure is still visible.
+      if (!listRulesFailureLogged) {
+        console.error(
+          "[analytics-alerts] Failed to list enabled alert rules; skipping this sweep:",
+          err,
+        );
+        listRulesFailureLogged = true;
+      }
+      return { processed: 0, triggered: 0, failed: 0, remaining: 0 };
+    }
+    listRulesFailureLogged = false;
     remaining = rules.length >= sweepLimit ? 1 : 0;
 
     for (const rule of rules) {

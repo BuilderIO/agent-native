@@ -650,17 +650,28 @@ test.describe("plan generation + rendering", () => {
     await expect(
       page.getByText("styles.css", { exact: false }).first(),
     ).toBeVisible();
-    // Implementation-map: file path + note rendered.
+    // Implementation-map: legacy blocks render through the modern file tree.
+    // The full path is stored on the row while the visible explorer splits it
+    // into folder + filename.
+    const implementationMap = page.locator('[data-block-id="im-1"]').first();
     await expect(
-      page
-        .locator('[data-block-id="im-1"]')
-        .first()
-        .getByText("app/routes/example.tsx")
+      implementationMap
+        .locator('[data-file-path="app/routes/example.tsx"]')
         .first(),
     ).toBeVisible();
-    // Tabs block: tab label + the first tab's nested rich-text child render. The
-    // nested rich-text inside a tab renders via the legacy PlanBlockView path, so
-    // it keeps its `data-block-id`.
+    await expect(
+      implementationMap.getByText("app/routes", { exact: false }).first(),
+    ).toBeVisible();
+    await expect(
+      implementationMap.getByText("example.tsx", { exact: false }).first(),
+    ).toBeVisible();
+    await expect(
+      implementationMap
+        .getByText("Update the route behavior.", { exact: false })
+        .first(),
+    ).toBeVisible();
+    // Tabs block: tab label + the first tab's nested rich-text child render. In
+    // the single-document editor, nested rich-text renders as prose with a run id.
     await expect(
       page
         .locator('[data-block-id="tabs-1"]')
@@ -669,13 +680,17 @@ test.describe("plan generation + rendering", () => {
         .first(),
     ).toBeVisible();
     await expect(
-      page.locator('[data-block-id="tab-rt-1"]').first(),
+      page.locator('[data-run-id="tab-rt-1"]').first(),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByText("Nested rich text inside a tab.", { exact: false })
+        .first(),
     ).toBeVisible();
 
     await assertNoErrorToast(page);
-    // flushSync console-error storm is FIXED (the single-doc editor's non-collab
-    // seed path no longer rewrites the whole Y.XmlFragment), so the console must
-    // be clean.
+    // Custom JSON-backed editor seeding no longer creates block NodeViews during
+    // React lifecycle work, so the console must stay clean.
     assertConsoleClean(watch, "rich-doc render");
   });
 
@@ -921,10 +936,10 @@ test.describe("plan generation + rendering", () => {
     };
     const planId = await createPlan(page, { title, brief: "empty", content });
     await openPlan(page, planId);
-    // Header h1 still shows the title; no canvas, no blocks.
-    await expect(
-      page.getByRole("heading", { level: 1, name: title }),
-    ).toBeVisible();
+    // The editable title remains visible even when there are no body blocks.
+    const titleEditor = page.locator('[aria-label="Plan title"]').first();
+    await expect(titleEditor).toBeVisible();
+    await expect(titleEditor).toContainText(title);
     await expect(page.locator("[data-block-id]")).toHaveCount(0);
     await assertNoErrorToast(page);
     assertConsoleClean(watch, "empty doc render");

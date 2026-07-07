@@ -11,6 +11,7 @@ import {
   LOCAL_FILES_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
+  VISUALIZE_REPO_SKILL_MD,
   WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 
@@ -122,6 +123,13 @@ const PLAN_SKILLS = [
         sharedAcrossSkills: true,
       },
     ],
+  },
+  {
+    label: "visualize-repo",
+    constant: VISUALIZE_REPO_SKILL_MD,
+    templateDir: "visualize-repo",
+    exportedDir: "visualize-repo",
+    references: [],
   },
 ] as const;
 
@@ -331,5 +339,7 @@ describe("Plans skills sync guard", () => {
     // must call the canonical command `/visual-plan`.
     expect(VISUAL_PLANS_SKILL_MD).toMatch(/^---\nname: visual-plan\n/);
     expect(VISUAL_PLANS_SKILL_MD).toContain("`/visual-plan`");
+    expect(VISUALIZE_REPO_SKILL_MD).toMatch(/^---\nname: visualize-repo\n/);
+    expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
   });
 });

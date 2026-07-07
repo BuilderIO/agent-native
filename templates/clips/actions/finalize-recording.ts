@@ -21,16 +21,20 @@ import {
 } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { debugLog } from "../server/lib/debug.js";
 import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
-import { listRecordingChunkKeys } from "../server/lib/recording-upload-state.js";
+import {
+  listRecordingChunkKeys,
+  validateRecordingChunkKeys,
+} from "../server/lib/recording-upload-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -40,7 +44,10 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
-import { remuxWebmToSeekable } from "../server/lib/video-remux.js";
+import {
+  probeHasAudioStream,
+  remuxWebmToSeekable,
+} from "../server/lib/video-remux.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -89,10 +96,6 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function chunkIndexFromKey(key: string): number {
-  return Number(key.split("-").pop() || 0);
-}
-
 const RECORDING_TOO_LARGE_REASON =
   "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.";
 const MEDIA_SERVE_VERIFICATION_TIMEOUT_MS = 8_000;
@@ -119,6 +122,8 @@ function stateBoolean(
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
   if (value === "false") return false;
+  if (value === "1") return true;
+  if (value === "0") return false;
   return value;
 }, z.boolean());
 
@@ -192,6 +197,24 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
   }
 
   throw new Error(`Upload was stored-but-unservable: ${lastFailure}`);
+}
+
+function queueBackgroundBuilderCompression(args: {
+  recordingId: string;
+  ownerEmail: string;
+  videoUrl: string | null | undefined;
+  mimeType: string;
+  providerId?: string | null;
+  assetDbId?: string | null;
+  sourceSizeBytes?: number | null;
+  locallyTranscoded?: boolean;
+}): void {
+  void queueBuilderMediaCompression(args).catch((err) => {
+    console.warn("[finalize] failed to queue media compression", {
+      recordingId: args.recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 async function failStoredButUnservableRecording(params: {
@@ -288,8 +311,51 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        // Guard against a slow/racing finalize resurrecting a recording the
+        // user already aborted (abort.post.ts flips status to 'failed'). If
+        // the row was aborted after this call started, the WHERE clause
+        // excludes it and the UPDATE becomes a no-op instead of silently
+        // flipping 'failed' back to 'ready'.
+        ne(schema.recordings.status, "failed"),
+        // Guard against the other direction of the cancel/finalize race:
+        // trash-recording's skipIfReady only blocks trashing a row that is
+        // ALREADY 'ready'. If cancel lands while this finalize is still
+        // 'processing'/'streaming', trashedAt gets set before this UPDATE
+        // runs. Excluding trashed rows here stops us from flipping status to
+        // 'ready' underneath a recording the user just trashed.
+        isNull(schema.recordings.trashedAt),
       ),
     );
+
+  // Re-select to see whether the guarded UPDATE above actually landed. If the
+  // row is not 'ready' now, the status guard blocked the write (the recording
+  // was aborted concurrently) — stop here without seeding a transcript,
+  // writing 'ready' app-state, emitting clip.created, or kicking off
+  // background transcription for a recording the user already saw fail.
+  const [postUpdate] = await db
+    .select({
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  if (!postUpdate || postUpdate.status !== "ready") {
+    debugLog(
+      "[finalize] markRecordingReady blocked — recording was aborted concurrently",
+      { id, status: postUpdate?.status },
+    );
+    return {
+      id,
+      status: "failed" as const,
+      videoUrl,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+    };
+  }
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -398,6 +464,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("MIME type of the assembled blob (e.g. video/webm)"),
+    locallyTranscoded: cliBoolean
+      .optional()
+      .describe(
+        "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
@@ -405,10 +476,15 @@ export default defineAction({
     const id = args.id;
     debugLog("[finalize] starting", { id, ownerEmail });
 
-    // Keys of chunks to delete in the finally block. Ordinary failures still
-    // purge scratch space; stored-but-unservable provider URLs clear this list
-    // before throwing because these chunks are the buffered path's recovery
-    // copy.
+    // Keys of chunks we normally delete after finalize exits.
+    // Collected as soon as we list chunks and purged in a finally-block so
+    // a throw mid-finalize can't leave multi-gigabyte base64 payloads
+    // lingering in application_state. This was the primary cause of the
+    // server-side half of the 70 GB memory leak — each failed finalize
+    // orphaned one recording's worth of chunks, and with base64 overhead
+    // a 30-minute recording is ~1.5 GB per corpse. Missing storage is the
+    // exception: those chunks stay recoverable until the user connects a
+    // provider and this action runs again.
     let chunkKeysToPurge: string[] = [];
     try {
       const [existing] = await db
@@ -544,6 +620,17 @@ export default defineAction({
             // background.
             seekableApplied: false,
           });
+          if (result.status === "ready") {
+            queueBackgroundBuilderCompression({
+              recordingId: id,
+              ownerEmail,
+              videoUrl,
+              mimeType,
+              providerId: resumableSession.providerId,
+              sourceSizeBytes: resumableSession.bytesUploaded,
+              locallyTranscoded: args.locallyTranscoded === true,
+            });
+          }
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
           deleteResumableSession(id).catch((err) =>
@@ -605,38 +692,9 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      // Pull chunk keys first, then fetch values one at a time. A single
-      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
-      // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
-      chunkKeys.sort((a, b) => chunkIndexFromKey(a) - chunkIndexFromKey(b));
-      debugLog("[finalize] chunks found", {
-        id,
-        count: chunkKeys.length,
-      });
-      // Purge on ordinary assembly/upload failures to avoid orphaning large
-      // base64 chunks. Stored-but-unservable verification failures clear this
-      // list before throwing so finalize can be retried from the recovery copy.
-      chunkKeysToPurge = chunkKeys;
-
-      if (chunkKeys.length === 0) {
-        await db
-          .update(schema.recordings)
-          .set({
-            status: "failed",
-            failureReason: "No chunks found for recording",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(schema.recordings.id, id));
-        await writeAppState(`recording-upload-${id}`, {
-          recordingId: id,
-          status: "failed",
-          failureReason: "No chunks found for recording",
-        });
-        throw new Error(`No chunks found for recording ${id}`);
-      }
-
-      const failChunkAssembly = async (failureReason: string) => {
+      const failChunkAssembly = async (
+        failureReason: string,
+      ): Promise<never> => {
         const now = new Date().toISOString();
         await db
           .update(schema.recordings)
@@ -647,6 +705,7 @@ export default defineAction({
           })
           .where(eq(schema.recordings.id, id));
         await writeAppState(`recording-upload-${id}`, {
+          ...(uploadState ?? {}),
           recordingId: id,
           status: "failed",
           failureReason,
@@ -655,14 +714,55 @@ export default defineAction({
         throw new Error(failureReason);
       };
 
+      // Pull chunk keys first, then fetch values one at a time. A single
+      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
+      // timeout before we even start assembling the recording.
+      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
+      debugLog("[finalize] chunks found", {
+        id,
+        count: chunkKeys.length,
+        expectedDataChunks,
+      });
+      // Commit to deleting these keys in the finally below. We collect
+      // the keys NOW (not after success) because a throw in uploadFile
+      // or the drizzle update would otherwise bypass the delete and
+      // orphan the chunks.
+      chunkKeysToPurge = chunkKeys;
+
+      if (chunkKeys.length === 0) {
+        await failChunkAssembly(`No chunks found for recording ${id}`);
+      }
+
+      let chunkSequence: ReturnType<typeof validateRecordingChunkKeys>;
+      try {
+        chunkSequence = validateRecordingChunkKeys(
+          chunkKeys,
+          expectedDataChunks,
+        );
+      } catch (err) {
+        await failChunkAssembly(
+          err instanceof Error
+            ? err.message
+            : "Recording upload is incomplete. Please retry the recording.",
+        );
+        throw new Error("Unreachable chunk validation failure");
+      }
+
       const parts: Uint8Array[] = [];
-      for (const key of chunkKeys) {
+      for (const { key, index } of chunkSequence) {
         const entry = await readAppState(key);
         const b64 = typeof entry?.data === "string" ? entry.data : null;
-        const index = chunkIndexFromKey(key);
         if (!b64) {
           await failChunkAssembly(
             `Recording chunk ${index} is missing upload data. Please retry the recording.`,
+          );
+        }
+
+        const entryIndex = stateNumber(entry, "index");
+        if (entryIndex !== undefined && entryIndex !== index) {
+          await failChunkAssembly(
+            `Recording chunk metadata mismatch for chunk ${index}. Please retry the recording.`,
           );
         }
 
@@ -757,6 +857,104 @@ export default defineAction({
               id,
               err: err instanceof Error ? err.message : String(err),
             });
+          }
+        }
+      }
+
+      // Audio sanity checks. `finalHasAudio` is a CLAIM from the client about
+      // capture intent, not proof the bytes we're about to upload actually
+      // contain an audio track — e.g. the desktop native recorder can report
+      // `hasAudio: true` for a screen recording whose ScreenCaptureKit output
+      // has no audio stream at all (mic audio isn't muxed into that file by
+      // design; see native_screen.rs). Two distinct failure modes, handled
+      // differently:
+      //
+      //   1. PIPELINE DROP — the assembled bytes had audio before our own
+      //      faststart/remux rewrite and don't after. That would be a bug in
+      //      this file, should be unreachable, and is cheap insurance against
+      //      a future regression — fail loud exactly like the existing mp4
+      //      validation failure so the recording is retryable instead of
+      //      silently publishing a video that lost audio in our own pipeline.
+      //   2. CAPTURE-LEVEL MISMATCH — the client claimed audio but the
+      //      ASSEMBLED bytes (before any rewrite of ours) never had an audio
+      //      stream to begin with. This is a capture-side gap upstream of
+      //      finalize, not something a retry here can fix, so hard-failing
+      //      would just turn every affected recording into a lost upload
+      //      instead of a silent-but-watchable one. Log it loudly and correct
+      //      the stored `hasAudio` metadata so it matches reality, but let
+      //      finalize proceed.
+      //
+      // Best-effort throughout: only acts when the probe can actually answer
+      // (skips silently if ffmpeg is unavailable), never blocks a legitimate
+      // upload on missing tooling.
+      let correctedHasAudio = finalHasAudio;
+      if (finalHasAudio) {
+        const assembledHasAudio = await probeHasAudioStream(
+          assembled,
+          videoFormat,
+        ).catch(() => null);
+
+        if (assembledHasAudio === false) {
+          console.warn(
+            "[finalize] recording claimed audio but assembled bytes have none; correcting hasAudio",
+            { id, videoFormat },
+          );
+          try {
+            captureRouteError(
+              new Error(
+                "Recording was reported to have audio, but the assembled upload has no audio track.",
+              ),
+              {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-claimed-but-missing",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: assembled.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              },
+            );
+          } catch {
+            // Sentry must never mask the real capture-side issue.
+          }
+          correctedHasAudio = false;
+        } else if (assembledHasAudio === true && uploadData !== assembled) {
+          // A rewrite ran (faststart/webm remux) AND we positively confirmed
+          // the pre-rewrite source had audio — re-probe the REWRITTEN bytes.
+          // Gated strictly on `=== true` (not just "not false"): when the
+          // source probe was inconclusive (`null`, e.g. ffmpeg unavailable),
+          // we have no proof audio ever existed, so we must not hard-fail a
+          // recording that may simply be a Tier-2 capture-level mismatch.
+          const uploadHasAudio = await probeHasAudioStream(
+            uploadData,
+            videoFormat,
+          ).catch(() => null);
+          if (uploadHasAudio === false) {
+            const err = new Error(
+              "Recording had an audio track before the seekable rewrite, but the rewritten video has no audio track. Please record again.",
+            );
+            try {
+              captureRouteError(err, {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-dropped-by-remux",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: uploadData.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              });
+            } catch {
+              // Sentry must never mask the real validation error.
+            }
+            await failChunkAssembly(err.message);
           }
         }
       }
@@ -935,15 +1133,34 @@ export default defineAction({
       }
       const result = await markRecordingReady({
         ...readyParams,
+        // Use the audio-probe-corrected value, not the raw client claim in
+        // `readyParams` — see the audio sanity check above.
+        finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: uploadData.byteLength,
         seekableApplied,
       });
+      if (result.status === "ready") {
+        queueBackgroundBuilderCompression({
+          recordingId: id,
+          ownerEmail,
+          videoUrl: upload.url,
+          mimeType,
+          providerId: upload.provider,
+          assetDbId: upload.id,
+          sourceSizeBytes: uploadData.byteLength,
+          locallyTranscoded:
+            args.locallyTranscoded === true || Boolean(compressionMeta),
+        });
+      }
       return result;
     } finally {
-      // Best-effort chunk scratch-space cleanup. Stored-but-unservable provider
-      // failures clear this list before throwing so a retry can re-upload from
-      // the buffered recovery copy.
+      // Unconditional chunk scratch-space cleanup. Runs on success AND on
+      // error — a throw during uploadFile / drizzle update / anything else
+      // used to leave gigabytes of base64 chunks in application_state
+      // forever. Best-effort: individual delete failures are logged but
+      // never re-thrown, because re-throwing from a finally would mask the
+      // original error that landed us here.
       if (chunkKeysToPurge.length > 0) {
         let purged = 0;
         for (const key of chunkKeysToPurge) {

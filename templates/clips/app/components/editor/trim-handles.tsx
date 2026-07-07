@@ -13,8 +13,6 @@ export interface TrimHandlesProps {
   /** Fires when the user releases the mouse after drag. */
   onCommit?: (value: { startMs: number; endMs: number }) => void;
   durationMs: number;
-  /** Scroll offset of the parent container so handles track with zoom. */
-  scrollLeft?: number;
   className?: string;
 }
 
@@ -46,7 +44,6 @@ export function TrimHandles({
   onChange,
   onCommit,
   durationMs,
-  scrollLeft = 0,
   className,
 }: TrimHandlesProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -57,10 +54,10 @@ export function TrimHandles({
     (clientX: number) => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return 0;
-      const x = clientX - rect.left + scrollLeft;
+      const x = clientX - rect.left;
       return Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     },
-    [scrollLeft, durationMs, width],
+    [durationMs, width],
   );
 
   const startDrag = (mode: DragMode) => (e: React.PointerEvent) => {
@@ -101,7 +98,7 @@ export function TrimHandles({
     const toMsFromEvent = (e: PointerEvent) => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const x = e.clientX - rect.left + scrollLeft;
+      const x = e.clientX - rect.left;
       return Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     };
     window.addEventListener("pointermove", handleMove);
@@ -110,7 +107,7 @@ export function TrimHandles({
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
     };
-  }, [dragMode, value, onChange, onCommit, scrollLeft, durationMs, width]);
+  }, [dragMode, value, onChange, onCommit, durationMs, width]);
 
   const startX = (value.startMs / Math.max(durationMs, 1)) * width;
   const endX = (value.endMs / Math.max(durationMs, 1)) * width;

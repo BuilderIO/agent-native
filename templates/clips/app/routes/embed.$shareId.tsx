@@ -193,6 +193,7 @@ export default function EmbedRoute() {
         ref={playerRef}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
+        videoFormat={recording.videoFormat}
         embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}
         editsJson={recording.editsJson}

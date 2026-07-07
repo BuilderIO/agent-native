@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.84.49",
+  "version": "0.90.1",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -63,6 +63,7 @@
     },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
+    "./db-admin": "./dist/db-admin/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",
@@ -72,6 +73,12 @@
     "./client/conversation": "./dist/client/conversation/index.js",
     "./client/editor": "./dist/client/editor/index.js",
     "./client/resources": "./dist/client/resources/index.js",
+    "./client/components/ui/dialog": "./dist/client/components/ui/dialog.js",
+    "./client/components/ui/dropdown-menu": "./dist/client/components/ui/dropdown-menu.js",
+    "./client/components/ui/hover-card": "./dist/client/components/ui/hover-card.js",
+    "./client/components/ui/popover": "./dist/client/components/ui/popover.js",
+    "./client/components/ui/sheet": "./dist/client/components/ui/sheet.js",
+    "./client/components/ui/tooltip": "./dist/client/components/ui/tooltip.js",
     "./blocks": "./dist/client/blocks/index.js",
     "./blocks/server": "./dist/client/blocks/server.js",
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
@@ -125,6 +132,7 @@
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
     "./sharing/actions/list-resource-shares": "./dist/sharing/actions/list-resource-shares.js",
     "./sharing/actions/set-resource-visibility": "./dist/sharing/actions/set-resource-visibility.js",
+    "./sharing/actions/create-agent-resource-link": "./dist/sharing/actions/create-agent-resource-link.js",
     "./client/sharing": "./dist/client/sharing/index.js",
     "./client/extensions": "./dist/client/extensions/index.js",
     "./client/tools": "./dist/client/extensions/index.js",
@@ -154,6 +162,10 @@
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
     "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
+    "./data-programs": {
+      "types": "./dist/data-programs/index.d.ts",
+      "default": "./dist/data-programs/index.js"
+    },
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"
@@ -189,6 +201,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/toolkit": "workspace:*",
     "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "0.0.4",
@@ -212,8 +225,8 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@react-router/dev": "^8.0.1",
-    "@react-router/fs-routes": "^8.0.1",
+    "@react-router/dev": "^8.1.0",
+    "@react-router/fs-routes": "^8.1.0",
     "@resvg/resvg-js": "^2.6.2",
     "@rrweb/record": "2.0.1",
     "@sentry/browser": "10.60.0",
@@ -288,8 +301,8 @@
     "@assistant-ui/tap": "^0.5.14",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
-    "@react-router/dev": "^8.0.1",
-    "@react-router/fs-routes": "^8.0.1",
+    "@react-router/dev": "^8.1.0",
+    "@react-router/fs-routes": "^8.1.0",
     "@supabase/supabase-js": "^2.49.0",
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/typography": "^0.5.20",
@@ -317,7 +330,7 @@
     "playwright": "^1.61.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router": "^8.0.1",
+    "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
     "typescript": "^6.0.3",
     "vite": "catalog:",

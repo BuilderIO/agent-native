@@ -2,10 +2,18 @@ import type { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IncomingMessage, PlatformAdapter } from "./types.js";
-import { handleWebhook, resolveBaseUrl } from "./webhook-handler.js";
+import {
+  handleWebhook,
+  resolveBaseUrl,
+  resolveIntegrationApiKey,
+} from "./webhook-handler.js";
 
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
+const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
+const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
+const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
   insertPendingTask: insertPendingTaskMock,
@@ -13,6 +21,20 @@ vi.mock("./pending-tasks-store.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+}));
+
+vi.mock("../agent/production-agent.js", () => ({
+  actionsToEngineTools: vi.fn(() => []),
+  engineToProvider: vi.fn((engineName: string) => engineName),
+  getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
+  getOwnerApiKey: getOwnerApiKeyMock,
+  runAgentLoop: vi.fn(),
+}));
+
+vi.mock("../server/credential-provider.js", () => ({
+  canUseDeployCredentialFallbackForRequest:
+    canUseDeployCredentialFallbackForRequestMock,
+  readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
 vi.mock("./internal-token.js", () => ({
@@ -67,6 +89,10 @@ describe("integration webhook handler", () => {
     vi.clearAllMocks();
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     insertPendingTaskMock.mockResolvedValue(undefined);
+    getOwnerApiKeyMock.mockResolvedValue(undefined);
+    getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
+    readDeployCredentialEnvMock.mockReturnValue(undefined);
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -143,5 +169,32 @@ describe("integration webhook handler", () => {
     expect(insertPendingTaskMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("does not use deploy-level fallback keys for guarded integration runs", async () => {
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
+    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
+
+    await expect(
+      resolveIntegrationApiKey(
+        "anthropic",
+        "alice+qa@agent-native.test",
+        "plugin-api-key",
+      ),
+    ).resolves.toBeUndefined();
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+
+  it("allows scoped integration owner keys before deploy fallback policy", async () => {
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
+    getOwnerApiKeyMock.mockResolvedValue("scoped-owner-key");
+
+    await expect(
+      resolveIntegrationApiKey(
+        "anthropic",
+        "alice+qa@agent-native.test",
+        "plugin-api-key",
+      ),
+    ).resolves.toBe("scoped-owner-key");
   });
 });

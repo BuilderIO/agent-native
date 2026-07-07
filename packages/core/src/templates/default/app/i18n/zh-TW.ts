@@ -276,7 +276,6 @@ const messages = {
       "建立一個適合「{{slotId}}」插槽的新小工具。我接著會描述它應該做什麼。",
     whatShouldItDo: "它應該做什麼？",
     createPlaceholder: "待辦事項清單、API 儀表板、計算器...",
-    backToApp: "返回應用程式",
     title: "擴充功能",
     hiddenShown: "顯示隱藏",
     showHidden: "顯示隱藏項",

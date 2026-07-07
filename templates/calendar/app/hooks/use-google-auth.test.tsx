@@ -19,8 +19,14 @@ let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 let controls: DesktopAuthControls | null = null;
 
-function Harness({ onError }: { onError: (issue: DesktopAuthIssue) => void }) {
-  const auth = useGoogleDesktopAuth({ onError });
+function Harness({
+  onError,
+  onSuccess,
+}: {
+  onError: (issue: DesktopAuthIssue) => void;
+  onSuccess?: (result: unknown) => void;
+}) {
+  const auth = useGoogleDesktopAuth({ onError, onSuccess });
 
   useEffect(() => {
     controls = auth;
@@ -29,25 +35,17 @@ function Harness({ onError }: { onError: (issue: DesktopAuthIssue) => void }) {
   return null;
 }
 
-function renderHarness(onError = vi.fn()) {
+function renderHarness(
+  onError = vi.fn(),
+  onSuccess?: (result: unknown) => void,
+) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root!.render(<Harness onError={onError} />);
+    root!.render(<Harness onError={onError} onSuccess={onSuccess} />);
   });
   return onError;
-}
-
-function popupWindow() {
-  const popup = {
-    closed: false,
-    location: { href: "about:blank" },
-    close: vi.fn(() => {
-      popup.closed = true;
-    }),
-  };
-  return popup;
 }
 
 describe("useGoogleDesktopAuth", () => {
@@ -70,12 +68,9 @@ describe("useGoogleDesktopAuth", () => {
     vi.restoreAllMocks();
   });
 
-  it("reports missing credentials without navigating the popup to JSON", async () => {
-    const popup = popupWindow();
+  it("reports missing credentials without opening the browser to JSON", async () => {
     const onError = renderHarness();
-    const open = vi
-      .spyOn(window, "open")
-      .mockImplementation(() => popup as unknown as Window);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -105,18 +100,12 @@ describe("useGoogleDesktopAuth", () => {
       );
     });
 
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
-    expect(popup.location.href).toBe("about:blank");
-    expect(popup.close).toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 
-  it("navigates the temporary popup after receiving a valid auth URL", async () => {
-    const popup = popupWindow();
+  it("opens the browser after receiving a valid auth URL", async () => {
     renderHarness();
-    vi.spyOn(window, "open").mockImplementation(
-      () => popup as unknown as Window,
-    );
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -139,9 +128,70 @@ describe("useGoogleDesktopAuth", () => {
     });
 
     await vi.waitFor(() => {
-      expect(popup.location.href).toBe(
+      expect(open).toHaveBeenCalledWith(
         "https://accounts.google.com/o/oauth2/v2/auth?state=ok",
+        "_blank",
       );
+    });
+  });
+
+  it("detects the desktop preload even when the user agent marker is missing", () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      value: "Mozilla/5.0",
+      configurable: true,
+    });
+    vi.stubGlobal("agentNativeDesktop", {});
+
+    renderHarness();
+
+    expect(controls?.isDesktopGoogleAuth).toBe(true);
+  });
+
+  it("claims a desktop exchange token and reports success", async () => {
+    const onSuccess = vi.fn();
+    renderHarness(vi.fn(), onSuccess);
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/_agent-native/google/auth-url")) {
+        return new Response(
+          JSON.stringify({
+            url: "https://accounts.google.com/o/oauth2/v2/auth?state=ok",
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("/_agent-native/auth/desktop-exchange")) {
+        return new Response(
+          JSON.stringify({ token: "token-1", email: "owner@example.com" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("/_agent-native/auth/session")) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ connected: false }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      expect(controls?.startDesktopGoogleAuth()).toBe(true);
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/auth/session?_session=token-1",
+          { credentials: "include" },
+        );
+      },
+      { timeout: 4_000 },
+    );
+    expect(onSuccess).toHaveBeenCalledWith({
+      token: "token-1",
+      email: "owner@example.com",
     });
   });
 });

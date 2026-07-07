@@ -2,6 +2,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import {
@@ -60,6 +61,7 @@ export default defineAction({
           principalIdMatches(reg.sharesTable, args.principalType, principalId),
         ),
       );
+    invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,

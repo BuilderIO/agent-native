@@ -5,9 +5,14 @@ import {
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
+import { derivePromptTitle } from "@shared/prompt-title";
+import {
   IconChecks,
   IconPlus,
-  IconPalette,
   IconSearch,
   IconDots,
   IconTrash,
@@ -23,10 +28,6 @@ import { useNavigate, Link } from "react-router";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -87,6 +89,13 @@ export default function Index() {
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
+  // cloud container). Only reachable behind FULL_APP_BUILDING_ENABLED — the
+  // popover renders no mode control at all when the flag is off, so this
+  // state is always "design" in that case.
+  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
+    "design",
+  );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -101,9 +110,16 @@ export default function Index() {
   }>("list-designs", { includePreview: "true" });
 
   const createMutation = useActionMutation("create-design");
+  // Fires the fusion-backed cloud container build; only ever called when
+  // FULL_APP_BUILDING_ENABLED is true and the user picked "Full app".
+  const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
+  const generateTitleMutation = useActionMutation("generate-design-title");
+  // Designs the user has manually renamed since creation — an AI-generated
+  // title that resolves later must never clobber an explicit rename.
+  const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
     defaultSystem,
@@ -141,7 +157,10 @@ export default function Index() {
 
   const handleNewPromptOpenChange = useCallback((open: boolean) => {
     setShowNewPrompt(open);
-    if (!open) setNewDesignSystemId(undefined);
+    if (!open) {
+      setNewDesignSystemId(undefined);
+      setNewDesignMode("design");
+    }
   }, []);
 
   useEffect(() => {
@@ -204,7 +223,7 @@ export default function Index() {
     (
       title: string,
       designSystemId?: string | null,
-    ): { id: string; title: string } => {
+    ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
@@ -229,8 +248,7 @@ export default function Index() {
         },
       );
 
-      // Fire mutation in background; keep the optimistic navigation instant.
-      void createMutation
+      const ready = createMutation
         .mutateAsync({
           id,
           title: finalTitle,
@@ -239,15 +257,51 @@ export default function Index() {
             ? { designSystemId: linkedDesignSystemId }
             : {}),
         } as any)
-        .catch(() => {
+        .then(() => undefined)
+        .catch((error) => {
           clearPendingGeneration(id);
           queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
+          throw error;
         });
-      return { id, title: finalTitle };
+      // Fire mutation in background; keep the optimistic navigation instant.
+      void ready.catch(() => {});
+      return { id, title: finalTitle, ready };
     },
     [queryClient, createMutation],
+  );
+
+  // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
+  // immediately, then a short AI-generated name replaces it in the
+  // background once it resolves. Never blocks navigation or generation.
+  const handleGenerateDesignTitle = useCallback(
+    (designId: string, prompt: string, previousTitle: string) => {
+      generateTitleMutation
+        .mutateAsync({ designId, prompt, previousTitle } as any)
+        .then((result: any) => {
+          if (!result?.updated || !result.title) return;
+          if (userRenamedDesignIdsRef.current.has(designId)) return;
+          queryClient.setQueriesData(
+            { queryKey: ["action", "list-designs"] },
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return {
+                ...old,
+                count: old.count ?? (old.designs ?? []).length,
+                designs: (old.designs ?? []).map((d: Design) =>
+                  d.id === designId ? { ...d, title: result.title } : d,
+                ),
+              };
+            },
+          );
+        })
+        .catch(() => {
+          // Best-effort background enhancement — the placeholder title
+          // already saved at creation time stays as the final title.
+        });
+    },
+    [generateTitleMutation, queryClient],
   );
 
   const handleSubmitPrompt = useCallback(
@@ -266,21 +320,74 @@ export default function Index() {
           ? resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
-      const { id, title } = createDesign(derivedTitle, designSystemId);
+      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      handleGenerateDesignTitle(id, prompt, title);
 
-      writePendingGeneration(id, {
-        prompt,
-        files,
-        title,
-        designSystemId,
-        skipQuestions: pendingOptions?.skipQuestions,
-        ...options,
-      });
+      if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
+        // Full-app designs are backed by a real running container, not a
+        // queued inline generation — skip writePendingGeneration and let the
+        // fusion app mutation (and its own status/progress banner in the
+        // editor) drive the build instead.
+        void ready
+          .then(() =>
+            createFusionAppMutation.mutateAsync({
+              designId: id,
+              prompt,
+            } as any),
+          )
+          .then((result: any) => {
+            if (result?.status !== "not-configured") return;
+            // Builder isn't connected/configured, so no fusionApp linkage was
+            // written and no banner will render. Hand off to the agent chat,
+            // which owns the connect-Builder card flow, keeping the user's
+            // prompt so nothing is lost.
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `create-fusion-app returned status "not-configured" for design ` +
+                `${id}. ${result?.message ?? ""} Help the user connect ` +
+                `Builder.io (see connect-builder-app), then retry ` +
+                `create-fusion-app with the user's prompt.`,
+              submit: true,
+            });
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : String(error);
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `Starting the full-app build for design ${id} failed: ` +
+                `${message}. Check whether the design row exists, Builder is ` +
+                `connected, and create-fusion-app can be retried safely.`,
+              submit: true,
+            });
+          });
+      } else {
+        writePendingGeneration(id, {
+          prompt,
+          files,
+          title,
+          designSystemId,
+          skipQuestions: pendingOptions?.skipQuestions,
+          ...options,
+        });
+      }
 
       setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
-    [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
+    [
+      createDesign,
+      createFusionAppMutation,
+      handleGenerateDesignTitle,
+      navigate,
+      newDesignMode,
+      newDesignSystemId,
+      resolveDefaultDesignSystemId,
+    ],
   );
 
   const handleDelete = useCallback(() => {
@@ -365,6 +472,8 @@ export default function Index() {
     const next = renameDraft.trim();
     setRenameId(null);
     if (!next) return;
+
+    userRenamedDesignIdsRef.current.add(id);
 
     queryClient.setQueriesData(
       { queryKey: ["action", "list-designs"] },
@@ -652,6 +761,10 @@ export default function Index() {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
+        creationMode={FULL_APP_BUILDING_ENABLED ? newDesignMode : undefined}
+        onCreationModeChange={
+          FULL_APP_BUILDING_ENABLED ? setNewDesignMode : undefined
+        }
       />
 
       {/* Delete Confirmation */}
@@ -741,28 +854,6 @@ export default function Index() {
       </AlertDialog>
     </>
   );
-}
-
-/**
- * Derive a short, friendly title from a prompt. The full prompt still drives
- * generation — the title is just a label that shows up in the editor header
- * and the design card, so longer is worse.
- *
- * Strategy: take the first line, strip trailing punctuation, then truncate
- * at the nearest word boundary near 40 chars (with an ellipsis when cut).
- */
-function derivePromptTitle(prompt: string): string {
-  const firstLine = prompt
-    .split("\n")[0]
-    ?.trim()
-    .replace(/[.!?]+$/, "");
-  if (!firstLine) return "Untitled Design";
-  const MAX = 40;
-  if (firstLine.length <= MAX) return firstLine;
-  const slice = firstLine.slice(0, MAX);
-  const lastSpace = slice.lastIndexOf(" ");
-  const trimmed = lastSpace > 20 ? slice.slice(0, lastSpace) : slice;
-  return `${trimmed.trim()}…`;
 }
 
 /**
@@ -907,9 +998,6 @@ function EmptyState({
   const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
-      </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("home.createFirstDesign")}
       </h2>

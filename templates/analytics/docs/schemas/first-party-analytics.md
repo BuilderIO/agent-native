@@ -15,6 +15,12 @@ VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 
 The core `track()` and browser `trackEvent()` helpers automatically send to `https://analytics.agent-native.com/track` when those env vars are present. Localhost is skipped by default.
 
+Agent loop observability also uses this same tracking path. When an emitting app
+has `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` configured and observability is enabled,
+core emits one PostHog-compatible `$ai_generation` event per instrumented agent
+run with model, token, cache-token, latency, tool-count, status, and cost
+properties. Prompts, tool inputs, and model outputs are not included by default.
+
 ## Endpoint
 
 Use either endpoint shape:
@@ -97,6 +103,34 @@ Events are stored in `analytics_events`. Common query columns include:
 | `signed_in`                           | Signed-in state copied from `signed_in` or `signedIn`  |
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
+
+## LLM observability events
+
+Core emits LLM usage as first-party events with:
+
+```txt
+event_name = '$ai_generation'
+```
+
+Useful query fields live in `properties`:
+
+| Property                                         | Description                               |
+| ------------------------------------------------ | ----------------------------------------- |
+| `$ai_trace_id`, `run_id`                         | Agent run id                              |
+| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available            |
+| `$ai_model`, `model`                             | Model used                                |
+| `$ai_provider`, `provider`                       | Engine/provider name                      |
+| `$ai_input_tokens`, `input_tokens`               | Input tokens                              |
+| `$ai_output_tokens`, `output_tokens`             | Output tokens                             |
+| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                 |
+| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                 |
+| `cost_cents_x100`                                | Estimated run cost in centicents          |
+| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds    |
+| `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                          |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable |
+
+Install the `agent-observability-llm` dashboard template for canned panels over
+these events.
 
 Example dashboard panel:
 

@@ -174,6 +174,16 @@ provider-api-request(
 )
 ```
 
+## Turning a one-off pull into a dashboard panel
+
+When an ad-hoc `provider-api-request` call or `run-code` fetch/join/aggregate
+script answers a question well enough that it should become a live,
+refreshable dashboard panel other users can see — not just a one-time chat
+answer — save it as a data program with `save-data-program` instead of
+re-running the same script by hand on every visit. See the `data-programs`
+skill for the `emit(rows, schema)` contract, caching/refresh model, and a
+worked HubSpot x Pylon join example.
+
 ## Guardrails
 
 - Never ask the user to paste API tokens. The action uses configured

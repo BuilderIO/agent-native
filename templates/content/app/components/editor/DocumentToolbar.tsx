@@ -1,6 +1,5 @@
 import {
   AgentToggleButton,
-  NotificationsBell,
   PresenceBar,
   appPath,
   useActionMutation,
@@ -516,19 +515,6 @@ export function DocumentToolbar({
     }
   }, [open, isLinked]);
 
-  // Refresh document data after sync
-  const lastSyncedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!syncStatus?.lastSyncedAt) return;
-    if (
-      lastSyncedRef.current &&
-      lastSyncedRef.current !== syncStatus.lastSyncedAt
-    ) {
-      queryClient.invalidateQueries({ queryKey: ["action"] });
-    }
-    lastSyncedRef.current = syncStatus.lastSyncedAt;
-  }, [syncStatus?.lastSyncedAt, queryClient, documentId]);
-
   const handleLink = useCallback(
     async (pageId: string) => {
       setLinkingPageId(pageId);
@@ -574,6 +560,11 @@ export function DocumentToolbar({
   const handleUnlink = useCallback(async () => {
     try {
       await unlinkDocument.mutateAsync({ documentId });
+      // Unlinking removes the toggle UI, but the per-document localStorage
+      // flag would otherwise keep saying auto-sync is on — leaving the 2s
+      // poll armed forever (see useDocumentSyncStatus) every time this
+      // document is reopened, even though there's nothing left to sync.
+      setAutoSync(false);
       toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
       toast.error(
@@ -582,7 +573,7 @@ export function DocumentToolbar({
           : t("editor.toolbar.unlinkFailed"),
       );
     }
-  }, [documentId, unlinkDocument, t]);
+  }, [documentId, setAutoSync, unlinkDocument, t]);
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
@@ -1191,12 +1182,6 @@ export function DocumentToolbar({
                     </PopoverContent>
                   </Popover>
                 ) : null}
-                <div className="group relative">
-                  <NotificationsBell className="!h-8 !w-full !justify-start !rounded-sm !px-2 !py-1.5 !text-sm hover:!bg-accent hover:!text-accent-foreground focus-visible:!ring-0" />
-                  <span className="pointer-events-none absolute start-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
-                    {t("editor.toolbar.notifications")}
-                  </span>
-                </div>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>

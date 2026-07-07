@@ -8,6 +8,7 @@ type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
   json: string;
   timestampMs: number;
+  type: number | null;
 };
 type ReplayStopFn = () => void;
 export type SessionReplayUrlMatcher =
@@ -35,8 +36,14 @@ interface RrwebRecordOptions {
   sampling?: Record<string, unknown>;
 }
 
+type RrwebRecordFn = ((
+  options: RrwebRecordOptions,
+) => ReplayStopFn | undefined) & {
+  addCustomEvent?: (tag: string, payload: unknown) => void;
+};
+
 interface RrwebRecordModule {
-  record: (options: RrwebRecordOptions) => ReplayStopFn | undefined;
+  record: RrwebRecordFn;
 }
 
 interface SessionReplayState {
@@ -48,12 +55,17 @@ interface SessionReplayState {
   /** Pre-serialized + scrubbed event JSON strings, ready to splice at flush. */
   queue: QueuedReplayEvent[];
   queuedBytes: number;
+  retryBatches: QueuedReplayEvent[][];
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
   stopRecorder: ReplayStopFn | null;
   restoreUrlMonitor: (() => void) | null;
   removeLifecycleListeners: (() => void) | null;
+  /** rrweb's `record.addCustomEvent`, captured at start (null when absent). */
+  addCustomEvent: ((tag: string, payload: unknown) => void) | null;
+  /** Uninstalls console/network interceptors and flushes pending duplicates. */
+  restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
   lastAuthenticatedProperties: Record<string, unknown> | null;
 }
@@ -67,6 +79,33 @@ interface StoredReplaySession {
 
 /** rrweb `sampling` shape (mousemove/scroll/media throttles, input strategy). */
 export type ReplayEventSampling = Record<string, unknown>;
+
+/**
+ * Console capture cap overrides. `maxEvents` bounds the number of
+ * `agent-native.console` custom events emitted per recording session
+ * (default 1000); once hit, capture stops for the rest of the session and one
+ * final truncation-notice event is emitted.
+ */
+export interface SessionReplayConsoleOptions {
+  maxEvents?: number;
+}
+
+/**
+ * Network capture cap overrides. `maxEvents` bounds the number of
+ * `agent-native.network` custom events emitted per recording session
+ * (default 2000); once hit, capture stops for the rest of the session and one
+ * final truncation-notice event is emitted.
+ *
+ * `captureErrorBodies` (default true) additionally captures a bounded,
+ * redacted response-body snippet for 5xx responses only -- request bodies
+ * and headers are never captured, and non-5xx/network-failure responses
+ * never carry a body. `maxErrorBodyLength` (default 2048) caps that snippet.
+ */
+export interface SessionReplayNetworkOptions {
+  maxEvents?: number;
+  captureErrorBodies?: boolean;
+  maxErrorBodyLength?: number;
+}
 
 export interface SessionReplayOptions {
   enabled?: boolean;
@@ -100,6 +139,22 @@ export interface SessionReplayOptions {
    * payloads small. Passed straight through to `rrweb.record({ sampling })`.
    */
   eventSampling?: ReplayEventSampling;
+  /**
+   * Capture console.log/info/warn/error/debug plus window `error` and
+   * `unhandledrejection` events as `agent-native.console` custom rrweb
+   * events. Defaults to on whenever session replay is enabled. Pass `false`
+   * to disable, or an options object to override caps.
+   */
+  console?: boolean | SessionReplayConsoleOptions;
+  /**
+   * Capture fetch/XHR requests as `agent-native.network` custom rrweb
+   * events (method, URL, status, timing). Request bodies and headers are
+   * never captured; response bodies are captured only as a bounded,
+   * redacted snippet for 5xx responses (see `captureErrorBodies`).
+   * Defaults to on whenever session replay is enabled. Pass `false` to
+   * disable, or an options object to override caps.
+   */
+  network?: boolean | SessionReplayNetworkOptions;
   extraProperties?:
     | Record<string, unknown>
     | (() => Record<string, unknown> | undefined);
@@ -148,7 +203,19 @@ interface NormalizedSessionReplayOptions {
   collectFonts: boolean;
   inlineImages: boolean;
   eventSampling: ReplayEventSampling;
+  /** Null disables console capture entirely. */
+  console: NormalizedCaptureOptions | null;
+  /** Null disables network capture entirely. */
+  network: NormalizedCaptureOptions | null;
   extraProperties?: SessionReplayOptions["extraProperties"];
+}
+
+interface NormalizedCaptureOptions {
+  maxEvents: number;
+  /** Network-only: capture a bounded 5xx response-body snippet. Unused by console. */
+  captureErrorBodies?: boolean;
+  /** Network-only: cap (chars) for the captured error-body snippet. */
+  maxErrorBodyLength?: number;
 }
 
 const DEFAULT_REPLAY_PATH = "/api/analytics/replay";
@@ -195,6 +262,60 @@ const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
+const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
+
+/** rrweb custom-event tag for captured console/window-error entries. */
+export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
+/** rrweb custom-event tag for captured fetch/XHR request summaries. */
+export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
+
+const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
+const DEFAULT_MAX_NETWORK_EVENTS = 2000;
+const MAX_CONSOLE_MESSAGE_LENGTH = 500;
+const MAX_CONSOLE_ARGS = 10;
+const MAX_CONSOLE_STACK_LENGTH = 2000;
+const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
+const MAX_CONSOLE_SERIALIZE_ENTRIES = 20;
+/** Default cap (chars) for a captured 5xx response-body snippet. */
+const DEFAULT_MAX_ERROR_BODY_LENGTH = 2048;
+/** Hard timeout for the async response-body read; emit without body past this. */
+const ERROR_BODY_READ_TIMEOUT_MS = 1500;
+
+/**
+ * Re-entrancy guard: true while the recorder itself is emitting custom events
+ * or flushing (synchronously) so the console/fetch/XHR wrappers never capture
+ * the recorder's own work and feed it back into the replay stream.
+ */
+let replayCaptureInternal = false;
+
+// Credential-looking token redaction for captured console/network text,
+// adapted from the clips template's browser-diagnostics redaction helper.
+const CAPTURE_SECRET_KEY_FRAGMENT =
+  "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
+const CAPTURE_AUTHORIZATION_SCHEME_RE =
+  /\b(authorization)\b(\s*[:=]\s*)(?:bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
+const CAPTURE_BEARER_RE = /\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
+const CAPTURE_DOUBLE_QUOTED_SECRET_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${CAPTURE_SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)"(?:[^"\\\\]|\\\\.)*"`,
+  "gi",
+);
+const CAPTURE_SINGLE_QUOTED_SECRET_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${CAPTURE_SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)'(?:[^'\\\\]|\\\\.)*'`,
+  "gi",
+);
+const CAPTURE_UNQUOTED_SECRET_RE = new RegExp(
+  `(["']?)([A-Za-z0-9_$.-]*${CAPTURE_SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
+  "gi",
+);
+
+function redactCaptureText(value: string): string {
+  return value
+    .replace(CAPTURE_AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
+    .replace(CAPTURE_BEARER_RE, "$1 <redacted>")
+    .replace(CAPTURE_DOUBLE_QUOTED_SECRET_RE, '$1$2$1$3"<redacted>"')
+    .replace(CAPTURE_SINGLE_QUOTED_SECRET_RE, "$1$2$1$3'<redacted>'")
+    .replace(CAPTURE_UNQUOTED_SECRET_RE, "$1$2$1$3<redacted>");
+}
 const URL_LIKE_KEYS = new Set([
   "url",
   "uri",
@@ -219,12 +340,15 @@ function getState(): SessionReplayState {
       sequence: 0,
       queue: [],
       queuedBytes: 0,
+      retryBatches: [],
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
       removeLifecycleListeners: null,
+      addCustomEvent: null,
+      restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
     };
@@ -523,7 +647,44 @@ function normalizeOptions(
     collectFonts: options.collectFonts ?? false,
     inlineImages: options.inlineImages ?? false,
     eventSampling: options.eventSampling ?? DEFAULT_EVENT_SAMPLING,
+    console: normalizeCaptureToggle(
+      options.console,
+      DEFAULT_MAX_CONSOLE_EVENTS,
+    ),
+    network: normalizeCaptureToggle(
+      options.network,
+      DEFAULT_MAX_NETWORK_EVENTS,
+    ),
     extraProperties: options.extraProperties,
+  };
+}
+
+/**
+ * Console/network capture default to ON whenever session replay records;
+ * `false` disables a category, an object form overrides its caps. Network
+ * options may additionally carry `captureErrorBodies`/`maxErrorBodyLength`;
+ * console ignores those fields.
+ */
+function normalizeCaptureToggle(
+  value: boolean | SessionReplayNetworkOptions | undefined,
+  defaultMaxEvents: number,
+): NormalizedCaptureOptions | null {
+  if (value === false) return null;
+  const overrides = typeof value === "object" && value !== null ? value : {};
+  const maxEvents =
+    typeof overrides.maxEvents === "number" &&
+    Number.isFinite(overrides.maxEvents)
+      ? Math.max(1, Math.floor(overrides.maxEvents))
+      : defaultMaxEvents;
+  const maxErrorBodyLength =
+    typeof overrides.maxErrorBodyLength === "number" &&
+    Number.isFinite(overrides.maxErrorBodyLength)
+      ? Math.max(0, Math.floor(overrides.maxErrorBodyLength))
+      : DEFAULT_MAX_ERROR_BODY_LENGTH;
+  return {
+    maxEvents,
+    captureErrorBodies: overrides.captureErrorBodies !== false,
+    maxErrorBodyLength,
   };
 }
 
@@ -613,11 +774,10 @@ function enqueueReplayEvent(
   state.queue.push({
     json: serialized,
     timestampMs: replayEventTimestampMs(event),
+    type: typeof event.type === "number" ? event.type : null,
   });
   state.queuedBytes += estimatedBytes;
-  if (state.queue.length >= state.options.maxEventsPerBatch) {
-    void flushSessionReplay("max-events");
-  }
+  flushQueuedReplayIfNeeded(state);
 }
 
 function replayExtraProperties(
@@ -668,11 +828,18 @@ function replayPropertiesForUpload(
   return properties;
 }
 
+interface ReplayUploadPayload {
+  body: string;
+  replayId: string;
+  sessionId: string;
+  sequence: number;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
   events: QueuedReplayEvent[],
-): string | null {
+): ReplayUploadPayload | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
   const sessionId = getAnalyticsSessionId();
@@ -713,19 +880,17 @@ function buildReplayBody(
     timestamp: new Date().toISOString(),
     properties,
   };
-  state.sequence += 1;
-  persistReplaySequence(
-    sessionId,
-    state.replayId,
-    state.startedAtMs,
-    state.sequence,
-  );
   // Events are already serialized+scrubbed JSON strings; splice them into the
   // envelope without re-serializing the (potentially large) events array.
   const envelopeJson = JSON.stringify(envelope);
-  return `${envelopeJson.slice(0, -1)},"events":[${events
-    .map((event) => event.json)
-    .join(",")}]}`;
+  return {
+    body: `${envelopeJson.slice(0, -1)},"events":[${events
+      .map((event) => event.json)
+      .join(",")}]}`,
+    replayId: state.replayId,
+    sessionId,
+    sequence: state.sequence,
+  };
 }
 
 interface ReplayUploadBody {
@@ -743,13 +908,6 @@ function isCrossOriginReplayEndpoint(endpoint: string): boolean {
   } catch {
     return false;
   }
-}
-
-function replayUploadByteLength(body: string): number {
-  if (typeof TextEncoder !== "undefined") {
-    return new TextEncoder().encode(body).byteLength;
-  }
-  return body.length;
 }
 
 async function gzipReplayBody(body: string): Promise<Blob | null> {
@@ -792,39 +950,68 @@ async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
   };
 }
 
+function replayUploadBodyBytes(body: BodyInit): number {
+  if (typeof body === "string") {
+    if (typeof TextEncoder !== "undefined") {
+      return new TextEncoder().encode(body).byteLength;
+    }
+    return body.length;
+  }
+  if (typeof Blob !== "undefined" && body instanceof Blob) {
+    return body.size;
+  }
+  if (body instanceof ArrayBuffer) {
+    return body.byteLength;
+  }
+  if (ArrayBuffer.isView(body)) {
+    return body.byteLength;
+  }
+  return MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES + 1;
+}
+
+function canUseReplayKeepalive(body: BodyInit): boolean {
+  return replayUploadBodyBytes(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES;
+}
+
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
+  callbacks: { beforeKeepaliveUpload?: () => void } = {},
 ): Promise<void> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
-    if (navigator.sendBeacon) {
-      const sent = navigator.sendBeacon(options.endpoint, body);
-      if (sent) return;
-    }
-    await fetch(options.endpoint, {
+    const canUseKeepalive = canUseReplayKeepalive(body);
+    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+    const response = await fetch(options.endpoint, {
       method: "POST",
       body,
-      keepalive:
-        replayUploadByteLength(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES,
+      keepalive: canUseKeepalive,
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    }).catch(() => {});
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Session replay upload failed with HTTP ${response.status}`,
+      );
+    }
     return;
   }
 
   const upload = await buildReplayUploadBody(body);
-  if (!upload.compressed && navigator.sendBeacon) {
-    const sent = navigator.sendBeacon(options.endpoint, body);
-    if (sent) return;
-  }
-  await fetch(options.endpoint, {
+  const canUseKeepalive = canUseReplayKeepalive(upload.body);
+  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+  const response = await fetch(options.endpoint, {
     method: "POST",
     body: upload.body,
-    keepalive: true,
+    keepalive: canUseKeepalive,
     headers: {
       ...upload.headers,
       "X-Agent-Native-Analytics-Key": options.publicKey,
     },
-  }).catch(() => {});
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Session replay upload failed with HTTP ${response.status}`,
+    );
+  }
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -838,25 +1025,125 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
+  return (
+    reason === "pagehide" ||
+    reason === "beforeunload" ||
+    reason === "visibility-hidden"
+  );
+}
+
+function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
+  return events.some((event) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE);
+}
+
+function hasPendingReplayBatch(state: SessionReplayState): boolean {
+  return state.retryBatches.length > 0 || state.queue.length > 0;
+}
+
+function shouldFlushQueuedReplay(state: SessionReplayState): boolean {
+  if (!state.options || state.queue.length === 0) return false;
+  return (
+    hasFullSnapshot(state.queue) ||
+    state.queue.length >= state.options.maxEventsPerBatch ||
+    state.queuedBytes >= state.options.maxBatchBytes
+  );
+}
+
+function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
+  const options = state.options;
+  if (!options) return;
+  if (state.retryBatches.length > 0) return;
+  if (!shouldFlushQueuedReplay(state)) return;
+  const reason = hasFullSnapshot(state.queue)
+    ? "full-snapshot"
+    : state.queue.length >= options.maxEventsPerBatch
+      ? "max-events"
+      : "max-bytes";
+  void flushSessionReplay(reason);
+}
+
+function queuedReplayBytes(events: QueuedReplayEvent[]): number {
+  return events.reduce((total, event) => total + event.json.length, 0);
+}
+
+function restoreReplayEvents(
+  state: SessionReplayState,
+  events: QueuedReplayEvent[],
+): void {
+  state.retryBatches.unshift(events);
+}
+
+function advanceReplaySequence(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  state.sequence = Math.max(state.sequence, payload.sequence + 1);
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
+function rollbackReplaySequenceReservation(
+  state: SessionReplayState,
+  payload: ReplayUploadPayload,
+): void {
+  if (state.replayId !== payload.replayId) return;
+  if (state.sequence !== payload.sequence + 1) return;
+  state.sequence = payload.sequence;
+  persistReplaySequence(
+    payload.sessionId,
+    payload.replayId,
+    state.startedAtMs,
+    state.sequence,
+  );
+}
+
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
-  if (!state.options || state.queue.length === 0 || state.flushing) return;
-  const events = state.queue.splice(0, state.queue.length);
-  state.queuedBytes = 0;
-  const body = buildReplayBody(state, reason, events);
-  if (!body || !state.options) {
-    state.queue = events.concat(state.queue);
-    state.queuedBytes += events.reduce(
-      (total, event) => total + event.json.length,
-      0,
-    );
+  if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
+  const events = state.retryBatches.shift() ?? state.queue.splice(0);
+  state.queuedBytes = queuedReplayBytes(state.queue);
+  const payload = buildReplayBody(state, reason, events);
+  if (!payload || !state.options) {
+    restoreReplayEvents(state, events);
     return;
   }
   state.flushing = true;
+  let uploaded = false;
+  let reservedSequence = false;
   try {
-    await sendReplayUpload(state.options, body);
+    await sendReplayUpload(state.options, payload.body, {
+      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
+        ? () => {
+            advanceReplaySequence(state, payload);
+            reservedSequence = true;
+          }
+        : undefined,
+    });
+    if (!reservedSequence) advanceReplaySequence(state, payload);
+    uploaded = true;
+  } catch (error) {
+    if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
+    restoreReplayEvents(state, events);
+    // Guard the recorder's own warning so console capture never records it
+    // (a captured warning would enqueue an event and retrigger a flush).
+    const previousInternal = replayCaptureInternal;
+    replayCaptureInternal = true;
+    try {
+      console.warn("[session-replay] upload failed", error);
+    } finally {
+      replayCaptureInternal = previousInternal;
+    }
   } finally {
     state.flushing = false;
+  }
+  if (uploaded && hasPendingReplayBatch(state)) {
+    flushQueuedReplayIfNeeded(state);
   }
 }
 
@@ -905,6 +1192,757 @@ function installLifecycleListeners(state: SessionReplayState): void {
     document.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnUnload);
     state.removeLifecycleListeners = null;
+  };
+}
+
+function truncateCaptureText(value: string, maxLength: number): string {
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
+/** Circular-safe, depth/length-limited plain value for JSON.stringify. */
+function toCaptureSerializable(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return `${value}n`;
+  if (typeof value === "function") return "[function]";
+  if (typeof value === "symbol") return String(value);
+  if (value instanceof Error) return `${value.name}: ${value.message}`;
+  if (typeof value !== "object") return String(value);
+  if (seen.has(value)) return "[circular]";
+  if (depth >= MAX_CONSOLE_SERIALIZE_DEPTH) {
+    return Array.isArray(value) ? "[array]" : "[object]";
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_CONSOLE_SERIALIZE_ENTRIES)
+      .map((item) => toCaptureSerializable(item, depth + 1, seen));
+    if (value.length > MAX_CONSOLE_SERIALIZE_ENTRIES) items.push("[truncated]");
+    return items;
+  }
+  const out: Record<string, unknown> = {};
+  let count = 0;
+  for (const [key, child] of Object.entries(value)) {
+    if (count >= MAX_CONSOLE_SERIALIZE_ENTRIES) {
+      out["[truncated]"] = true;
+      break;
+    }
+    out[key] = toCaptureSerializable(child, depth + 1, seen);
+    count += 1;
+  }
+  return out;
+}
+
+function serializeConsoleArg(value: unknown): string {
+  try {
+    if (typeof value === "string") return value;
+    if (value instanceof Error) return `${value.name}: ${value.message}`;
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint"
+    ) {
+      return String(value);
+    }
+    return (
+      JSON.stringify(toCaptureSerializable(value, 0, new WeakSet())) ??
+      String(value)
+    );
+  } catch {
+    try {
+      return Object.prototype.toString.call(value);
+    } catch {
+      return "[unserializable]";
+    }
+  }
+}
+
+/**
+ * Emit an rrweb custom event while recording. Sets the re-entrancy guard so
+ * synchronous work triggered by the emit (enqueue -> flush -> fetch of the
+ * ingest endpoint) is never re-captured by the interceptors below.
+ */
+function emitReplayCustomEvent(
+  state: SessionReplayState,
+  tag: string,
+  payload: Record<string, unknown>,
+): void {
+  const addCustomEvent = state.addCustomEvent;
+  if (!state.active || !addCustomEvent) return;
+  const previous = replayCaptureInternal;
+  replayCaptureInternal = true;
+  try {
+    addCustomEvent(tag, payload);
+  } catch {
+    // recorder already stopped -- drop the event
+  } finally {
+    replayCaptureInternal = previous;
+  }
+}
+
+function captureCurrentUrl(): string | undefined {
+  try {
+    return scrubUrl(window.location.href);
+  } catch {
+    return undefined;
+  }
+}
+
+type CaptureConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
+type CaptureConsoleSource = "console" | "window-error" | "unhandledrejection";
+
+const CAPTURE_CONSOLE_LEVELS: CaptureConsoleLevel[] = [
+  "log",
+  "info",
+  "warn",
+  "error",
+  "debug",
+];
+
+function installConsoleCapture(
+  state: SessionReplayState,
+  captureOptions: NormalizedCaptureOptions,
+): () => void {
+  let emitted = 0;
+  let stopped = false;
+  let pending: {
+    key: string;
+    payload: Record<string, unknown>;
+    repeat: number;
+  } | null = null;
+
+  const emitPayload = (payload: Record<string, unknown>) => {
+    if (stopped) return;
+    if (emitted >= captureOptions.maxEvents) {
+      stopped = true;
+      emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
+        level: "warn",
+        source: "console",
+        message: "session replay console capture truncated",
+        truncated: true,
+      });
+      return;
+    }
+    emitted += 1;
+    emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, payload);
+  };
+
+  /**
+   * The first occurrence of a message is emitted immediately; consecutive
+   * identical messages accumulate here and are flushed as one event whose
+   * `repeat` is the number of collapsed duplicates.
+   */
+  const flushPending = () => {
+    const entry = pending;
+    pending = null;
+    if (!entry || entry.repeat <= 0) return;
+    emitPayload({ ...entry.payload, repeat: entry.repeat });
+  };
+
+  const capture = (
+    level: CaptureConsoleLevel,
+    source: CaptureConsoleSource,
+    args: unknown[],
+    stackOverride?: string,
+  ) => {
+    if (stopped || replayCaptureInternal) return;
+    try {
+      const message = truncateCaptureText(
+        redactCaptureText(args.length ? serializeConsoleArg(args[0]) : ""),
+        MAX_CONSOLE_MESSAGE_LENGTH,
+      );
+      const extraArgs = args
+        .slice(1, 1 + MAX_CONSOLE_ARGS)
+        .map((arg) =>
+          truncateCaptureText(
+            redactCaptureText(serializeConsoleArg(arg)),
+            MAX_CONSOLE_MESSAGE_LENGTH,
+          ),
+        );
+      const errorArg = args.find((arg): arg is Error => arg instanceof Error);
+      const rawStack = stackOverride ?? errorArg?.stack;
+      const stack =
+        typeof rawStack === "string" && rawStack
+          ? truncateCaptureText(
+              redactCaptureText(rawStack),
+              MAX_CONSOLE_STACK_LENGTH,
+            )
+          : undefined;
+      const url = captureCurrentUrl();
+      const payload: Record<string, unknown> = {
+        level,
+        source,
+        message,
+        ...(extraArgs.length ? { args: extraArgs } : {}),
+        ...(stack ? { stack } : {}),
+        ...(url ? { url } : {}),
+      };
+      const key = `${level} ${source} ${message}`;
+      if (pending && pending.key === key) {
+        pending.repeat += 1;
+        return;
+      }
+      flushPending();
+      emitPayload(payload);
+      pending = { key, payload, repeat: 0 };
+    } catch {
+      // capture must never break the host page
+    }
+  };
+
+  const originals: Partial<
+    Record<CaptureConsoleLevel, (...args: unknown[]) => void>
+  > = {};
+  const wrappers: Partial<
+    Record<CaptureConsoleLevel, (...args: unknown[]) => void>
+  > = {};
+  for (const level of CAPTURE_CONSOLE_LEVELS) {
+    const original = console[level] as (...args: unknown[]) => void;
+    if (typeof original !== "function") continue;
+    originals[level] = original;
+    const wrapper = (...args: unknown[]) => {
+      original.apply(console, args);
+      try {
+        capture(level, "console", args);
+      } catch {
+        // never throw from the wrapper
+      }
+    };
+    wrappers[level] = wrapper;
+    console[level] = wrapper;
+  }
+
+  const onWindowError = (event: ErrorEvent) => {
+    try {
+      const error = event?.error;
+      capture(
+        "error",
+        "window-error",
+        [error instanceof Error ? error : (event?.message ?? "Error")],
+        error instanceof Error ? error.stack : undefined,
+      );
+    } catch {
+      // never throw from the listener
+    }
+  };
+  const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+    try {
+      const reason = event?.reason;
+      capture(
+        "error",
+        "unhandledrejection",
+        [reason instanceof Error ? reason : reason],
+        reason instanceof Error ? reason.stack : undefined,
+      );
+    } catch {
+      // never throw from the listener
+    }
+  };
+  window.addEventListener("error", onWindowError as EventListener);
+  window.addEventListener(
+    "unhandledrejection",
+    onUnhandledRejection as EventListener,
+  );
+
+  return () => {
+    try {
+      flushPending();
+    } catch {
+      // best-effort duplicate flush
+    }
+    stopped = true;
+    for (const level of CAPTURE_CONSOLE_LEVELS) {
+      const original = originals[level];
+      // Restore only what we installed: if another library patched on top of
+      // our wrapper, leave the current function in place.
+      if (original && console[level] === wrappers[level]) {
+        console[level] = original;
+      }
+    }
+    window.removeEventListener("error", onWindowError as EventListener);
+    window.removeEventListener(
+      "unhandledrejection",
+      onUnhandledRejection as EventListener,
+    );
+  };
+}
+
+function captureRequestUrl(input: unknown): string {
+  if (typeof input === "string") return input;
+  if (typeof URL !== "undefined" && input instanceof URL) {
+    return input.toString();
+  }
+  if (input && typeof input === "object" && "url" in input) {
+    const url = (input as { url?: unknown }).url;
+    if (typeof url === "string") return url;
+  }
+  return "";
+}
+
+function captureRequestMethod(
+  input: unknown,
+  init?: { method?: unknown },
+): string {
+  const initMethod = init?.method;
+  if (typeof initMethod === "string" && initMethod) {
+    return initMethod.toUpperCase();
+  }
+  if (input && typeof input === "object" && "method" in input) {
+    const method = (input as { method?: unknown }).method;
+    if (typeof method === "string" && method) return method.toUpperCase();
+  }
+  return "GET";
+}
+
+/**
+ * Requests the recorder must never record: its own ingest endpoint and the
+ * core analytics tracking endpoint (either would create a flush -> event ->
+ * flush feedback loop), plus non-network schemes.
+ */
+function isCaptureExcludedUrl(rawUrl: string, ingestEndpoint: string): boolean {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith("data:") ||
+    lower.startsWith("blob:") ||
+    lower.startsWith("about:")
+  ) {
+    return true;
+  }
+  try {
+    const resolved = new URL(trimmed, window.location.href);
+    const ingest = new URL(ingestEndpoint, window.location.href);
+    if (
+      resolved.origin === ingest.origin &&
+      resolved.pathname === ingest.pathname
+    ) {
+      return true;
+    }
+    if (resolved.pathname.endsWith("/api/analytics/replay")) return true;
+    if (resolved.pathname.endsWith("/api/analytics/track")) return true;
+  } catch {
+    // Unresolvable URL -- skip capture rather than risk recording junk.
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Best-effort, synchronous read of a 5xx XHR response body, sliced to `cap`
+ * before redaction runs (caller redacts). Only reads `responseText` when
+ * `responseType` is "" or "text" -- other response types are read via
+ * `JSON.stringify` (guarded) for `"json"`, and skipped entirely otherwise
+ * since arbitrary binary/blob/arraybuffer bodies are not useful error text.
+ */
+function readXhrErrorBody(
+  xhr: XMLHttpRequest,
+  cap: number,
+): string | undefined {
+  try {
+    const responseType = xhr.responseType;
+    if (responseType === "" || responseType === "text") {
+      const text = xhr.responseText;
+      return typeof text === "string" ? text.slice(0, cap) : undefined;
+    }
+    if (responseType === "json") {
+      try {
+        return JSON.stringify(xhr.response)?.slice(0, cap);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function installNetworkCapture(
+  state: SessionReplayState,
+  captureOptions: NormalizedCaptureOptions,
+): () => void {
+  const options = state.options;
+  if (!options) return () => {};
+  const ingestEndpoint = options.endpoint;
+  let emitted = 0;
+  let stopped = false;
+
+  const emitPayload = (payload: Record<string, unknown>) => {
+    if (stopped) return;
+    if (emitted >= captureOptions.maxEvents) {
+      stopped = true;
+      emitReplayCustomEvent(state, SESSION_REPLAY_NETWORK_EVENT_TAG, {
+        message: "session replay network capture truncated",
+        truncated: true,
+      });
+      return;
+    }
+    emitted += 1;
+    emitReplayCustomEvent(state, SESSION_REPLAY_NETWORK_EVENT_TAG, payload);
+  };
+
+  const errorBodyCap =
+    captureOptions.captureErrorBodies !== false
+      ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
+      : null;
+
+  const recordRequest = (
+    api: "fetch" | "xhr",
+    method: string,
+    rawUrl: string,
+    status: number,
+    ok: boolean,
+    durationMs: number,
+    error?: string,
+    responseBody?: string,
+  ) => {
+    if (stopped) return;
+    try {
+      if (isCaptureExcludedUrl(rawUrl, ingestEndpoint)) return;
+      const absolute = new URL(rawUrl, window.location.href).toString();
+      const url = scrubUrl(absolute) ?? absolute;
+      emitPayload({
+        api,
+        method: method.toUpperCase(),
+        url,
+        status,
+        ok,
+        durationMs: Math.max(0, Math.round(durationMs)),
+        ...(error
+          ? {
+              error: truncateCaptureText(
+                redactCaptureText(error),
+                MAX_CONSOLE_MESSAGE_LENGTH,
+              ),
+            }
+          : {}),
+        ...(responseBody
+          ? {
+              responseBody: truncateCaptureText(
+                redactCaptureText(responseBody),
+                errorBodyCap ?? DEFAULT_MAX_ERROR_BODY_LENGTH,
+              ),
+            }
+          : {}),
+      });
+    } catch {
+      // capture must never break the host page
+    }
+  };
+
+  /**
+   * Best-effort bounded read of a 5xx response body. Reads a decoded stream
+   * up to `cap` chars and cancels the reader, or falls back to `.text()`
+   * sliced to `cap` when no readable stream is exposed. Never throws --
+   * opaque/no-body responses (or any read failure) resolve to undefined.
+   */
+  const readBoundedErrorBody = async (
+    response: Response,
+    cap: number,
+  ): Promise<string | undefined> => {
+    try {
+      const reader = response.body?.getReader?.();
+      if (reader) {
+        const decoder = new TextDecoder();
+        let text = "";
+        while (text.length < cap) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) text += decoder.decode(value, { stream: true });
+        }
+        // Fire-and-forget: cancelling an already-exhausted (or still-open but
+        // no-longer-wanted) reader can hang indefinitely on some stream
+        // implementations. We never need the result, so don't await it --
+        // that would defeat the whole point of bounding this read.
+        try {
+          reader.cancel().catch(() => {});
+        } catch {
+          // best-effort; some readers throw synchronously instead
+        }
+        return text.slice(0, cap);
+      }
+      const text = await response.text();
+      return text.slice(0, cap);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const restores: Array<() => void> = [];
+
+  if (typeof window.fetch === "function") {
+    const originalFetch = window.fetch;
+    const wrappedFetch = function (
+      this: unknown,
+      input?: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> {
+      const self = this ?? window;
+      if (stopped || replayCaptureInternal) {
+        return originalFetch.call(self, input as RequestInfo | URL, init);
+      }
+      let method = "GET";
+      let url = "";
+      let skip = true;
+      try {
+        method = captureRequestMethod(input, init);
+        url = captureRequestUrl(input);
+        skip = isCaptureExcludedUrl(url, ingestEndpoint);
+      } catch {
+        skip = true;
+      }
+      if (skip) {
+        return originalFetch.call(self, input as RequestInfo | URL, init);
+      }
+      const startedAt = performance.now();
+      // Call the original exactly as the page did; never read the caller's
+      // response before returning it, never replace the response, propagate
+      // rejections untouched. A 5xx body snippet (if any) is read from a
+      // clone and emitted from a detached promise chain afterward.
+      const result = originalFetch.call(self, input as RequestInfo | URL, init);
+      if (!result || typeof (result as Promise<Response>).then !== "function") {
+        return result;
+      }
+      return result.then(
+        (response) => {
+          try {
+            const durationMs = performance.now() - startedAt;
+            if (errorBodyCap !== null && response.status >= 500) {
+              // Clone immediately -- before any other code (including this
+              // handler returning) can consume the original body -- so the
+              // clone's stream is guaranteed unconsumed.
+              let clone: Response | null = null;
+              try {
+                clone = response.clone();
+              } catch {
+                clone = null;
+              }
+              if (clone) {
+                const bodyPromise = readBoundedErrorBody(clone, errorBodyCap);
+                const timeoutPromise = new Promise<undefined>((resolve) => {
+                  setTimeout(
+                    () => resolve(undefined),
+                    ERROR_BODY_READ_TIMEOUT_MS,
+                  );
+                });
+                // Detached chain: never rejects, never awaited by the caller.
+                Promise.race([bodyPromise, timeoutPromise])
+                  .then((responseBody) => {
+                    recordRequest(
+                      "fetch",
+                      method,
+                      url,
+                      response.status,
+                      response.ok,
+                      durationMs,
+                      undefined,
+                      responseBody,
+                    );
+                  })
+                  .catch(() => {
+                    // never affect the caller
+                  });
+              } else {
+                recordRequest(
+                  "fetch",
+                  method,
+                  url,
+                  response.status,
+                  response.ok,
+                  durationMs,
+                );
+              }
+            } else {
+              recordRequest(
+                "fetch",
+                method,
+                url,
+                response.status,
+                response.ok,
+                durationMs,
+              );
+            }
+          } catch {
+            // never affect the caller
+          }
+          return response;
+        },
+        (error) => {
+          try {
+            recordRequest(
+              "fetch",
+              method,
+              url,
+              0,
+              false,
+              performance.now() - startedAt,
+              error instanceof Error ? error.message : String(error),
+            );
+          } catch {
+            // never affect the caller
+          }
+          throw error;
+        },
+      );
+    };
+    window.fetch = wrappedFetch as typeof window.fetch;
+    restores.push(() => {
+      // Restore only what we installed (another lib may have patched on top).
+      if (window.fetch === (wrappedFetch as typeof window.fetch)) {
+        window.fetch = originalFetch;
+      }
+    });
+  }
+
+  if (typeof XMLHttpRequest !== "undefined" && XMLHttpRequest.prototype) {
+    const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+    const xhrInfo = new WeakMap<
+      XMLHttpRequest,
+      { method: string; url: string }
+    >();
+
+    const wrappedOpen = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async?: boolean,
+      username?: string | null,
+      password?: string | null,
+    ) {
+      try {
+        xhrInfo.set(this, { method: String(method), url: String(url) });
+      } catch {
+        // never throw from the wrapper
+      }
+      return originalOpen.call(
+        this,
+        method,
+        url as string,
+        async ?? true,
+        username,
+        password,
+      );
+    };
+
+    const wrappedSend = function (
+      this: XMLHttpRequest,
+      body?: Document | XMLHttpRequestBodyInit | null,
+    ) {
+      try {
+        const info = xhrInfo.get(this);
+        if (info && !stopped && !replayCaptureInternal) {
+          const startedAt = performance.now();
+          let errorMessage: string | undefined;
+          const markError = (message: string) => () => {
+            errorMessage = message;
+          };
+          this.addEventListener("error", markError("XMLHttpRequest failed"), {
+            once: true,
+          });
+          this.addEventListener("abort", markError("XMLHttpRequest aborted"), {
+            once: true,
+          });
+          this.addEventListener(
+            "timeout",
+            markError("XMLHttpRequest timed out"),
+            { once: true },
+          );
+          this.addEventListener(
+            "loadend",
+            () => {
+              const status = typeof this.status === "number" ? this.status : 0;
+              const effectiveStatus = errorMessage ? 0 : status;
+              let responseBody: string | undefined;
+              if (errorBodyCap !== null && !errorMessage && status >= 500) {
+                responseBody = readXhrErrorBody(this, errorBodyCap);
+              }
+              recordRequest(
+                "xhr",
+                info.method,
+                info.url,
+                effectiveStatus,
+                !errorMessage && status >= 200 && status < 300,
+                performance.now() - startedAt,
+                errorMessage,
+                responseBody,
+              );
+              xhrInfo.delete(this);
+            },
+            { once: true },
+          );
+        }
+      } catch {
+        // never throw from the wrapper
+      }
+      return originalSend.call(this, body ?? null);
+    };
+
+    XMLHttpRequest.prototype.open =
+      wrappedOpen as typeof XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.send =
+      wrappedSend as typeof XMLHttpRequest.prototype.send;
+    restores.push(() => {
+      if (
+        XMLHttpRequest.prototype.open ===
+        (wrappedOpen as typeof XMLHttpRequest.prototype.open)
+      ) {
+        XMLHttpRequest.prototype.open = originalOpen;
+      }
+      if (
+        XMLHttpRequest.prototype.send ===
+        (wrappedSend as typeof XMLHttpRequest.prototype.send)
+      ) {
+        XMLHttpRequest.prototype.send = originalSend;
+      }
+    });
+  }
+
+  return () => {
+    stopped = true;
+    for (const restore of restores) {
+      try {
+        restore();
+      } catch {
+        // best-effort restore
+      }
+    }
+  };
+}
+
+function installCaptureInterceptors(state: SessionReplayState): void {
+  const options = state.options;
+  if (!options || state.restoreCaptures || !state.addCustomEvent) return;
+  if (!options.console && !options.network) return;
+  const restores: Array<() => void> = [];
+  try {
+    if (options.console) {
+      restores.push(installConsoleCapture(state, options.console));
+    }
+    if (options.network) {
+      restores.push(installNetworkCapture(state, options.network));
+    }
+  } catch {
+    // keep whatever installed cleanly; restores below still uninstall it
+  }
+  if (restores.length === 0) return;
+  state.restoreCaptures = () => {
+    state.restoreCaptures = null;
+    for (const restore of restores) {
+      try {
+        restore();
+      } catch {
+        // best-effort restore
+      }
+    }
   };
 }
 
@@ -1002,6 +2040,7 @@ async function startSessionReplayRecorder(
   state.sequence = replaySession.sequence;
   state.queue = [];
   state.queuedBytes = 0;
+  state.retryBatches = [];
   state.stopRecorder = null;
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
@@ -1060,6 +2099,11 @@ async function startSessionReplayRecorder(
     );
     installUrlMonitor(state);
     installLifecycleListeners(state);
+    state.addCustomEvent =
+      typeof rrweb.record.addCustomEvent === "function"
+        ? rrweb.record.addCustomEvent
+        : null;
+    installCaptureInterceptors(state);
     return {
       started: true,
       replayId: state.replayId,
@@ -1067,6 +2111,13 @@ async function startSessionReplayRecorder(
       sampled,
     };
   } catch {
+    try {
+      state.restoreCaptures?.();
+    } catch {
+      // best-effort interceptor teardown
+    }
+    state.restoreCaptures = null;
+    state.addCustomEvent = null;
     state.active = false;
     state.options = null;
     state.replayId = null;
@@ -1079,7 +2130,17 @@ async function startSessionReplayRecorder(
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.active) return;
+  // Restore console/fetch/XHR before tearing down the recorder: the restore
+  // flushes any pending collapsed console duplicate, which must still be able
+  // to emit through rrweb while it is recording.
+  try {
+    state.restoreCaptures?.();
+  } catch {
+    // best-effort interceptor teardown
+  }
+  state.restoreCaptures = null;
   state.active = false;
+  state.addCustomEvent = null;
   try {
     state.stopRecorder?.();
   } catch {

@@ -293,7 +293,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "What should it do?",
     createPlaceholder: "A todo list, API dashboard, calculator...",
-    backToApp: "Back to app",
     title: "Extensions",
     hiddenShown: "Hiding shown",
     showHidden: "Show hidden",
@@ -362,6 +361,10 @@ const messages = {
     loadErrorTitle: "Couldn't load organization",
     loadErrorFallback: "Couldn't load organization.",
     tryAgain: "Try again",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder:
+      "Describe what happened before this organization error appeared.",
+    openGitHubIssue: "Open GitHub issue",
     yourOrganization: "Your organization",
     joinYourTeam: "Join your team",
     openToDomainEmails: "Open to @{{domain}} emails",
@@ -470,7 +473,7 @@ const messages = {
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
-    docsLabel: "{{name}} docs",
+    docsLabel: "View {{name}} docs",
     catalog: {
       context7: {
         description: "Fetch current library docs in agent chats.",

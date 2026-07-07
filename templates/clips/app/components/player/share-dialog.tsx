@@ -1,6 +1,6 @@
 import {
-  appBasePath,
   appPath,
+  useActionMutation,
   useActionQuery,
   useSession,
   useT,
@@ -11,7 +11,14 @@ import {
   IconLink,
   IconMail,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   CopyField,
@@ -38,7 +45,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 
@@ -89,9 +95,10 @@ export function ShareRecordingPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
+      {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
         align="end"
-        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
+        className="z-[260] w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         <ShareRecordingContent
           recordingId={recordingId}
@@ -283,47 +290,58 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const sharesLoaded = data !== undefined;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
-  const publicAgentContextUrl =
-    typeof window === "undefined"
-      ? ""
-      : buildAgentApiUrls(recordingId, {
-          origin: window.location.origin,
-          basePath: appBasePath(),
-        }).contextUrl;
-  const [tokenizedAgentContextUrl, setTokenizedAgentContextUrl] = useState("");
+  const createAgentLink = useActionMutation(
+    "create-recording-agent-link" as any,
+  );
+  const createAgentLinkAsyncRef = useRef(createAgentLink.mutateAsync);
+  const agentLinkRequestIdRef = useRef(0);
+  const [agentContextUrl, setAgentContextUrl] = useState("");
+  const [agentLinkError, setAgentLinkError] = useState(false);
 
   useEffect(() => {
-    if (!isPublic || !hasPassword || typeof window === "undefined") {
-      setTokenizedAgentContextUrl("");
-      return;
-    }
+    createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
+  });
 
-    let cancelled = false;
-    async function loadTokenizedAgentContextUrl() {
-      setTokenizedAgentContextUrl("");
-      const res = await fetch(publicAgentContextUrl, {
-        credentials: "include",
-      }).catch(() => null);
-      if (!res?.ok) return;
-      const payload = await res.json().catch(() => null);
-      const contextUrl =
-        typeof payload?.apis?.context?.url === "string"
-          ? payload.apis.context.url
-          : "";
-      if (!cancelled) setTokenizedAgentContextUrl(contextUrl);
-    }
+  const loadAgentContextUrl = useCallback(async () => {
+    const requestId = agentLinkRequestIdRef.current + 1;
+    agentLinkRequestIdRef.current = requestId;
 
-    void loadTokenizedAgentContextUrl();
+    setAgentContextUrl("");
+    setAgentLinkError(false);
+
+    try {
+      const result = (await createAgentLinkAsyncRef.current({
+        recordingId,
+      })) as { url?: string };
+      if (agentLinkRequestIdRef.current !== requestId) return;
+      if (result?.url) {
+        setAgentContextUrl(result.url);
+      } else {
+        setAgentLinkError(true);
+      }
+    } catch {
+      if (agentLinkRequestIdRef.current === requestId) {
+        setAgentLinkError(true);
+      }
+    }
+  }, [recordingId]);
+
+  useEffect(() => {
+    setAgentContextUrl("");
+    setAgentLinkError(false);
+    if (!sharesLoaded) return;
+
+    void loadAgentContextUrl();
+
     return () => {
-      cancelled = true;
+      agentLinkRequestIdRef.current += 1;
     };
-  }, [hasPassword, isPublic, publicAgentContextUrl]);
+  }, [recordingId, visibility, sharesLoaded, loadAgentContextUrl]);
 
-  const agentContextUrl = hasPassword
-    ? tokenizedAgentContextUrl
-    : publicAgentContextUrl;
-  const agentShareDisabled = isPending || !isPublic || !agentContextUrl;
+  const agentShareDisabled =
+    isPending || createAgentLink.isPending || !agentContextUrl;
   const agentPrompt = agentContextUrl
     ? t("shareDialog.agentPrompt", { agentContextUrl })
     : "";
@@ -348,11 +366,30 @@ function LinkTab({
           (and a connect link) instead of leaving it buried in Settings. */}
       {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
-      <CopyField
-        label={t("shareDialog.shareWithAgents")}
-        value={agentContextUrl}
-        disabled={agentShareDisabled}
-      />
+      <div className="space-y-2">
+        <CopyField
+          label={t("shareDialog.shareWithAgents")}
+          value={agentContextUrl}
+          disabled={agentShareDisabled}
+        />
+        {agentLinkError ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {t("shareDialog.agentLinkUnavailable")}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              onClick={() => void loadAgentContextUrl()}
+              disabled={createAgentLink.isPending}
+            >
+              {t("shareDialog.retryAgentLink")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       <CopyField
         label={t("shareDialog.copyAgentPrompt")}
@@ -360,7 +397,7 @@ function LinkTab({
         disabled={agentShareDisabled}
       />
 
-      {isPublic && hasPassword ? (
+      {agentContextUrl || hasPassword || !isPublic ? (
         <p className="text-xs text-muted-foreground">
           {t("shareDialog.agentTokenDescription")}
         </p>

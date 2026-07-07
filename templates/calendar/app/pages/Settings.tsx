@@ -4,7 +4,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   type AppearancePresetId,
   useT,
 } from "@agent-native/core/client";
@@ -53,6 +53,7 @@ import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -160,6 +161,7 @@ export default function Settings() {
     <SettingsTabsPage
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto max-w-2xl space-y-6 pb-12">
           <p className="text-sm text-muted-foreground">
@@ -178,22 +180,6 @@ export default function Settings() {
             <CardContent className="max-w-xs space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
             </CardContent>
           </Card>
 

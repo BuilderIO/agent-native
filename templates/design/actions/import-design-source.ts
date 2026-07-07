@@ -2,14 +2,12 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { parseFigmaClipboardHtml } from "../server/lib/figma-import/clipboard.js";
-import { importFigmaBuffer } from "../server/lib/figma-import/processor.js";
 import {
   normalizeImportedHtmlDocument,
   resolveImportDesignId,
   saveImportedDesignFiles,
-  type ImportedDesignFile,
 } from "../server/lib/import-design-files.js";
+import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 
 const MAX_HTML_IMPORT_BYTES = 2 * 1024 * 1024;
 
@@ -25,7 +23,7 @@ function baseFilename(originalName: string | undefined, fallback: string) {
 
 export default defineAction({
   description:
-    "Import Figma clipboard HTML or standalone HTML into the current Design project as one or more editable screens.",
+    "Import visible clipboard HTML or standalone HTML into the current Design project as an editable screen.",
   schema: z.object({
     designId: z
       .string()
@@ -64,84 +62,36 @@ export default defineAction({
       };
     }
 
-    const parsed = parseFigmaClipboardHtml(content);
-    const warnings: string[] = [];
-    if (parsed.buffer && parsed.hasFigmaBuffer) {
-      try {
-        const imported = await importFigmaBuffer({
-          buffer: parsed.buffer,
-          filename: originalName ?? "figma-paste.fig",
-          sourceKind: "figma-paste",
-          selection: { nodeId: parsed.meta?.selectedNodeId },
-          meta: parsed.meta,
-        });
-        const files: ImportedDesignFile[] = imported.files.map((file) => ({
-          filename: file.filename,
-          fileType: "html",
-          content: file.content,
-          source: file.source,
-          preferredFrame: {
-            title:
-              typeof file.source?.frameName === "string"
-                ? file.source.frameName
-                : undefined,
-            width: file.width,
-            height: file.height,
-          },
-        }));
-        const saved = await saveImportedDesignFiles({
-          designId: resolvedDesignId,
-          sourceType: "figma-paste",
-          files,
-          warnings: [...warnings, ...imported.warnings],
-        });
-        return { ...saved, stats: imported.stats };
-      } catch (error) {
-        warnings.push(
-          error instanceof Error
-            ? `Figma binary payload could not be decoded: ${error.message}`
-            : "Figma binary payload could not be decoded.",
-        );
-      }
-    } else if (parsed.buffer) {
-      warnings.push(
-        "The clipboard included a Figma buffer, but it was not a supported fig-kiwi payload.",
-      );
-    }
-
+    const parsed = parseVisibleClipboardHtml(content);
     if (!parsed.fallbackHtml) {
       throw new Error(
-        "No importable Figma frame data or visible HTML was found in the clipboard.",
+        "No visible HTML was found in the clipboard. Copy a frame, then paste into the canvas.",
       );
     }
     const saved = await saveImportedDesignFiles({
       designId: resolvedDesignId,
-      sourceType: "figma-paste-fallback",
+      sourceType: "figma-paste-html",
       files: [
         {
           filename: baseFilename(originalName, "figma-paste"),
           fileType: "html",
           content: normalizeImportedHtmlDocument(
             parsed.fallbackHtml,
-            "Figma clipboard fallback HTML",
+            "visible clipboard HTML",
           ),
           source: {
-            sourceType: "figma-paste-fallback",
-            selectedNodeId: parsed.meta?.selectedNodeId,
-            fileKey: parsed.meta?.fileKey,
+            sourceType: "figma-paste-html",
           },
         },
       ],
-      warnings,
     });
     return {
       ...saved,
       stats: {
         sourceKind: "figma-paste",
-        format: "html-fallback",
+        format: "html",
         frameCount: saved.files.length,
         imageCount: 0,
-        selectedNodeId: parsed.meta?.selectedNodeId,
       },
     };
   },

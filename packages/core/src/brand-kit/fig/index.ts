@@ -18,10 +18,13 @@ export interface FigBrandKitExtraction {
 }
 
 export const MAX_FIG_THUMBNAIL_BYTES = 512 * 1024;
+const LEGACY_LOCAL_COPY_MAGIC = new Uint8Array([
+  0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
+]);
 
 function unsupportedFigImport(): never {
   throw new Error(
-    "Local .fig design-system extraction has moved to Builder indexing. Connect Builder and use the design system indexing flow instead.",
+    "Legacy .fig helpers no longer process files locally. Connect Builder and use the design system indexing flow instead.",
   );
 }
 
@@ -31,9 +34,10 @@ export function looksLikeFigFile(data: Uint8Array): boolean {
     data[1] === 0x4b &&
     data[2] === 0x03 &&
     data[3] === 0x04;
-  const isKiwi =
-    Buffer.from(data.subarray(0, 8)).toString("utf8") === "fig-kiwi";
-  return isZip || isKiwi;
+  const isLegacyLocalCopy = LEGACY_LOCAL_COPY_MAGIC.every(
+    (byte, index) => data[index] === byte,
+  );
+  return isZip || isLegacyLocalCopy;
 }
 
 export function figThumbnailDataUrl(thumbnail: Buffer | null): string | null {

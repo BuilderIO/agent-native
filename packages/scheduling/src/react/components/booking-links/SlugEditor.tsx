@@ -1,3 +1,4 @@
+import { Label } from "@agent-native/toolkit/ui";
 /**
  * SlugEditor — inline-editable URL preview for a booking link.
  *
@@ -10,8 +11,6 @@
  * Shadcn primitives expected in the consumer: label.
  */
 import { useState } from "react";
-
-import { Label } from "@/components/ui/label";
 
 import { useSchedulingT } from "../../i18n.js";
 

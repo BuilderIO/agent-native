@@ -1,8 +1,12 @@
 import {
   createSharedEditorExtensions,
   useCollabReconcile,
+  usePresence,
+  useRecentEdits,
+  RecentEditHighlights,
   RegistryBlockDataProvider,
   useT,
+  type AttributedRecentEdit,
   type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
 } from "@agent-native/core/client";
@@ -351,6 +355,23 @@ const NotionBlockquote = Blockquote.extend({
 
 const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
   "Press ‘space’ for AI or ‘/’ for commands";
+
+const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
+const RECENT_EDIT_MARKER_WIDTH = 2;
+const RECENT_EDIT_MIN_MARKER_HEIGHT = 18;
+
+type EditorCoordinateRect = Pick<DOMRect, "left" | "top" | "bottom">;
+
+export function getRecentEditPresenceMarkerRect(
+  anchor: EditorCoordinateRect,
+): DOMRect {
+  return new DOMRect(
+    anchor.left,
+    anchor.top,
+    RECENT_EDIT_MARKER_WIDTH,
+    Math.max(RECENT_EDIT_MIN_MARKER_HEIGHT, anchor.bottom - anchor.top),
+  );
+}
 
 const NotionMarkdownShortcuts = Extension.create({
   name: "notionMarkdownShortcuts",
@@ -742,10 +763,12 @@ interface VisualEditorProps {
   onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
+  /** True after the collab provider has loaded persisted Y.Doc state. */
+  collabSynced?: boolean;
   /** Shared awareness instance for collaborative cursors/presence. */
   awareness?: Awareness | null;
   /** Current user info for cursor labels. */
-  user?: { name: string; color: string; email?: string };
+  user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   /** Local-file docs should not persist mount-time/schema normalization echoes. */
   localFileMode?: boolean;
@@ -894,7 +917,12 @@ interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
-  user?: { name: string; color: string; email?: string } | null;
+  user?: {
+    name: string;
+    color: string;
+    email?: string;
+    avatarUrl?: string;
+  } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
@@ -1581,6 +1609,7 @@ export function VisualEditor({
   onChange,
   onSaveContent,
   ydoc,
+  collabSynced = true,
   awareness,
   user,
   editable = true,
@@ -1599,6 +1628,7 @@ export function VisualEditor({
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
@@ -1880,12 +1910,21 @@ export function VisualEditor({
   const collabState = useCollabReconcile({
     editor,
     ydoc,
+    collabSynced,
     awareness: localAwareness,
     value: content,
     contentUpdatedAt,
     editable,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
+    // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
+    // cursors; their editor content comes from the server state fetch + peer Yjs
+    // updates, never from SQL reconcile. Any local Y.Doc write from a viewer
+    // would be POSTed to the editor-only `/update` route (→ 403) and could
+    // publish an author-less snapshot, so both write paths are neutered when
+    // `!editable`: this `setContent` (used by both the seed and the reconcile
+    // apply) no-ops, and `shouldSeed` returns false so the seed never runs.
     setContent: (e, value, options) => {
+      if (!editable) return;
       const doc = nfmToDoc(value);
       if (options.addToHistory === false) {
         e.chain()
@@ -1903,6 +1942,7 @@ export function VisualEditor({
     },
     normalizeValue: canonicalizeNfm,
     shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
+      editable &&
       shouldSeedCollaborativeContent({
         content: value,
         currentMarkdown,
@@ -1911,6 +1951,71 @@ export function VisualEditor({
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
+
+  // ─── Recent-edit highlights (Google-Docs / Figma "just edited this") ─────────
+  //
+  // Other participants — including the AI agent — publish a short ring of recent
+  // edits into their awareness state. `usePresence` surfaces the remote entries,
+  // `useRecentEdits` filters to the non-expired ones, and `RecentEditHighlights`
+  // paints a lingering, fading glow with the editor's name/color flag. For the
+  // agent, `edit-document` / `update-document` publish a `{ kind: "text", quote }`
+  // descriptor, which we resolve to a viewport rect by locating the quote in the
+  // live ProseMirror doc and measuring the span with `coordsAtPos`.
+  const localClientId = ydoc?.clientID ?? null;
+  const { others } = usePresence(localAwareness, localClientId);
+  const recentEdits = useRecentEdits(others);
+
+  const resolveRecentEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      if (!editor || editor.isDestroyed) return null;
+      if (edit.descriptor.kind !== "text") return null;
+      const quote =
+        typeof edit.descriptor.quote === "string"
+          ? edit.descriptor.quote.trim()
+          : "";
+      if (!quote) return null;
+
+      // Clamp very long quotes — matching a long exact string across the doc is
+      // brittle (whitespace/markdown differences); the leading slice is enough to
+      // anchor the highlight to the right region.
+      const needle = quote.slice(0, 60);
+
+      // Walk the doc's text, tracking absolute positions, to find the needle.
+      const doc = editor.state.doc;
+      let found: { from: number; to: number } | null = null;
+      let acc = "";
+      let accStart = -1;
+      doc.descendants((node, pos) => {
+        if (found) return false;
+        if (!node.isText || typeof node.text !== "string") return true;
+        if (accStart === -1) accStart = pos;
+        acc += node.text;
+        const idx = acc.indexOf(needle);
+        if (idx !== -1) {
+          const from = accStart + idx;
+          found = { from, to: from + needle.length };
+          return false;
+        }
+        // Keep only a tail long enough to catch a needle spanning two text nodes.
+        if (acc.length > needle.length * 2) {
+          const drop = acc.length - needle.length;
+          acc = acc.slice(drop);
+          accStart += drop;
+        }
+        return true;
+      });
+      if (!found) return null;
+
+      try {
+        const { from } = found;
+        const start = editor.view.coordsAtPos(from);
+        return getRecentEditPresenceMarkerRect(start);
+      } catch {
+        return null;
+      }
+    },
+    [editor],
+  );
 
   // Side-map that feeds the shared registry-block NodeView its typed `data`,
   // lazily parsed from each node's verbatim `__raw` NFM. Edits write the
@@ -2086,8 +2191,15 @@ export function VisualEditor({
 
   return (
     <div
+      ref={wrapperRef}
       className={`visual-editor-wrapper${isDraggingMedia ? " visual-editor-wrapper--dragging" : ""}`}
     >
+      <RecentEditHighlights
+        edits={recentEdits}
+        resolveRect={resolveRecentEditRect}
+        containerRef={wrapperRef}
+        ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
+      />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}

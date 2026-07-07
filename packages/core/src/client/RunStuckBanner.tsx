@@ -19,6 +19,12 @@ import { cn } from "./utils.js";
 export interface RunStuckBannerProps {
   /** The thread to monitor. Pass null/undefined to disable. */
   threadId: string | null | undefined;
+  /**
+   * Set false to skip polling entirely — used when this banner is mounted
+   * for a background tab kept alive via display:none. Only the active tab
+   * should poll `/runs/active`. Defaults to true.
+   */
+  enabled?: boolean;
   /** API base path. Default `/_agent-native/agent-chat`. */
   apiUrl?: string;
   /**
@@ -145,6 +151,7 @@ async function claimAutoRetryAttempt(
 
 export function RunStuckBanner({
   threadId,
+  enabled = true,
   apiUrl,
   stuckThresholdMs,
   onRetry,
@@ -153,7 +160,12 @@ export function RunStuckBanner({
   autoRetryOwnerId,
   className,
 }: RunStuckBannerProps) {
-  const state = useRunStuckDetection({ threadId, stuckThresholdMs, apiUrl });
+  const state = useRunStuckDetection({
+    threadId,
+    enabled,
+    stuckThresholdMs,
+    apiUrl,
+  });
   const abortRun = useAbortRun(apiUrl);
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
@@ -163,6 +175,16 @@ export function RunStuckBanner({
   }
   const ownerId = autoRetryOwnerId ?? generatedOwnerIdRef.current;
   const backgroundWorkerStillAlive = isFreshBackgroundWorker(state);
+  // Background-dispatched runs are recovered by the SERVER (chained
+  // continuation chunks + lost-handoff sweep); an automatic client abort
+  // would kill a live server-chained run. Auto-retry is therefore disabled
+  // unconditionally for ANY background dispatch mode — not just a
+  // fresh-heartbeat worker — and the localStorage/Web-Locks auto-retry claim
+  // below is never taken for these runs (the adapter's follow loop is
+  // read-only, so multiple tabs need no retry dedup). Only the manual banner
+  // remains, on the wider background threshold from useRunStuckDetection.
+  const isBackgroundDispatch =
+    state.dispatchMode?.startsWith("background") === true;
 
   const lastReportedRef = useRef<{
     isStuck: boolean;
@@ -202,6 +224,9 @@ export function RunStuckBanner({
   useEffect(() => {
     if (
       !autoRetry ||
+      // Server owns recovery for background dispatch modes — never auto-abort
+      // (see comment on isBackgroundDispatch above).
+      isBackgroundDispatch ||
       backgroundWorkerStillAlive ||
       !state.isStuck ||
       !state.runId ||
@@ -238,6 +263,7 @@ export function RunStuckBanner({
     autoRetry,
     backgroundWorkerStillAlive,
     busy,
+    isBackgroundDispatch,
     onRetry,
     ownerId,
     state.isStuck,

@@ -42,6 +42,8 @@ const messages = {
       placeholder: "Suchen...",
       clear: "Clear search (Esc)",
       noMatches: "Keine Treffer",
+      localResults: "In diesem Posteingang",
+      searchingGmail: "Gmail wird durchsucht...",
     },
     tabSettings: {
       views: "Ansichten",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "Blöcke",
       media: "Medien",
       ai: "KI",
+      snippets: "Textbausteine",
     },
     mobileActions: {
       archive: "Archivieren",
@@ -270,6 +273,7 @@ const messages = {
       scheduledCancelled: "Geplante E-Mail abgebrochen.",
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -542,6 +546,20 @@ const messages = {
     whatsNewDescription:
       "Aktuelle nutzerseitige Anderungen in Agent-Native Mail.",
     drafting: "Entwurfe",
+    snippets: "Textbausteine",
+    snippetsDescription:
+      "Gespeicherte Antworten, die du per / und dem Textbaustein-Namen in einen Entwurf einfugen kannst.",
+    newSnippet: "Neuer Textbaustein",
+    noSnippets: "Noch keine Textbausteine. Erstelle einen, um loszulegen.",
+    snippetName: "Name des Textbausteins",
+    snippetNamePlaceholder: "z. B. Preis-Nachfrage",
+    snippetBody: "Inhalt des Textbausteins",
+    snippetBodyPlaceholder:
+      "Text, der beim Verwenden dieses Textbausteins eingefugt wird...",
+    editSnippet: "Textbaustein bearbeiten",
+    deleteSnippet: "Textbaustein loschen",
+    deleteSnippetDescription:
+      'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",

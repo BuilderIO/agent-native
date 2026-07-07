@@ -377,7 +377,10 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   Author diagram HTML/CSS with the renderer-owned `.diagram-*` primitives
   (`.diagram-panel`, `.diagram-node`, `.diagram-pill`, `[data-rough]`, …) and
   the same `--wf-*` theme tokens `references/wireframe.md` defines — never
-  `font-family`, hex, rgb/hsl literals, or one-off dark/light palettes.
+  `font-family`, hex, rgb/hsl literals, or one-off dark/light palettes. Choose
+  the outer `frame` intentionally: recap diagrams usually benefit from
+  `frame: "show"` when they stand alone, but use `frame: "hide"` when columns,
+  tabs, a card, or the diagram's own panels already provide the boundary.
 - **Outcome-first narrative** → `rich-text` for the "what changed and why" prose:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.

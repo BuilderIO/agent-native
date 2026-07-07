@@ -2,7 +2,15 @@ import {
   BlockRegistryProvider,
   type BlockRenderContext,
 } from "@agent-native/core/blocks";
-import { useT, type RichMarkdownCollabUser } from "@agent-native/core/client";
+import {
+  PresenceBar,
+  RecentEditHighlights,
+  useT,
+  type AttributedRecentEdit,
+  type CollabUser,
+  type RichMarkdownCollabUser,
+} from "@agent-native/core/client";
+import { Button } from "@agent-native/toolkit/ui/button";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -12,6 +20,7 @@ import type {
 } from "@shared/plan-content";
 import { IconBrandGithub } from "@tabler/icons-react";
 import {
+  useCallback,
   useEffect,
   lazy,
   useMemo,
@@ -25,7 +34,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { Button } from "@/components/ui/button";
+import { usePlanPresence } from "@/hooks/use-plan-presence";
 import { cn } from "@/lib/utils";
 
 import {
@@ -190,6 +199,57 @@ export function PlanContentRenderer({
   const t = useT();
   // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
   usePlanHashScroll(content.blocks);
+
+  // ─── Plan-level presence + agent visibility ─────────────────────────────────
+  //
+  // A content-free `plan:<planId>` collab doc carries only awareness: which
+  // humans are viewing/editing, plus the agent's presence + recent-edit
+  // attribution published by the patch actions (`agentTouchDocument`). We render
+  // a PresenceBar in the header and paint a lingering highlight over any block
+  // the agent just patched. Disabled for recaps / non-persisted surfaces (no
+  // planId) and while editing is fully disabled.
+  const presenceUser = useMemo<CollabUser | undefined>(
+    () =>
+      collabUser?.email
+        ? {
+            name: collabUser.name,
+            email: collabUser.email,
+            color: collabUser.color,
+          }
+        : undefined,
+    [collabUser?.email, collabUser?.name, collabUser?.color],
+  );
+  const { activeUsers, agentPresent, agentActive, recentEdits, collabDoc } =
+    usePlanPresence({
+      planId,
+      enabled: !!planId && !isRecap,
+      user: presenceUser,
+    });
+  const documentRegionRef = useRef<HTMLDivElement>(null);
+  const resolvePlanEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const container = documentRegionRef.current;
+      if (!container || edit.descriptor.kind !== "paths") return null;
+      const paths = edit.descriptor.paths;
+      if (!Array.isArray(paths) || paths.length === 0) return null;
+      // Each path is a block id; resolve the first one that maps to a live block
+      // node (the core registry NodeView + the read-only view both stamp
+      // `data-block-id` on the block wrapper).
+      for (const blockId of paths) {
+        if (typeof blockId !== "string" || !blockId) continue;
+        const escaped =
+          typeof CSS !== "undefined" && CSS.escape
+            ? CSS.escape(blockId)
+            : blockId.replace(/["\\]/g, "\\$&");
+        const el = container.querySelector<HTMLElement>(
+          `[data-block-id="${escaped}"]`,
+        );
+        if (el) return el.getBoundingClientRect();
+      }
+      return null;
+    },
+    [],
+  );
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
@@ -721,10 +781,16 @@ export function PlanContentRenderer({
           // (not canvas) so its containment can't disturb fixed canvas chrome.
           <div className="plan-document-region">
             <div
+              ref={documentRegionRef}
               className="plan-document-shell relative mx-auto w-full max-w-[1040px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
               data-plan-direction={documentDirection}
               dir={documentDirection}
             >
+              <RecentEditHighlights
+                edits={recentEdits}
+                resolveRect={resolvePlanEditRect}
+                containerRef={documentRegionRef}
+              />
               {/* Grid wrapper (header/flow/rails). `data-has-*` picks the tracks;
                   see global.css. */}
               <div
@@ -733,9 +799,19 @@ export function PlanContentRenderer({
               >
                 <header className="border-b border-plan-line pb-8">
                   {!hideRecapChrome && (
-                    <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
-                      {planLabel}
-                    </p>
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
+                        {planLabel}
+                      </p>
+                      {planId && !isRecap ? (
+                        <PresenceBar
+                          activeUsers={activeUsers}
+                          agentPresent={agentPresent}
+                          agentActive={agentActive}
+                          currentUserEmail={collabUser?.email}
+                        />
+                      ) : null}
+                    </div>
                   )}
                   <EditableHeaderText
                     as="h1"
@@ -817,6 +893,11 @@ export function PlanContentRenderer({
                           editable
                           onBlocksChange={replaceBlocks}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                          // Reuse the `plan:<planId>` connection `usePlanPresence`
+                          // already opened above for the header PresenceBar,
+                          // instead of opening a second independent one (see
+                          // `usePlanPresence`'s `collabDoc` doc comment).
+                          sharedCollabDoc={collabDoc}
                         />
                       </Suspense>
                     ) : (

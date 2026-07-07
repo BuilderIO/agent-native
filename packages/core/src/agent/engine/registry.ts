@@ -166,7 +166,13 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
       if (!isAgentEnginePackageInstalled(entry)) continue;
-      if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
+      if (
+        entry.requiredEnvVars.every(
+          (v) =>
+            canUseDeployCredentialFallbackForRequest(v) &&
+            !!readDeployCredentialEnv(v),
+        )
+      ) {
         return entry;
       }
     }
@@ -176,7 +182,13 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
     if (!isAgentEnginePackageInstalled(entry)) continue;
-    if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
+    if (
+      entry.requiredEnvVars.every(
+        (v) =>
+          canUseDeployCredentialFallbackForRequest(v) &&
+          !!readDeployCredentialEnv(v),
+      )
+    ) {
       return entry;
     }
   }
@@ -317,13 +329,21 @@ function stripInlineApiKeyConfig(
   return safeConfig;
 }
 
+function canUseDeployEnvForEntry(entry: AgentEngineEntry): boolean {
+  if (entry.requiredEnvVars.length === 0) return true;
+  return entry.requiredEnvVars.every((key) =>
+    canUseDeployCredentialFallbackForRequest(key),
+  );
+}
+
 function engineCreateConfig(
+  entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     apiKey,
-    allowEnvFallback: canUseDeployCredentialFallbackForRequest(),
+    allowEnvFallback: canUseDeployEnvForEntry(entry),
     ...(extra ?? {}),
   };
 }
@@ -336,7 +356,10 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
     raw = null;
   }
 
-  if (!raw && canUseDeployCredentialFallbackForRequest()) {
+  if (
+    !raw &&
+    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
+  ) {
     raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
   }
 
@@ -358,7 +381,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(apiKey, safeExtra);
+  return engineCreateConfig(entry, apiKey, safeExtra);
 }
 
 /**
@@ -374,7 +397,11 @@ export function isStoredEngineUsable(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
+  return entry.requiredEnvVars.every(
+    (v) =>
+      canUseDeployCredentialFallbackForRequest(v) &&
+      !!readDeployCredentialEnv(v),
+  );
 }
 
 /**
@@ -403,7 +430,7 @@ export async function isStoredEngineUsableForRequest(
       // Fall through to the deployment-level check below.
     }
     if (
-      !canUseDeployCredentialFallbackForRequest() ||
+      !canUseDeployCredentialFallbackForRequest(key) ||
       !readDeployCredentialEnv(key)
     ) {
       return false;
@@ -443,7 +470,7 @@ export async function isResolvedEngineUsableForRequest(
       // Fall through to deployment-level fallback when allowed.
     }
     if (
-      !canUseDeployCredentialFallbackForRequest() ||
+      !canUseDeployCredentialFallbackForRequest(key) ||
       !readDeployCredentialEnv(key)
     ) {
       return false;
@@ -468,14 +495,14 @@ export interface ResolveEngineConfig {
 
 /**
  * Resolve an AgentEngine from options → explicit env → app default →
- * request credentials → settings → env → default.
+ * settings → request credentials → env → default.
  *
  * Resolution order:
  * 1. Explicit `engineOption` from plugin options (string name, instance, or {name, config})
  * 2. Env var AGENT_ENGINE
  * 3. Org/user app-template default, when usable
- * 4. Current request's app_secrets; Builder wins by default when connected
- * 5. Settings store key "agent-engine" → { engine: string }, when usable
+ * 4. Settings store key "agent-engine" → { engine: string }, when usable
+ * 5. Current request's app_secrets; Builder wins by default when connected
  * 6. Auto-detect deployment env credentials
  * 7. Default "anthropic" (requires ANTHROPIC_API_KEY)
  */
@@ -550,21 +577,15 @@ export async function resolveEngine(
     // Settings not available — fall through
   }
 
-  // 5. Auto-detect from the current user's per-user `app_secrets` rows
-  // (Builder OAuth callback + "paste your own key" settings flow write
-  // here, not env). Comes before env-detection so a user-specific
-  // Builder connection wins over a stale deploy-level/provider key.
+  // Auto-detect from the current user's per-user `app_secrets` rows
+  // (Builder OAuth callback + "paste your own key" settings flow write here,
+  // not env). Stored/app defaults are checked first so an explicit provider
+  // selection can override a connected Builder account.
   const detectedFromUser = await detectEngineFromUserSecrets();
-  if (detectedFromUser?.name === "builder") {
-    return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
-    );
-  }
 
   // 6. Settings store — only when the stored row's API key is reachable.
-  // This remains below Builder detection so "Builder.io connected" and the
-  // runtime agree on the default managed gateway path. Non-Builder user keys
-  // still honor the stored provider/model when Builder is not connected.
+  // This explicit selection beats automatic Builder detection so users can
+  // switch away from Builder credits by saving/applying their own provider key.
   const storedRaw = stored as { engine?: unknown; config?: unknown } | null;
   const storedEngine = storedRaw?.engine;
   const storedConfig = storedRaw?.config;
@@ -591,9 +612,7 @@ export async function resolveEngine(
 
   // 8. Auto-detect from any provider env var — so just dropping a key in
   // .env works without also setting AGENT_ENGINE.
-  const detected = canUseDeployCredentialFallbackForRequest()
-    ? detectEngineFromEnv()
-    : null;
+  const detected = detectEngineFromEnv();
   if (detected) {
     return detected.create(await engineCreateConfigForEntry(detected, apiKey));
   }

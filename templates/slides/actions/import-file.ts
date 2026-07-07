@@ -4,12 +4,17 @@ import path from "path";
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
@@ -92,6 +97,14 @@ export default defineAction({
           },
         ],
       });
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      const proxy = await upsertBuilderProxyDesignSystem({
+        result,
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        projectName: title,
+      });
       return {
         format: "fig",
         title,
@@ -99,16 +112,11 @@ export default defineAction({
         projectId: result.projectId,
         jobId: result.jobId,
         designSystemId: result.designSystemId,
+        localDesignSystemId: proxy.localDesignSystemId,
         builderUrl: result.builderUrl,
         status: result.status,
         deckId,
-        instructions: [
-          "Sent the .fig file to Builder design-system indexing.",
-          `Builder design system: ${result.designSystemId}`,
-          `Builder job: ${result.jobId}`,
-          `Open: ${result.builderUrl}`,
-          "Do not call create-design-system locally for this .fig file; Builder owns the indexed design-system docs and generated usage guidance.",
-        ].join("\n"),
+        instructions: proxy.instructions,
       };
     }
 

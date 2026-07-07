@@ -1,11 +1,16 @@
 import {
   appApiPath,
   PromptComposer,
+  useActionMutation,
+  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
+import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   IconArrowLeft,
+  IconCheck,
+  IconCopy,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -16,6 +21,7 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconTerminal2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -45,6 +51,9 @@ import {
 } from "@/components/ui/tooltip";
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
+import { extractReplayDiagnostics } from "./session-replay-devtools";
+import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
 
 type SessionRecordingSummary = {
   id: string;
@@ -201,7 +210,12 @@ export default function SessionDetailPage() {
             </div>
           ) : null}
         </div>
-        {recording ? <AskSessionPopover recording={recording} /> : null}
+        {recording ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <CopySessionForAgentButton recordingId={recording.id} />
+            <AskSessionPopover recording={recording} />
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -221,6 +235,41 @@ export default function SessionDetailPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const createLink = useActionMutation(
+    "create-session-replay-agent-link" as any,
+  );
+
+  async function handleCopy() {
+    if (createLink.isPending) return;
+    const result = (await createLink.mutateAsync({
+      recordingId,
+    })) as { url?: string };
+    if (!result?.url) return;
+    await navigator.clipboard.writeText(result.url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => void handleCopy()}
+      disabled={createLink.isPending}
+    >
+      {copied ? (
+        <IconCheck className="h-4 w-4" />
+      ) : (
+        <IconCopy className="h-4 w-4" />
+      )}
+      {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
+    </Button>
   );
 }
 
@@ -348,6 +397,7 @@ function ReplayPlayer({
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [skipInactive, setSkipInactive] = useState(true);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [streamedDims, setStreamedDims] = useState<{
     width: number;
     height: number;
@@ -369,6 +419,9 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount =
+    diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 
   useEffect(() => {
     const el = stageAreaRef.current;
@@ -429,6 +482,11 @@ function ReplayPlayer({
       if (events.length < 2) {
         throw new Error(t("sessions.noReplayEvents"));
       }
+      if (
+        !events.some((event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot)
+      ) {
+        throw new Error(t("sessions.noReplayEvents"));
+      }
       setStatus("loading");
       setError(null);
       await import("@rrweb/replay/dist/style.css");
@@ -444,7 +502,14 @@ function ReplayPlayer({
         showWarning: false,
         showDebug: false,
         triggerFocus: false,
-        mouseTail: false,
+        // Subtle FullStory-style trail behind the visitor cursor. The canvas
+        // is resized alongside the iframe in applyReplayFrameDimensions.
+        mouseTail: {
+          strokeStyle: "rgba(59, 130, 246, 0.35)",
+          lineWidth: 2,
+          duration: 600,
+          lineCap: "round",
+        },
         insertStyleRules: [
           "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'] { display: none !important; }",
         ],
@@ -743,6 +808,31 @@ function ReplayPlayer({
                   : t("sessions.skipInactiveOff")}
               </TooltipContent>
             </Tooltip>
+
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
+                devToolsOpen && "border-primary/40 bg-primary/10 text-primary",
+              )}
+              onClick={() => setDevToolsOpen((value) => !value)}
+              aria-pressed={devToolsOpen}
+              aria-expanded={devToolsOpen}
+            >
+              <IconTerminal2 className="h-4 w-4" />
+              {t("sessions.devtools")}
+              {devToolsIssueCount > 0 ? (
+                <span
+                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-mono text-[10px] font-semibold leading-none text-white"
+                  aria-label={t("sessions.devtoolsIssueCount", {
+                    count: String(devToolsIssueCount),
+                  })}
+                >
+                  {devToolsIssueCount > 99 ? "99+" : devToolsIssueCount}
+                </span>
+              ) : null}
+            </button>
+
             <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
               {t("sessions.replayEventCount", {
                 events: String(response.eventCount),
@@ -750,6 +840,14 @@ function ReplayPlayer({
               {response.truncated ? ` ${t("sessions.truncated")}` : ""}
             </span>
           </div>
+
+          {devToolsOpen ? (
+            <SessionDevToolsPanel
+              diagnostics={diagnostics}
+              currentTime={currentTime}
+              onSeek={(ms) => seek(ms, true)}
+            />
+          ) : null}
 
           {response.unavailableChunks > 0 ? (
             <div className="border-t px-4 py-2 text-xs text-muted-foreground">
@@ -971,20 +1069,27 @@ function DetailSkeleton() {
 }
 
 function useSessionReplayPlayback(recordingId: string) {
+  const agentAccessToken = currentSessionReplayAgentAccessToken();
   return useQuery({
-    queryKey: ["session-replay-playback", recordingId],
+    queryKey: ["session-replay-playback", recordingId, agentAccessToken],
     enabled: Boolean(recordingId),
     staleTime: 30_000,
     gcTime: 60_000,
-    queryFn: () => fetchSessionReplayPlayback(recordingId),
+    queryFn: () =>
+      fetchSessionReplayPlayback(recordingId, { agentAccessToken }),
   });
+}
+
+interface FetchSessionReplayPlaybackOptions {
+  agentAccessToken?: string;
 }
 
 export async function fetchSessionReplayPlayback(
   recordingId: string,
+  options: FetchSessionReplayPlaybackOptions = {},
 ): Promise<SessionReplayPlaybackResponse> {
-  const manifest = await fetchReplayManifest(recordingId);
-  const chunks = await fetchReplayChunks(manifest.chunks);
+  const manifest = await fetchReplayManifest(recordingId, options);
+  const chunks = await fetchReplayChunks(manifest.chunks, options);
   const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
   const eventCount = chunks.reduce(
     (sum, chunk) => sum + chunk.events.length,
@@ -1001,11 +1106,13 @@ export async function fetchSessionReplayPlayback(
 
 async function fetchReplayManifest(
   recordingId: string,
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<SessionReplayManifestResponse> {
   const response = await fetchReplayApi(
     `/api/session-replay/recordings/${encodeURIComponent(
       recordingId,
     )}/manifest`,
+    options.agentAccessToken,
   );
   if (!response.ok) throw await replayFetchError(response);
   return (await response.json()) as SessionReplayManifestResponse;
@@ -1013,6 +1120,7 @@ async function fetchReplayManifest(
 
 async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
   let nextIndex = 0;
@@ -1021,7 +1129,7 @@ async function fetchReplayChunks(
     while (nextIndex < chunks.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await fetchReplayChunk(chunks[index]);
+      results[index] = await fetchReplayChunk(chunks[index], options);
     }
   }
 
@@ -1036,8 +1144,12 @@ async function fetchReplayChunks(
 
 async function fetchReplayChunk(
   chunk: SessionReplayManifestResponse["chunks"][number],
+  options: FetchSessionReplayPlaybackOptions,
 ): Promise<ReplayChunkEvents> {
-  const response = await fetchReplayApi(chunk.bytesPath);
+  const response = await fetchReplayApi(
+    chunk.bytesPath,
+    options.agentAccessToken,
+  );
   if (!response.ok) {
     const error = await replayFetchError(response);
     if (isUnavailableReplayChunk(response, error)) {
@@ -1075,9 +1187,31 @@ function replayUnavailableChunk(
   };
 }
 
-async function fetchReplayApi(path: string): Promise<Response> {
+function currentSessionReplayAgentAccessToken(): string {
+  const browserSearch =
+    globalThis.window?.location?.search ?? globalThis.location?.search ?? "";
+  return (
+    new URLSearchParams(browserSearch).get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ??
+    ""
+  );
+}
+
+async function fetchReplayApi(
+  path: string,
+  explicitAgentAccessToken?: string,
+): Promise<Response> {
   const token = await getIdToken();
-  return fetch(appApiPath(path), {
+  const browserOrigin =
+    globalThis.window?.location?.origin ??
+    globalThis.location?.origin ??
+    "http://localhost";
+  const url = new URL(appApiPath(path), browserOrigin);
+  const agentAccessToken =
+    explicitAgentAccessToken ?? currentSessionReplayAgentAccessToken();
+  if (agentAccessToken) {
+    url.searchParams.set(SESSION_REPLAY_AGENT_ACCESS_PARAM, agentAccessToken);
+  }
+  return fetch(`${url.pathname}${url.search}${url.hash}`, {
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

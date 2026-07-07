@@ -173,6 +173,14 @@ async function introspectSqlite(db: DbExec): Promise<TableSchema[]> {
 
 // ─── Cached entry point ─────────────────────────────────────────────────────
 
+// Coalesces concurrent cache-miss introspections (same pattern as poll.ts's
+// _checkPromise): several chat turns starting inside one TTL window would
+// otherwise each run the full multi-query DB introspection in parallel.
+let _inflight: {
+  key: string;
+  promise: Promise<{ tables: TableSchema[]; dialect: "postgres" | "sqlite" }>;
+} | null = null;
+
 async function getSchema(): Promise<{
   tables: TableSchema[];
   dialect: "postgres" | "sqlite";
@@ -182,16 +190,27 @@ async function getSchema(): Promise<{
   if (_cache && _cache.key === key && _cache.expires > now) {
     return { tables: _cache.tables, dialect: _cache.dialect };
   }
+  if (_inflight && _inflight.key === key) {
+    return _inflight.promise;
+  }
 
-  const db = getDbExec();
-  const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
-  const tables =
-    dialect === "postgres"
-      ? await introspectPostgres(db)
-      : await introspectSqlite(db);
+  const promise = (async () => {
+    const db = getDbExec();
+    const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
+    const tables =
+      dialect === "postgres"
+        ? await introspectPostgres(db)
+        : await introspectSqlite(db);
 
-  _cache = { key, expires: now + CACHE_TTL_MS, tables, dialect };
-  return { tables, dialect };
+    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables, dialect };
+    return { tables, dialect };
+  })();
+  _inflight = { key, promise };
+  try {
+    return await promise;
+  } finally {
+    if (_inflight?.promise === promise) _inflight = null;
+  }
 }
 
 /** Manually drop the cache — useful from tests or after running a migration. */

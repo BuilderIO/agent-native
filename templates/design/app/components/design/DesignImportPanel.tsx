@@ -1,4 +1,4 @@
-import { appApiPath, useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import {
   IconBrandFigma,
   IconBrandGithub,
@@ -7,28 +7,20 @@ import {
   IconCode,
   IconCopy,
   IconHtml,
-  IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
-  getFigmaClipboardContent,
   importResultSummary,
   looksLikeStandaloneHtml,
   VISUAL_EDIT_CONNECT_COMMAND,
+  VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
 } from "@/lib/design-import";
 import { cn } from "@/lib/utils";
@@ -39,19 +31,16 @@ interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
 }
 
-type ImportMode = "figma-paste" | "fig-file" | "html" | "local-app";
+type ImportMode = "figma-paste" | "html" | "local-app";
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
   const [htmlText, setHtmlText] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
-  const [activeUploadName, setActiveUploadName] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
 
   const finishImport = useCallback(
@@ -107,96 +96,6 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [context.designId, finishImport, importSource, t],
   );
 
-  const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLDivElement>) => {
-      const html = event.clipboardData.getData("text/html");
-      const text = event.clipboardData.getData("text/plain");
-      const content = html || text;
-      if (!content) return;
-      const figmaContent = getFigmaClipboardContent(event.clipboardData);
-      if (figmaContent) {
-        event.preventDefault();
-        importSource.mutate(
-          {
-            designId: context.designId,
-            sourceType: "figma-paste-html",
-            content: figmaContent,
-            originalName: "figma-paste.html",
-          },
-          {
-            onSuccess: (result: unknown) => {
-              void finishImport(
-                result as ImportResult,
-                t("designEditor.import.figmaSuccess"),
-              );
-            },
-            onError: (error: unknown) => {
-              toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
-                description:
-                  error instanceof Error
-                    ? error.message
-                    : t("common.genericError"),
-              });
-            },
-          },
-        );
-        return;
-      }
-      if (looksLikeStandaloneHtml(content)) {
-        event.preventDefault();
-        importHtmlString(content, "pasted-html.html");
-      }
-    },
-    [context.designId, finishImport, importHtmlString, importSource, t],
-  );
-
-  const uploadFile = useCallback(
-    async (file: File) => {
-      setUploading(true);
-      setActiveUploadName(file.name);
-      const body = new FormData();
-      body.append("designId", context.designId);
-      body.append("file", file);
-      try {
-        const response = await fetch(
-          appApiPath(
-            `/api/import-design-file?designId=${encodeURIComponent(context.designId)}`,
-          ),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        const result = (await response.json()) as ImportResult;
-        if (!response.ok) {
-          throw new Error(
-            result.error || t("designEditor.import.errors.uploadFailed"),
-          );
-        }
-        await finishImport(result, t("designEditor.import.uploadSuccess"));
-      } catch (error) {
-        toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description:
-            error instanceof Error ? error.message : t("common.genericError"),
-        });
-      } finally {
-        setUploading(false);
-        setActiveUploadName(null);
-      }
-    },
-    [context.designId, finishImport, t],
-  );
-
-  const handleFigmaFileChange = useCallback(
-    (file: File | undefined) => {
-      if (!file) return;
-      setActiveMode("fig-file");
-      void uploadFile(file);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    },
-    [uploadFile],
-  );
-
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
@@ -210,46 +109,36 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [importHtmlString],
   );
 
-  const askVisualEdit = useCallback(() => {
-    sendToDesignAgentChat({
-      message:
-        "Use the visual-edit skill to connect my local app to this Design project. Run the app if needed, call `npx @agent-native/core@latest design connect`, then add URL-backed screens to this design.",
-    } as Parameters<typeof sendToDesignAgentChat>[0]);
-    toast.success(t("designEditor.import.visualEditSent"));
-  }, [t]);
+  const copyVisualEditCommand = useCallback(
+    async (command: string) => {
+      try {
+        await navigator.clipboard.writeText(command);
+        toast.success(t("designEditor.copied"));
+      } catch {
+        toast.error(t("designEditor.toasts.clipboardBlocked"));
+      }
+    },
+    [t],
+  );
 
-  const copyVisualEditCommand = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(VISUAL_EDIT_CONNECT_COMMAND);
-      toast.success(t("designEditor.copied"));
-    } catch {
-      toast.error(t("designEditor.toasts.clipboardBlocked"));
-    }
-  }, [t]);
-
-  const busy = importSource.isPending || uploading;
+  const busy = importSource.isPending;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-14 shrink-0 items-center border-b border-border/60 px-3.5">
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold tracking-tight text-foreground">
-            {t("designEditor.import.title")}
-          </h3>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {"Bring source screens into this design" /* i18n-ignore */}
-          </p>
-        </div>
+      <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+          {t("designEditor.import.title")}
+        </h3>
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 pb-4 pt-3">
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
         <div className="space-y-0.5">
           <ImportSourceRow
             id="figma-paste-import"
             icon={<IconBrandFigma className="size-3.5" />}
             title={t("designEditor.import.figmaPasteTitle")}
             description={
-              "Copy a frame in Figma, then paste here." /* i18n-ignore */
+              "Copy a frame in Figma, then paste into the canvas." /* i18n-ignore */
             }
             isOpen={activeMode === "figma-paste"}
             onToggle={() =>
@@ -258,58 +147,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               )
             }
           >
-            <div className="p-2">
-              <div
-                role="textbox"
-                tabIndex={0}
-                data-hotkeys-scope="text"
-                aria-label={t("designEditor.import.figmaPasteTarget")}
-                onPaste={handlePaste}
-                className={cn(
-                  "flex min-h-24 cursor-text items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-3 py-4 text-center text-xs text-muted-foreground outline-none transition-colors",
-                  "focus:border-primary/60 focus:bg-background focus:ring-2 focus:ring-primary/15",
-                )}
-              >
-                {t("designEditor.import.figmaPasteTarget")}
-              </div>
-            </div>
-          </ImportSourceRow>
-
-          <ImportSourceRow
-            id="fig-file-import"
-            icon={<IconUpload className="size-3.5" />}
-            title={t("designEditor.import.figUploadTitle")}
-            description={"Upload exported Figma frames." /* i18n-ignore */}
-            isOpen={activeMode === "fig-file"}
-            onToggle={() =>
-              setActiveMode((mode) => (mode === "fig-file" ? null : "fig-file"))
-            }
-          >
-            <div className="space-y-2 p-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".fig"
-                className="hidden"
-                onChange={(event) =>
-                  handleFigmaFileChange(event.target.files?.[0])
-                }
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 w-full justify-center"
-                disabled={busy}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading
-                  ? "Importing..." /* i18n-ignore */
-                  : t("designEditor.import.chooseFigFile")}
-              </Button>
-              <p className="truncate text-[10px] leading-snug text-muted-foreground">
+            <div className="space-y-1.5 p-2 text-[11px] leading-snug text-muted-foreground">
+              <p>{t("designEditor.import.figmaPasteDescription")}</p>
+              <p>
                 {
-                  activeUploadName ??
-                    "Export only the frames you need." /* i18n-ignore */
+                  "Click the canvas first, then paste with the same shortcut you use for copied Design content." /* i18n-ignore */
                 }
               </p>
             </div>
@@ -362,6 +204,46 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               </div>
             </div>
           </ImportSourceRow>
+
+          <ImportSourceRow
+            id="local-app-import"
+            icon={<IconCode className="size-3.5" />}
+            title={t("designEditor.import.localTitle")}
+            description={t("designEditor.import.localDescription")}
+            isOpen={activeMode === "local-app"}
+            onToggle={() =>
+              setActiveMode((mode) =>
+                mode === "local-app" ? null : "local-app",
+              )
+            }
+          >
+            <div className="space-y-2 p-2">
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {t("designEditor.import.visualEditGuidance")}{" "}
+                <a
+                  href="/docs/template-design"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  {"Read the visual-edit docs." /* i18n-ignore */}
+                </a>
+              </p>
+              <VisualEditCommandRow
+                command={VISUAL_EDIT_INSTALL_COMMAND}
+                onCopy={copyVisualEditCommand}
+              />
+              <VisualEditCommandRow
+                command={VISUAL_EDIT_CONNECT_COMMAND}
+                onCopy={copyVisualEditCommand}
+              />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                {
+                  "Replace <port> with the running app's local port." /* i18n-ignore */
+                }
+              </p>
+            </div>
+          </ImportSourceRow>
         </div>
 
         <div className="mt-4 border-t border-border/60 pt-3">
@@ -377,47 +259,6 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               }
               badge={t("designEditor.import.comingSoon")}
             />
-            <ImportSourceRow
-              id="local-app-import"
-              icon={<IconCode className="size-3.5" />}
-              title={t("designEditor.import.localTitle")}
-              description={t("designEditor.import.localDescription")}
-              isOpen={activeMode === "local-app"}
-              onToggle={() =>
-                setActiveMode((mode) =>
-                  mode === "local-app" ? null : "local-app",
-                )
-              }
-            >
-              <div className="space-y-2 p-2">
-                <p className="text-[11px] leading-snug text-muted-foreground">
-                  {t("designEditor.import.visualEditGuidance")}
-                </p>
-                <div className="flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 p-1.5">
-                  <code className="min-w-0 flex-1 truncate font-mono text-[10px] leading-5 text-foreground/80">
-                    {VISUAL_EDIT_CONNECT_COMMAND}
-                  </code>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 shrink-0 px-1.5 text-[10px]"
-                    onClick={copyVisualEditCommand}
-                  >
-                    <IconCopy className="size-3" />
-                    {"Copy" /* i18n-ignore */}
-                  </Button>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 w-full justify-center text-[11px]"
-                  onClick={askVisualEdit}
-                >
-                  {t("designEditor.import.useVisualEditNow")}
-                </Button>
-              </div>
-            </ImportSourceRow>
           </div>
         </div>
 
@@ -437,6 +278,32 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function VisualEditCommandRow({
+  command,
+  onCopy,
+}: {
+  command: string;
+  onCopy: (command: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 p-1.5">
+      <code className="min-w-0 flex-1 truncate font-mono text-[10px] leading-5 text-foreground/80">
+        {command}
+      </code>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        aria-label={"Copy command" /* i18n-ignore */}
+        className="h-6 shrink-0 px-1.5 text-[10px]"
+        onClick={() => onCopy(command)}
+      >
+        <IconCopy className="size-3" />
+      </Button>
     </div>
   );
 }

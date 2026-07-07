@@ -3,8 +3,31 @@ import { EventEmitter } from "events";
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestContext } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
+
+// Per-request memoization of settings reads, keyed on the active
+// AsyncLocalStorage RequestContext (WeakMap → freed with the request). One
+// action request can read the same setting several times (org resolution,
+// guards, the action body), and each read is a network round trip on
+// serverless Postgres. Mirrors the per-request session/org caches on
+// event.context. The cache holds the raw JSON string and re-parses per hit
+// so callers can't mutate a shared object; writes in the same request are
+// written through, while other in-flight requests keep their snapshot for
+// their own (short) lifetime.
+const _requestSettingsCache = new WeakMap<object, Map<string, string | null>>();
+
+function requestSettingsCache(): Map<string, string | null> | null {
+  const ctx = getRequestContext();
+  if (!ctx || typeof ctx !== "object") return null;
+  let cache = _requestSettingsCache.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    _requestSettingsCache.set(ctx, cache);
+  }
+  return cache;
+}
 
 const _emitter = new EventEmitter();
 
@@ -83,6 +106,11 @@ async function ensureTable(): Promise<void> {
 export async function getSetting(
   key: string,
 ): Promise<Record<string, unknown> | null> {
+  const cache = requestSettingsCache();
+  if (cache?.has(key)) {
+    const cached = cache.get(key);
+    return cached == null ? null : JSON.parse(cached);
+  }
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
@@ -90,8 +118,9 @@ export async function getSetting(
     sql: `SELECT value FROM ${table} WHERE key = ?`,
     args: [key],
   });
-  if (rows.length === 0) return null;
-  return JSON.parse(rows[0].value as string);
+  const raw = rows.length === 0 ? null : (rows[0].value as string);
+  cache?.set(key, raw);
+  return raw == null ? null : JSON.parse(raw);
 }
 
 export interface StoreWriteOptions {
@@ -113,6 +142,7 @@ export async function putSetting(
       : `INSERT OR REPLACE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
     args: [key, JSON.stringify(value), Date.now()],
   });
+  requestSettingsCache()?.set(key, JSON.stringify(value));
   _emitter.emit("settings", {
     source: "settings",
     type: "change",
@@ -132,6 +162,7 @@ export async function deleteSetting(
     sql: `DELETE FROM ${table} WHERE key = ?`,
     args: [key],
   });
+  requestSettingsCache()?.set(key, null);
   if (result.rowsAffected > 0) {
     _emitter.emit("settings", {
       source: "settings",

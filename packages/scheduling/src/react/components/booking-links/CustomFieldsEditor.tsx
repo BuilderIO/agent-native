@@ -1,3 +1,4 @@
+import { Input, Label, Switch, Textarea } from "@agent-native/toolkit/ui";
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -23,11 +24,6 @@ import { nanoid } from "nanoid";
  * textarea, switch. Icons from `@tabler/icons-react`.
  */
 import { useState } from "react";
-
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 import { useSchedulingT } from "../../i18n.js";
 

@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import { breakpointBarOverrides } from "./i18n-breakpoints";
+import { motionDockOverrides } from "./i18n-motion";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -113,9 +115,13 @@ const enUS = {
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
+      reorderLayer: "Reorder layer",
+      stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
       unlinkSides: "Unlink sides",
       allSides: "All",
+      lockAspectRatio: "Lock aspect ratio",
+      unlockAspectRatio: "Unlock aspect ratio",
       cornerRadius: "Corner radius",
       independentCorners: "Independent corners",
       topLeft: "TL",
@@ -127,12 +133,78 @@ const enUS = {
       outline: "Outline",
       inside: "Inside",
       outside: "Outside",
+      center: "Center",
       dropShadow: "Drop shadow",
       addDropShadow: "Add drop shadow",
       innerShadow: "Inner shadow",
       layerBlur: "Layer blur",
       blur: "Blur",
       spread: "Spread",
+      rotation3d: "3D rotation",
+      rotationX: "Rotate X",
+      rotationY: "Rotate Y",
+      perspective: "Perspective",
+      perspectiveHint: "Perspective (empty/0 = none)",
+      customTransform: "Custom transform — can't be edited as X/Y/Z rotation",
+      shaderEffectType: "Shader",
+    },
+    shaders: {
+      fillsTitle: "Shader fills",
+      effectsTitle: "Shader effects",
+      createdByYou: "Created by you",
+      presets: "Presets",
+      createNew: "Create new",
+      ai: "AI",
+      savedInThisDesign: "Saved in this design",
+      noMatches: "No shaders match your search",
+      backToBrowser: "Back to shader browser",
+      closePanel: "Close shader panel",
+      editCode: "Edit GLSL code",
+      removeShader: "Remove shader",
+      removeShaderEffect: "Remove shader effect",
+      noUniforms: "This shader has no adjustable uniforms",
+      codeHint:
+        "The GLSL source is saved in this screen's HTML — open the Code panel to edit it.",
+      selectElementFirst: "Select a screen element first",
+      selectCanvasElementFirst: "Select an element on the canvas first",
+      saveFailed: "Could not save the shader",
+      categories: {
+        gradientFlow: "Gradient flow",
+        waves: "Waves",
+        noise: "Noise",
+        pattern: "Patterns",
+        texture: "Texture",
+        retro: "Retro",
+      },
+    },
+    interactionStates: {
+      default: "Default",
+      hover: "Hover",
+      focus: "Focus",
+      focusVisible: "Focus visible",
+      active: "Pressed",
+      disabled: "Disabled",
+      selectorLabel: "Interaction state",
+      selectorTooltip: "Preview and edit hover, focus, and pressed states",
+      editingState: "Editing {{state}} state",
+      editingStateTooltip:
+        "Editing the {{state}} state — styles here apply only when this element is {{state}}",
+      hasOverrideIndicator: "This property is overridden in this state",
+      reset: "Reset",
+      resetOverride: "Reset override",
+      resetOverrideTooltip:
+        "Clear this state's override and use the default value",
+    },
+    motionKeyframe: {
+      addTooltip: "Add keyframe",
+      removeTooltip: "Remove keyframe",
+    },
+    breakpointOverride: {
+      overriddenTooltip: "Overridden at this breakpoint",
+      overriddenAtTooltip: "Overridden at {{width}}px",
+      reset: "Reset override",
+      resetShort: "Reset",
+      resetTooltip: "Clear this breakpoint's override and use the base value",
     },
     selection: {
       pageContext: "Page defaults",
@@ -243,6 +315,18 @@ const enUS = {
       dotted: "Dotted",
       double: "Double",
     },
+    framePresets: {
+      title: "Frame",
+      categories: {
+        phone: "Phone",
+        tablet: "Tablet",
+        desktop: "Desktop",
+        presentation: "Presentation",
+        watch: "Watch",
+        paper: "Paper",
+        socialMedia: "Social media",
+      },
+    },
   },
   designEditor: {
     askAgent: "Ask agent",
@@ -255,9 +339,75 @@ const enUS = {
       tokens: "Tokens",
       label: "Design workspace",
     },
+    breakpointBar: {
+      base: "Base",
+      editBaseWidth: "Edit base width",
+      addBreakpoint: "Add breakpoint",
+      remove: "Remove breakpoint",
+      options: "Breakpoint options",
+      changeWidth: "Change width",
+      customWidth: "Custom width",
+      add: "Add",
+      showAllBreakpoints: "Show all breakpoints",
+      desktop: "Desktop",
+      tablet: "Tablet",
+      phone: "Phone",
+    },
+    motion: {
+      dockLabel: "Motion dock",
+      collapseDock: "Collapse motion dock",
+      play: "Play",
+      pause: "Pause",
+      resetPlayhead: "Reset playhead",
+      reset: "Reset",
+      addKeyframeAtPlayhead: "Add keyframe at playhead",
+      addKeyframeAtPlayheadForProperty:
+        "Add keyframe at playhead ({{property}})",
+      selectPropertyRowFirst: "Select a property row first",
+      currentTimeMs: "Current time in ms",
+      duration: "Duration",
+      durationMs: "Duration in ms",
+      playbackMode: "Playback mode: {{mode}}",
+      playback: "Playback: {{mode}}",
+      loop: "Loop",
+      once: "Once",
+      pingPong: "Ping-pong",
+      toggleAutoKeyframe: "Toggle auto-keyframe",
+      autoKeyframe: "Auto-keyframe",
+      savingMotion: "Saving motion",
+      emptyStateAnimate: "Animate",
+      emptyStatePickProperty: ". Pick a property to add the first track.",
+      emptyStateNoSelection:
+        "Select an element on the canvas, then add a track to animate it.",
+      addMotion: "Add motion",
+      selectElementFirst: "Select an element on the canvas first",
+      animateLayer: 'Animate "{{label}}"',
+      more: "More",
+      addKeyframe: "Add keyframe",
+      trackExists:
+        'A "{{property}}" track already exists for {{label}}. Edit its keyframes in the timeline instead.',
+      layerAnimationSpan: "{{label}} animation span",
+      keyframeAt: "Keyframe at {{ms}}ms",
+      deleteKeyframe: "Delete keyframe",
+      segmentEasing: "Segment easing: {{ease}}",
+      curveTab: "Curve",
+      springTab: "Spring",
+      customBezier: "Custom bezier",
+      customSpring: "Custom spring",
+      bounce: "Bounce",
+      bezierCurveEditor: "Bezier curve editor",
+      springCurvePreview: "Spring curve preview",
+      defaultEase: "Default",
+    },
     applyToSource: "Apply to source",
     applyToSourcePath: "Apply to source ({{path}})",
+    applyToSourceUnavailableCompiled:
+      "Source write-back isn't available yet for compiled framework routes (React/TS components). Ask the agent to edit the source file instead.",
     writingToSource: "Writing…",
+    appliedToSource: "Saved to {{path}}",
+    applyToSourceConflict:
+      "{{path}} changed on disk since it was opened. Reload the screen and try again.",
+    applyToSourceError: "Couldn't save to source: {{message}}",
     tokens: {
       title: "Tokens",
       newToken: "New token",
@@ -282,11 +432,11 @@ const enUS = {
     import: {
       title: "Import",
       description:
-        "Bring in Figma selections, .fig exports, or standalone HTML as Design screens.",
+        "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
-        "Copy a frame or layer in Figma, then focus this target and paste. Figma metadata imports directly when available.",
-      figmaPasteTarget: "Paste Figma content here",
+        "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
+      figmaPasteTarget: "Paste into the canvas",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
@@ -300,17 +450,15 @@ const enUS = {
       githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
-      localTitle: "Local app / VS Code",
-      localDescription: "Connect a running local app with visual-edit.",
+      localTitle: "Local app",
+      localDescription: "Connect any running local app with /visual-edit.",
       visualEditGuidance:
-        "Start your app, run the command below from the app repo, then ask the agent to use the visual-edit skill to add URL-backed screens.",
-      useVisualEditNow: "Use visual-edit now",
+        "Install the /visual-edit skill, start any local app, then run the bridge command from that app repo so your agent can add URL-backed screens.",
       comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
-      visualEditSent: "Sent visual-edit request to the agent",
       lastImport: "Last import",
       errors: {
         notHtml: "Paste or choose valid HTML to import.",
@@ -514,19 +662,14 @@ const enUS = {
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
       duplicateElementFailed: "Could not duplicate that element",
+      eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
-    },
-    localSourceEdit: {
-      copyPrompt: "Copy prompt",
-      askAi: "Ask AI",
-      applyWithAi: "Apply with AI",
-      copyPromptTooltip: "Copy prompt to clipboard",
-      targeting: "Targeting:",
-      describeElementChange: "Describe the change for this element…",
-      describeChange: "Describe what you want to change…",
+      undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
+      redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
+      autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
     },
   },
   layersPanel: {
@@ -549,6 +692,20 @@ const enUS = {
     show: "Show layer",
     rename: "Rename layer",
     deleteBoardObject: "Delete board object",
+    copy: "Copy",
+    pasteHere: "Paste here",
+    duplicate: "Duplicate",
+    delete: "Delete",
+    group: "Group",
+    ungroup: "Ungroup",
+    bringForward: "Bring forward",
+    bringToFront: "Bring to front",
+    sendBackward: "Send backward",
+    sendToBack: "Send to back",
+    pasteToReplace: "Paste to replace",
+    frameSelection: "Frame selection",
+    flipHorizontal: "Flip horizontal",
+    flipVertical: "Flip vertical",
   },
   multiScreenCanvas: {
     duplicate: "Duplicate",
@@ -786,22 +943,22 @@ const enUS = {
     continue: "Continue to generation",
     title: "Set up your design system",
     description:
-      "Provide any combination of sources. The more context you give, the more accurate the extracted design system will be.",
-    figmaParsingTitle: "Parsing your Figma file...",
+      "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
+    figmaParsingTitle: "Starting Builder DSI indexing...",
     figmaParsingDescription:
-      "Decoding the document and extracting brand tokens",
-    uploadFig: "Upload a .fig file",
-    figmaSaveLocalCopy: "In Figma: File -> Save local copy",
+      "Builder will extract tokens, components, assets, and usage guidance",
+    uploadFig: "Connect Figma with a .fig file",
+    figmaSaveLocalCopy:
+      "Upload a local copy from Figma: File -> Save local copy",
     websiteUrl: "Website-URL",
     add: "Add",
     githubRepository: "GitHub repository",
     privateRepoPrefix: "Private repos need a fine-grained token saved as",
     privateRepoSuffix: "with Contents read access.",
-    localCodeFiles: "Local code files",
-    dropCodeFiles:
-      "Drop CSS, Tailwind config, theme files here, or click to browse",
+    localCodeFiles: "Connect code files",
+    dropCodeFiles: "Drop CSS, Tailwind config, theme files, or design.md here",
     codeFilePatterns:
-      ".css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+      ".css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     documents: "Documents & presentations",
     documentsHelp:
       "PPTX, DOCX, PDF, XLSX - brand guides, pitch decks, style docs",
@@ -837,7 +994,7 @@ const enUS = {
     errors: {
       chooseFig:
         "Please choose a .fig file (in Figma: File -> Save local copy).",
-      parseFig: "Could not parse that Figma file.",
+      parseFig: "Could not start Builder indexing for that Figma file.",
       enterWebsite: "Enter a website URL before adding it.",
       websiteProtocol: "Website URLs must start with http:// or https://.",
       enterGithub: "Enter a GitHub repository URL before adding it.",
@@ -847,22 +1004,22 @@ const enUS = {
     },
     sections: {
       figma: {
-        title: "Start from a Figma file",
+        title: "Connect Figma",
         description:
-          "Upload a .fig and we'll deeply extract the brand - colors, type scale, signature gradients, and a brand-character brief - into a ready-to-use design system.",
+          "Upload a .fig local copy and Builder DSI will index tokens, components, assets, and guidance into a reusable design system.",
       },
       company: {
         title: "Company / Brand",
         description: "Name, description, and website",
       },
       code: {
-        title: "Code",
+        title: "Connect Code",
         description:
-          "GitHub repos or local files - the strongest signal for design tokens",
+          "GitHub repos, local source files, and optional design.md guidance for Builder DSI",
       },
       designFiles: {
-        title: "Design files",
-        description: "Figma files, documents, screenshots, brand assets",
+        title: "Reference files",
+        description: "Documents, screenshots, logos, fonts, and brand assets",
       },
       importExisting: {
         title: "Import from existing",
@@ -1188,6 +1345,8 @@ const designLocaleOverrides = {
         openScreenSvg: "导出 SVG 之前打开一个屏幕",
         svgDownloaded: "SVG 下载",
         svgExportError: "无法导出 SVG",
+        undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
+        redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
       },
     },
     designSystemSetup: {
@@ -1198,18 +1357,18 @@ const designLocaleOverrides = {
       continue: "继续生成",
       title: "设置您的设计系统",
       description:
-        "提供来源的任意组合。您提供的上下文越多，提取的设计系统就越准确。",
-      figmaParsingTitle: "正在解析您的 Figma 文件...",
-      figmaParsingDescription: "解码文档并提取品牌令牌",
-      uploadFig: "上传.fig 文件",
-      figmaSaveLocalCopy: "在Figma中：文件->保存本地副本",
+        "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
+      figmaParsingTitle: "正在启动 Builder DSI 索引...",
+      figmaParsingDescription: "Builder 会提取令牌、组件、资产和使用指引",
+      uploadFig: "连接 Figma .fig 文件",
+      figmaSaveLocalCopy: "上传 Figma 本地副本：File -> Save local copy",
       websiteUrl: "网站URL",
       add: "添加",
       githubRepository: "GitHub 存储库",
       privateRepoPrefix: "私人仓库需要一个细粒度的令牌，另存为",
       privateRepoSuffix: "具有内容读取权限。",
-      localCodeFiles: "本地代码文件",
-      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件拖放到此处，或单击浏览",
+      localCodeFiles: "连接代码文件",
+      dropCodeFiles: "将 CSS、Tailwind 配置、主题文件或 design.md 拖放到此处",
       documents: "文件和演示文稿",
       documentsHelp: "PPTX、DOCX、PDF、XLSX - 品牌指南、推介材料、风格文档",
       visualReferences: "屏幕截图和视觉参考",
@@ -1241,7 +1400,7 @@ const designLocaleOverrides = {
       figmaThumbnailAlt: "Figma 文件缩略图",
       errors: {
         chooseFig: "请选择一个.fig 文件（在 Figma 中：文件 -> 保存本地副本）。",
-        parseFig: "无法解析该 Figma 文件。",
+        parseFig: "无法为该 Figma 文件启动 Builder 索引。",
         enterWebsite: "添加前输入网站 URL。",
         websiteProtocol: "网站 URLs 必须以 http:// 或 https:// 开头。",
         enterGithub: "在添加之前输入 GitHub 存储库 URL。",
@@ -1251,21 +1410,22 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "从 Figma 文件开始",
+          title: "连接 Figma",
           description:
-            "上传.fig，我们会将品牌（颜色、字体比例、签名渐变和品牌特征简介）深入提取到即用型设计系统中。",
+            "上传 .fig，Builder DSI 会将令牌、组件、资产和品牌指引索引成可重用的设计系统。",
         },
         company: {
           title: "公司/品牌",
           description: "名称、描述和网站",
         },
         code: {
-          title: "代码",
-          description: "GitHub 存储库或本地文件 - 设计令牌的最强信号",
+          title: "连接代码",
+          description:
+            "GitHub 存储库、本地代码文件或 design.md 会交给 Builder DSI 索引。",
         },
         designFiles: {
-          title: "设计文件",
-          description: "Figma 文件、文档、屏幕截图、品牌资产",
+          title: "参考文件",
+          description: "文档、截图和品牌资产会补充 Builder DSI 的索引上下文",
         },
         importExisting: {
           title: "从现有的导入",
@@ -1546,6 +1706,8 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra una pantalla antes de exportar SVG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
+        undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
+        redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
       },
     },
     designSystemSetup: {
@@ -1556,21 +1718,22 @@ const designLocaleOverrides = {
       continue: "continuar con la generación",
       title: "Configure su sistema de diseño",
       description:
-        "Proporcione cualquier combinación de fuentes. Cuanto más contexto proporcione, más preciso será el sistema de diseño extraído.",
-      figmaParsingTitle: "Analizando su archivo Figma...",
+        "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
+      figmaParsingTitle: "Iniciando indexación de Builder DSI...",
       figmaParsingDescription:
-        "Decodificando el documento y extrayendo tokens de marca.",
-      uploadFig: "Sube un archivo.fig",
-      figmaSaveLocalCopy: "En Figma: Archivo -> Guardar copia local",
+        "Builder extraerá tokens, componentes, recursos y guía de uso.",
+      uploadFig: "Conectar Figma con un archivo .fig",
+      figmaSaveLocalCopy:
+        "Sube una copia local de Figma: File -> Save local copy",
       websiteUrl: "Sitio web URL",
       add: "Agregar",
       githubRepository: "repositorio GitHub",
       privateRepoPrefix:
         "Los repositorios privados necesitan un token detallado guardado como",
       privateRepoSuffix: "con acceso de lectura de contenidos.",
-      localCodeFiles: "Archivos de código local",
+      localCodeFiles: "Conectar archivos de código",
       dropCodeFiles:
-        "Suelte aquí los archivos de temas y de configuración CSS, Tailwind o haga clic para explorar",
+        "Suelta aquí CSS, configuración de Tailwind, archivos de tema o design.md",
       documents: "Documentos y presentaciones",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX: guías de marca, presentaciones, documentos de estilo",
@@ -1606,7 +1769,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Elija un archivo.fig (en Figma: Archivo -> Guardar copia local).",
-        parseFig: "No se pudo analizar ese archivo Figma.",
+        parseFig:
+          "No se pudo iniciar la indexación de Builder para ese archivo Figma.",
         enterWebsite: "Ingrese un sitio web URL antes de agregarlo.",
         websiteProtocol:
           "El sitio web URLs debe comenzar con http:// o https://.",
@@ -1618,23 +1782,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comenzar desde un archivo Figma",
+          title: "Conectar Figma",
           description:
-            "Cargue un.fig y extraeremos en profundidad la marca (colores, escala de tipografía, degradados característicos y un resumen del personaje de la marca) en un sistema de diseño listo para usar.",
+            "Sube un .fig y Builder DSI indexará tokens, componentes, recursos y guía de marca en un sistema de diseño reutilizable.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nombre, descripción y sitio web.",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "GitHub repositorios o archivos locales: la señal más fuerte para tokens de diseño",
+            "Repositorios de GitHub, archivos de código locales o design.md se indexan con Builder DSI.",
         },
         designFiles: {
-          title: "Archivos de diseño",
+          title: "Archivos de referencia",
           description:
-            "Archivos Figma, documentos, capturas de pantalla y activos de marca.",
+            "Documentos, capturas de pantalla y recursos de marca complementan el contexto de Builder DSI.",
         },
         importExisting: {
           title: "Importar desde existente",
@@ -1923,6 +2087,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Ouvrir un écran avant d'exporter SVG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d'exporter SVG",
+        undoSkippedConcurrentEdit:
+          "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
+        redoSkippedConcurrentEdit:
+          "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       },
     },
     designSystemSetup: {
@@ -1933,21 +2101,22 @@ const designLocaleOverrides = {
       continue: "Continuer jusqu'à la génération",
       title: "Configurez votre système de conception",
       description:
-        "Fournissez n’importe quelle combinaison de sources. Plus vous donnez de contexte, plus le système de conception extrait sera précis.",
-      figmaParsingTitle: "Analyse de votre fichier Figma...",
+        "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
+      figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
       figmaParsingDescription:
-        "Décoder le document et extraire les jetons de marque",
-      uploadFig: "Téléchargez un fichier.fig",
-      figmaSaveLocalCopy: "Dans Figma: Fichier -> Enregistrer la copie locale",
+        "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
+      uploadFig: "Connecter Figma avec un fichier .fig",
+      figmaSaveLocalCopy:
+        "Importez une copie locale Figma : File -> Save local copy",
       websiteUrl: "Site Web URL",
       add: "Ajouter",
       githubRepository: "référentiel GitHub",
       privateRepoPrefix:
         "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
       privateRepoSuffix: "avec accès en lecture au contenu.",
-      localCodeFiles: "Fichiers de codes locaux",
+      localCodeFiles: "Connecter des fichiers de code",
       dropCodeFiles:
-        "Déposez CSS, Tailwind config, fichiers de thème ici ou cliquez pour parcourir",
+        "Déposez ici CSS, config Tailwind, fichiers de thème ou design.md",
       documents: "Documents & présentations",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – guides de marque, pitch decks, documents de style",
@@ -1983,7 +2152,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Veuillez choisir un fichier.fig (dans Figma: Fichier -> Enregistrer la copie locale).",
-        parseFig: "Impossible d'analyser ce fichier Figma.",
+        parseFig:
+          "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
         enterWebsite: "Entrez un site Web URL avant de l'ajouter.",
         websiteProtocol:
           "Le site Web URLs doit commencer par http:// ou https://.",
@@ -1995,23 +2165,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Démarrer à partir d'un fichier Figma",
+          title: "Connecter Figma",
           description:
-            "Téléchargez un.fig et nous extrairons en profondeur la marque - couleurs, échelle de caractères, dégradés de signature et description du personnage de la marque - dans un système de conception prêt à l'emploi.",
+            "Importez un .fig et Builder DSI indexera les jetons, composants, ressources et consignes de marque dans un système de design réutilisable.",
         },
         company: {
           title: "Entreprise / Marque",
           description: "Nom, description et site Web",
         },
         code: {
-          title: "Code",
+          title: "Connecter le code",
           description:
-            "Dépôts GitHub ou fichiers locaux - le signal le plus fort pour les jetons de conception",
+            "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
         },
         designFiles: {
-          title: "Fichiers de conception",
+          title: "Fichiers de référence",
           description:
-            "Fichiers Figma, documents, captures d'écran, actifs de marque",
+            "Documents, captures d’écran et ressources de marque enrichissent le contexte Builder DSI",
         },
         importExisting: {
           title: "Importer depuis un existant",
@@ -2300,6 +2470,10 @@ const designLocaleOverrides = {
         openScreenSvg: "Öffnen Sie einen Bildschirm, bevor Sie SVG exportieren",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
+        undoSkippedConcurrentEdit:
+          "Rückgängig übersprungen – jemand anderes hat das verschoben",
+        redoSkippedConcurrentEdit:
+          "Wiederholen übersprungen – jemand anderes hat das verschoben",
       },
     },
     designSystemSetup: {
@@ -2310,21 +2484,22 @@ const designLocaleOverrides = {
       continue: "Weiter zur Generation",
       title: "Richten Sie Ihr Designsystem ein",
       description:
-        "Geben Sie eine beliebige Kombination von Quellen an. Je mehr Kontext Sie angeben, desto genauer wird das extrahierte Designsystem sein.",
-      figmaParsingTitle: "Parsen Ihrer Figma-Datei...",
+        "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
+      figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
       figmaParsingDescription:
-        "Entschlüsseln des Dokuments und Extrahieren von Markentokens",
-      uploadFig: "Laden Sie eine.fig-Datei hoch",
-      figmaSaveLocalCopy: "In Figma: Datei -> Lokale Kopie speichern",
+        "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
+      uploadFig: "Figma mit einer .fig-Datei verbinden",
+      figmaSaveLocalCopy:
+        "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
       websiteUrl: "Website URL",
       add: "Hinzufügen",
       githubRepository: "GitHub-Repository",
       privateRepoPrefix:
         "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
       privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
-      localCodeFiles: "Lokale Codedateien",
+      localCodeFiles: "Code-Dateien verbinden",
       dropCodeFiles:
-        "Legen Sie die CSS-, Tailwind-Konfigurations- und Designdateien hier ab oder klicken Sie zum Durchsuchen",
+        "CSS, Tailwind-Konfiguration, Theme-Dateien oder design.md hier ablegen",
       documents: "Dokumente und Präsentationen",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX – Markenführer, Pitchdecks, Stildokumente",
@@ -2360,7 +2535,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Bitte wählen Sie eine.fig-Datei (in Figma: Datei -> Lokale Kopie speichern).",
-        parseFig: "Die Figma-Datei konnte nicht analysiert werden.",
+        parseFig:
+          "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
         enterWebsite:
           "Geben Sie eine Website URL ein, bevor Sie sie hinzufügen.",
         websiteProtocol:
@@ -2374,22 +2550,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Beginnen Sie mit einer Figma-Datei",
+          title: "Figma verbinden",
           description:
-            "Laden Sie ein.fig hoch und wir extrahieren die Marke – Farben, Schriftskalierung, Signaturverläufe und eine Beschreibung der Markencharaktere – tiefgreifend in ein gebrauchsfertiges Designsystem.",
+            "Lade eine .fig hoch und Builder DSI indexiert Tokens, Komponenten, Assets und Markenanweisungen als wiederverwendbares Designsystem.",
         },
         company: {
           title: "Unternehmen / Marke",
           description: "Name, Beschreibung und Website",
         },
         code: {
-          title: "Code",
+          title: "Code verbinden",
           description:
-            "GitHub Repos oder lokale Dateien – das stärkste Signal für Design-Token",
+            "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
         },
         designFiles: {
-          title: "Designdateien",
-          description: "Figma-Dateien, Dokumente, Screenshots, Markenwerte",
+          title: "Referenzdateien",
+          description:
+            "Dokumente, Screenshots und Markenassets ergänzen den Builder-DSI-Kontext",
         },
         importExisting: {
           title: "Aus vorhandenem importieren",
@@ -2676,6 +2853,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG をエクスポートする前に画面を開く",
         svgDownloaded: "SVGがダウンロードされました",
         svgExportError: "SVG をエクスポートできませんでした",
+        undoSkippedConcurrentEdit:
+          "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
+        redoSkippedConcurrentEdit:
+          "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       },
     },
     designSystemSetup: {
@@ -2686,20 +2867,22 @@ const designLocaleOverrides = {
       continue: "世代を継続する",
       title: "デザインシステムをセットアップする",
       description:
-        "ソースを任意に組み合わせて提供します。提供するコンテキストが多いほど、抽出されたデザイン システムの精度が高くなります。",
-      figmaParsingTitle: "Figma ファイルを解析しています...",
-      figmaParsingDescription: "文書をデコードしてブランドトークンを抽出する",
-      uploadFig: ".fig ファイルをアップロードする",
-      figmaSaveLocalCopy: "Figma の場合: [ファイル] -> [ローカル コピーを保存]",
+        "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
+      figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
+      figmaParsingDescription:
+        "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
+      uploadFig: "Figma .fig ファイルを接続",
+      figmaSaveLocalCopy:
+        "Figma のローカルコピーをアップロード: File -> Save local copy",
       websiteUrl: "ウェブサイト URL",
       add: "追加",
       githubRepository: "GitHub リポジトリ",
       privateRepoPrefix:
         "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
       privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
-      localCodeFiles: "ローカルコードファイル",
+      localCodeFiles: "コードファイルを接続",
       dropCodeFiles:
-        "CSS、Tailwind 設定、テーマ ファイルをここにドロップするか、クリックして参照します",
+        "CSS、Tailwind 設定、テーマファイル、design.md をここにドロップ",
       documents: "ドキュメントとプレゼンテーション",
       documentsHelp:
         "PPTX、DOCX、PDF、XLSX - ブランド ガイド、提案資料、スタイル ドキュメント",
@@ -2735,7 +2918,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           ".fig ファイルを選択してください (Figma の場合: [ファイル] -> [ローカル コピーを保存])。",
-        parseFig: "Figma ファイルを解析できませんでした。",
+        parseFig:
+          "その Figma ファイルの Builder インデックス作成を開始できませんでした。",
         enterWebsite: "追加する前に、Web サイト URL を入力してください。",
         websiteProtocol:
           "ウェブサイト URLs は http:// または https:// で始まる必要があります。",
@@ -2747,23 +2931,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma ファイルから開始します",
+          title: "Figma を接続",
           description:
-            ".fig をアップロードすると、ブランド (色、タイプ スケール、特徴的なグラデーション、ブランド キャラクターの概要) がすぐに使用できるデザイン システムに深く抽出されます。",
+            ".fig をアップロードすると、Builder DSI がトークン、コンポーネント、アセット、ブランドガイドを再利用可能なデザインシステムにインデックス化します。",
         },
         company: {
           title: "会社・ブランド",
           description: "名前、説明、Web サイト",
         },
         code: {
-          title: "コード",
+          title: "コードを接続",
           description:
-            "GitHub リポジトリまたはローカル ファイル - デザイン トークンの最も強いシグナル",
+            "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
         },
         designFiles: {
-          title: "デザインファイル",
+          title: "参照ファイル",
           description:
-            "Figma ファイル、ドキュメント、スクリーンショット、ブランド資産",
+            "ドキュメント、スクリーンショット、ブランドアセットが Builder DSI のコンテキストを補足します",
         },
         importExisting: {
           title: "既存からインポート",
@@ -3047,6 +3231,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG를 내보내기 전에 화면을 엽니다",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없습니다.",
+        undoSkippedConcurrentEdit:
+          "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        redoSkippedConcurrentEdit:
+          "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       },
     },
     designSystemSetup: {
@@ -3057,20 +3245,21 @@ const designLocaleOverrides = {
       continue: "세대를 이어가다",
       title: "디자인 시스템 설정",
       description:
-        "소스 조합을 제공하십시오. 더 많은 컨텍스트를 제공할수록 추출된 디자인 시스템이 더 정확해집니다.",
-      figmaParsingTitle: "Figma 파일을 구문 분석하는 중...",
-      figmaParsingDescription: "문서 디코딩 및 브랜드 토큰 추출",
-      uploadFig: ".fig 파일 업로드",
-      figmaSaveLocalCopy: "Figma에서: 파일 -> 로컬 복사본 저장",
+        "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
+      figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
+      figmaParsingDescription:
+        "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
+      uploadFig: "Figma .fig 파일 연결",
+      figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
       websiteUrl: "웹사이트 URL",
       add: "추가하다",
       githubRepository: "GitHub 저장소",
       privateRepoPrefix:
         "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
       privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
-      localCodeFiles: "로컬 코드 파일",
+      localCodeFiles: "코드 파일 연결",
       dropCodeFiles:
-        "CSS, Tailwind 구성, 테마 파일을 여기에 드롭하거나 클릭하여 찾아보세요.",
+        "CSS, Tailwind 구성, 테마 파일 또는 design.md를 여기에 드롭하세요",
       documents: "문서 및 프리젠테이션",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - 브랜드 가이드, 프레젠테이션 자료, 스타일 문서",
@@ -3104,7 +3293,7 @@ const designLocaleOverrides = {
       figmaThumbnailAlt: "Figma 파일 썸네일",
       errors: {
         chooseFig: ".fig 파일을 선택하십시오(Figma: 파일 -> 로컬 복사본 저장).",
-        parseFig: "Figma 파일을 구문 분석할 수 없습니다.",
+        parseFig: "해당 Figma 파일의 Builder 인덱싱을 시작할 수 없습니다.",
         enterWebsite: "추가하기 전에 웹사이트 URL를 입력하세요.",
         websiteProtocol:
           "웹사이트 URLs는 http:// 또는 https://로 시작해야 합니다.",
@@ -3115,22 +3304,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma 파일에서 시작",
+          title: "Figma 연결",
           description:
-            ".fig를 업로드하면 브랜드(색상, 활자 크기, 시그니처 그라데이션, 브랜드 캐릭터 개요)를 바로 사용할 수 있는 디자인 시스템으로 심층적으로 추출해 드립니다.",
+            ".fig를 업로드하면 Builder DSI가 토큰, 컴포넌트, 자산, 브랜드 지침을 재사용 가능한 디자인 시스템으로 색인화합니다.",
         },
         company: {
           title: "회사/브랜드",
           description: "이름, 설명, 웹사이트",
         },
         code: {
-          title: "암호",
+          title: "코드 연결",
           description:
-            "GitHub 저장소 또는 로컬 파일 - 디자인 토큰에 대한 가장 강력한 신호",
+            "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
         },
         designFiles: {
-          title: "디자인 파일",
-          description: "Figma 파일, 문서, 스크린샷, 브랜드 자산",
+          title: "참조 파일",
+          description:
+            "문서, 스크린샷, 브랜드 자산이 Builder DSI 맥락을 보강합니다",
         },
         importExisting: {
           title: "기존에서 가져오기",
@@ -3414,6 +3604,9 @@ const designLocaleOverrides = {
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
+        undoSkippedConcurrentEdit:
+          "Desfazer ignorado — outra pessoa moveu isso",
+        redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
       },
     },
     designSystemSetup: {
@@ -3424,21 +3617,22 @@ const designLocaleOverrides = {
       continue: "Continuar para a geração",
       title: "Configure seu sistema de design",
       description:
-        "Forneça qualquer combinação de fontes. Quanto mais contexto você fornecer, mais preciso será o sistema de design extraído.",
-      figmaParsingTitle: "Analisando seu arquivo Figma...",
+        "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
+      figmaParsingTitle: "Iniciando indexação do Builder DSI...",
       figmaParsingDescription:
-        "Decodificando o documento e extraindo tokens de marca",
-      uploadFig: "Carregar um arquivo.fig",
-      figmaSaveLocalCopy: "Em Figma: Arquivo -> Salvar cópia local",
+        "Builder extrairá tokens, componentes, recursos e orientações de uso",
+      uploadFig: "Conectar Figma com um arquivo .fig",
+      figmaSaveLocalCopy:
+        "Envie uma cópia local do Figma: File -> Save local copy",
       websiteUrl: "Site URL",
       add: "Adicionar",
       githubRepository: "repositório GitHub",
       privateRepoPrefix:
         "Os repositórios privados precisam de um token refinado salvo como",
       privateRepoSuffix: "com acesso de leitura de conteúdo.",
-      localCodeFiles: "Arquivos de código local",
+      localCodeFiles: "Conectar arquivos de código",
       dropCodeFiles:
-        "Solte CSS, Tailwind config, arquivos de tema aqui ou clique para navegar",
+        "Solte CSS, configuração do Tailwind, arquivos de tema ou design.md aqui",
       documents: "Documentos e apresentações",
       documentsHelp:
         "PPTX, DOCX, PDF, XLSX - guias de marca, apresentações de argumento de venda, documentos de estilo",
@@ -3474,7 +3668,8 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "Escolha um arquivo.fig (em Figma: Arquivo -> Salvar cópia local).",
-        parseFig: "Não foi possível analisar esse arquivo Figma.",
+        parseFig:
+          "Não foi possível iniciar a indexação do Builder para esse arquivo Figma.",
         enterWebsite: "Insira um site URL antes de adicioná-lo.",
         websiteProtocol: "O site URLs deve começar com http:// ou https://.",
         enterGithub: "Insira um repositório GitHub URL antes de adicioná-lo.",
@@ -3485,23 +3680,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Comece a partir de um arquivo Figma",
+          title: "Conectar Figma",
           description:
-            "Faça upload de um.fig e extrairemos profundamente a marca - cores, escala de tipo, gradientes de assinatura e um resumo do personagem da marca - em um sistema de design pronto para uso.",
+            "Envie um .fig e o Builder DSI indexará tokens, componentes, recursos e orientações de marca em um sistema de design reutilizável.",
         },
         company: {
           title: "Empresa / Marca",
           description: "Nome, descrição e site",
         },
         code: {
-          title: "Código",
+          title: "Conectar código",
           description:
-            "repositórios GitHub ou arquivos locais - o sinal mais forte para tokens de design",
+            "Repositórios GitHub, arquivos de código locais ou design.md são indexados com Builder DSI.",
         },
         designFiles: {
-          title: "Arquivos de projeto",
+          title: "Arquivos de referência",
           description:
-            "arquivos Figma, documentos, capturas de tela, ativos de marca",
+            "Documentos, capturas de tela e recursos de marca complementam o contexto do Builder DSI",
         },
         importExisting: {
           title: "Importar de existente",
@@ -3786,6 +3981,10 @@ const designLocaleOverrides = {
         openScreenSvg: "SVG निर्यात करने से पहले एक स्क्रीन खोलें",
         svgDownloaded: "SVG डाउनलोड किया गया",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
+        undoSkippedConcurrentEdit:
+          "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        redoSkippedConcurrentEdit:
+          "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       },
     },
     designSystemSetup: {
@@ -3796,20 +3995,20 @@ const designLocaleOverrides = {
       continue: "पीढ़ी तक जारी रखें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
-        "स्रोतों का कोई संयोजन प्रदान करें. आप जितना अधिक संदर्भ देंगे, निकाली गई डिज़ाइन प्रणाली उतनी ही सटीक होगी।",
-      figmaParsingTitle: "आपकी Figma फ़ाइल को पार्स किया जा रहा है...",
-      figmaParsingDescription: "दस्तावेज़ को डिकोड करना और ब्रांड टोकन निकालना",
-      uploadFig: "एक.fig फ़ाइल अपलोड करें",
-      figmaSaveLocalCopy: "Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें",
+        "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
+      figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
+      figmaParsingDescription:
+        "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
+      uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
+      figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
       websiteUrl: "वेबसाइट URL",
       add: "जोड़ना",
       githubRepository: "GitHub रिपॉजिटरी",
       privateRepoPrefix:
         "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
       privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
-      localCodeFiles: "स्थानीय कोड फ़ाइलें",
-      dropCodeFiles:
-        "CSS, Tailwind कॉन्फिगरेशन, थीम फ़ाइलें यहां छोड़ें, या ब्राउज़ करने के लिए क्लिक करें",
+      localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
+      dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
       documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
       documentsHelp: "PPTX, DOCX, PDF, XLSX - ब्रांड गाइड, पिच डेक, स्टाइल डॉक्स",
       visualReferences: "स्क्रीनशॉट और दृश्य संदर्भ",
@@ -3843,7 +4042,7 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
-        parseFig: "उस Figma फ़ाइल को पार्स नहीं किया जा सका।",
+        parseFig: "उस Figma file के लिए Builder indexing शुरू नहीं हो सकी।",
         enterWebsite: "इसे जोड़ने से पहले एक वेबसाइट URL दर्ज करें।",
         websiteProtocol: "वेबसाइट URLs http:// या https:// से शुरू होनी चाहिए।",
         enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
@@ -3853,22 +4052,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "Figma फ़ाइल से प्रारंभ करें",
+          title: "Figma कनेक्ट करें",
           description:
-            "एक.fig अपलोड करें और हम उपयोग के लिए तैयार डिज़ाइन सिस्टम में ब्रांड - रंग, प्रकार का पैमाना, हस्ताक्षर ग्रेडिएंट और एक ब्रांड-चरित्र संक्षिप्त - को गहराई से निकालेंगे।",
+            ".fig अपलोड करें और Builder DSI टोकन, कंपोनेंट, एसेट और ब्रांड मार्गदर्शन को पुन: उपयोग योग्य डिज़ाइन सिस्टम में index करेगा.",
         },
         company: {
           title: "कंपनी/ब्रांड",
           description: "नाम, विवरण और वेबसाइट",
         },
         code: {
-          title: "कोड",
+          title: "कोड कनेक्ट करें",
           description:
-            "GitHub रेपो या स्थानीय फ़ाइलें - डिज़ाइन टोकन के लिए सबसे मजबूत संकेत",
+            "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
         },
         designFiles: {
-          title: "फ़ाइलें डिज़ाइन करें",
-          description: "Figma फ़ाइलें, दस्तावेज़, स्क्रीनशॉट, ब्रांड संपत्ति",
+          title: "संदर्भ फ़ाइलें",
+          description:
+            "दस्तावेज़, स्क्रीनशॉट और ब्रांड एसेट Builder DSI संदर्भ को मजबूत करते हैं",
         },
         importExisting: {
           title: "मौजूदा से आयात करें",
@@ -4151,6 +4351,8 @@ const designLocaleOverrides = {
         openScreenSvg: "افتح الشاشة قبل تصدير SVG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
+        undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
+        redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
       },
     },
     designSystemSetup: {
@@ -4161,20 +4363,21 @@ const designLocaleOverrides = {
       continue: "الاستمرار في الجيل",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
-        "توفير أي مجموعة من المصادر. كلما زاد السياق الذي تقدمه، أصبح نظام التصميم المستخرج أكثر دقة.",
-      figmaParsingTitle: "جارٍ تحليل ملف Figma...",
-      figmaParsingDescription: "فك تشفير الوثيقة واستخراج رموز العلامة التجارية",
-      uploadFig: "تحميل ملف.fig",
-      figmaSaveLocalCopy: "في Figma: ملف -> حفظ النسخة المحلية",
+        "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
+      figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
+      figmaParsingDescription:
+        "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
+      uploadFig: "ربط Figma بملف .fig",
+      figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
       websiteUrl: "موقع URL",
       add: "يضيف",
       githubRepository: "مستودع GitHub",
       privateRepoPrefix:
         "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
       privateRepoSuffix: "مع محتويات الوصول للقراءة.",
-      localCodeFiles: "ملفات التعليمات البرمجية المحلية",
+      localCodeFiles: "ربط ملفات الكود",
       dropCodeFiles:
-        "قم بإسقاط CSS، أو Tailwind، أو ملفات السمات هنا، أو انقر للتصفح",
+        "أسقط CSS أو إعدادات Tailwind أو ملفات السمة أو design.md هنا",
       documents: "الوثائق والعروض التقديمية",
       documentsHelp:
         "PPTX، DOCX، PDF، XLSX - أدلة العلامة التجارية، والعروض الترويجية، ومستندات النمط",
@@ -4209,7 +4412,7 @@ const designLocaleOverrides = {
       errors: {
         chooseFig:
           "الرجاء اختيار ملف.fig (في Figma: ملف -> حفظ النسخة المحلية).",
-        parseFig: "تعذر تحليل ملف Figma هذا.",
+        parseFig: "تعذر بدء فهرسة Builder لملف Figma هذا.",
         enterWebsite: "أدخل موقع URL قبل إضافته.",
         websiteProtocol: "يجب أن يبدأ موقع الويب URLs بـ http:// أو https://.",
         enterGithub: "أدخل مستودع GitHub URL قبل إضافته.",
@@ -4219,23 +4422,23 @@ const designLocaleOverrides = {
       },
       sections: {
         figma: {
-          title: "ابدأ من ملف Figma",
+          title: "ربط Figma",
           description:
-            "قم بتحميل.fig وسنقوم باستخراج العلامة التجارية بعمق - الألوان، ومقياس الكتابة، وتدرجات التوقيع، وملخص شخصية العلامة التجارية - في نظام تصميم جاهز للاستخدام.",
+            "حمّل .fig وسيقوم Builder DSI بفهرسة الرموز والمكونات والأصول وإرشادات العلامة في نظام تصميم قابل لإعادة الاستخدام.",
         },
         company: {
           title: "الشركة / العلامة التجارية",
           description: "الاسم والوصف والموقع",
         },
         code: {
-          title: "شفرة",
+          title: "ربط الكود",
           description:
-            "GitHub repos أو الملفات المحلية - أقوى إشارة لرموز التصميم",
+            "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
         },
         designFiles: {
-          title: "ملفات التصميم",
+          title: "ملفات مرجعية",
           description:
-            "ملفات Figma والمستندات ولقطات الشاشة وأصول العلامة التجارية",
+            "تضيف المستندات ولقطات الشاشة وأصول العلامة سياقًا لفهرسة Builder DSI",
         },
         importExisting: {
           title: "الاستيراد من الموجود",
@@ -5730,7 +5933,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "文件类型: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "返回设计",
@@ -5804,7 +6007,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de archivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Volver a diseños",
@@ -5880,7 +6083,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Types de fichiers : .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Retour aux designs",
@@ -5957,7 +6160,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Dateitypen: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Zurück zu Designs",
@@ -6034,7 +6237,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、package.json",
+        "ファイル形式: .css、.scss、tailwind.config.*、theme.*、tokens.*、design.md、package.json",
     },
     designEditor: {
       backToDesigns: "デザインに戻る",
@@ -6111,7 +6314,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "파일 형식: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "디자인으로 돌아가기",
@@ -6187,7 +6390,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "Tipos de arquivo: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "Voltar aos designs",
@@ -6263,7 +6466,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, package.json",
+        "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     },
     designEditor: {
       backToDesigns: "डिज़ाइन पर वापस जाएँ",
@@ -6338,7 +6541,7 @@ const designExactEnglishOverrides = {
     },
     designSystemSetup: {
       codeFilePatterns:
-        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وpackage.json",
+        "أنواع الملفات: .css و.scss وtailwind.config.* وtheme.* وtokens.* وdesign.md وpackage.json",
     },
     designEditor: {
       backToDesigns: "العودة إلى التصاميم",
@@ -8221,6 +8424,16 @@ const designCanvasFeatureOverrides = {
       show: "顯示圖層",
       rename: "重新命名圖層",
       deleteBoardObject: "刪除畫布物件",
+      copy: "複製",
+      pasteHere: "貼在這裡",
+      duplicate: "重製",
+      delete: "刪除",
+      group: "群組",
+      ungroup: "取消群組",
+      bringForward: "上移一層",
+      bringToFront: "移到最上層",
+      sendBackward: "下移一層",
+      sendToBack: "移到最下層",
     },
   },
   "zh-CN": {
@@ -8231,6 +8444,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
         duplicateElementFailed: "无法复制该元素",
+        eyedropperUnsupported: "此浏览器不支持取色器",
       },
     },
     editPanel: {
@@ -8239,9 +8453,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
+        reorderLayer: "重新排序图层",
         linkSides: "链接四边",
         unlinkSides: "取消链接四边",
         allSides: "全部",
+        lockAspectRatio: "锁定宽高比",
+        unlockAspectRatio: "解锁宽高比",
         cornerRadius: "圆角半径",
         independentCorners: "独立圆角",
         topLeft: "左上",
@@ -8253,6 +8470,7 @@ const designCanvasFeatureOverrides = {
         outline: "轮廓",
         inside: "内侧",
         outside: "外侧",
+        center: "中心",
         dropShadow: "投影",
         addDropShadow: "新增投影",
         innerShadow: "内阴影",
@@ -8281,6 +8499,16 @@ const designCanvasFeatureOverrides = {
       show: "显示图层",
       rename: "重命名图层",
       deleteBoardObject: "删除画布对象",
+      copy: "复制",
+      pasteHere: "粘贴到此处",
+      duplicate: "创建副本",
+      delete: "删除",
+      group: "编组",
+      ungroup: "取消编组",
+      bringForward: "上移一层",
+      bringToFront: "置于顶层",
+      sendBackward: "下移一层",
+      sendToBack: "置于底层",
     },
   },
   "es-ES": {
@@ -8291,6 +8519,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
+        eyedropperUnsupported:
+          "El cuentagotas no es compatible con este navegador",
       },
     },
     editPanel: {
@@ -8299,9 +8529,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
+        reorderLayer: "Reordenar capa",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
         allSides: "Todo",
+        lockAspectRatio: "Bloquear proporción",
+        unlockAspectRatio: "Desbloquear proporción",
         cornerRadius: "Radio de esquina",
         independentCorners: "Esquinas independientes",
         topLeft: "SI",
@@ -8313,6 +8546,7 @@ const designCanvasFeatureOverrides = {
         outline: "Contorno",
         inside: "Interior",
         outside: "Exterior",
+        center: "Centro",
         dropShadow: "Sombra paralela",
         addDropShadow: "Añadir sombra paralela",
         innerShadow: "Sombra interior",
@@ -8341,6 +8575,16 @@ const designCanvasFeatureOverrides = {
       show: "Mostrar capa",
       rename: "Renombrar capa",
       deleteBoardObject: "Eliminar objeto del lienzo",
+      copy: "Copiar",
+      pasteHere: "Pegar aquí",
+      duplicate: "Duplicar",
+      delete: "Eliminar",
+      group: "Agrupar",
+      ungroup: "Desagrupar",
+      bringForward: "Traer adelante",
+      bringToFront: "Traer al frente",
+      sendBackward: "Enviar atrás",
+      sendToBack: "Enviar al fondo",
     },
   },
   "fr-FR": {
@@ -8351,6 +8595,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
+        eyedropperUnsupported:
+          "La pipette n'est pas prise en charge par ce navigateur",
       },
     },
     editPanel: {
@@ -8359,9 +8605,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
+        reorderLayer: "Réorganiser le calque",
         linkSides: "Lier les côtés",
         unlinkSides: "Délier les côtés",
         allSides: "Tout",
+        lockAspectRatio: "Verrouiller les proportions",
+        unlockAspectRatio: "Déverrouiller les proportions",
         cornerRadius: "Rayon d’angle",
         independentCorners: "Angles indépendants",
         topLeft: "HG",
@@ -8373,6 +8622,7 @@ const designCanvasFeatureOverrides = {
         outline: "Contour",
         inside: "Intérieur",
         outside: "Extérieur",
+        center: "Centre",
         dropShadow: "Ombre portée",
         addDropShadow: "Ajouter une ombre portée",
         innerShadow: "Ombre interne",
@@ -8401,6 +8651,16 @@ const designCanvasFeatureOverrides = {
       show: "Afficher le calque",
       rename: "Renommer le calque",
       deleteBoardObject: "Supprimer l’objet du canevas",
+      copy: "Copier",
+      pasteHere: "Coller ici",
+      duplicate: "Dupliquer",
+      delete: "Supprimer",
+      group: "Grouper",
+      ungroup: "Dissocier",
+      bringForward: "Avancer",
+      bringToFront: "Mettre au premier plan",
+      sendBackward: "Reculer",
+      sendToBack: "Mettre à l’arrière-plan",
     },
   },
   "de-DE": {
@@ -8412,6 +8672,8 @@ const designCanvasFeatureOverrides = {
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
+        eyedropperUnsupported:
+          "Die Pipette wird von diesem Browser nicht unterstützt",
       },
     },
     editPanel: {
@@ -8420,9 +8682,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
+        reorderLayer: "Ebene neu anordnen",
         linkSides: "Seiten verknüpfen",
         unlinkSides: "Seiten lösen",
         allSides: "Alle",
+        lockAspectRatio: "Seitenverhältnis sperren",
+        unlockAspectRatio: "Seitenverhältnis entsperren",
         cornerRadius: "Eckenradius",
         independentCorners: "Unabhängige Ecken",
         topLeft: "OL",
@@ -8434,6 +8699,7 @@ const designCanvasFeatureOverrides = {
         outline: "Kontur",
         inside: "Innen",
         outside: "Außen",
+        center: "Mitte",
         dropShadow: "Schlagschatten",
         addDropShadow: "Schlagschatten hinzufügen",
         innerShadow: "Innerer Schatten",
@@ -8462,6 +8728,16 @@ const designCanvasFeatureOverrides = {
       show: "Ebene anzeigen",
       rename: "Ebene umbenennen",
       deleteBoardObject: "Canvas-Objekt löschen",
+      copy: "Kopieren",
+      pasteHere: "Hier einfügen",
+      duplicate: "Duplizieren",
+      delete: "Löschen",
+      group: "Gruppieren",
+      ungroup: "Gruppierung aufheben",
+      bringForward: "Nach vorne",
+      bringToFront: "In den Vordergrund",
+      sendBackward: "Nach hinten",
+      sendToBack: "In den Hintergrund",
     },
   },
   "ja-JP": {
@@ -8472,6 +8748,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
         duplicateElementFailed: "その要素を複製できませんでした",
+        eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
     },
     editPanel: {
@@ -8480,9 +8757,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
+        reorderLayer: "レイヤーを並べ替え",
         linkSides: "辺をリンク",
         unlinkSides: "辺のリンクを解除",
         allSides: "すべて",
+        lockAspectRatio: "縦横比を固定",
+        unlockAspectRatio: "縦横比の固定を解除",
         cornerRadius: "角丸",
         independentCorners: "個別の角",
         topLeft: "左上",
@@ -8494,6 +8774,7 @@ const designCanvasFeatureOverrides = {
         outline: "アウトライン",
         inside: "内側",
         outside: "外側",
+        center: "中央",
         dropShadow: "ドロップシャドウ",
         addDropShadow: "ドロップシャドウを追加",
         innerShadow: "内側シャドウ",
@@ -8522,6 +8803,16 @@ const designCanvasFeatureOverrides = {
       show: "レイヤーを表示",
       rename: "レイヤー名を変更",
       deleteBoardObject: "キャンバスオブジェクトを削除",
+      copy: "コピー",
+      pasteHere: "ここに貼り付け",
+      duplicate: "複製",
+      delete: "削除",
+      group: "グループ化",
+      ungroup: "グループ解除",
+      bringForward: "前面へ移動",
+      bringToFront: "最前面へ移動",
+      sendBackward: "背面へ移動",
+      sendToBack: "最背面へ移動",
     },
   },
   "ko-KR": {
@@ -8532,6 +8823,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
+        eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
     },
     editPanel: {
@@ -8540,9 +8832,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
+        reorderLayer: "레이어 순서 변경",
         linkSides: "면 연결",
         unlinkSides: "면 연결 해제",
         allSides: "모두",
+        lockAspectRatio: "가로세로 비율 잠금",
+        unlockAspectRatio: "가로세로 비율 잠금 해제",
         cornerRadius: "모서리 반경",
         independentCorners: "개별 모서리",
         topLeft: "왼쪽 위",
@@ -8554,6 +8849,7 @@ const designCanvasFeatureOverrides = {
         outline: "윤곽선",
         inside: "안쪽",
         outside: "바깥쪽",
+        center: "중앙",
         dropShadow: "그림자",
         addDropShadow: "그림자 추가",
         innerShadow: "내부 그림자",
@@ -8582,6 +8878,16 @@ const designCanvasFeatureOverrides = {
       show: "레이어 표시",
       rename: "레이어 이름 변경",
       deleteBoardObject: "캔버스 오브젝트 삭제",
+      copy: "복사",
+      pasteHere: "여기에 붙여넣기",
+      duplicate: "복제",
+      delete: "삭제",
+      group: "그룹화",
+      ungroup: "그룹 해제",
+      bringForward: "앞으로 가져오기",
+      bringToFront: "맨 앞으로 가져오기",
+      sendBackward: "뒤로 보내기",
+      sendToBack: "맨 뒤로 보내기",
     },
   },
   "pt-BR": {
@@ -8592,6 +8898,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
+        eyedropperUnsupported:
+          "O conta-gotas não é compatível com este navegador",
       },
     },
     editPanel: {
@@ -8600,9 +8908,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
+        reorderLayer: "Reordenar camada",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
         allSides: "Tudo",
+        lockAspectRatio: "Bloquear proporção",
+        unlockAspectRatio: "Desbloquear proporção",
         cornerRadius: "Raio do canto",
         independentCorners: "Cantos independentes",
         topLeft: "SE",
@@ -8614,6 +8925,7 @@ const designCanvasFeatureOverrides = {
         outline: "Contorno",
         inside: "Dentro",
         outside: "Fora",
+        center: "Centro",
         dropShadow: "Sombra projetada",
         addDropShadow: "Adicionar sombra projetada",
         innerShadow: "Sombra interna",
@@ -8642,6 +8954,16 @@ const designCanvasFeatureOverrides = {
       show: "Mostrar camada",
       rename: "Renomear camada",
       deleteBoardObject: "Excluir objeto da tela",
+      copy: "Copiar",
+      pasteHere: "Colar aqui",
+      duplicate: "Duplicar",
+      delete: "Excluir",
+      group: "Agrupar",
+      ungroup: "Desagrupar",
+      bringForward: "Trazer para frente",
+      bringToFront: "Trazer para o topo",
+      sendBackward: "Enviar para trás",
+      sendToBack: "Enviar para o fundo",
     },
   },
   "hi-IN": {
@@ -8652,6 +8974,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
+        eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
     },
     editPanel: {
@@ -8660,9 +8983,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
+        reorderLayer: "परत पुनः क्रमित करें",
         linkSides: "किनारे लिंक करें",
         unlinkSides: "किनारे अनलिंक करें",
         allSides: "सभी",
+        lockAspectRatio: "पक्षानुपात लॉक करें",
+        unlockAspectRatio: "पक्षानुपात अनलॉक करें",
         cornerRadius: "कोने की त्रिज्या",
         independentCorners: "स्वतंत्र कोने",
         topLeft: "ऊपर बायां",
@@ -8674,6 +9000,7 @@ const designCanvasFeatureOverrides = {
         outline: "आउटलाइन",
         inside: "अंदर",
         outside: "बाहर",
+        center: "केंद्र",
         dropShadow: "ड्रॉप शैडो",
         addDropShadow: "ड्रॉप शैडो जोड़ें",
         innerShadow: "अंदरूनी शैडो",
@@ -8702,6 +9029,16 @@ const designCanvasFeatureOverrides = {
       show: "परत दिखाएं",
       rename: "परत का नाम बदलें",
       deleteBoardObject: "कैनवास ऑब्जेक्ट हटाएं",
+      copy: "कॉपी करें",
+      pasteHere: "यहां चिपकाएं",
+      duplicate: "डुप्लिकेट करें",
+      delete: "हटाएं",
+      group: "समूह बनाएं",
+      ungroup: "समूह हटाएं",
+      bringForward: "आगे लाएं",
+      bringToFront: "सबसे आगे लाएं",
+      sendBackward: "पीछे भेजें",
+      sendToBack: "सबसे पीछे भेजें",
     },
   },
   "ar-SA": {
@@ -8712,6 +9049,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
+        eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },
     },
     editPanel: {
@@ -8720,9 +9058,12 @@ const designCanvasFeatureOverrides = {
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
+        reorderLayer: "إعادة ترتيب الطبقة",
         linkSides: "ربط الجوانب",
         unlinkSides: "إلغاء ربط الجوانب",
         allSides: "الكل",
+        lockAspectRatio: "قفل نسبة العرض إلى الارتفاع",
+        unlockAspectRatio: "إلغاء قفل نسبة العرض إلى الارتفاع",
         cornerRadius: "نصف قطر الزاوية",
         independentCorners: "زوايا مستقلة",
         topLeft: "أعلى يسار",
@@ -8734,6 +9075,7 @@ const designCanvasFeatureOverrides = {
         outline: "مخطط",
         inside: "داخلي",
         outside: "خارجي",
+        center: "وسط",
         dropShadow: "ظل ساقط",
         addDropShadow: "إضافة ظل ساقط",
         innerShadow: "ظل داخلي",
@@ -8762,6 +9104,16 @@ const designCanvasFeatureOverrides = {
       show: "إظهار الطبقة",
       rename: "إعادة تسمية الطبقة",
       deleteBoardObject: "حذف كائن اللوحة",
+      copy: "نسخ",
+      pasteHere: "لصق هنا",
+      duplicate: "تكرار",
+      delete: "حذف",
+      group: "تجميع",
+      ungroup: "إلغاء التجميع",
+      bringForward: "إحضار للأمام",
+      bringToFront: "إحضار إلى الأمام",
+      sendBackward: "إرسال للخلف",
+      sendToBack: "إرسال إلى الخلف",
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
@@ -9425,139 +9777,6 @@ const designVisualEditOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
-const designLocalSourceEditOverrides = {
-  "zh-TW": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "複製提示",
-        askAi: "詢問 AI",
-        applyWithAi: "用 AI 套用",
-        copyPromptTooltip: "將提示複製到剪貼簿",
-        targeting: "目標：",
-        describeElementChange: "描述要對此元素進行的更改…",
-        describeChange: "描述您想要更改的內容…",
-      },
-    },
-  },
-  "zh-CN": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "复制提示",
-        askAi: "询问 AI",
-        applyWithAi: "用 AI 应用",
-        copyPromptTooltip: "将提示复制到剪贴板",
-        targeting: "目标：",
-        describeElementChange: "描述要对此元素进行的更改…",
-        describeChange: "描述您想要更改的内容…",
-      },
-    },
-  },
-  "es-ES": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "Copiar prompt",
-        askAi: "Preguntar a la IA",
-        applyWithAi: "Aplicar con IA",
-        copyPromptTooltip: "Copiar prompt al portapapeles",
-        targeting: "Objetivo:",
-        describeElementChange: "Describe el cambio para este elemento…",
-        describeChange: "Describe lo que quieres cambiar…",
-      },
-    },
-  },
-  "fr-FR": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "Copier le prompt",
-        askAi: "Demander à l'IA",
-        applyWithAi: "Appliquer avec l'IA",
-        copyPromptTooltip: "Copier le prompt dans le presse-papiers",
-        targeting: "Cible :",
-        describeElementChange: "Décrivez la modification pour cet élément…",
-        describeChange: "Décrivez ce que vous voulez changer…",
-      },
-    },
-  },
-  "de-DE": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "Prompt kopieren",
-        askAi: "KI fragen",
-        applyWithAi: "Mit KI anwenden",
-        copyPromptTooltip: "Prompt in die Zwischenablage kopieren",
-        targeting: "Ziel:",
-        describeElementChange: "Beschreibe die Änderung für dieses Element…",
-        describeChange: "Beschreibe, was du ändern möchtest…",
-      },
-    },
-  },
-  "ja-JP": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "プロンプトをコピー",
-        askAi: "AI に質問",
-        applyWithAi: "AI で適用",
-        copyPromptTooltip: "プロンプトをクリップボードにコピー",
-        targeting: "対象：",
-        describeElementChange: "この要素への変更を説明してください…",
-        describeChange: "変更したい内容を説明してください…",
-      },
-    },
-  },
-  "ko-KR": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "프롬프트 복사",
-        askAi: "AI에 질문",
-        applyWithAi: "AI로 적용",
-        copyPromptTooltip: "프롬프트를 클립보드에 복사",
-        targeting: "대상:",
-        describeElementChange: "이 요소에 대한 변경 사항을 설명하세요…",
-        describeChange: "변경하려는 내용을 설명하세요…",
-      },
-    },
-  },
-  "pt-BR": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "Copiar prompt",
-        askAi: "Perguntar à IA",
-        applyWithAi: "Aplicar com IA",
-        copyPromptTooltip: "Copiar prompt para a área de transferência",
-        targeting: "Alvo:",
-        describeElementChange: "Descreva a alteração para este elemento…",
-        describeChange: "Descreva o que você quer mudar…",
-      },
-    },
-  },
-  "hi-IN": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "Prompt कॉपी करें",
-        askAi: "AI से पूछें",
-        applyWithAi: "AI से लागू करें",
-        copyPromptTooltip: "Prompt को clipboard पर कॉपी करें",
-        targeting: "लक्ष्य:",
-        describeElementChange: "इस element के लिए बदलाव बताएं…",
-        describeChange: "आप क्या बदलना चाहते हैं, बताएं…",
-      },
-    },
-  },
-  "ar-SA": {
-    designEditor: {
-      localSourceEdit: {
-        copyPrompt: "نسخ الموجّه",
-        askAi: "اسأل الذكاء الاصطناعي",
-        applyWithAi: "تطبيق بالذكاء الاصطناعي",
-        copyPromptTooltip: "نسخ الموجّه إلى الحافظة",
-        targeting: "الهدف:",
-        describeElementChange: "صف التغيير المطلوب على هذا العنصر…",
-        describeChange: "صف ما تريد تغييره…",
-      },
-    },
-  },
-} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
-
 const designPendingVisualStyleOverrides = {
   "zh-TW": {
     designEditor: {
@@ -9781,7 +10000,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "套用至來源",
       applyToSourcePath: "套用至來源（{{path}}）",
+      applyToSourceUnavailableCompiled:
+        "編譯後的框架路由（React/TS 元件）尚不支援寫回來源。請改為請代理編輯來源檔案。",
       writingToSource: "寫入中…",
+      appliedToSource: "已儲存至 {{path}}",
+      applyToSourceConflict:
+        "{{path}} 自開啟後已在磁碟上變更。請重新載入畫面後再試一次。",
+      applyToSourceError: "無法儲存至來源：{{message}}",
       leftRail: {
         file: "檔案",
         agent: "代理",
@@ -9796,7 +10021,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "应用到源文件",
       applyToSourcePath: "应用到源文件（{{path}}）",
+      applyToSourceUnavailableCompiled:
+        "编译后的框架路由（React/TS 组件）暂不支持写回源文件。请让代理直接编辑源文件。",
       writingToSource: "正在写入…",
+      appliedToSource: "已保存到 {{path}}",
+      applyToSourceConflict:
+        "{{path}} 自打开后已在磁盘上发生变化。请重新加载页面后重试。",
+      applyToSourceError: "无法保存到源文件：{{message}}",
       leftRail: {
         file: "文件",
         agent: "代理",
@@ -9812,7 +10043,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "Aplicar al código fuente",
       applyToSourcePath: "Aplicar al código fuente ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "La escritura al código fuente aún no está disponible para rutas del framework compiladas (componentes React/TS). Pide al agente que edite el archivo fuente en su lugar.",
       writingToSource: "Escribiendo…",
+      appliedToSource: "Guardado en {{path}}",
+      applyToSourceConflict:
+        "{{path}} cambió en el disco desde que se abrió. Recarga la pantalla e inténtalo de nuevo.",
+      applyToSourceError: "No se pudo guardar en el código fuente: {{message}}",
       leftRail: {
         file: "Archivo",
         agent: "Agente",
@@ -9828,7 +10065,14 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "Appliquer à la source",
       applyToSourcePath: "Appliquer à la source ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "La réécriture vers la source n'est pas encore disponible pour les routes de framework compilées (composants React/TS). Demandez à l'agent de modifier directement le fichier source.",
       writingToSource: "Écriture…",
+      appliedToSource: "Enregistré dans {{path}}",
+      applyToSourceConflict:
+        "{{path}} a été modifié sur le disque depuis son ouverture. Rechargez l'écran et réessayez.",
+      applyToSourceError:
+        "Impossible d'enregistrer dans la source : {{message}}",
       leftRail: {
         file: "Fichier",
         agent: "Agent",
@@ -9844,7 +10088,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "Auf Quelle anwenden",
       applyToSourcePath: "Auf Quelle anwenden ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "Das Zurückschreiben in die Quelle ist für kompilierte Framework-Routen (React/TS-Komponenten) noch nicht verfügbar. Bitte den Agenten, die Quelldatei stattdessen zu bearbeiten.",
       writingToSource: "Wird geschrieben…",
+      appliedToSource: "In {{path}} gespeichert",
+      applyToSourceConflict:
+        "{{path}} wurde seit dem Öffnen auf der Festplatte geändert. Bildschirm neu laden und erneut versuchen.",
+      applyToSourceError: "Speichern in Quelle fehlgeschlagen: {{message}}",
       leftRail: {
         file: "Datei",
         agent: "Agent",
@@ -9860,7 +10110,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "ソースに適用",
       applyToSourcePath: "ソースに適用（{{path}}）",
+      applyToSourceUnavailableCompiled:
+        "コンパイル済みのフレームワークルート（React/TSコンポーネント）では、ソースへの書き戻しはまだ利用できません。エージェントにソースファイルを直接編集するよう依頼してください。",
       writingToSource: "書き込み中…",
+      appliedToSource: "{{path}} に保存しました",
+      applyToSourceConflict:
+        "{{path}} は開いた後にディスク上で変更されています。画面を再読み込みしてもう一度お試しください。",
+      applyToSourceError: "ソースへの保存に失敗しました: {{message}}",
       leftRail: {
         file: "ファイル",
         agent: "エージェント",
@@ -9876,7 +10132,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "소스에 적용",
       applyToSourcePath: "소스에 적용({{path}})",
+      applyToSourceUnavailableCompiled:
+        "컴파일된 프레임워크 라우트(React/TS 컴포넌트)에는 아직 소스로 다시 쓰기 기능을 사용할 수 없습니다. 에이전트에게 소스 파일을 직접 편집하도록 요청하세요.",
       writingToSource: "쓰는 중…",
+      appliedToSource: "{{path}}에 저장됨",
+      applyToSourceConflict:
+        "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
+      applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
       leftRail: {
         file: "파일",
         agent: "에이전트",
@@ -9892,7 +10154,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "Aplicar à origem",
       applyToSourcePath: "Aplicar à origem ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "A gravação de volta na origem ainda não está disponível para rotas de framework compiladas (componentes React/TS). Peça ao agente para editar o arquivo de origem em vez disso.",
       writingToSource: "Gravando…",
+      appliedToSource: "Salvo em {{path}}",
+      applyToSourceConflict:
+        "{{path}} foi alterado no disco desde que foi aberto. Recarregue a tela e tente novamente.",
+      applyToSourceError: "Não foi possível salvar na origem: {{message}}",
       leftRail: {
         file: "Arquivo",
         agent: "Agente",
@@ -9908,7 +10176,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "स्रोत पर लागू करें",
       applyToSourcePath: "स्रोत पर लागू करें ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "कंपाइल की गई फ़्रेमवर्क रूट्स (React/TS कॉम्पोनेंट) के लिए स्रोत में वापस लिखना अभी उपलब्ध नहीं है। इसके बजाय एजेंट से स्रोत फ़ाइल संपादित करने को कहें।",
       writingToSource: "लिखा जा रहा है…",
+      appliedToSource: "{{path}} में सहेजा गया",
+      applyToSourceConflict:
+        "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
+      applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
       leftRail: {
         file: "फ़ाइल",
         agent: "एजेंट",
@@ -9924,7 +10198,13 @@ const designLeftRailOverrides = {
     designEditor: {
       applyToSource: "تطبيق على المصدر",
       applyToSourcePath: "تطبيق على المصدر ({{path}})",
+      applyToSourceUnavailableCompiled:
+        "الكتابة إلى المصدر غير متاحة بعد لمسارات الإطار المُجمَّعة (مكوّنات React/TS). يُرجى مطالبة الوكيل بتعديل ملف المصدر بدلاً من ذلك.",
       writingToSource: "جارٍ الكتابة…",
+      appliedToSource: "تم الحفظ في {{path}}",
+      applyToSourceConflict:
+        "تم تغيير {{path}} على القرص منذ فتحه. أعد تحميل الشاشة وحاول مرة أخرى.",
+      applyToSourceError: "تعذّر الحفظ في المصدر: {{message}}",
       leftRail: {
         file: "ملف",
         agent: "الوكيل",
@@ -10096,12 +10376,11 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "匯入",
-        description:
-          "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
+        description: "將 Figma 剪貼簿 HTML 或獨立 HTML 帶入為 Design 螢幕。",
         figmaPasteTitle: "從 Figma 貼上",
         figmaPasteDescription:
-          "在 Figma 複製畫框或圖層，然後聚焦此目標並貼上。可用時會直接匯入 Figma 中繼資料。",
-        figmaPasteTarget: "在此貼上 Figma 內容",
+          "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
+        figmaPasteTarget: "貼到畫布",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -10114,17 +10393,15 @@ const designImportOverrides = {
         chooseHtmlFile: "選擇 HTML 檔案",
         githubTitle: "GitHub",
         githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
-        localTitle: "本機 app / VS Code",
-        localDescription: "使用 visual-edit 連接執行中的本機 app。",
+        localTitle: "本機 app",
+        localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
         visualEditGuidance:
-          "啟動 app，在 app repo 中執行下方命令，然後請代理使用 visual-edit skill 新增 URL 螢幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
         figmaSuccess: "已匯入 Figma 貼上內容",
         htmlSuccess: "已匯入 HTML",
         uploadSuccess: "已匯入檔案",
-        visualEditSent: "已將 visual-edit 請求傳送給代理",
         lastImport: "上次匯入",
         errors: {
           notHtml: "請貼上或選擇有效的 HTML 以匯入。",
@@ -10139,11 +10416,11 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "导入",
-        description: "将 Figma 选区、.fig 导出或独立 HTML 导入为 Design 屏幕。",
+        description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
         figmaPasteTitle: "从 Figma 粘贴",
         figmaPasteDescription:
-          "在 Figma 中复制画框或图层，然后聚焦此区域并粘贴。有可用元数据时会直接导入。",
-        figmaPasteTarget: "在此粘贴 Figma 内容",
+          "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
+        figmaPasteTarget: "粘贴到画布",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
@@ -10156,17 +10433,15 @@ const designImportOverrides = {
         chooseHtmlFile: "选择 HTML 文件",
         githubTitle: "GitHub",
         githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
-        localTitle: "本地 app / VS Code",
-        localDescription: "使用 visual-edit 连接正在运行的本地 app。",
+        localTitle: "本地 app",
+        localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
         visualEditGuidance:
-          "启动 app，在 app repo 中运行下方命令，然后让代理使用 visual-edit skill 添加 URL 屏幕。",
-        useVisualEditNow: "立即使用 visual-edit",
+          "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
         figmaSuccess: "已导入 Figma 粘贴内容",
         htmlSuccess: "已导入 HTML",
         uploadSuccess: "已导入文件",
-        visualEditSent: "已将 visual-edit 请求发送给代理",
         lastImport: "上次导入",
         errors: {
           notHtml: "请粘贴或选择有效的 HTML 进行导入。",
@@ -10182,11 +10457,11 @@ const designImportOverrides = {
       import: {
         title: "Importar",
         description:
-          "Trae selecciones de Figma, exportaciones .fig o HTML independiente como pantallas de Design.",
+          "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
         figmaPasteTitle: "Pegar desde Figma",
         figmaPasteDescription:
-          "Copia un marco o capa en Figma, enfoca este destino y pega. Los metadatos de Figma se importan directamente cuando están disponibles.",
-        figmaPasteTarget: "Pega contenido de Figma aquí",
+          "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Design importa el HTML visible del portapapeles.",
+        figmaPasteTarget: "Pega en el lienzo",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
           "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
@@ -10200,17 +10475,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecta una app local en ejecución con visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecta cualquier app local en ejecución con /visual-edit.",
         visualEditGuidance:
-          "Inicia tu app, ejecuta el comando siguiente desde el repo de la app y luego pide al agente que use la skill visual-edit para añadir pantallas con URL.",
-        useVisualEditNow: "Usar visual-edit ahora",
+          "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
         figmaSuccess: "Pegado de Figma importado",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Archivo importado",
-        visualEditSent: "Solicitud de visual-edit enviada al agente",
         lastImport: "Última importación",
         errors: {
           notHtml: "Pega o elige HTML válido para importar.",
@@ -10226,11 +10500,11 @@ const designImportOverrides = {
       import: {
         title: "Importer",
         description:
-          "Importez des sélections Figma, des exports .fig ou du HTML autonome comme écrans Design.",
+          "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
         figmaPasteTitle: "Coller depuis Figma",
         figmaPasteDescription:
-          "Copiez un frame ou un calque dans Figma, ciblez cette zone puis collez. Les métadonnées Figma sont importées directement si disponibles.",
-        figmaPasteTarget: "Collez le contenu Figma ici",
+          "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Design importe le HTML visible du presse-papiers.",
+        figmaPasteTarget: "Collez dans le canevas",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
           "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
@@ -10244,18 +10518,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Bientôt : importer des écrans et composants directement depuis un dépôt.",
-        localTitle: "App locale / VS Code",
+        localTitle: "App locale",
         localDescription:
-          "Connectez une app locale en cours d’exécution avec visual-edit.",
+          "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
         visualEditGuidance:
-          "Lancez votre app, exécutez la commande ci-dessous depuis le dépôt de l’app, puis demandez à l’agent d’utiliser la skill visual-edit pour ajouter des écrans par URL.",
-        useVisualEditNow: "Utiliser visual-edit maintenant",
+          "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
         figmaSuccess: "Collage Figma importé",
         htmlSuccess: "HTML importé",
         uploadSuccess: "Fichier importé",
-        visualEditSent: "Demande visual-edit envoyée à l’agent",
         lastImport: "Dernier import",
         errors: {
           notHtml: "Collez ou choisissez du HTML valide à importer.",
@@ -10271,11 +10543,11 @@ const designImportOverrides = {
       import: {
         title: "Import",
         description:
-          "Bringe Figma-Auswahlen, .fig-Exporte oder eigenständiges HTML als Design-Bildschirme hinein.",
+          "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
         figmaPasteTitle: "Aus Figma einfügen",
         figmaPasteDescription:
-          "Kopiere einen Frame oder Layer in Figma, fokussiere dieses Ziel und füge ein. Figma-Metadaten werden direkt importiert, wenn sie verfügbar sind.",
-        figmaPasteTarget: "Figma-Inhalt hier einfügen",
+          "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Design importiert das sichtbare Zwischenablage-HTML.",
+        figmaPasteTarget: "In die Leinwand einfügen",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
@@ -10289,17 +10561,15 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
-        localTitle: "Lokale App / VS Code",
-        localDescription: "Verbinde eine laufende lokale App mit visual-edit.",
+        localTitle: "Lokale App",
+        localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
         visualEditGuidance:
-          "Starte deine App, führe den folgenden Befehl im App-Repo aus und bitte den Agenten dann, die visual-edit-Skill zu verwenden, um URL-basierte Bildschirme hinzuzufügen.",
-        useVisualEditNow: "visual-edit jetzt verwenden",
+          "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
         figmaSuccess: "Figma-Einfügung importiert",
         htmlSuccess: "HTML importiert",
         uploadSuccess: "Datei importiert",
-        visualEditSent: "visual-edit-Anfrage an den Agenten gesendet",
         lastImport: "Letzter Import",
         errors: {
           notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
@@ -10315,11 +10585,11 @@ const designImportOverrides = {
       import: {
         title: "インポート",
         description:
-          "Figma の選択範囲、.fig エクスポート、または単体 HTML を Design の画面として取り込みます。",
+          "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
         figmaPasteTitle: "Figma から貼り付け",
         figmaPasteDescription:
-          "Figma でフレームまたはレイヤーをコピーし、この領域にフォーカスして貼り付けます。利用可能な場合は Figma メタデータを直接インポートします。",
-        figmaPasteTarget: "ここに Figma コンテンツを貼り付け",
+          "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。Design は表示されているクリップボード HTML をインポートします。",
+        figmaPasteTarget: "キャンバスに貼り付け",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
@@ -10333,17 +10603,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
-        localTitle: "ローカル app / VS Code",
-        localDescription: "visual-edit で実行中のローカル app に接続します。",
+        localTitle: "ローカル app",
+        localDescription:
+          "/visual-edit で任意の実行中ローカル app に接続します。",
         visualEditGuidance:
-          "app を起動し、app repo で下のコマンドを実行してから、エージェントに visual-edit skill で URL ベースの画面を追加するよう依頼してください。",
-        useVisualEditNow: "visual-edit を今すぐ使う",
+          "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
         figmaSuccess: "Figma 貼り付けをインポートしました",
         htmlSuccess: "HTML をインポートしました",
         uploadSuccess: "ファイルをインポートしました",
-        visualEditSent: "visual-edit リクエストをエージェントに送信しました",
         lastImport: "前回のインポート",
         errors: {
           notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
@@ -10359,11 +10628,11 @@ const designImportOverrides = {
       import: {
         title: "가져오기",
         description:
-          "Figma 선택 영역, .fig 내보내기 또는 독립 HTML을 Design 화면으로 가져옵니다.",
+          "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
         figmaPasteTitle: "Figma에서 붙여넣기",
         figmaPasteDescription:
-          "Figma에서 프레임이나 레이어를 복사한 뒤 이 영역에 포커스하고 붙여넣으세요. 가능한 경우 Figma 메타데이터를 바로 가져옵니다.",
-        figmaPasteTarget: "여기에 Figma 콘텐츠 붙여넣기",
+          "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. Design은 보이는 클립보드 HTML을 가져옵니다.",
+        figmaPasteTarget: "캔버스에 붙여넣기",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
@@ -10377,17 +10646,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
-        localTitle: "로컬 app / VS Code",
-        localDescription: "visual-edit로 실행 중인 로컬 app을 연결합니다.",
+        localTitle: "로컬 app",
+        localDescription:
+          "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
         visualEditGuidance:
-          "app을 시작하고 app repo에서 아래 명령을 실행한 다음, 에이전트에게 visual-edit skill로 URL 기반 화면을 추가해 달라고 요청하세요.",
-        useVisualEditNow: "지금 visual-edit 사용",
+          "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
         figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
         htmlSuccess: "HTML을 가져왔습니다",
         uploadSuccess: "파일을 가져왔습니다",
-        visualEditSent: "visual-edit 요청을 에이전트에 보냈습니다",
         lastImport: "최근 가져오기",
         errors: {
           notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
@@ -10403,11 +10671,11 @@ const designImportOverrides = {
       import: {
         title: "Importar",
         description:
-          "Traga seleções do Figma, exportações .fig ou HTML independente como telas do Design.",
+          "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
         figmaPasteTitle: "Colar do Figma",
         figmaPasteDescription:
-          "Copie um frame ou camada no Figma, foque este destino e cole. Os metadados do Figma são importados diretamente quando disponíveis.",
-        figmaPasteTarget: "Cole conteúdo do Figma aqui",
+          "Copie um frame ou camada no Figma e cole na tela do Design. O Design importa o HTML visível da área de transferência.",
+        figmaPasteTarget: "Cole na tela",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
           "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
@@ -10421,17 +10689,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "Em breve: importe telas e componentes diretamente de um repositório.",
-        localTitle: "App local / VS Code",
-        localDescription: "Conecte um app local em execução com visual-edit.",
+        localTitle: "App local",
+        localDescription:
+          "Conecte qualquer app local em execução com /visual-edit.",
         visualEditGuidance:
-          "Inicie seu app, execute o comando abaixo no repo do app e depois peça ao agente para usar a skill visual-edit para adicionar telas por URL.",
-        useVisualEditNow: "Usar visual-edit agora",
+          "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
         figmaSuccess: "Colagem do Figma importada",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Arquivo importado",
-        visualEditSent: "Solicitação de visual-edit enviada ao agente",
         lastImport: "Última importação",
         errors: {
           notHtml: "Cole ou escolha HTML válido para importar.",
@@ -10447,11 +10714,11 @@ const designImportOverrides = {
       import: {
         title: "आयात",
         description:
-          "Figma selections, .fig exports या standalone HTML को Design screens के रूप में लाएँ।",
+          "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
         figmaPasteTitle: "Figma से पेस्ट करें",
         figmaPasteDescription:
-          "Figma में frame या layer कॉपी करें, फिर इस target को focus करके paste करें। उपलब्ध होने पर Figma metadata सीधे import होता है।",
-        figmaPasteTarget: "Figma content यहाँ paste करें",
+          "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। Design visible clipboard HTML import करता है।",
+        figmaPasteTarget: "canvas में paste करें",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
@@ -10465,17 +10732,16 @@ const designImportOverrides = {
         githubTitle: "GitHub",
         githubDescription:
           "जल्द आ रहा है: repository से screens और components सीधे import करें।",
-        localTitle: "स्थानीय app / VS Code",
-        localDescription: "चल रहे local app को visual-edit से connect करें।",
+        localTitle: "स्थानीय app",
+        localDescription:
+          "/visual-edit से किसी भी चल रहे local app को connect करें।",
         visualEditGuidance:
-          "अपना app शुरू करें, app repo से नीचे वाला command चलाएँ, फिर agent से visual-edit skill इस्तेमाल करके URL-backed screens जोड़ने को कहें।",
-        useVisualEditNow: "अभी visual-edit इस्तेमाल करें",
+          "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
         figmaSuccess: "Figma paste import हो गया",
         htmlSuccess: "HTML import हो गया",
         uploadSuccess: "File import हो गई",
-        visualEditSent: "visual-edit request agent को भेजी गई",
         lastImport: "पिछला import",
         errors: {
           notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
@@ -10490,12 +10756,11 @@ const designImportOverrides = {
     designEditor: {
       import: {
         title: "استيراد",
-        description:
-          "استورد تحديدات Figma أو ملفات .fig أو HTML مستقل كشاشات Design.",
+        description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
         figmaPasteTitle: "لصق من Figma",
         figmaPasteDescription:
-          "انسخ إطارا أو طبقة في Figma، ثم ركز هذه المنطقة والصق. يتم استيراد بيانات Figma الوصفية مباشرة عند توفرها.",
-        figmaPasteTarget: "الصق محتوى Figma هنا",
+          "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يستورد Design HTML المرئي من الحافظة.",
+        figmaPasteTarget: "الصق في اللوحة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
@@ -10508,17 +10773,16 @@ const designImportOverrides = {
         chooseHtmlFile: "اختر ملف HTML",
         githubTitle: "GitHub",
         githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
-        localTitle: "تطبيق محلي / VS Code",
-        localDescription: "وصّل تطبيقا محليا قيد التشغيل باستخدام visual-edit.",
+        localTitle: "تطبيق محلي",
+        localDescription:
+          "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
         visualEditGuidance:
-          "شغّل التطبيق، ثم نفّذ الأمر أدناه من مستودع التطبيق، وبعدها اطلب من الوكيل استخدام مهارة visual-edit لإضافة شاشات مدعومة بروابط URL.",
-        useVisualEditNow: "استخدم visual-edit الآن",
+          "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
         figmaSuccess: "تم استيراد لصق Figma",
         htmlSuccess: "تم استيراد HTML",
         uploadSuccess: "تم استيراد الملف",
-        visualEditSent: "تم إرسال طلب visual-edit إلى الوكيل",
         lastImport: "آخر استيراد",
         errors: {
           notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
@@ -10530,6 +10794,1219 @@ const designImportOverrides = {
     },
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+// Fill section's "Styles" affordance (color-styles library) — currently a
+// disabled/coming-soon placeholder icon button rather than a dead click.
+const designFillStylesComingSoonOverrides = {
+  "zh-TW": { editPanel: { labels: { stylesComingSoon: "樣式 — 即將推出" } } },
+  "zh-CN": { editPanel: { labels: { stylesComingSoon: "样式 — 即将推出" } } },
+  "es-ES": {
+    editPanel: { labels: { stylesComingSoon: "Estilos — Próximamente" } },
+  },
+  "fr-FR": {
+    editPanel: { labels: { stylesComingSoon: "Styles — Bientôt disponible" } },
+  },
+  "de-DE": {
+    editPanel: { labels: { stylesComingSoon: "Stile — Demnächst verfügbar" } },
+  },
+  "ja-JP": {
+    editPanel: { labels: { stylesComingSoon: "スタイル — 近日対応" } },
+  },
+  "ko-KR": {
+    editPanel: { labels: { stylesComingSoon: "스타일 — 곧 제공" } },
+  },
+  "pt-BR": {
+    editPanel: { labels: { stylesComingSoon: "Estilos — Em breve" } },
+  },
+  "hi-IN": {
+    editPanel: {
+      labels: { stylesComingSoon: "स्टाइल — जल्द आ रहा है" },
+    },
+  },
+  "ar-SA": {
+    editPanel: { labels: { stylesComingSoon: "الأنماط — قريبًا" } },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+// Frame-tool size-presets panel (Figma parity): the right-panel title plus
+// category group labels shown while the Frame tool is armed. Preset device
+// names (iPhone 16 Pro, etc.) are untranslated product-name literals, defined
+// only once in `enUS.editPanel.framePresets.categories` — no override needed.
+const designFramePresetsOverrides = {
+  "zh-CN": {
+    editPanel: {
+      framePresets: {
+        title: "画框",
+        categories: {
+          phone: "手机",
+          tablet: "平板",
+          desktop: "桌面",
+          presentation: "演示文稿",
+          watch: "手表",
+          paper: "纸张",
+          socialMedia: "社交媒体",
+        },
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      framePresets: {
+        title: "Marco",
+        categories: {
+          phone: "Teléfono",
+          tablet: "Tableta",
+          desktop: "Escritorio",
+          presentation: "Presentación",
+          watch: "Reloj",
+          paper: "Papel",
+          socialMedia: "Redes sociales",
+        },
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      framePresets: {
+        title: "Cadre",
+        categories: {
+          phone: "Téléphone",
+          tablet: "Tablette",
+          desktop: "Bureau",
+          presentation: "Présentation",
+          watch: "Montre",
+          paper: "Papier",
+          socialMedia: "Réseaux sociaux",
+        },
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      framePresets: {
+        title: "Rahmen",
+        categories: {
+          phone: "Telefon",
+          tablet: "Tablet",
+          desktop: "Desktop",
+          presentation: "Präsentation",
+          watch: "Uhr",
+          paper: "Papier",
+          socialMedia: "Soziale Medien",
+        },
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      framePresets: {
+        title: "フレーム",
+        categories: {
+          phone: "電話",
+          tablet: "タブレット",
+          desktop: "デスクトップ",
+          presentation: "プレゼンテーション",
+          watch: "ウォッチ",
+          paper: "用紙",
+          socialMedia: "ソーシャルメディア",
+        },
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      framePresets: {
+        title: "프레임",
+        categories: {
+          phone: "휴대폰",
+          tablet: "태블릿",
+          desktop: "데스크톱",
+          presentation: "프레젠테이션",
+          watch: "시계",
+          paper: "용지",
+          socialMedia: "소셜 미디어",
+        },
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      framePresets: {
+        title: "Quadro",
+        categories: {
+          phone: "Celular",
+          tablet: "Tablet",
+          desktop: "Área de trabalho",
+          presentation: "Apresentação",
+          watch: "Relógio",
+          paper: "Papel",
+          socialMedia: "Redes sociais",
+        },
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      framePresets: {
+        title: "फ़्रेम",
+        categories: {
+          phone: "फ़ोन",
+          tablet: "टैबलेट",
+          desktop: "डेस्कटॉप",
+          presentation: "प्रेज़ेंटेशन",
+          watch: "वॉच",
+          paper: "पेपर",
+          socialMedia: "सोशल मीडिया",
+        },
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      framePresets: {
+        title: "الإطار",
+        categories: {
+          phone: "الهاتف",
+          tablet: "الجهاز اللوحي",
+          desktop: "سطح المكتب",
+          presentation: "العرض التقديمي",
+          watch: "الساعة",
+          paper: "الورق",
+          socialMedia: "وسائل التواصل الاجتماعي",
+        },
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
+// Figma-parity alignment/distribute/tidy/auto-layout sweep: the reshaped
+// LayersPanel context menu's new pasteToReplace/frameSelection/
+// flipHorizontal/flipVertical items, plus the one new toast the Shift+A
+// "Add auto layout" handler introduces for a no-op screens selection.
+// zh-TW's translations live directly in app/i18n/zh-TW.ts instead (see that
+// file's layersPanel block) following this file's existing zh-TW convention.
+const designAlignmentOverrides = {
+  "zh-CN": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported: "自动布局不适用于屏幕",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "粘贴替换",
+      frameSelection: "创建画框",
+      flipHorizontal: "水平翻转",
+      flipVertical: "垂直翻转",
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "Agregar diseño automático no se aplica a las pantallas",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "Pegar para reemplazar",
+      frameSelection: "Enmarcar selección",
+      flipHorizontal: "Voltear horizontalmente",
+      flipVertical: "Voltear verticalmente",
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "Ajouter une disposition automatique ne s'applique pas aux écrans",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "Coller pour remplacer",
+      frameSelection: "Encadrer la sélection",
+      flipHorizontal: "Retourner horizontalement",
+      flipVertical: "Retourner verticalement",
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "Einfügen zum Ersetzen",
+      frameSelection: "Auswahl rahmen",
+      flipHorizontal: "Horizontal spiegeln",
+      flipVertical: "Vertikal spiegeln",
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "オートレイアウトの追加は画面には適用されません",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "置き換えて貼り付け",
+      frameSelection: "選択範囲をフレーム化",
+      flipHorizontal: "水平方向に反転",
+      flipVertical: "垂直方向に反転",
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "오토 레이아웃 추가는 화면에 적용되지 않습니다",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "교체하여 붙여넣기",
+      frameSelection: "선택 영역 프레임화",
+      flipHorizontal: "수평 뒤집기",
+      flipVertical: "수직 뒤집기",
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "Adicionar layout automático não se aplica a telas",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "Colar para substituir",
+      frameSelection: "Enquadrar seleção",
+      flipHorizontal: "Inverter horizontalmente",
+      flipVertical: "Inverter verticalmente",
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "बदलने के लिए पेस्ट करें",
+      frameSelection: "चयन को फ़्रेम करें",
+      flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
+      flipVertical: "लंबवत रूप से फ़्लिप करें",
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      toasts: {
+        autoLayoutScreensUnsupported:
+          "إضافة التخطيط التلقائي لا تنطبق على الشاشات",
+      },
+    },
+    layersPanel: {
+      pasteToReplace: "لصق للاستبدال",
+      frameSelection: "تأطير التحديد",
+      flipHorizontal: "قلب أفقيًا",
+      flipVertical: "قلب رأسيًا",
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
+// 3D-rotation inspector expander (Rotate X/Y, Perspective, the custom-
+// transform note) plus the code-backed GLSL shader picker (GlslShaderPanel):
+// fill/effect panel titles, the "Created by you"/"Presets" sections, saved-
+// shader and preset-category labels, the detail-view toolbar, the Code-panel
+// hint sentence, and the shader toasts. zh-TW's translations live directly in
+// app/i18n/zh-TW.ts instead, following this file's existing zh-TW convention.
+const designShaderAndRotationOverrides = {
+  "zh-CN": {
+    editPanel: {
+      labels: {
+        rotation3d: "3D 旋转",
+        rotationX: "旋转 X",
+        rotationY: "旋转 Y",
+        perspective: "透视",
+        perspectiveHint: "透视（空/0 = 无）",
+        customTransform: "自定义变换 — 无法编辑为 X/Y/Z 旋转",
+        shaderEffectType: "着色器",
+      },
+      shaders: {
+        fillsTitle: "着色器填充",
+        effectsTitle: "着色器效果",
+        createdByYou: "你创建的",
+        presets: "预设",
+        createNew: "新建",
+        ai: "AI",
+        savedInThisDesign: "已保存在此设计中",
+        noMatches: "没有匹配搜索的着色器",
+        backToBrowser: "返回着色器浏览",
+        closePanel: "关闭着色器面板",
+        editCode: "编辑 GLSL 代码",
+        removeShader: "移除着色器",
+        removeShaderEffect: "移除着色器效果",
+        noUniforms: "此着色器没有可调整的参数",
+        codeHint:
+          "GLSL 源代码已保存在此屏幕的 HTML 中 — 打开代码面板进行编辑。",
+        selectElementFirst: "请先选择一个屏幕元素",
+        selectCanvasElementFirst: "请先在画布上选择一个元素",
+        saveFailed: "无法保存着色器",
+        categories: {
+          gradientFlow: "渐变流动",
+          waves: "波浪",
+          noise: "噪点",
+          pattern: "图案",
+          texture: "纹理",
+          retro: "复古",
+        },
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      labels: {
+        rotation3d: "Rotación 3D",
+        rotationX: "Rotar X",
+        rotationY: "Rotar Y",
+        perspective: "Perspectiva",
+        perspectiveHint: "Perspectiva (vacío/0 = ninguna)",
+        customTransform:
+          "Transformación personalizada — no se puede editar como rotación X/Y/Z",
+        shaderEffectType: "Shader",
+      },
+      shaders: {
+        fillsTitle: "Rellenos de shader",
+        effectsTitle: "Efectos de shader",
+        createdByYou: "Creados por ti",
+        presets: "Preajustes",
+        createNew: "Crear nuevo",
+        ai: "IA",
+        savedInThisDesign: "Guardado en este diseño",
+        noMatches: "Ningún shader coincide con tu búsqueda",
+        backToBrowser: "Volver al explorador de shaders",
+        closePanel: "Cerrar panel de shader",
+        editCode: "Editar código GLSL",
+        removeShader: "Quitar shader",
+        removeShaderEffect: "Quitar efecto de shader",
+        noUniforms: "Este shader no tiene parámetros ajustables",
+        codeHint:
+          "El código fuente GLSL está guardado en el HTML de esta pantalla — abre el panel de código para editarlo.",
+        selectElementFirst: "Selecciona primero un elemento de pantalla",
+        selectCanvasElementFirst: "Selecciona primero un elemento en el lienzo",
+        saveFailed: "No se pudo guardar el shader",
+        categories: {
+          gradientFlow: "Flujo de gradiente",
+          waves: "Ondas",
+          noise: "Ruido",
+          pattern: "Patrones",
+          texture: "Textura",
+          retro: "Retro",
+        },
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      labels: {
+        rotation3d: "Rotation 3D",
+        rotationX: "Rotation X",
+        rotationY: "Rotation Y",
+        perspective: "Perspective",
+        perspectiveHint: "Perspective (vide/0 = aucune)",
+        customTransform:
+          "Transformation personnalisée — ne peut pas être modifiée comme rotation X/Y/Z",
+        shaderEffectType: "Shader",
+      },
+      shaders: {
+        fillsTitle: "Remplissages shader",
+        effectsTitle: "Effets shader",
+        createdByYou: "Créés par vous",
+        presets: "Préréglages",
+        createNew: "Créer",
+        ai: "IA",
+        savedInThisDesign: "Enregistré dans ce design",
+        noMatches: "Aucun shader ne correspond à votre recherche",
+        backToBrowser: "Retour à la liste des shaders",
+        closePanel: "Fermer le panneau shader",
+        editCode: "Modifier le code GLSL",
+        removeShader: "Supprimer le shader",
+        removeShaderEffect: "Supprimer l'effet shader",
+        noUniforms: "Ce shader n'a aucun paramètre réglable",
+        codeHint:
+          "Le code source GLSL est enregistré dans le HTML de cet écran — ouvrez le panneau Code pour le modifier.",
+        selectElementFirst: "Sélectionnez d'abord un élément d'écran",
+        selectCanvasElementFirst:
+          "Sélectionnez d'abord un élément sur le canevas",
+        saveFailed: "Impossible d'enregistrer le shader",
+        categories: {
+          gradientFlow: "Flux de dégradé",
+          waves: "Vagues",
+          noise: "Bruit",
+          pattern: "Motifs",
+          texture: "Texture",
+          retro: "Rétro",
+        },
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      labels: {
+        rotation3d: "3D-Rotation",
+        rotationX: "X-Rotation",
+        rotationY: "Y-Rotation",
+        perspective: "Perspektive",
+        perspectiveHint: "Perspektive (leer/0 = keine)",
+        customTransform:
+          "Benutzerdefinierte Transformation — kann nicht als X/Y/Z-Rotation bearbeitet werden",
+        shaderEffectType: "Shader",
+      },
+      shaders: {
+        fillsTitle: "Shader-Füllungen",
+        effectsTitle: "Shader-Effekte",
+        createdByYou: "Von dir erstellt",
+        presets: "Voreinstellungen",
+        createNew: "Neu erstellen",
+        ai: "KI",
+        savedInThisDesign: "In diesem Design gespeichert",
+        noMatches: "Keine Shader entsprechen deiner Suche",
+        backToBrowser: "Zurück zur Shader-Übersicht",
+        closePanel: "Shader-Panel schließen",
+        editCode: "GLSL-Code bearbeiten",
+        removeShader: "Shader entfernen",
+        removeShaderEffect: "Shader-Effekt entfernen",
+        noUniforms: "Dieser Shader hat keine einstellbaren Parameter",
+        codeHint:
+          "Der GLSL-Quellcode ist im HTML dieses Bildschirms gespeichert — öffne das Code-Panel, um ihn zu bearbeiten.",
+        selectElementFirst: "Wähle zuerst ein Bildschirmelement aus",
+        selectCanvasElementFirst:
+          "Wähle zuerst ein Element auf der Leinwand aus",
+        saveFailed: "Shader konnte nicht gespeichert werden",
+        categories: {
+          gradientFlow: "Verlaufsfluss",
+          waves: "Wellen",
+          noise: "Rauschen",
+          pattern: "Muster",
+          texture: "Textur",
+          retro: "Retro",
+        },
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      labels: {
+        rotation3d: "3D 回転",
+        rotationX: "X 軸回転",
+        rotationY: "Y 軸回転",
+        perspective: "パースペクティブ",
+        perspectiveHint: "パースペクティブ（空/0 = なし）",
+        customTransform: "カスタム変換 — X/Y/Z 回転として編集できません",
+        shaderEffectType: "シェーダー",
+      },
+      shaders: {
+        fillsTitle: "シェーダーフィル",
+        effectsTitle: "シェーダーエフェクト",
+        createdByYou: "自分が作成",
+        presets: "プリセット",
+        createNew: "新規作成",
+        ai: "AI",
+        savedInThisDesign: "このデザインに保存済み",
+        noMatches: "検索に一致するシェーダーがありません",
+        backToBrowser: "シェーダー一覧に戻る",
+        closePanel: "シェーダーパネルを閉じる",
+        editCode: "GLSL コードを編集",
+        removeShader: "シェーダーを削除",
+        removeShaderEffect: "シェーダーエフェクトを削除",
+        noUniforms: "このシェーダーには調整可能なパラメーターがありません",
+        codeHint:
+          "GLSL のソースはこの画面の HTML に保存されています — コードパネルを開いて編集してください。",
+        selectElementFirst: "まず画面上の要素を選択してください",
+        selectCanvasElementFirst: "まずキャンバス上の要素を選択してください",
+        saveFailed: "シェーダーを保存できませんでした",
+        categories: {
+          gradientFlow: "グラデーションフロー",
+          waves: "波",
+          noise: "ノイズ",
+          pattern: "パターン",
+          texture: "テクスチャ",
+          retro: "レトロ",
+        },
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      labels: {
+        rotation3d: "3D 회전",
+        rotationX: "X 회전",
+        rotationY: "Y 회전",
+        perspective: "원근감",
+        perspectiveHint: "원근감 (비어 있음/0 = 없음)",
+        customTransform: "사용자 지정 변환 — X/Y/Z 회전으로 편집할 수 없음",
+        shaderEffectType: "셰이더",
+      },
+      shaders: {
+        fillsTitle: "셰이더 채우기",
+        effectsTitle: "셰이더 효과",
+        createdByYou: "내가 만든 항목",
+        presets: "프리셋",
+        createNew: "새로 만들기",
+        ai: "AI",
+        savedInThisDesign: "이 디자인에 저장됨",
+        noMatches: "검색과 일치하는 셰이더가 없습니다",
+        backToBrowser: "셰이더 찾아보기로 돌아가기",
+        closePanel: "셰이더 패널 닫기",
+        editCode: "GLSL 코드 편집",
+        removeShader: "셰이더 제거",
+        removeShaderEffect: "셰이더 효과 제거",
+        noUniforms: "이 셰이더에는 조정 가능한 유니폼이 없습니다",
+        codeHint:
+          "GLSL 소스는 이 화면의 HTML에 저장되어 있습니다 — 코드 패널을 열어 편집하세요.",
+        selectElementFirst: "먼저 화면 요소를 선택하세요",
+        selectCanvasElementFirst: "먼저 캔버스에서 요소를 선택하세요",
+        saveFailed: "셰이더를 저장할 수 없습니다",
+        categories: {
+          gradientFlow: "그라디언트 플로우",
+          waves: "웨이브",
+          noise: "노이즈",
+          pattern: "패턴",
+          texture: "텍스처",
+          retro: "레트로",
+        },
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      labels: {
+        rotation3d: "Rotação 3D",
+        rotationX: "Girar X",
+        rotationY: "Girar Y",
+        perspective: "Perspectiva",
+        perspectiveHint: "Perspectiva (vazio/0 = nenhuma)",
+        customTransform:
+          "Transformação personalizada — não pode ser editada como rotação X/Y/Z",
+        shaderEffectType: "Shader",
+      },
+      shaders: {
+        fillsTitle: "Preenchimentos de shader",
+        effectsTitle: "Efeitos de shader",
+        createdByYou: "Criados por você",
+        presets: "Predefinições",
+        createNew: "Criar novo",
+        ai: "IA",
+        savedInThisDesign: "Salvo neste design",
+        noMatches: "Nenhum shader corresponde à sua busca",
+        backToBrowser: "Voltar à lista de shaders",
+        closePanel: "Fechar painel de shader",
+        editCode: "Editar código GLSL",
+        removeShader: "Remover shader",
+        removeShaderEffect: "Remover efeito de shader",
+        noUniforms: "Este shader não tem parâmetros ajustáveis",
+        codeHint:
+          "O código-fonte GLSL está salvo no HTML desta tela — abra o painel de código para editá-lo.",
+        selectElementFirst: "Selecione primeiro um elemento da tela",
+        selectCanvasElementFirst: "Selecione primeiro um elemento no canvas",
+        saveFailed: "Não foi possível salvar o shader",
+        categories: {
+          gradientFlow: "Fluxo de gradiente",
+          waves: "Ondas",
+          noise: "Ruído",
+          pattern: "Padrões",
+          texture: "Textura",
+          retro: "Retrô",
+        },
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      labels: {
+        rotation3d: "3D रोटेशन",
+        rotationX: "X घुमाएं",
+        rotationY: "Y घुमाएं",
+        perspective: "पर्सपेक्टिव",
+        perspectiveHint: "पर्सपेक्टिव (खाली/0 = कोई नहीं)",
+        customTransform:
+          "कस्टम ट्रांसफ़ॉर्म — इसे X/Y/Z रोटेशन के रूप में संपादित नहीं किया जा सकता",
+        shaderEffectType: "शेडर",
+      },
+      shaders: {
+        fillsTitle: "शेडर फ़िल",
+        effectsTitle: "शेडर प्रभाव",
+        createdByYou: "आपके द्वारा बनाए गए",
+        presets: "प्रीसेट",
+        createNew: "नया बनाएं",
+        ai: "AI",
+        savedInThisDesign: "इस डिज़ाइन में सहेजा गया",
+        noMatches: "आपकी खोज से कोई शेडर मेल नहीं खाता",
+        backToBrowser: "शेडर ब्राउज़र पर वापस जाएं",
+        closePanel: "शेडर पैनल बंद करें",
+        editCode: "GLSL कोड संपादित करें",
+        removeShader: "शेडर हटाएं",
+        removeShaderEffect: "शेडर प्रभाव हटाएं",
+        noUniforms: "इस शेडर में कोई समायोज्य यूनिफ़ॉर्म नहीं है",
+        codeHint:
+          "GLSL स्रोत इस स्क्रीन के HTML में सहेजा गया है — इसे संपादित करने के लिए कोड पैनल खोलें।",
+        selectElementFirst: "पहले एक स्क्रीन तत्व चुनें",
+        selectCanvasElementFirst: "पहले कैनवास पर एक तत्व चुनें",
+        saveFailed: "शेडर सहेजा नहीं जा सका",
+        categories: {
+          gradientFlow: "ग्रेडिएंट फ़्लो",
+          waves: "वेव्स",
+          noise: "नॉइज़",
+          pattern: "पैटर्न",
+          texture: "टेक्सचर",
+          retro: "रेट्रो",
+        },
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      labels: {
+        rotation3d: "دوران ثلاثي الأبعاد",
+        rotationX: "دوران X",
+        rotationY: "دوران Y",
+        perspective: "المنظور",
+        perspectiveHint: "المنظور (فارغ/0 = بلا)",
+        customTransform: "تحويل مخصص — لا يمكن تعديله كدوران X/Y/Z",
+        shaderEffectType: "التظليل",
+      },
+      shaders: {
+        fillsTitle: "تعبئات التظليل",
+        effectsTitle: "تأثيرات التظليل",
+        createdByYou: "من إنشائك",
+        presets: "الإعدادات المسبقة",
+        createNew: "إنشاء جديد",
+        ai: "AI",
+        savedInThisDesign: "محفوظ في هذا التصميم",
+        noMatches: "لا توجد تظليلات مطابقة لبحثك",
+        backToBrowser: "العودة إلى تصفح التظليل",
+        closePanel: "إغلاق لوحة التظليل",
+        editCode: "تحرير كود GLSL",
+        removeShader: "إزالة التظليل",
+        removeShaderEffect: "إزالة تأثير التظليل",
+        noUniforms: "لا توجد معلمات قابلة للتعديل لهذا التظليل",
+        codeHint:
+          "مصدر GLSL محفوظ في HTML الخاص بهذه الشاشة — افتح لوحة الكود لتعديله.",
+        selectElementFirst: "الرجاء تحديد عنصر شاشة أولاً",
+        selectCanvasElementFirst: "الرجاء تحديد عنصر على اللوحة أولاً",
+        saveFailed: "تعذر حفظ التظليل",
+        categories: {
+          gradientFlow: "تدفق متدرج",
+          waves: "موجات",
+          noise: "تشويش",
+          pattern: "أنماط",
+          texture: "ملمس",
+          retro: "كلاسيكي",
+        },
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
+// Element interaction-state inspector (Default / Hover / Focus /
+// Focus-visible / Pressed / Disabled selector, the "Editing <State> state"
+// indicator, and the per-property override reset affordance). zh-TW's
+// translations live directly in app/i18n/zh-TW.ts instead, following this
+// file's existing zh-TW convention.
+const designInteractionStatesOverrides = {
+  "zh-CN": {
+    editPanel: {
+      interactionStates: {
+        default: "默认",
+        hover: "悬停",
+        focus: "聚焦",
+        focusVisible: "聚焦可见",
+        active: "按下",
+        disabled: "禁用",
+        selectorLabel: "交互状态",
+        selectorTooltip: "预览并编辑悬停、聚焦和按下状态",
+        editingState: "正在编辑{{state}}状态",
+        editingStateTooltip:
+          "正在编辑{{state}}状态 — 这里的样式仅在元素处于{{state}}时生效",
+        hasOverrideIndicator: "此属性在该状态下已被覆盖",
+        reset: "重置",
+        resetOverride: "重置覆盖项",
+        resetOverrideTooltip: "清除此状态的覆盖项，使用默认值",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      interactionStates: {
+        default: "Predeterminado",
+        hover: "Hover",
+        focus: "Foco",
+        focusVisible: "Foco visible",
+        active: "Presionado",
+        disabled: "Deshabilitado",
+        selectorLabel: "Estado de interacción",
+        selectorTooltip:
+          "Previsualiza y edita los estados hover, foco y presionado",
+        editingState: "Editando el estado {{state}}",
+        editingStateTooltip:
+          "Editando el estado {{state}} — estos estilos solo se aplican cuando el elemento está en {{state}}",
+        hasOverrideIndicator: "Esta propiedad está sobrescrita en este estado",
+        reset: "Restablecer",
+        resetOverride: "Restablecer sobrescritura",
+        resetOverrideTooltip:
+          "Borra la sobrescritura de este estado y usa el valor predeterminado",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      interactionStates: {
+        default: "Par défaut",
+        hover: "Survol",
+        focus: "Focus",
+        focusVisible: "Focus clavier",
+        active: "Pressé",
+        disabled: "Désactivé",
+        selectorLabel: "État d'interaction",
+        selectorTooltip:
+          "Prévisualiser et modifier les états survol, focus et pressé",
+        editingState: "Modification de l'état {{state}}",
+        editingStateTooltip:
+          "Modification de l'état {{state}} — ces styles s'appliquent uniquement quand l'élément est en état {{state}}",
+        hasOverrideIndicator: "Cette propriété est remplacée dans cet état",
+        reset: "Réinitialiser",
+        resetOverride: "Réinitialiser la substitution",
+        resetOverrideTooltip:
+          "Efface la substitution de cet état et utilise la valeur par défaut",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      interactionStates: {
+        default: "Standard",
+        hover: "Hover",
+        focus: "Fokus",
+        focusVisible: "Fokus sichtbar",
+        active: "Gedrückt",
+        disabled: "Deaktiviert",
+        selectorLabel: "Interaktionszustand",
+        selectorTooltip:
+          "Hover-, Fokus- und Gedrückt-Zustände in der Vorschau anzeigen und bearbeiten",
+        editingState: "Bearbeite Zustand {{state}}",
+        editingStateTooltip:
+          "Bearbeitung des Zustands {{state}} — diese Stile gelten nur, wenn das Element {{state}} ist",
+        hasOverrideIndicator:
+          "Diese Eigenschaft ist in diesem Zustand überschrieben",
+        reset: "Zurücksetzen",
+        resetOverride: "Überschreibung zurücksetzen",
+        resetOverrideTooltip:
+          "Überschreibung dieses Zustands löschen und Standardwert verwenden",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      interactionStates: {
+        default: "デフォルト",
+        hover: "ホバー",
+        focus: "フォーカス",
+        focusVisible: "フォーカス表示",
+        active: "押下時",
+        disabled: "無効",
+        selectorLabel: "インタラクション状態",
+        selectorTooltip: "ホバー、フォーカス、押下状態をプレビューして編集",
+        editingState: "{{state}}状態を編集中",
+        editingStateTooltip:
+          "{{state}}状態を編集中 — ここでのスタイルは要素が{{state}}のときのみ適用されます",
+        hasOverrideIndicator: "このプロパティはこの状態で上書きされています",
+        reset: "リセット",
+        resetOverride: "上書きをリセット",
+        resetOverrideTooltip:
+          "この状態の上書きを消去してデフォルト値を使用します",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      interactionStates: {
+        default: "기본값",
+        hover: "호버",
+        focus: "포커스",
+        focusVisible: "포커스 표시",
+        active: "눌림",
+        disabled: "비활성화",
+        selectorLabel: "상호작용 상태",
+        selectorTooltip: "호버, 포커스, 눌림 상태를 미리보고 편집하세요",
+        editingState: "{{state}} 상태 편집 중",
+        editingStateTooltip:
+          "{{state}} 상태 편집 중 — 여기의 스타일은 요소가 {{state}} 상태일 때만 적용됩니다",
+        hasOverrideIndicator: "이 속성은 이 상태에서 재정의되었습니다",
+        reset: "재설정",
+        resetOverride: "재정의 초기화",
+        resetOverrideTooltip: "이 상태의 재정의를 지우고 기본값을 사용합니다",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      interactionStates: {
+        default: "Padrão",
+        hover: "Hover",
+        focus: "Foco",
+        focusVisible: "Foco visível",
+        active: "Pressionado",
+        disabled: "Desabilitado",
+        selectorLabel: "Estado de interação",
+        selectorTooltip:
+          "Visualize e edite os estados de hover, foco e pressionado",
+        editingState: "Editando o estado {{state}}",
+        editingStateTooltip:
+          "Editando o estado {{state}} — esses estilos se aplicam somente quando o elemento está em {{state}}",
+        hasOverrideIndicator: "Esta propriedade está sobrescrita neste estado",
+        reset: "Redefinir",
+        resetOverride: "Redefinir substituição",
+        resetOverrideTooltip:
+          "Limpa a substituição deste estado e usa o valor padrão",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      interactionStates: {
+        default: "डिफ़ॉल्ट",
+        hover: "होवर",
+        focus: "फ़ोकस",
+        focusVisible: "फ़ोकस विज़िबल",
+        active: "प्रेस्ड",
+        disabled: "डिसेबल्ड",
+        selectorLabel: "इंटरैक्शन स्थिति",
+        selectorTooltip: "होवर, फ़ोकस और प्रेस्ड स्थितियों को प्रीव्यू और एडिट करें",
+        editingState: "{{state}} स्थिति संपादित की जा रही है",
+        editingStateTooltip:
+          "{{state}} स्थिति संपादित की जा रही है — यहाँ की styles केवल तब लागू होती हैं जब element {{state}} हो",
+        hasOverrideIndicator: "यह property इस स्थिति में override की गई है",
+        reset: "रीसेट करें",
+        resetOverride: "ओवरराइड रीसेट करें",
+        resetOverrideTooltip:
+          "इस स्थिति का override हटाएं और डिफ़ॉल्ट मान उपयोग करें",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      interactionStates: {
+        default: "افتراضي",
+        hover: "تحويم",
+        focus: "تركيز",
+        focusVisible: "تركيز مرئي",
+        active: "مضغوط",
+        disabled: "معطّل",
+        selectorLabel: "حالة التفاعل",
+        selectorTooltip: "معاينة وتعديل حالات التحويم والتركيز والضغط",
+        editingState: "تعديل حالة {{state}}",
+        editingStateTooltip:
+          "تعديل حالة {{state}} — تنطبق هذه الأنماط فقط عندما يكون العنصر في حالة {{state}}",
+        hasOverrideIndicator: "تم تجاوز هذه الخاصية في هذه الحالة",
+        reset: "إعادة تعيين",
+        resetOverride: "إعادة تعيين التجاوز",
+        resetOverrideTooltip: "امسح تجاوز هذه الحالة واستخدم القيمة الافتراضية",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
+// Motion keyframe diamond affordance (per-field ◆ toggle next to
+// keyframeable properties), the breakpoint override indicator/reset
+// affordance, and the BreakpointBar's own labels (base chip, add-breakpoint
+// popover, Desktop/Tablet/Phone presets). zh-TW's translations live
+// directly in app/i18n/zh-TW.ts instead, following this file's existing
+// zh-TW convention. BreakpointBar.tsx itself is owned by the breakpoints
+// build — these keys unblock its existing humanized-fallback strings.
+const designMotionAndBreakpointOverrides = {
+  "zh-CN": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "添加关键帧",
+        removeTooltip: "移除关键帧",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "已在此断点被覆盖",
+        overriddenAtTooltip: "已在 {{width}}px 处被覆盖",
+        reset: "重置覆盖项",
+        resetShort: "重置",
+        resetTooltip: "清除此断点的覆盖项并使用基础值",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "基础",
+        editBaseWidth: "编辑基础宽度",
+        addBreakpoint: "添加断点",
+        remove: "移除断点",
+        options: "断点选项",
+        changeWidth: "更改宽度",
+        customWidth: "自定义宽度",
+        add: "添加",
+        showAllBreakpoints: "显示所有断点",
+        desktop: "桌面端",
+        tablet: "平板",
+        phone: "手机",
+      },
+    },
+  },
+  "es-ES": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "Añadir fotograma clave",
+        removeTooltip: "Quitar fotograma clave",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "Sobrescrito en este punto de quiebre",
+        overriddenAtTooltip: "Sobrescrito a {{width}}px",
+        reset: "Restablecer sobrescritura",
+        resetShort: "Restablecer",
+        resetTooltip:
+          "Borra la sobrescritura de este punto de quiebre y usa el valor base",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Editar ancho base",
+        addBreakpoint: "Añadir punto de quiebre",
+        remove: "Quitar punto de quiebre",
+        options: "Opciones del punto de quiebre",
+        changeWidth: "Cambiar ancho",
+        customWidth: "Ancho personalizado",
+        add: "Añadir",
+        showAllBreakpoints: "Mostrar todos los puntos de quiebre",
+        desktop: "Escritorio",
+        tablet: "Tableta",
+        phone: "Móvil",
+      },
+    },
+  },
+  "fr-FR": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "Ajouter une image clé",
+        removeTooltip: "Supprimer l'image clé",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "Remplacé à ce point de rupture",
+        overriddenAtTooltip: "Remplacé à {{width}}px",
+        reset: "Réinitialiser la substitution",
+        resetShort: "Réinitialiser",
+        resetTooltip:
+          "Efface la substitution de ce point de rupture et utilise la valeur de base",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Modifier la largeur de base",
+        addBreakpoint: "Ajouter un point de rupture",
+        remove: "Supprimer le point de rupture",
+        options: "Options du point de rupture",
+        changeWidth: "Modifier la largeur",
+        customWidth: "Largeur personnalisée",
+        add: "Ajouter",
+        showAllBreakpoints: "Afficher tous les points de rupture",
+        desktop: "Ordinateur",
+        tablet: "Tablette",
+        phone: "Mobile",
+      },
+    },
+  },
+  "de-DE": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "Keyframe hinzufügen",
+        removeTooltip: "Keyframe entfernen",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "Bei diesem Breakpoint überschrieben",
+        overriddenAtTooltip: "Bei {{width}}px überschrieben",
+        reset: "Überschreibung zurücksetzen",
+        resetShort: "Zurücksetzen",
+        resetTooltip:
+          "Überschreibung dieses Breakpoints löschen und Basiswert verwenden",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "Basis",
+        editBaseWidth: "Basisbreite bearbeiten",
+        addBreakpoint: "Breakpoint hinzufügen",
+        remove: "Breakpoint entfernen",
+        options: "Breakpoint-Optionen",
+        changeWidth: "Breite ändern",
+        customWidth: "Benutzerdefinierte Breite",
+        add: "Hinzufügen",
+        showAllBreakpoints: "Alle Breakpoints anzeigen",
+        desktop: "Desktop",
+        tablet: "Tablet",
+        phone: "Smartphone",
+      },
+    },
+  },
+  "ja-JP": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "キーフレームを追加",
+        removeTooltip: "キーフレームを削除",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "このブレークポイントで上書きされています",
+        overriddenAtTooltip: "{{width}}px で上書きされています",
+        reset: "上書きをリセット",
+        resetShort: "リセット",
+        resetTooltip:
+          "このブレークポイントの上書きを消去してベース値を使用します",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "ベース",
+        editBaseWidth: "ベース幅を編集",
+        addBreakpoint: "ブレークポイントを追加",
+        remove: "ブレークポイントを削除",
+        options: "ブレークポイントのオプション",
+        changeWidth: "幅を変更",
+        customWidth: "カスタム幅",
+        add: "追加",
+        showAllBreakpoints: "すべてのブレークポイントを表示",
+        desktop: "デスクトップ",
+        tablet: "タブレット",
+        phone: "スマートフォン",
+      },
+    },
+  },
+  "ko-KR": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "키프레임 추가",
+        removeTooltip: "키프레임 제거",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "이 브레이크포인트에서 재정의됨",
+        overriddenAtTooltip: "{{width}}px에서 재정의됨",
+        reset: "재정의 초기화",
+        resetShort: "재설정",
+        resetTooltip: "이 브레이크포인트의 재정의를 지우고 기본값을 사용합니다",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "기본",
+        editBaseWidth: "기본 너비 편집",
+        addBreakpoint: "브레이크포인트 추가",
+        remove: "브레이크포인트 제거",
+        options: "브레이크포인트 옵션",
+        changeWidth: "너비 변경",
+        customWidth: "사용자 지정 너비",
+        add: "추가",
+        showAllBreakpoints: "모든 브레이크포인트 표시",
+        desktop: "데스크톱",
+        tablet: "태블릿",
+        phone: "휴대폰",
+      },
+    },
+  },
+  "pt-BR": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "Adicionar quadro-chave",
+        removeTooltip: "Remover quadro-chave",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "Sobrescrito neste breakpoint",
+        overriddenAtTooltip: "Sobrescrito em {{width}}px",
+        reset: "Redefinir substituição",
+        resetShort: "Redefinir",
+        resetTooltip:
+          "Limpa a substituição deste breakpoint e usa o valor base",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Editar largura base",
+        addBreakpoint: "Adicionar breakpoint",
+        remove: "Remover breakpoint",
+        options: "Opções do breakpoint",
+        changeWidth: "Alterar largura",
+        customWidth: "Largura personalizada",
+        add: "Adicionar",
+        showAllBreakpoints: "Mostrar todos os breakpoints",
+        desktop: "Desktop",
+        tablet: "Tablet",
+        phone: "Celular",
+      },
+    },
+  },
+  "hi-IN": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "कीफ़्रेम जोड़ें",
+        removeTooltip: "कीफ़्रेम हटाएं",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "इस ब्रेकपॉइंट पर override किया गया",
+        overriddenAtTooltip: "{{width}}px पर override किया गया",
+        reset: "ओवरराइड रीसेट करें",
+        resetShort: "रीसेट करें",
+        resetTooltip: "इस ब्रेकपॉइंट का override हटाएं और आधार मान उपयोग करें",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "आधार",
+        editBaseWidth: "आधार चौड़ाई संपादित करें",
+        addBreakpoint: "ब्रेकपॉइंट जोड़ें",
+        remove: "ब्रेकपॉइंट हटाएं",
+        options: "ब्रेकपॉइंट विकल्प",
+        changeWidth: "चौड़ाई बदलें",
+        customWidth: "कस्टम चौड़ाई",
+        add: "जोड़ें",
+        showAllBreakpoints: "सभी ब्रेकपॉइंट दिखाएं",
+        desktop: "डेस्कटॉप",
+        tablet: "टैबलेट",
+        phone: "फ़ोन",
+      },
+    },
+  },
+  "ar-SA": {
+    editPanel: {
+      motionKeyframe: {
+        addTooltip: "إضافة إطار مفتاحي",
+        removeTooltip: "إزالة الإطار المفتاحي",
+      },
+      breakpointOverride: {
+        overriddenTooltip: "تم تجاوزه عند نقطة التوقف هذه",
+        overriddenAtTooltip: "تم تجاوزه عند {{width}}px",
+        reset: "إعادة تعيين التجاوز",
+        resetShort: "إعادة تعيين",
+        resetTooltip: "امسح تجاوز نقطة التوقف هذه واستخدم القيمة الأساسية",
+      },
+    },
+    designEditor: {
+      breakpointBar: {
+        base: "أساسي",
+        editBaseWidth: "تعديل العرض الأساسي",
+        addBreakpoint: "إضافة نقطة توقف",
+        remove: "إزالة نقطة التوقف",
+        options: "خيارات نقطة التوقف",
+        changeWidth: "تغيير العرض",
+        customWidth: "عرض مخصص",
+        add: "إضافة",
+        showAllBreakpoints: "إظهار جميع نقاط التوقف",
+        desktop: "سطح المكتب",
+        tablet: "جهاز لوحي",
+        phone: "هاتف",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
 export const messagesByLocale = {
   "en-US": enUS,
@@ -10543,8 +12020,10 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
-      designLocalSourceEditOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
+      designFillStylesComingSoonOverrides["zh-TW"],
+      breakpointBarOverrides["zh-TW"],
+      motionDockOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -10560,8 +12039,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
-      designLocalSourceEditOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
+      designFillStylesComingSoonOverrides["zh-CN"],
+      designFramePresetsOverrides["zh-CN"],
+      designAlignmentOverrides["zh-CN"],
+      designShaderAndRotationOverrides["zh-CN"],
+      designInteractionStatesOverrides["zh-CN"],
+      designMotionAndBreakpointOverrides["zh-CN"],
+      breakpointBarOverrides["zh-CN"],
+      motionDockOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -10616,8 +12102,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
-      designLocalSourceEditOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
+      designFillStylesComingSoonOverrides["es-ES"],
+      designFramePresetsOverrides["es-ES"],
+      designAlignmentOverrides["es-ES"],
+      designShaderAndRotationOverrides["es-ES"],
+      designInteractionStatesOverrides["es-ES"],
+      designMotionAndBreakpointOverrides["es-ES"],
+      breakpointBarOverrides["es-ES"],
+      motionDockOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -10672,8 +12165,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
-      designLocalSourceEditOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
+      designFillStylesComingSoonOverrides["fr-FR"],
+      designFramePresetsOverrides["fr-FR"],
+      designAlignmentOverrides["fr-FR"],
+      designShaderAndRotationOverrides["fr-FR"],
+      designInteractionStatesOverrides["fr-FR"],
+      designMotionAndBreakpointOverrides["fr-FR"],
+      breakpointBarOverrides["fr-FR"],
+      motionDockOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -10728,8 +12228,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
-      designLocalSourceEditOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
+      designFillStylesComingSoonOverrides["de-DE"],
+      designFramePresetsOverrides["de-DE"],
+      designAlignmentOverrides["de-DE"],
+      designShaderAndRotationOverrides["de-DE"],
+      designInteractionStatesOverrides["de-DE"],
+      designMotionAndBreakpointOverrides["de-DE"],
+      breakpointBarOverrides["de-DE"],
+      motionDockOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -10784,8 +12291,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
-      designLocalSourceEditOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
+      designFillStylesComingSoonOverrides["ja-JP"],
+      designFramePresetsOverrides["ja-JP"],
+      designAlignmentOverrides["ja-JP"],
+      designShaderAndRotationOverrides["ja-JP"],
+      designInteractionStatesOverrides["ja-JP"],
+      designMotionAndBreakpointOverrides["ja-JP"],
+      breakpointBarOverrides["ja-JP"],
+      motionDockOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -10841,8 +12355,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
-      designLocalSourceEditOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
+      designFillStylesComingSoonOverrides["ko-KR"],
+      designFramePresetsOverrides["ko-KR"],
+      designAlignmentOverrides["ko-KR"],
+      designShaderAndRotationOverrides["ko-KR"],
+      designInteractionStatesOverrides["ko-KR"],
+      designMotionAndBreakpointOverrides["ko-KR"],
+      breakpointBarOverrides["ko-KR"],
+      motionDockOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -10896,8 +12417,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
-      designLocalSourceEditOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
+      designFillStylesComingSoonOverrides["pt-BR"],
+      designFramePresetsOverrides["pt-BR"],
+      designAlignmentOverrides["pt-BR"],
+      designShaderAndRotationOverrides["pt-BR"],
+      designInteractionStatesOverrides["pt-BR"],
+      designMotionAndBreakpointOverrides["pt-BR"],
+      breakpointBarOverrides["pt-BR"],
+      motionDockOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -10952,8 +12480,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
-      designLocalSourceEditOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
+      designFillStylesComingSoonOverrides["hi-IN"],
+      designFramePresetsOverrides["hi-IN"],
+      designAlignmentOverrides["hi-IN"],
+      designShaderAndRotationOverrides["hi-IN"],
+      designInteractionStatesOverrides["hi-IN"],
+      designMotionAndBreakpointOverrides["hi-IN"],
+      breakpointBarOverrides["hi-IN"],
+      motionDockOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -11008,8 +12543,15 @@ export const messagesByLocale = {
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
-      designLocalSourceEditOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
+      designFillStylesComingSoonOverrides["ar-SA"],
+      designFramePresetsOverrides["ar-SA"],
+      designAlignmentOverrides["ar-SA"],
+      designShaderAndRotationOverrides["ar-SA"],
+      designInteractionStatesOverrides["ar-SA"],
+      designMotionAndBreakpointOverrides["ar-SA"],
+      breakpointBarOverrides["ar-SA"],
+      motionDockOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

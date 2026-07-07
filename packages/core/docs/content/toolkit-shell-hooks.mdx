@@ -1,0 +1,27 @@
+---
+title: "Toolkit Shell & Hooks"
+description: "Shared shell helpers and hooks that templates can compose through local adapters."
+---
+
+# Toolkit Shell & Hooks
+
+Toolkit includes small shell helpers and hooks that are useful across apps:
+
+```tsx
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+```
+
+Apps can wrap these through local adapters when they want the same customization
+point as UI primitives:
+
+```tsx
+export * from "@agent-native/toolkit/hooks/use-mobile";
+```
+
+Keep shell helpers in Toolkit when they are reusable and do not own app data.
+Keep app-specific navigation, command entries, and domain state in the template.
+
+Core remains responsible for framework-wide shell behavior such as app providers,
+agent chat, app state, auth, and runtime sync.

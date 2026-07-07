@@ -5,12 +5,7 @@ description: "Agent-Native Plans transforme le plan de votre agent de codage en
 
 # Plans visuels
 
-> **La plupart des gens installent Plan en tant que compétence, et non en tant qu'application échafaudée.** Une commande CLI
-> ajoute les `/visual-plan` et `/visual-recap` skills ainsi que le forfait hébergé
-> connecteur vers votre agent de codage — voir [Plan plugin & marketplace](/docs/plan-plugin)
-> pour les routes du plugin et du marché. Forker le modèle de plan (couvert sous
-> [For developers](#for-developers)) est le chemin secondaire, pour l'auto-hébergement ou
-> s'appuyant sur Plan lui-même.
+> **La plupart des gens installent Plan comme une skill, pas comme une app échafaudée.** Une commande CLI ajoute les skills `/visual-plan`, `/visual-recap` et `/visualize-repo`, ainsi que le connecteur Plan hébergé, à votre agent de code — consultez [Plan plugin & marketplace](/docs/plan-plugin) pour les routes plugin et marketplace. Forker le modèle Plan (expliqué dans [For developers](#for-developers)) reste le chemin secondaire pour l'auto-hébergement ou pour construire sur Plan lui-même.
 
 Agent-Native Plans est un mode de plan visuel pour les agents de codage. Ça devient un ordinaire
 Codex, code Claude, Markdown ou plan de mise en œuvre collé dans un plan structuré
@@ -115,7 +110,7 @@ frapper un mur OAuth :
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-La commande installe les deux commandes : `/visual-plan` et `/visual-recap`.
+La commande installe trois commandes : `/visual-plan`, `/visual-recap` et `/visualize-repo`.
 
 Si vous utilisez un hôte basé sur le chat qui accepte directement les connecteurs MCP URL
 (plutôt qu'un client configuré avec CLI), connectez le connecteur Plans hébergés à
@@ -358,6 +353,25 @@ et commentant, et renvoie le URL hébergé. Le mode fichiers locaux ne le fait p
 rendre automatiquement le LLM de votre agent de codage local ; choisissez un local ou agréé
 modèlez si cette limite de confidentialité est également importante.
 
+## Documentation visuelle du dépôt {#visualize-repo}
+
+Utilisez `/visualize-repo` lorsque vous voulez une couche durable de documentation visuelle pour une base de code, plutôt qu'un plan ou un récapitulatif ponctuel. La commande crée ou ouvre un espace de travail Plan MDX local, met à jour `agent-native.json` avec une section `apps.visualize-repo` en mode local-files, puis sert la documentation via le même pont localhost :
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+Si `agent-native.json` n'existe pas, la commande l'initialise et recommande un petit point de départ à partir de la structure du dépôt, par exemple `actions/`, `app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`, `templates/`, `docs/` ou `content/`. Vous pouvez cibler des ancres source précises :
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+Le dossier de départ se trouve par défaut dans `.agent-native/visual-docs/repo-overview`. Les commentaires restent locaux dans `comments.json`, afin que les reviewers puissent marquer des sections pour un agent de code et que l'agent mette à jour le code et le MDX dans le même changement. Exécutez `visualize-repo check` pour le lint local, et `visualize-repo verify` lorsque vous voulez que le schéma du renderer Plan valide le MDX.
+
 ## Synchronisation de fichiers locaux sur le bureau {#desktop-local-sync}
 
 Agent Native Desktop offre également aux plans hébergés un pont de dossier local natif. Ceci
@@ -409,6 +423,8 @@ touchez les fichiers locaux.
 - "Exécutez `/visual-recap` sur ce PR afin que je puisse d'abord examiner la forme du changement."
 - "Utilisez `/visual-recap` sur la différence entre `main` et cette branche."
 - "Utilisez `/visual-recap` en mode fichiers locaux afin qu'aucun contenu récapitulatif ne soit écrit dans la base de données du plan."
+
+- « Exécutez `/visualize-repo` et commencez par nos actions API publiques et le schéma. »
 
 ## Récupération des erreurs d'authentification {#auth-errors}
 

@@ -4,13 +4,13 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view, dashboard, analysis, extension, or Analytics session recording. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
+    "Navigate the UI to a specific view, dashboard, analysis, extension, Analytics session recording, or Analytics agent-admin surface. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
   schema: z.object({
     view: z
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, catalog, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, agents, catalog, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()
@@ -28,6 +28,16 @@ export default defineAction({
       .string()
       .optional()
       .describe("Session recording id to open (used with view=sessions)"),
+    agentsView: z
+      .enum(["monitoring", "database"])
+      .optional()
+      .describe("Agents subview to open (monitoring or app databases)"),
+    dbAdminConnectionId: z
+      .string()
+      .optional()
+      .describe(
+        "Connected app database id to select when navigating to agentsView=database",
+      ),
   }),
   http: false,
   run: async (args) => {
@@ -36,10 +46,12 @@ export default defineAction({
       !args.dashboardId &&
       !args.analysisId &&
       !args.extensionId &&
-      !args.recordingId
+      !args.recordingId &&
+      !args.agentsView &&
+      !args.dbAdminConnectionId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --analysisId, --extensionId, or --recordingId is required.",
+        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, --agentsView, or --dbAdminConnectionId is required.",
       );
     }
     const nav: Record<string, string> = {};
@@ -60,6 +72,15 @@ export default defineAction({
       nav.recordingId = args.recordingId;
       if (!args.view) nav.view = "sessions";
     }
+    if (args.agentsView) {
+      nav.agentsView = args.agentsView;
+      if (!args.view) nav.view = "agents";
+    }
+    if (args.dbAdminConnectionId) {
+      nav.dbAdminConnectionId = args.dbAdminConnectionId;
+      nav.agentsView = "database";
+      if (!args.view) nav.view = "agents";
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
@@ -68,6 +89,9 @@ export default defineAction({
     if (nav.analysisId) parts.push(`analysis:${nav.analysisId}`);
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
+    if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);
+    if (nav.dbAdminConnectionId)
+      parts.push(`db-admin:${nav.dbAdminConnectionId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

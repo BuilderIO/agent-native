@@ -86,8 +86,23 @@ describe("shared coding tools", () => {
     expect(registry["search-files"]).toBeUndefined();
   });
 
-  it("uses an exclusive db-exec write-mode schema in dev mode", async () => {
+  it("defaults raw database tools to read-only in dev mode", async () => {
     const registry = await createDevScriptRegistry();
+
+    expect(registry["db-schema"]).toBeDefined();
+    expect(registry["db-query"]).toBeDefined();
+    expect(registry["db-check-scoping"]).toBeDefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-exec --sql "UPDATE forms SET status = 1"',
+      }),
+    ).resolves.toContain("raw database write tools are disabled");
+  });
+
+  it("uses an exclusive db-exec schema when write mode is explicit", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: "write" });
 
     expect(registry["db-exec"]?.tool.parameters).toMatchObject({
       additionalProperties: false,

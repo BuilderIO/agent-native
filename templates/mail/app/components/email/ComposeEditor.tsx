@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { common, createLowlight } from "lowlight";
@@ -59,6 +60,8 @@ interface ComposeEditorProps {
     context?: string;
     submit?: boolean;
   }) => void;
+  /** Uploads an image file and resolves to its hosted URL, for pasted/dropped/slash-inserted images. */
+  onUploadImage: (file: File) => Promise<string>;
 }
 
 export const ComposeEditor = forwardRef<
@@ -76,6 +79,7 @@ export const ComposeEditor = forwardRef<
     draftId,
     getCurrentDraftBody,
     sendToAgent,
+    onUploadImage,
   },
   ref,
 ) {
@@ -89,9 +93,71 @@ export const ComposeEditor = forwardRef<
   const onChangeRef = useRef(onChange);
   const onSendRef = useRef(onSend);
   const onCloseRef = useRef(onClose);
+  const onUploadImageRef = useRef(onUploadImage);
   onChangeRef.current = onChange;
   onSendRef.current = onSend;
   onCloseRef.current = onClose;
+  onUploadImageRef.current = onUploadImage;
+
+  // Inserts a placeholder image node showing a local object URL immediately,
+  // then swaps in the hosted URL (or removes the node on failure) once the
+  // upload settles, so pasted/dropped screenshots appear inline right away.
+  // Operates on the raw ProseMirror view (rather than the Tiptap `Editor`)
+  // because it must run from inside `editorProps.handlePaste`/`handleDrop`,
+  // which fire before the `Editor` instance returned by `useEditor` exists.
+  const insertUploadingImage = (
+    view: EditorView,
+    file: File,
+    atPos?: number,
+  ) => {
+    const objectUrl = URL.createObjectURL(file);
+    const imageType = view.state.schema.nodes.image;
+    if (!imageType) return;
+
+    const insertTr = view.state.tr;
+    const imageNode = imageType.create({ src: objectUrl, alt: "" });
+    if (atPos != null) {
+      insertTr.insert(atPos, imageNode);
+    } else {
+      insertTr.replaceSelectionWith(imageNode);
+    }
+    view.dispatch(insertTr);
+
+    const findNodePos = () => {
+      let found: number | null = null;
+      view.state.doc.descendants((node, pos) => {
+        if (found != null) return false;
+        if (node.type.name === "image" && node.attrs.src === objectUrl) {
+          found = pos;
+          return false;
+        }
+        return true;
+      });
+      return found;
+    };
+
+    void onUploadImageRef
+      .current(file)
+      .then((url) => {
+        const pos = findNodePos();
+        if (pos == null) return;
+        const tr = view.state.tr.setNodeAttribute(pos, "src", url);
+        view.dispatch(tr);
+      })
+      .catch(() => {
+        const pos = findNodePos();
+        if (pos == null) return;
+        const node = view.state.doc.nodeAt(pos);
+        if (!node) return;
+        const tr = view.state.tr.delete(pos, pos + node.nodeSize);
+        view.dispatch(tr);
+      })
+      .finally(() => {
+        URL.revokeObjectURL(objectUrl);
+      });
+  };
+  const insertUploadingImageRef = useRef(insertUploadingImage);
+  insertUploadingImageRef.current = insertUploadingImage;
 
   const editor = useEditor({
     extensions: [
@@ -142,6 +208,35 @@ export const ComposeEditor = forwardRef<
           return true;
         }
         return false;
+      },
+      handlePaste: (view, event) => {
+        const files = Array.from(event.clipboardData?.items ?? [])
+          .filter(
+            (item) => item.kind === "file" && item.type.startsWith("image/"),
+          )
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => file != null);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        for (const file of files) {
+          insertUploadingImageRef.current(view, file);
+        }
+        return true;
+      },
+      handleDrop: (view, event) => {
+        const files = Array.from(event.dataTransfer?.files ?? []).filter(
+          (file) => file.type.startsWith("image/"),
+        );
+        if (files.length === 0) return false;
+        event.preventDefault();
+        const dropPos = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        for (const file of files) {
+          insertUploadingImageRef.current(view, file, dropPos?.pos);
+        }
+        return true;
       },
     },
     onUpdate: ({ editor }) => {
@@ -264,7 +359,11 @@ export const ComposeEditor = forwardRef<
         getCurrentDraftBody={getCurrentDraftBody}
         sendToAgent={sendToAgent}
       />
-      <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />
+      <ComposeSlashMenu
+        editor={editor}
+        onGenerate={onGenerate}
+        onUploadImage={onUploadImage}
+      />
       <CodeBlockLangPicker editor={editor} />
       <EditorContent editor={editor} />
 

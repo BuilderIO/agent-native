@@ -131,6 +131,15 @@ APIs，因此仅接受文本或静态图像的模型仍然可以理解内容
 | `/api/agent-transcript.json?id=<recordingId>`     | 带有 `startMs`、`endMs`、可读时间戳、文本和可选源标签的时间戳转录片段 |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 以原始视频时间戳从视频中提取的 JPEG 帧                                |
 
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 端点遵循与共享页面相同的公共/密码/过期规则。
 受密码保护的剪辑需要密码一次；成功响应返回
 短暂的标记化链接，因此下游代理不需要明文

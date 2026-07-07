@@ -435,6 +435,7 @@ function serializeScreen(
     surface: string;
     renderMode?: string;
     caption?: string;
+    frame?: string;
     html?: string;
     css?: string;
     skeleton?: boolean;
@@ -446,6 +447,7 @@ function serializeScreen(
     prop("surface", data.surface),
     prop("renderMode", data.renderMode),
     prop("caption", data.caption),
+    prop("frame", data.frame),
     prop("html", data.html),
     prop("css", data.css),
     prop("skeleton", data.skeleton),
@@ -1662,6 +1664,7 @@ function parseScreen(
       "renderMode",
     ) as PlanWireframeBlock["data"]["renderMode"],
     caption: stringAttr(node, "caption"),
+    frame: stringAttr(node, "frame") as PlanWireframeBlock["data"]["frame"],
     html: requiredStringAttr(node, "html"),
     css: requiredStringAttr(node, "css"),
     skeleton: boolAttr(node, "skeleton"),

@@ -1,4 +1,6 @@
 import { callAction, setClientAppState, useT } from "@agent-native/core/client";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import type { Document } from "@shared/api";
 import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
 import {
   IconAlertCircle,
@@ -16,7 +18,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -27,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useDocuments } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
 import {
   getDesktopContentFiles,
@@ -98,6 +100,18 @@ type SelectedDirectory =
       updatedAt?: string;
     };
 
+type DocumentSourceDirectory = {
+  id: string;
+  kind: "source";
+  name: string;
+  sourcePrefix: string;
+  sourceRootPath: string | null;
+  fileCount: number;
+  updatedAt?: string;
+};
+
+type LocalFolderRow = SelectedDirectory | DocumentSourceDirectory;
+
 type PersistedSourceDirectory = Extract<SelectedDirectory, { kind: "browser" }>;
 
 interface ExportContentSourceResult {
@@ -126,6 +140,11 @@ interface RegisterLocalComponentWorkspaceResult {
   componentDirs: string[];
   componentCount: number;
   reloadRequired: boolean;
+}
+
+interface RemoveLocalFileSourceResult {
+  success: boolean;
+  deleted: number;
 }
 
 type SyncStatus =
@@ -253,18 +272,113 @@ function directoryUpdatedLabel(
   return new Date(directory.updatedAt).toLocaleString();
 }
 
-function directoriesAppState(directories: SelectedDirectory[]) {
+function sourceDirectoryUpdatedLabel(
+  directory: DocumentSourceDirectory,
+  t: ReturnType<typeof useT>,
+) {
+  if (!directory.updatedAt) return t("localFiles.notSyncedYet");
+  return new Date(directory.updatedAt).toLocaleString();
+}
+
+function localFolderRowName(
+  directory: LocalFolderRow,
+  t: ReturnType<typeof useT>,
+) {
+  if (directory.kind === "source" && !directory.sourceRootPath) {
+    return t("localFiles.importedLocalFiles");
+  }
+  return directory.name;
+}
+
+function localFolderRowsAppState(rows: LocalFolderRow[]) {
   return {
     view: "local-files",
-    count: directories.length,
-    folders: directories.map((directory) => ({
-      id: directory.id,
-      name: directory.name,
-      sourcePrefix: directory.sourcePrefix,
-      runtime: directory.kind,
-      updatedAt: directory.updatedAt,
+    count: rows.length,
+    folders: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      sourcePrefix: row.sourcePrefix,
+      runtime: row.kind,
+      updatedAt: row.updatedAt,
+      sourceRootPath: row.kind === "source" ? row.sourceRootPath : undefined,
+      fileCount: row.kind === "source" ? row.fileCount : undefined,
     })),
   };
+}
+
+function titleFromSourceRoot(sourceRootPath: string) {
+  return (
+    sourceRootPath
+      .split("/")
+      .filter(Boolean)
+      .pop()
+      ?.replace(/\.(mdx?|markdown)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase()) || sourceRootPath
+  );
+}
+
+function latestIsoDate(current: string | undefined, next: string | undefined) {
+  if (!next) return current;
+  if (!current) return next;
+  return new Date(next).getTime() > new Date(current).getTime()
+    ? next
+    : current;
+}
+
+export function localSourceDirectoriesFromDocuments(
+  documents: Document[],
+): DocumentSourceDirectory[] {
+  const groups = new Map<
+    string,
+    {
+      name: string;
+      sourceRootPath: string | null;
+      fileCount: number;
+      updatedAt?: string;
+    }
+  >();
+
+  for (const document of documents) {
+    const source = document.source;
+    if (source?.mode !== "local-files" || source.kind !== "file") continue;
+    const sourcePath = source.path ?? "";
+    const configuredRootPath =
+      typeof source.rootPath === "string" && source.rootPath.trim()
+        ? source.rootPath.trim()
+        : null;
+    const hasFolderLikeRoot =
+      !!configuredRootPath &&
+      (typeof source.rootName === "string" ||
+        sourcePath.startsWith(`${configuredRootPath}/`));
+    const key = hasFolderLikeRoot ? configuredRootPath : "__imported__";
+    const existing = groups.get(key);
+    groups.set(key, {
+      name:
+        existing?.name ??
+        (hasFolderLikeRoot
+          ? (source.rootName ?? titleFromSourceRoot(configuredRootPath))
+          : "Imported local files"),
+      sourceRootPath: hasFolderLikeRoot ? configuredRootPath : null,
+      fileCount: (existing?.fileCount ?? 0) + 1,
+      updatedAt: latestIsoDate(
+        existing?.updatedAt,
+        source.updatedAt ?? document.updatedAt,
+      ),
+    });
+  }
+
+  return [...groups.entries()].map(([key, group]) => ({
+    id: `source-${encodeURIComponent(key)}`,
+    kind: "source",
+    name: group.name,
+    sourcePrefix: group.sourceRootPath ?? "Imported",
+    sourceRootPath: group.sourceRootPath,
+    fileCount: group.fileCount,
+    updatedAt: group.updatedAt,
+  }));
 }
 
 async function isSameBrowserDirectory(
@@ -636,11 +750,23 @@ export function meta() {
 export default function LocalFilesRoute() {
   const t = useT();
   const queryClient = useQueryClient();
+  const { data: documents = [] } = useDocuments();
   const [directories, setDirectories] = useState<SelectedDirectory[]>([]);
   const [status, setStatus] = useState<SyncStatus>({ kind: "idle" });
   const [busy, setBusy] = useState<BusyState | null>(null);
   const [restoringDirectory, setRestoringDirectory] = useState(false);
   const supported = useMemo(supportsLocalFolderSync, []);
+  const documentSourceDirectories = useMemo(
+    () =>
+      directories.length === 0
+        ? localSourceDirectoriesFromDocuments(documents)
+        : [],
+    [directories.length, documents],
+  );
+  const localFolderRows = useMemo<LocalFolderRow[]>(
+    () => [...directories, ...documentSourceDirectories],
+    [directories, documentSourceDirectories],
+  );
 
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -649,12 +775,16 @@ export default function LocalFilesRoute() {
   );
 
   useEffect(() => {
-    void setClientAppState("local-files", directoriesAppState(directories), {
-      requestSource: "content-local-files",
-    }).catch(() => {
+    void setClientAppState(
+      "local-files",
+      localFolderRowsAppState(localFolderRows),
+      {
+        requestSource: "content-local-files",
+      },
+    ).catch(() => {
       // Application-state sync is best-effort; local sync still works without it.
     });
-  }, [directories]);
+  }, [localFolderRows]);
 
   useEffect(() => {
     if (!supported) return;
@@ -1058,6 +1188,35 @@ export default function LocalFilesRoute() {
     }
   }
 
+  async function handleRemoveDocumentSource(
+    directory: DocumentSourceDirectory,
+  ) {
+    setBusy(`remove:${directory.id}`);
+    try {
+      await callAction<RemoveLocalFileSourceResult>(
+        "remove-local-file-source" as never,
+        {
+          sourceRootPath: directory.sourceRootPath,
+        } as never,
+      );
+      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+      setStatus({
+        kind: "success",
+        title: t("localFiles.folderRemoved"),
+        detail: localFolderRowName(directory, t),
+      });
+      toast.success(t("localFiles.folderRemoved"));
+    } catch (err) {
+      setStatus({
+        kind: "error",
+        title: t("localFiles.removeFailed"),
+        detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const disabled = busy !== null || restoringDirectory;
 
   return (
@@ -1069,14 +1228,14 @@ export default function LocalFilesRoute() {
               {t("localFiles.localFolders")}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {directories.length === 0
+              {localFolderRows.length === 0
                 ? t("localFiles.noFoldersLinked")
                 : t(
-                    directories.length === 1
+                    localFolderRows.length === 1
                       ? "localFiles.folderLinked"
                       : "localFiles.foldersLinked",
                     {
-                      count: directories.length,
+                      count: localFolderRows.length,
                     },
                   )}
             </p>
@@ -1192,7 +1351,7 @@ export default function LocalFilesRoute() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {directories.length === 0 ? (
+              {localFolderRows.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={4}
@@ -1204,9 +1363,10 @@ export default function LocalFilesRoute() {
                   </TableCell>
                 </TableRow>
               ) : (
-                directories.map((directory, index) => {
+                localFolderRows.map((directory, index) => {
                   const isBusy = busy?.endsWith(`:${directory.id}`) ?? false;
-                  const isMain = index === 0;
+                  const isSource = directory.kind === "source";
+                  const isMain = !isSource && index === 0;
                   return (
                     <TableRow key={directory.id}>
                       <TableCell>
@@ -1215,7 +1375,7 @@ export default function LocalFilesRoute() {
                           <div className="min-w-0">
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span className="truncate font-medium">
-                                {directory.name}
+                                {localFolderRowName(directory, t)}
                               </span>
                               {isMain && (
                                 <IconStarFilled
@@ -1225,68 +1385,95 @@ export default function LocalFilesRoute() {
                               )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
-                              {directory.kind === "desktop"
-                                ? (directory.folder.path ??
-                                  t("localFiles.desktopFolder"))
-                                : t("localFiles.browserFolder")}
+                              {directory.kind === "source"
+                                ? (directory.sourceRootPath ??
+                                  t("localFiles.importedSource"))
+                                : directory.kind === "desktop"
+                                  ? (directory.folder.path ??
+                                    t("localFiles.desktopFolder"))
+                                  : t("localFiles.browserFolder")}
                             </div>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="hidden text-muted-foreground md:table-cell">
-                        {directories.length > 1
-                          ? directory.sourcePrefix
-                          : t("localFiles.flat")}
+                        {directory.kind === "source"
+                          ? t("localFiles.importedFiles", {
+                              count: directory.fileCount,
+                            })
+                          : directories.length > 1
+                            ? directory.sourcePrefix
+                            : t("localFiles.flat")}
                       </TableCell>
                       <TableCell className="hidden text-muted-foreground lg:table-cell">
-                        {directoryUpdatedLabel(directory, t)}
+                        {directory.kind === "source"
+                          ? sourceDirectoryUpdatedLabel(directory, t)
+                          : directoryUpdatedLabel(directory, t)}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1.5">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handlePull(directory)}
-                            disabled={disabled || isBusy}
-                          >
-                            <IconDownload />
-                            {busy === `pull:${directory.id}`
-                              ? t("localFiles.pulling")
-                              : t("localFiles.pull")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleCheck(directory)}
-                            disabled={disabled || isBusy}
-                          >
-                            <IconRefresh />
-                            {busy === `check:${directory.id}`
-                              ? t("localFiles.checking")
-                              : t("localFiles.check")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handlePush(directory)}
-                            disabled={disabled || isBusy}
-                          >
-                            <IconUpload />
-                            {busy === `push:${directory.id}`
-                              ? t("localFiles.pushing")
-                              : t("localFiles.push")}
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            aria-label={t("localFiles.removeFolder", {
-                              name: directory.name,
-                            })}
-                            onClick={() => handleRemove(directory)}
-                            disabled={disabled || isBusy}
-                          >
-                            <IconTrash />
-                          </Button>
+                          {directory.kind === "source" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                handleRemoveDocumentSource(directory)
+                              }
+                              disabled={disabled || isBusy}
+                            >
+                              <IconTrash />
+                              {busy === `remove:${directory.id}`
+                                ? t("localFiles.removing")
+                                : t("localFiles.remove")}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePull(directory)}
+                                disabled={disabled || isBusy}
+                              >
+                                <IconDownload />
+                                {busy === `pull:${directory.id}`
+                                  ? t("localFiles.pulling")
+                                  : t("localFiles.pull")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleCheck(directory)}
+                                disabled={disabled || isBusy}
+                              >
+                                <IconRefresh />
+                                {busy === `check:${directory.id}`
+                                  ? t("localFiles.checking")
+                                  : t("localFiles.check")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handlePush(directory)}
+                                disabled={disabled || isBusy}
+                              >
+                                <IconUpload />
+                                {busy === `push:${directory.id}`
+                                  ? t("localFiles.pushing")
+                                  : t("localFiles.push")}
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label={t("localFiles.removeFolder", {
+                                  name: directory.name,
+                                })}
+                                onClick={() => handleRemove(directory)}
+                                disabled={disabled || isBusy}
+                              >
+                                <IconTrash />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

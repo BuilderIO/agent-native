@@ -8,6 +8,162 @@ function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeTrackingSlug(value: string | undefined): string | undefined {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return undefined;
+  return raw
+    .replace(/^@agent-native\//, "")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function appSlugFromUrl(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+      ? value
+      : `https://${value}`;
+    const hostname = new URL(raw).hostname.toLowerCase();
+    if (hostname.endsWith(".agent-native.com")) {
+      return normalizeTrackingSlug(
+        hostname.slice(0, -".agent-native.com".length),
+      );
+    }
+    return normalizeTrackingSlug(hostname.split(".")[0]);
+  } catch {
+    return undefined;
+  }
+}
+
+function trackingIdentityProperties(): Record<string, string> {
+  const packageApp = normalizeTrackingSlug(process.env.npm_package_name);
+  const urlApp =
+    appSlugFromUrl(process.env.APP_URL) ||
+    appSlugFromUrl(process.env.BETTER_AUTH_URL) ||
+    appSlugFromUrl(process.env.URL) ||
+    appSlugFromUrl(process.env.DEPLOY_URL) ||
+    appSlugFromUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+    appSlugFromUrl(process.env.VERCEL_URL);
+  const app =
+    normalizeTrackingSlug(process.env.AGENT_NATIVE_APP) ||
+    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_APP) ||
+    urlApp ||
+    packageApp ||
+    normalizeTrackingSlug(process.env.APP_NAME);
+  const template =
+    normalizeTrackingSlug(process.env.AGENT_NATIVE_TEMPLATE) ||
+    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_TEMPLATE) ||
+    normalizeTrackingSlug(process.env.APP_TEMPLATE) ||
+    normalizeTrackingSlug(process.env.VITE_APP_TEMPLATE) ||
+    app;
+
+  return {
+    ...(app ? { app, agent_native_app: app } : {}),
+    ...(template ? { template, agent_native_template: template } : {}),
+  };
+}
+
+function llmProviderFromEngine(
+  engineName: string | undefined,
+  model: string,
+): string {
+  const engine = engineName?.trim();
+  if (engine?.startsWith("ai-sdk:")) return engine.slice("ai-sdk:".length);
+  if (engine) return engine;
+  if (/claude|anthropic/i.test(model)) return "anthropic";
+  if (/gpt|openai|codex/i.test(model)) return "openai";
+  if (/gemini|google/i.test(model)) return "google";
+  return "unknown";
+}
+
+function costUsdFromCenticents(value: number): number {
+  return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
+}
+
+function emitLlmGenerationTrackingEvent(args: {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+  parentSpanId: string;
+  llmSpanId: string;
+  engineName: string | undefined;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costCentsX100: number;
+  durationMs: number;
+  status: "success" | "error";
+  errorMessage: string | null;
+  toolCalls: number;
+  successfulTools: number;
+  failedTools: number;
+  createdAt: number;
+}): void {
+  const provider = llmProviderFromEngine(args.engineName, args.model);
+  const costUsd = costUsdFromCenticents(args.costCentsX100);
+  const error = args.errorMessage ?? undefined;
+  const properties: Record<string, unknown> = {
+    ...trackingIdentityProperties(),
+    source: "agent_observability",
+    span_type: "llm_call",
+    run_id: args.runId,
+    thread_id: args.threadId,
+    parent_span_id: args.parentSpanId,
+    span_id: args.llmSpanId,
+    model: args.model,
+    provider,
+    input_tokens: args.inputTokens,
+    output_tokens: args.outputTokens,
+    total_tokens: args.inputTokens + args.outputTokens,
+    cache_read_tokens: args.cacheReadTokens,
+    cache_write_tokens: args.cacheWriteTokens,
+    cost_cents_x100: args.costCentsX100,
+    cost_usd: costUsd,
+    duration_ms: args.durationMs,
+    status: args.status,
+    tool_calls: args.toolCalls,
+    successful_tools: args.successfulTools,
+    failed_tools: args.failedTools,
+    created_at: new Date(args.createdAt).toISOString(),
+    created_at_ms: args.createdAt,
+    $ai_trace_id: args.runId,
+    $ai_session_id: args.threadId ?? undefined,
+    $ai_span_id: args.llmSpanId,
+    $ai_span_name: "agent_run",
+    $ai_parent_id: args.parentSpanId,
+    $ai_model: args.model,
+    $ai_provider: provider,
+    $ai_input_tokens: args.inputTokens,
+    $ai_output_tokens: args.outputTokens,
+    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_is_error: args.status === "error",
+    $ai_error: error,
+    $ai_cache_read_input_tokens: args.cacheReadTokens,
+    $ai_cache_creation_input_tokens: args.cacheWriteTokens,
+    $ai_request_count: 1,
+    $ai_total_cost_usd: costUsd,
+  };
+  if (error) properties.error_message = error;
+
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+
+  try {
+    void import("../tracking/registry.js")
+      .then(({ track }) => {
+        track("$ai_generation", properties, {
+          userId: args.userId ?? undefined,
+        });
+      })
+      .catch(() => {});
+  } catch {
+    // Tracking must never affect the agent run or trace persistence.
+  }
+}
+
 /** Keys whose values are stripped from persisted tool inputs when
  *  `captureToolArgs` is enabled. Matched case-insensitively and tolerant
  *  of `_` / `-` separators. M14 in the MCP/A2A audit: tool calls
@@ -301,8 +457,9 @@ export async function instrumentAgentLoop(opts: {
     let llmCallCount = 0;
     if (usage) {
       llmCallCount = 1;
+      const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
-        id: spanId(),
+        id: llmSpanId,
         runId,
         threadId,
         userId,
@@ -321,6 +478,30 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
       spans.push(llmSpan);
+      emitLlmGenerationTrackingEvent({
+        runId,
+        threadId,
+        userId,
+        parentSpanId,
+        llmSpanId,
+        engineName:
+          typeof loopOpts.engine?.name === "string"
+            ? loopOpts.engine.name
+            : undefined,
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        costCentsX100,
+        durationMs: totalDurationMs,
+        status: runStatus,
+        errorMessage,
+        toolCalls: toolCallCount,
+        successfulTools,
+        failedTools,
+        createdAt: runStart,
+      });
     }
 
     const parentSpan: TraceSpan = {

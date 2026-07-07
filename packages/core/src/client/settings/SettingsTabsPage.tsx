@@ -49,12 +49,10 @@ function normalizeTabId(value?: string | null): string | null {
   ) {
     return "whats-new";
   }
-  if (
-    normalized === "workspace" ||
-    normalized === "workspace-settings" ||
-    normalized === "organization" ||
-    normalized === "org"
-  ) {
+  if (normalized === "workspace" || normalized === "workspace-settings") {
+    return "workspace";
+  }
+  if (normalized === "organization" || normalized === "org") {
     return "team";
   }
   return normalized;
@@ -100,6 +98,7 @@ export function SettingsTabsPage({
         content: general,
       },
     ];
+    next.push(...extraTabs);
     if (team) {
       next.push({
         id: "team",
@@ -116,7 +115,6 @@ export function SettingsTabsPage({
         content: whatsNew,
       });
     }
-    next.push(...extraTabs);
     return next;
   }, [
     extraTabs,

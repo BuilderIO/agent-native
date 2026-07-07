@@ -1,8 +1,19 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import action, { applySearchReplaceEdits } from "./edit-design.js";
 
 describe("edit-design action schema", () => {
+  it("keeps variant replacement guidance compact", () => {
+    const source = readFileSync("actions/edit-design.ts", "utf8");
+
+    expect(source).toContain("complete but compact");
+    expect(source).toContain("primary workflow");
+    expect(source).not.toContain("full chosen direction");
+    expect(source).toContain("oversized payload");
+  });
+
   it("accepts the legacy search/replace shape", () => {
     expect(
       action.schema.safeParse({

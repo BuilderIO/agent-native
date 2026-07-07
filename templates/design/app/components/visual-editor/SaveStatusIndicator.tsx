@@ -9,7 +9,11 @@ import {
 import { cn } from "@/lib/utils";
 
 interface SaveStatusIndicatorProps {
-  /** True while a save is in flight or pending (debounced). */
+  /**
+   * True while a save is in flight or pending (debounced). Deliberately NOT
+   * rendered: automatic saving is silent (Figma-style) — a "Saving…" ticker is
+   * clutter. Only the exceptional offline state gets UI.
+   */
   saving: boolean;
   /** True when offline / save errored. Shows the warning state. */
   offline?: boolean;
@@ -17,7 +21,7 @@ interface SaveStatusIndicatorProps {
 }
 
 export function SaveStatusIndicator({
-  saving,
+  saving: _saving,
   offline,
   className,
 }: SaveStatusIndicatorProps) {
@@ -43,20 +47,6 @@ export function SaveStatusIndicator({
           {t("visualEditor.changesSaveWhenReconnected")}
         </TooltipContent>
       </Tooltip>
-    );
-  }
-
-  if (saving) {
-    return (
-      <span
-        data-save-status="saving"
-        className={cn(
-          "animate-pulse !text-[11px] text-muted-foreground",
-          className,
-        )}
-      >
-        {t("visualEditor.saving")}
-      </span>
     );
   }
 

@@ -5,6 +5,8 @@ import {
   readSSEStream,
   readSSEStreamRaw,
   SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
+  SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
+  SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
 } from "./sse-event-processor.js";
 
@@ -365,6 +367,149 @@ function parallelSameToolPreparationStream(
   });
 }
 
+function parallelSameToolStalledSiblingStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            id: "call-a",
+            progressBytes: 0,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-b",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+        }, 30_000),
+      );
+      keepalive = setInterval(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+      if (keepalive) clearInterval(keepalive);
+    },
+  });
+}
+
+function clearedOlderSameToolSiblingStream(
+  tool = "edit-design",
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "activity",
+            label: `Preparing ${tool} action`,
+            tool,
+            id: "call-a",
+            progressBytes: 0,
+          })}\n\n`,
+        ),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "activity",
+                label: `Preparing ${tool} action`,
+                tool,
+                id: "call-b",
+                progressBytes: 0,
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-a",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+        }, 60_000),
+      );
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_start",
+                tool,
+                id: "call-b",
+                input: {},
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({
+                type: "tool_done",
+                tool,
+                id: "call-b",
+                result: "ok",
+              })}\n\n`,
+            ),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "done" })}\n\n`,
+            ),
+          );
+          controller.close();
+        }, SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 10_000),
+      );
+      keepalive = setInterval(() => {
+        try {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "stream_keepalive" })}\n\n`,
+            ),
+          );
+        } catch {
+          // The watchdog may have cancelled the stream first.
+        }
+      }, 10_000);
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+      if (keepalive) clearInterval(keepalive);
+    },
+  });
+}
+
 function noIdPositivePreparationFallbackStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
@@ -612,26 +757,160 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
-  it("keeps a durable background stream alive on zero-byte preparation activity", async () => {
+  // UPDATED: durable background reads now use the widened
+  // SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS window so the SERVER's own
+  // 150s no-progress backstop recovers a stall first (the client is a reader,
+  // not a second recovery brain). A genuinely silent prep still recovers —
+  // just on the durable window, never at the foreground 90s mark.
+  it("recovers a durable background stream stuck on zero-byte preparation activity", async () => {
     vi.useFakeTimers();
 
-    const donePromise = drain(
-      readSSEStream(
-        preparingActionZeroByteActivityThenDoneStream(),
-        [],
-        { value: 0 },
-        undefined,
-        undefined,
-        undefined,
-        { durableBackgroundRun: true },
-      ),
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            preparingActionZeroByteActivityThenDoneStream(
+              "edit-design",
+              30_000,
+              SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 60_000,
+            ),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    // The foreground 90s window must NOT fire for a durable background read.
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
+      "pending",
     );
 
     await vi.advanceTimersByTimeAsync(
-      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 30_000,
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS -
+        SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
     );
 
-    await expect(donePromise).resolves.toBeDefined();
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
+  // UPDATED: durable background reads recover on the widened durable stall
+  // window (see the durable constants) instead of the foreground 90s window,
+  // so the server's own recovery gets first chance.
+  it("recovers a durable background stream stuck on preparation keepalives", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          preparingActionKeepaliveStream(),
+          [],
+          { value: 0 },
+          undefined,
+          undefined,
+          undefined,
+          { durableBackgroundRun: true },
+        )) {
+          // no-op
+        }
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
+  });
+
+  it("carries zero-byte preparation stalls across durable reconnect reads", async () => {
+    vi.useFakeTimers();
+
+    const preparingActionState = {};
+    const readPreparationReplay = async (id: string) => {
+      try {
+        await drain(
+          readSSEStream(
+            eventStream([
+              {
+                type: "activity",
+                label: "Preparing edit-design action",
+                tool: "edit-design",
+                id,
+                progressBytes: 0,
+              },
+            ]),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true, preparingActionState },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+
+    // UPDATED: the shared preparation watchdog state still carries stall age
+    // across reconnect reads, measured against the widened durable window
+    // (SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS) instead of the
+    // foreground 90s window.
+    const firstErr = await readPreparationReplay("call-a");
+    expect(firstErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((firstErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.floor(SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2),
+    );
+
+    const secondErr = await readPreparationReplay("call-b");
+    expect(secondErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((secondErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
+
+    await vi.advanceTimersByTimeAsync(
+      Math.ceil(SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS / 2) + 1,
+    );
+
+    const thirdErr = await readPreparationReplay("call-c");
+    expect(thirdErr).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((thirdErr as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((thirdErr as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing edit screen action",
+        tool: "edit-design",
+      },
+    ]);
   });
 
   it("keeps durable background keepalives attached until a terminal event", async () => {
@@ -657,6 +936,49 @@ describe("SSE event processor no-progress recovery", () => {
     await expect(donePromise).resolves.toBeDefined();
   });
 
+  it("holds a silent durable background read past the foreground no-progress window, then reattaches", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            silentStream(),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    expect(SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS).toBe(13 * 60_000);
+
+    // The foreground 75s no-progress window must NOT fire for a durable
+    // background read — the server-side background backstop owns stall
+    // recovery and its auto_continue event normally arrives over this same
+    // stream first.
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1_000);
+    expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
+      "pending",
+    );
+
+    // Past the widened durable window, a truly dead transport still detaches
+    // so the adapter's follow loop can re-poll /runs/active and reattach.
+    await vi.advanceTimersByTimeAsync(
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS - SSE_NO_PROGRESS_TIMEOUT_MS,
+    );
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
   it("does not stall while a large tool input is still streaming progress", async () => {
     vi.useFakeTimers();
 
@@ -666,6 +988,28 @@ describe("SSE event processor no-progress recovery", () => {
         [],
         { value: 0 },
         undefined,
+      ),
+    );
+
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("does not stall a durable background run while large tool input is still streaming progress", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        preparingActionProgressStream(),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
       ),
     );
 
@@ -689,6 +1033,59 @@ describe("SSE event processor no-progress recovery", () => {
     );
 
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("keeps sibling same-tool preparations tracked after an id-specific tool starts", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            parallelSameToolStalledSiblingStream(),
+            [],
+            { value: 0 },
+            undefined,
+            undefined,
+            undefined,
+            { durableBackgroundRun: true },
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    // UPDATED: durable background reads stall on the widened durable window.
+    await vi.advanceTimersByTimeAsync(
+      SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
+    );
+
+    const err = await errPromise;
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+  });
+
+  it("recomputes same-tool preparation age after an older sibling clears", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        clearedOlderSameToolSiblingStream(),
+        [],
+        { value: 0 },
+        undefined,
+        undefined,
+        undefined,
+        { durableBackgroundRun: true },
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 10_000,
+    );
 
     await expect(donePromise).resolves.toBeDefined();
   });
@@ -1139,7 +1536,10 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: { tabId: "tab-missing" },
+      }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -1211,6 +1611,59 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("surfaces bare provider auth failures as terminal run errors", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "401 status code (no body)",
+            details: "401 status code (no body)",
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-provider-auth",
+      ),
+    );
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: {
+          message:
+            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          details: "401 status code (no body)",
+          tabId: "tab-provider-auth",
+        },
+      }),
+    );
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:auth-error" }),
+    );
+    expect(results[0]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message:
+              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            details: "401 status code (no body)",
+          },
+        },
+      },
+    });
+  });
+
   it("maps legacy missing_api_key SSE frames to credential run errors", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1225,7 +1678,10 @@ describe("SSE event processor error classification", () => {
     );
 
     expect(dispatchEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-chat:missing-api-key" }),
+      expect.objectContaining({
+        type: "agent-chat:missing-api-key",
+        detail: { tabId: "tab-missing-legacy" },
+      }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -1309,6 +1765,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
+            isError: true,
             result: "Stopped before this action started.",
           }),
           {
@@ -1602,6 +2059,58 @@ describe("SSE event processor error classification", () => {
         toolName: "update-dashboard",
         result: '{"saved":true}',
         repeatCount: 2,
+      }),
+    );
+  });
+
+  it("ignores replayed completed tool events with the same server id", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "delete-file",
+            id: "call-1",
+            input: { fileId: "screen-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "delete-file",
+            id: "call-1",
+            result: '{"deleted":true}',
+          },
+          { type: "text", text: "Continuing with the selected screen." },
+          {
+            type: "tool_start",
+            tool: "delete-file",
+            id: "call-1",
+            input: { fileId: "screen-1" },
+          },
+          {
+            type: "tool_done",
+            tool: "delete-file",
+            id: "call-1",
+            result: '{"deleted":true}',
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-tool-replay",
+      ),
+    );
+
+    const finalContent = results.at(-1)?.content ?? [];
+    const toolCalls = finalContent.filter(
+      (part): part is Extract<ContentPart, { type: "tool-call" }> =>
+        part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toEqual(
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "delete-file",
+        result: '{"deleted":true}',
       }),
     );
   });
@@ -2420,5 +2929,99 @@ describe("SSE event processor activity-label clearing", () => {
         detail: { tabId: "tab-clear-text" },
       }),
     );
+  });
+});
+
+describe("journal-recovery tool replay coalescing", () => {
+  function eventsStream(events: object[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const ev of events) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+        controller.close();
+      },
+    });
+  }
+
+  async function contentAfter(events: object[]) {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([...events, { type: "done" }]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {
+      // Terminal signals from the fixture stream are irrelevant here — the
+      // assertions inspect the mutated content array.
+    });
+    return content;
+  }
+
+  const JOURNAL_MARKER =
+    "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\nreal result";
+  const LEDGER_MARKER =
+    "(Recovered from prior interrupted chunk — action already completed.)\n\nreal result";
+
+  it("drops a journal-replayed pair when the original call already completed", async () => {
+    const content = await contentAfter([
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 }, id: "srv_1" },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: "real result",
+        id: "srv_1",
+      },
+      // Continuation chunk replays the same call via the tool-call journal
+      // (id-less re-emit with the marker result).
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
+      { type: "tool_done", tool: "edit-screen", result: JOURNAL_MARKER },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(1);
+    expect(toolCards[0].result).toBe("real result");
+  });
+
+  it("resolves an interrupted spinner with the ledger-recovered result and removes the replay artifact", async () => {
+    const content = await contentAfter([
+      // Original call was interrupted: tool_start with no tool_done.
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 }, id: "srv_1" },
+      // Next chunk replays it; the id-less tool_done name-matches the original
+      // pending card, leaving the replay's own start as a stuck spinner.
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
+      { type: "tool_done", tool: "edit-screen", result: LEDGER_MARKER },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(1);
+    expect(toolCards[0].result).toBe(LEDGER_MARKER);
+    expect(toolCards[0].toolCallId).toBe("srv_1");
+  });
+
+  it("keeps genuinely repeated identical calls that are not journal replays", async () => {
+    const content = await contentAfter([
+      {
+        type: "tool_start",
+        tool: "db-query",
+        input: { sql: "select 1" },
+        id: "srv_1",
+      },
+      { type: "tool_done", tool: "db-query", result: "row A", id: "srv_1" },
+      { type: "text", text: "checking again" },
+      {
+        type: "tool_start",
+        tool: "db-query",
+        input: { sql: "select 1" },
+        id: "srv_2",
+      },
+      { type: "tool_done", tool: "db-query", result: "row B", id: "srv_2" },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(2);
+    expect(toolCards.map((p) => p.result)).toEqual(["row A", "row B"]);
   });
 });

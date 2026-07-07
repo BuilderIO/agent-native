@@ -2,13 +2,12 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -27,11 +26,13 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   useSetPageTitle(t("settings.title"));
 
   return (
     <SettingsTabsPage
       teamLabel={t("team.title")}
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto w-full max-w-3xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
@@ -50,22 +51,6 @@ export default function SettingsRoute() {
             <CardContent className="max-w-xs space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
             </CardContent>
           </Card>
         </div>

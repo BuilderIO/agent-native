@@ -15,8 +15,18 @@ export interface UseAgentEngineConfiguredResult {
 }
 
 export interface FetchAgentEngineConfiguredStateOptions {
+  /**
+   * Legacy hint from explicit missing-key stream events. Kept for API
+   * compatibility, but missing state still requires authoritative status
+   * responses so transient endpoint failures do not clobber connected state.
+   */
   missingFallback?: boolean;
   timeoutMs?: number;
+}
+
+export interface UseAgentEngineConfiguredOptions {
+  tabId?: string | null;
+  threadId?: string | null;
 }
 
 const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 2500;
@@ -60,6 +70,27 @@ function hasConfiguredFlag(value: unknown): value is { configured: boolean } {
   );
 }
 
+function missingKeyEventMatchesScope(
+  event: Event,
+  options: UseAgentEngineConfiguredOptions | undefined,
+): boolean {
+  const detail = (event as CustomEvent).detail as
+    | { tabId?: unknown; threadId?: unknown }
+    | undefined;
+  const eventTabId = typeof detail?.tabId === "string" ? detail.tabId : null;
+  const eventThreadId =
+    typeof detail?.threadId === "string" ? detail.threadId : null;
+  if (!eventTabId && !eventThreadId) return true;
+
+  const tabId = options?.tabId ?? null;
+  const threadId = options?.threadId ?? null;
+  if (!tabId && !threadId) return true;
+  return (
+    (eventTabId != null && eventTabId === tabId) ||
+    (eventThreadId != null && eventThreadId === threadId)
+  );
+}
+
 export async function fetchAgentEngineConfiguredState(
   enabled = true,
   options?: FetchAgentEngineConfiguredStateOptions,
@@ -76,22 +107,31 @@ export async function fetchAgentEngineConfiguredState(
     fetchStatusJson("/_agent-native/agent-engine/status", timeoutMs),
   ]);
 
-  // All three failed — likely a flaky network; keep the caller in unknown
-  // unless this check is reacting to an explicit missing-key stream event.
+  // All three failed — likely a flaky network; keep the caller in unknown.
+  // Even an explicit missing-key stream event should not pin the composer into
+  // setup without a fresh authoritative status response.
   if (envKeys == null && builderStatus == null && engineStatus == null) {
-    return options?.missingFallback ? "missing" : "unknown";
+    return "unknown";
   }
 
-  const keys = (envKeys ?? []) as Array<{
-    key: string;
-    configured: boolean;
-  }>;
+  const envKeysKnown = Array.isArray(envKeys);
+  const builderStatusKnown = hasConfiguredFlag(builderStatus);
+  const engineStatusKnown = hasConfiguredFlag(engineStatus);
+  const keys = envKeysKnown
+    ? (envKeys as Array<{
+        key: string;
+        configured: boolean;
+      }>)
+    : [];
   const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
   const anyConfigured =
     llmKeys.some((k) => k.configured) ||
-    (hasConfiguredFlag(builderStatus) && builderStatus.configured) ||
-    (hasConfiguredFlag(engineStatus) && engineStatus.configured);
-  return anyConfigured ? "configured" : "missing";
+    (builderStatusKnown && builderStatus.configured) ||
+    (engineStatusKnown && engineStatus.configured);
+  if (anyConfigured) return "configured";
+  return envKeysKnown && builderStatusKnown && engineStatusKnown
+    ? "missing"
+    : "unknown";
 }
 
 /**
@@ -103,14 +143,21 @@ export async function fetchAgentEngineConfiguredState(
  */
 export function useAgentEngineConfigured(
   enabled = true,
+  options?: UseAgentEngineConfiguredOptions,
 ): UseAgentEngineConfiguredResult {
   const [state, setState] = useState<AgentEngineConfiguredState>("unknown");
 
   useEffect(() => {
     let cancelled = false;
+    // Monotonic call counter: overlapping checks (mount + a
+    // `agent-engine:configured-changed` fired right after a key is saved) can
+    // resolve out of order; only the latest call may write state, or a slow
+    // stale "missing" response would overwrite the fresh "configured" one.
+    let requestSeq = 0;
     const check = async (options?: { missingFallback?: boolean }) => {
+      const seq = ++requestSeq;
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
-      if (cancelled) return;
+      if (cancelled || seq !== requestSeq) return;
       if (nextState === "unknown") {
         return;
       }
@@ -119,7 +166,8 @@ export function useAgentEngineConfigured(
     const onConfiguredChanged = () => {
       void check();
     };
-    const onMissing = () => {
+    const onMissing = (event: Event) => {
+      if (!missingKeyEventMatchesScope(event, options)) return;
       if (!enabled) {
         setState("configured");
         return;
@@ -143,7 +191,7 @@ export function useAgentEngineConfigured(
       );
       window.removeEventListener("agent-chat:missing-api-key", onMissing);
     };
-  }, [enabled]);
+  }, [enabled, options?.tabId, options?.threadId]);
 
   return { missing: state === "missing", state };
 }

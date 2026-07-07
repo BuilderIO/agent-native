@@ -275,13 +275,6 @@ const RULES: Rule[] = [
       "Slides has 7 real layouts in .agents/skills/create-deck/SKILL.md; there is no image/full-bleed/blank layout.",
   },
   {
-    id: "videos-twelve-compositions",
-    pattern: /twelve\s+(example\s+)?compositions|12\s+example\s+compositions/i,
-    scope: "packages/core/docs/content/template-videos.mdx",
-    message:
-      "Video compositions are DB-backed; only BlankComposition ships in code.",
-  },
-  {
     id: "wisprflow-typo",
     pattern: /Wisprflow/i,
     scope: "all",

@@ -18,6 +18,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
@@ -137,10 +138,12 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-      <DbSyncSetup />
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <DbSyncSetup />
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

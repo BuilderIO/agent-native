@@ -10,6 +10,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_OPENAI_MODEL,
   getContextWindowForModel,
+  getMaxOutputTokensForModel,
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
@@ -214,5 +215,52 @@ describe("getContextWindowForModel", () => {
   it("uses heuristic fallback for unlisted gpt-5 variants", () => {
     expect(getContextWindowForModel("gpt-5.6")).toBe(1_050_000);
     expect(getContextWindowForModel("openai/gpt-5.6")).toBe(1_050_000);
+  });
+});
+
+// ─── getMaxOutputTokensForModel ───────────────────────────────────────────────
+
+describe("getMaxOutputTokensForModel", () => {
+  it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5/4.6)", () => {
+    expect(getMaxOutputTokensForModel("claude-fable-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-opus-4-8")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-opus-4-7")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-sonnet-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-sonnet-4-6")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("anthropic/claude-sonnet-5")).toBe(
+      128_000,
+    );
+  });
+
+  it("returns 64K for Claude Haiku 4.5 and unknown Claude models", () => {
+    expect(getMaxOutputTokensForModel("claude-haiku-4-5")).toBe(64_000);
+    expect(getMaxOutputTokensForModel("claude-haiku-4-5-20251001")).toBe(
+      64_000,
+    );
+    expect(getMaxOutputTokensForModel("claude-something-new")).toBe(64_000);
+  });
+
+  it("returns 128K for GPT-5.x models in all id forms", () => {
+    expect(getMaxOutputTokensForModel("gpt-5.5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-5.4")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-5.4-mini")).toBe(128_000);
+    // Builder gateway dashed form
+    expect(getMaxOutputTokensForModel("gpt-5-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-5-4")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-5-4-mini")).toBe(128_000);
+    // OpenRouter form
+    expect(getMaxOutputTokensForModel("openai/gpt-5.5")).toBe(128_000);
+  });
+
+  it("uses heuristic fallback for unlisted flagship variants", () => {
+    expect(getMaxOutputTokensForModel("claude-opus-4-9")).toBe(64_000);
+    expect(getMaxOutputTokensForModel("gpt-5.6")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("openai/gpt-5.6")).toBe(128_000);
+  });
+
+  it("returns the conservative 64K default for unknown or missing models", () => {
+    expect(getMaxOutputTokensForModel("unknown-model-xyz")).toBe(64_000);
+    expect(getMaxOutputTokensForModel("")).toBe(64_000);
+    expect(getMaxOutputTokensForModel(undefined)).toBe(64_000);
   });
 });

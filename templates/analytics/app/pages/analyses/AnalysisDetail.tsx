@@ -11,7 +11,10 @@ import {
   IconTrash,
   IconClock,
   IconArrowLeft,
+  IconBuilding,
   IconDatabase,
+  IconLock,
+  IconWorld,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -288,24 +291,14 @@ export default function AnalysisDetail() {
             {analysis.author && (
               <span>{t("analyses.byAuthor", { author: analysis.author })}</span>
             )}
-            <span
-              className={`flex items-center gap-1.5 font-medium ${
-                analysis.visibility === "public"
-                  ? "text-green-600"
-                  : analysis.visibility === "org"
-                    ? "text-blue-600"
-                    : "text-yellow-600"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  analysis.visibility === "public"
-                    ? "bg-green-500"
-                    : analysis.visibility === "org"
-                      ? "bg-blue-500"
-                      : "bg-yellow-500"
-                }`}
-              />
+            <span className="flex items-center gap-1.5">
+              {analysis.visibility === "public" ? (
+                <IconWorld className="h-3 w-3" />
+              ) : analysis.visibility === "org" ? (
+                <IconBuilding className="h-3 w-3" />
+              ) : (
+                <IconLock className="h-3 w-3" />
+              )}
               {analysis.visibility === "public"
                 ? t("analyses.public")
                 : analysis.visibility === "org"

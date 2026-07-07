@@ -19,6 +19,9 @@ import type { ZodType } from "zod";
 /** Where a block can be placed in a document. */
 export type BlockPlacement = "block" | "inline";
 
+/** How visual blocks decide whether to draw an outer surface frame. */
+export type BlockVisualFrame = "auto" | "show" | "hide";
+
 /**
  * A serialized MDX/NFM attribute value before the shared `prop()` encoder runs.
  * `prop()` decides string-vs-JSON encoding; this is just the value domain.
@@ -96,6 +99,12 @@ export interface BlockRenderContext {
   dialect?: "gfm" | "nfm";
   /** Document text direction inferred by the host app. */
   textDirection?: "ltr" | "rtl";
+  /**
+   * Host default for visual wireframe/diagram frames when block data leaves
+   * `frame` unset or set to `auto`. Plans/recaps usually show a frame; docs can
+   * hide it by default and let individual blocks opt back in.
+   */
+  visualFrame?: Exclude<BlockVisualFrame, "auto">;
   /** Resolve an asset id → displayable URL. */
   resolveAssetSrc?: (assetId: string) => string | undefined;
   /** Open the shared asset picker (returns the chosen asset). */

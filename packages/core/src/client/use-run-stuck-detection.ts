@@ -34,11 +34,27 @@ export interface UseRunStuckDetectionOptions {
   /** The thread to monitor. Pass null/undefined to disable polling. */
   threadId: string | null | undefined;
   /**
-   * Threshold above which an in-flight run is considered stuck. The default
-   * sits comfortably above the adapter's 75s no-progress reconnect — by then
-   * automatic recovery has already had its chance.
+   * Set false to skip scheduling the poll loop entirely — used to gate
+   * polling to only the active chat tab when multiple tabs are mounted
+   * (inactive tabs are kept alive via display:none, not unmounted).
+   * Defaults to true.
+   */
+  enabled?: boolean;
+  /**
+   * Threshold above which an in-flight FOREGROUND run is considered stuck.
+   * The default sits comfortably above the adapter's 75s no-progress
+   * reconnect — by then automatic recovery has already had its chance.
    */
   stuckThresholdMs?: number;
+  /**
+   * Threshold for BACKGROUND-dispatched runs (dispatchMode starts with
+   * "background"). The server owns recovery for these — its run-manager
+   * no-progress backstop (150s) and unclaimed-run sweep act first — so the
+   * user-facing "stuck" affordance is a late fallback, not a race against
+   * them. Selected inside the hook because the dispatch mode is only known
+   * from the same poll response that computes the elapsed time.
+   */
+  backgroundStuckThresholdMs?: number;
   /** Poll interval. Default 5_000ms. */
   pollIntervalMs?: number;
   /** API base path. Default `/_agent-native/agent-chat`. */
@@ -46,6 +62,7 @@ export interface UseRunStuckDetectionOptions {
 }
 
 const DEFAULT_STUCK_THRESHOLD_MS = 90_000;
+export const DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
 
@@ -73,7 +90,9 @@ const EMPTY_STATE: RunStuckState = {
 
 export function useRunStuckDetection({
   threadId,
+  enabled = true,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
+  backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   apiUrl,
 }: UseRunStuckDetectionOptions): RunStuckState {
@@ -83,7 +102,7 @@ export function useRunStuckDetection({
     // Reset on every thread change so the previous thread's stuck banner
     // doesn't bleed onto the new one before the first poll completes.
     setState(EMPTY_STATE);
-    if (!threadId) return;
+    if (!threadId || !enabled) return;
 
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
@@ -112,11 +131,19 @@ export function useRunStuckDetection({
           const heartbeatAt = data.heartbeatAt ?? null;
           const heartbeatSinceMs =
             heartbeatAt != null ? nowMs - heartbeatAt : null;
+          const dispatchMode =
+            typeof data.dispatchMode === "string" ? data.dispatchMode : null;
+          // Background-dispatched runs get the wider threshold: the server's
+          // own recovery (150s no-progress backstop + chained continuations)
+          // must get its chance before the user sees a "stuck" affordance.
+          const effectiveThresholdMs = dispatchMode?.startsWith("background")
+            ? backgroundStuckThresholdMs
+            : stuckThresholdMs;
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
             stuckSinceMs != null &&
-            stuckSinceMs > stuckThresholdMs,
+            stuckSinceMs > effectiveThresholdMs,
           );
           setState({
             isStuck,
@@ -126,8 +153,7 @@ export function useRunStuckDetection({
             stuckSinceMs,
             heartbeatAt,
             heartbeatSinceMs,
-            dispatchMode:
-              typeof data.dispatchMode === "string" ? data.dispatchMode : null,
+            dispatchMode,
           });
           // Back off polling when nothing is in flight — there's no point
           // hammering the endpoint while the chat is idle. We still poll
@@ -153,7 +179,14 @@ export function useRunStuckDetection({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [threadId, stuckThresholdMs, pollIntervalMs, apiUrl]);
+  }, [
+    threadId,
+    enabled,
+    stuckThresholdMs,
+    backgroundStuckThresholdMs,
+    pollIntervalMs,
+    apiUrl,
+  ]);
 
   return state;
 }

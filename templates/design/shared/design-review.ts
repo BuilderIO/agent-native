@@ -23,6 +23,7 @@ export const A11Y_FINDING_CATEGORIES = [
   "missing-alt",
   "reduced-motion",
   "role",
+  "token-drift",
   "other",
 ] as const;
 

@@ -142,8 +142,6 @@ export default defineAction({
         builderReturnedEmpty = true;
         console.warn("[cleanup-transcript] Builder path returned empty text");
       } catch (err) {
-        // Fall through to BYOK only when Builder is misconfigured / unavailable.
-        // Hard errors (e.g. credits exhausted) still surface to the caller.
         const message = (err as Error)?.message ?? String(err);
         builderFailureMessage = message;
         if (isBuilderCreditsExhaustedMessage(message)) {
@@ -156,9 +154,12 @@ export default defineAction({
                   : "cleanup",
             message,
           });
-          throw err;
+          console.warn(
+            "[cleanup-transcript] Builder credits exhausted; trying BYOK fallback",
+          );
+        } else {
+          console.warn("[cleanup-transcript] Builder path failed:", message);
         }
-        console.warn("[cleanup-transcript] Builder path failed:", message);
       }
     }
 

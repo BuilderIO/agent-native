@@ -5,13 +5,15 @@ import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
+  startOfDay,
+  addDays,
   isSameMonth,
   isSameDay,
   isToday,
   format,
   parseISO,
 } from "date-fns";
-import { useState, useMemo } from "react";
+import { memo, useState, useMemo } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
@@ -61,7 +63,16 @@ const MONTH_SKELETON_WIDTHS = [
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_HEADERS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 
-export function MonthView({
+/** An event occurrence placed on one day cell, with continuation state relative to a multi-day span. */
+interface DayOccurrence {
+  event: CalendarEvent;
+  /** True when this day is the event's actual start day (vs. a later day it merely spans through). */
+  isStart: boolean;
+  /** True when the event continues into the next visible day cell. */
+  continuesNext: boolean;
+}
+
+export const MonthView = memo(function MonthView({
   events,
   selectedDate,
   onDateSelect,
@@ -98,17 +109,31 @@ export function MonthView({
       ? WEEKDAY_HEADERS_SHORT
       : WEEKDAY_HEADERS;
 
-  // Pre-group events by date key once so each cell does O(1) lookup
+  // Pre-group events by every day they overlap (not just their start day) so
+  // multi-day events keep appearing as the grid moves past their start date.
   const eventsByDay = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
+    const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
-      const key = format(parseISO(e.start), "yyyy-MM-dd");
-      const list = map.get(key);
-      if (list) list.push(e);
-      else map.set(key, [e]);
+      const evStart = parseISO(e.start);
+      const evEnd = e.end ? parseISO(e.end) : addDays(evStart, 1);
+      for (const day of days) {
+        const dayStart = startOfDay(day);
+        const dayEnd = addDays(dayStart, 1);
+        if (evStart < dayEnd && evEnd > dayStart) {
+          const key = format(day, "yyyy-MM-dd");
+          const occurrence: DayOccurrence = {
+            event: e,
+            isStart: evStart >= dayStart && evStart < dayEnd,
+            continuesNext: evEnd > dayEnd,
+          };
+          const list = map.get(key);
+          if (list) list.push(occurrence);
+          else map.set(key, [occurrence]);
+        }
+      }
     }
     return map;
-  }, [events]);
+  }, [events, days]);
 
   function handleDragOver(e: React.DragEvent, dayKey: string) {
     e.preventDefault();
@@ -149,7 +174,8 @@ export function MonthView({
         style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
       >
         {days.map((day) => {
-          const dayEvents = eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
+          const dayOccurrences =
+            eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
           const inMonth = isSameMonth(day, selectedDate);
           const today = isToday(day);
           const selected = isSameDay(day, selectedDate);
@@ -173,10 +199,10 @@ export function MonthView({
               }}
               onDrop={(e) => handleDrop(e, day)}
               className={cn(
-                "group relative min-h-[60px] cursor-pointer border-b border-r border-border p-1 sm:min-h-[90px] sm:p-1.5",
+                "group relative min-h-[60px] cursor-pointer border-b border-r border-border p-1 transition-colors sm:min-h-[90px] sm:p-1.5",
                 !inMonth && "opacity-35",
                 isDragTarget
-                  ? "bg-primary/10 ring-1 ring-inset ring-primary/30"
+                  ? "bg-primary/10 ring-2 ring-inset ring-primary/50"
                   : "hover:bg-accent/40",
               )}
             >
@@ -212,33 +238,59 @@ export function MonthView({
                     />
                   ))}
                 {!isLoading &&
-                  dayEvents.slice(0, isMobile ? 2 : 3).map((event) => (
-                    <EventDetailPopover
-                      key={event.id}
-                      event={event}
-                      onDelete={onDeleteEvent ?? (() => {})}
-                      isDraft={draftEventIds.includes(event.id)}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                    >
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <EventCard
-                          event={event}
-                          colorPreferences={prefs}
-                          compact
-                          draggable
-                          onDragStart={(id) => setDraggingId(id)}
-                          onDragEnd={() => {
-                            setDraggingId(null);
-                            setDragOverDay(null);
+                  dayOccurrences
+                    .slice(0, isMobile ? 2 : 3)
+                    .map(({ event, isStart, continuesNext }) => (
+                      <EventDetailPopover
+                        key={event.id}
+                        event={event}
+                        onDelete={onDeleteEvent ?? (() => {})}
+                        isDraft={draftEventIds.includes(event.id)}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                      >
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          onDragStart={(e) => {
+                            if (!isStart) return;
+                            const ghost = e.currentTarget.querySelector(
+                              "button",
+                            ) as HTMLElement | null;
+                            if (ghost) {
+                              e.dataTransfer.setDragImage(ghost, 12, 12);
+                            }
                           }}
-                          dimmed={draggingId === event.id}
-                        />
-                      </div>
-                    </EventDetailPopover>
-                  ))}
-                {!isLoading && dayEvents.length > (isMobile ? 2 : 3) && (
+                          className={cn(
+                            "relative",
+                            !isStart &&
+                              "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
+                          )}
+                        >
+                          <EventCard
+                            event={event}
+                            colorPreferences={prefs}
+                            compact
+                            draggable={isStart}
+                            onDragStart={(id) => setDraggingId(id)}
+                            onDragEnd={() => {
+                              setDraggingId(null);
+                              setDragOverDay(null);
+                            }}
+                            dimmed={draggingId === event.id}
+                          />
+                          {continuesNext && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-current opacity-60"
+                            >
+                              &rsaquo;
+                            </span>
+                          )}
+                        </div>
+                      </EventDetailPopover>
+                    ))}
+                {!isLoading && dayOccurrences.length > (isMobile ? 2 : 3) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -246,7 +298,7 @@ export function MonthView({
                     }}
                     className="block w-full rounded px-1 py-0.5 text-left text-[10px] text-muted-foreground hover:bg-accent/50 sm:px-1.5 sm:text-xs"
                   >
-                    +{dayEvents.length - (isMobile ? 2 : 3)} more
+                    +{dayOccurrences.length - (isMobile ? 2 : 3)} more
                   </button>
                 )}
               </div>
@@ -256,4 +308,4 @@ export function MonthView({
       </div>
     </div>
   );
-}
+});

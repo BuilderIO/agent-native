@@ -1,8 +1,36 @@
 // guard:allow-unscoped -- schema migrations and data backfills run system-wide
 // during startup, not in a user-scoped request path.
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
-export default runMigrations(
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently.
+const runPlanMigrations = runMigrations(
   [
     {
       version: 1,
@@ -314,6 +342,117 @@ CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type,
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
       },
     },
+    {
+      version: 33,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
+        sqlite: `ALTER TABLE plans ADD COLUMN source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN source_author_login TEXT`,
+      },
+    },
+    {
+      // Repair migration for hosted databases that recorded an earlier migration
+      // while still missing additive columns now present in schema.ts. Missing
+      // optional plan columns make Drizzle's full-row access lookup throw before
+      // plan pages can render or show a clean access error.
+      version: 36,
+      sql: {
+        postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_repo TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_number INTEGER;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_state TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_merged_at TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+ALTER TABLE plan_comments ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+CREATE INDEX IF NOT EXISTS plans_owner_deleted_updated_idx ON plans(owner_email, deleted_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
+CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number);
+CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_comments(plan_id, deleted_at, created_at)`,
+      },
+    },
+    {
+      // Denormalized summary fields for plan_versions, populated at snapshot-write
+      // time (createPlanVersionSnapshot). list-plan-versions previously ran a
+      // bare `.select()` that pulled every row's full snapshot_json (the entire
+      // plan + sections blob) just to JSON.parse it and compute these same small
+      // values via summarizePlanVersion on every list call. Nullable so existing
+      // rows fall back to the legacy parse-on-read path until they're
+      // re-snapshotted.
+      //
+      // Confirmed swallowed on the live plan Neon DB: plans_migrations' recorded
+      // MAX(version) was 36 (this v37 entry had never actually run — a parallel
+      // branch's DB state advanced past v37 without ever applying this specific
+      // DDL), and information_schema confirmed plan_versions was missing all
+      // seven of these columns. Named so it applies by name on next boot
+      // regardless of any database's recorded MAX(version) — its SQL was
+      // already idempotent (ADD COLUMN IF NOT EXISTS on postgres) before this
+      // name was added.
+      version: 37,
+      name: "plan-versions-summary-columns",
+      sql: {
+        postgres: `ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_status TEXT;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_source TEXT;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS block_count INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS section_count INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_canvas BOOLEAN;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype BOOLEAN;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
+        // `ADD COLUMN IF NOT EXISTS` is required on BOTH dialects: this entry
+        // is tracked by `name:`, so it re-applies on any database that already
+        // ran it under the legacy version gate. SQLite has no native
+        // IF NOT EXISTS for ADD COLUMN, but the migration runner emulates it
+        // (strips the clause and swallows duplicate-column errors) only for
+        // statements that originally carry it — a plain ADD COLUMN would
+        // throw on re-apply and crash local dev boot.
+        sqlite: `ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_status TEXT;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_source TEXT;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS block_count INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS section_count INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_canvas INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype INTEGER;
+ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
+      },
+    },
   ],
   { table: "plans_migrations" },
 );
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
+export default async (nitroApp: any): Promise<void> => {
+  await runPlanMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};

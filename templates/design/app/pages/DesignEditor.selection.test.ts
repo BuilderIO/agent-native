@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCodeLayerProjection } from "../../shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "../../shared/code-layer";
 import {
   buildActiveFileNodeIdSet,
   computeExportCropBox,
@@ -26,14 +29,28 @@ import {
   getPendingVisualStylePropertyCount,
   parseInlineStyleAttribute,
   refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
   removeUndoRedoOrderKind,
+  renameFilenamePreservingExtension,
+  replaceDataScreenReferences,
   getSidebarCodeLayerSelectionState,
+  applyGeometryHistoryDiff,
+  applyRelativeDeltaToStyleValue,
+  collectCodeLayerSubtreeDataNodeIds,
+  findScreenFrameAtCanvasPoint,
+  geometryHistoryEntryTouchesFrameIds,
+  geometrySnapshotsEqual,
   hydrateMotionDockTracks,
   isScreenRootElementInfo,
+  mergeLocalContentHistoryFallback,
+  pruneGeometryHistoryEntryForDeletedFiles,
   resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
+  getSelectedScreenGeometryForInspector,
   shouldReplacePreviewAfterVisualStyleCommit,
+  shouldSkipVisualStyleCommitForPreview,
   shouldLimitEditorChromeUntilContentReady,
+  shouldClearBridgeSelectionOnEmptyMarquee,
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
@@ -65,6 +82,75 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+});
+
+describe("DesignEditor selected screen inspector geometry", () => {
+  const overviewScreens = [
+    {
+      id: "screen-a",
+      filename: "index.html",
+      title: "Home",
+      width: 1280,
+      height: 800,
+    },
+    {
+      id: "screen-b",
+      filename: "pricing.html",
+      width: 390,
+      height: 844,
+    },
+  ];
+
+  it("uses persisted canvas frame geometry for the selected screen", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 0,
+        selectedScreenIds: ["screen-a"],
+        overviewScreens,
+        canvasFrameGeometryById: {
+          "screen-a": { x: 24, y: 48, width: 360, height: 225 },
+        },
+      }),
+    ).toEqual({
+      id: "screen-a",
+      title: "Home",
+      x: 24,
+      y: 48,
+      width: 360,
+      height: 225,
+    });
+  });
+
+  it("falls back to the rendered overview frame geometry when none is persisted", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 0,
+        selectedScreenIds: ["screen-b"],
+        overviewScreens,
+        canvasFrameGeometryById: {},
+      }),
+    ).toMatchObject({
+      id: "screen-b",
+      title: "Pricing",
+      x: 376,
+      y: 0,
+      width: 320,
+      height: 693,
+    });
+  });
+
+  it("does not replace DOM layer geometry while an element is selected", () => {
+    expect(
+      getSelectedScreenGeometryForInspector({
+        selectedInspectorElementCount: 1,
+        selectedScreenIds: ["screen-a"],
+        overviewScreens,
+        canvasFrameGeometryById: {
+          "screen-a": { x: 24, y: 48, width: 360, height: 225 },
+        },
+      }),
+    ).toBeNull();
   });
 });
 
@@ -122,6 +208,55 @@ describe("DesignEditor visual style preview replacement", () => {
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: false,
         runtimeStyleApplied: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("DesignEditor PF12 scrub/color-drag preview throttling", () => {
+  it("skips the expensive source commit for a mid-gesture preview tick on a single selection", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("skips the expensive source commit for a preview tick with no selection (page-level edits)", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("runs the full commit for the gesture's authoritative commit phase", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "commit",
+        selectedLayerCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("runs the full commit when no phase is provided (keyboard/agent edits keep prior behavior)", () => {
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: undefined,
+        selectedLayerCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("never skips the commit for a multi-layer selection, even mid-gesture", () => {
+    // No cheap multi-element preview channel exists yet — conservatively
+    // keep committing every tick, same as before PF12.
+    expect(
+      shouldSkipVisualStyleCommitForPreview({
+        phase: "preview",
+        selectedLayerCount: 2,
       }),
     ).toBe(false);
   });
@@ -699,6 +834,20 @@ describe("DesignEditor URL state", () => {
         zoom: 33.3333,
       }),
     ).toBe("?view=overview&screen=screen-123&zoom=33.33");
+  });
+
+  it("round-trips code panel state now that the Code rail tab ships", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch:
+          "?view=single&panel=code&fileId=old-file&filename=old.tsx",
+        viewMode: "single",
+        screenId: "screen-123",
+        leftPanel: "code",
+        codeFileId: "code-file",
+        codeFilename: "app/routes/home.tsx",
+      }),
+    ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
   });
 });
 
@@ -1382,5 +1531,519 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
     for (const n of projection.nodes) {
       expect(idSet.has(n.id)).toBe(true);
     }
+  });
+});
+
+describe("U2: geometry history pruning on screen deletion", () => {
+  it("keeps a grouped geometry entry when it touches an unrelated frame", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+    };
+    expect(
+      geometryHistoryEntryTouchesFrameIds(entry, new Set(["screen-a"])),
+    ).toBe(true);
+    // Deleting screen-b (untouched by this entry's actual change) must not
+    // discard screen-a's still-undoable move.
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).toEqual({
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+    });
+  });
+
+  it("drops the entry once every remaining frame key is unchanged", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 0, y: 0 } },
+    };
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-b"])),
+    ).toEqual(entry);
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-a"])),
+    ).toBeNull();
+  });
+
+  it("returns the entry unchanged when it touches none of the deleted ids", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+    };
+    expect(
+      pruneGeometryHistoryEntryForDeletedFiles(entry, new Set(["screen-z"])),
+    ).toBe(entry);
+  });
+
+  it("preserves selectionBefore/selectionAfter through a prune that keeps the entry", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+      selectionBefore: {
+        overviewSelectedScreenIds: ["screen-a"],
+        selectedLayerIds: [],
+        activeFileId: "screen-a",
+      },
+      selectionAfter: {
+        overviewSelectedScreenIds: ["screen-a"],
+        selectedLayerIds: [],
+        activeFileId: "screen-a",
+      },
+    };
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).toEqual({
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 5, y: 5 } },
+      selectionBefore: entry.selectionBefore,
+      selectionAfter: entry.selectionAfter,
+    });
+  });
+
+  it("does not add selection keys to an entry that never carried them", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 }, "screen-b": { x: 10, y: 10 } },
+      after: { "screen-a": { x: 5, y: 5 }, "screen-b": { x: 10, y: 10 } },
+    };
+    const pruned = pruneGeometryHistoryEntryForDeletedFiles(
+      entry,
+      new Set(["screen-b"]),
+    );
+    expect(pruned).not.toBeNull();
+    expect(
+      Object.prototype.hasOwnProperty.call(pruned, "selectionBefore"),
+    ).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(pruned, "selectionAfter")).toBe(
+      false,
+    );
+  });
+});
+
+describe("U11: geometry undo/redo merges a per-frame diff onto the live map", () => {
+  it("undo does not drop a frame created after the entry was recorded", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 100, y: 100 } },
+    };
+    // screen-b was created after this move was committed, so it has no key
+    // in either snapshot — a naive whole-map replace with entry.before would
+    // silently drop it.
+    const currentGeometry = {
+      "screen-a": { x: 100, y: 100 },
+      "screen-b": { x: 500, y: 500 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 500, y: 500 },
+    });
+  });
+
+  it("redo re-applies only the entry's own frames", () => {
+    const entry = {
+      before: { "screen-a": { x: 0, y: 0 } },
+      after: { "screen-a": { x: 100, y: 100 } },
+    };
+    const currentGeometry = {
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 500, y: 500 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "redo")).toEqual({
+      "screen-a": { x: 100, y: 100 },
+      "screen-b": { x: 500, y: 500 },
+    });
+  });
+
+  it("removes a frame key on undo when the entry introduced it (frame created by the gesture)", () => {
+    const entry = {
+      before: {},
+      after: { "screen-new": { x: 10, y: 10 } },
+    };
+    const currentGeometry = {
+      "screen-new": { x: 10, y: 10 },
+      "screen-other": { x: 1, y: 1 },
+    };
+    expect(applyGeometryHistoryDiff(currentGeometry, entry, "undo")).toEqual({
+      "screen-other": { x: 1, y: 1 },
+    });
+  });
+});
+
+describe("U14: orphaned motion-track cleanup on delete", () => {
+  it("collects the deleted node's own id and every descendant's id", () => {
+    const html = `
+      <section data-agent-native-node-id="card">
+        <h2 data-agent-native-node-id="card-title">Title</h2>
+        <button data-agent-native-node-id="card-cta">Go</button>
+      </section>
+      <footer data-agent-native-node-id="footer">Footer</footer>
+    `;
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+    const cardNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "card",
+    );
+    expect(cardNode).toBeDefined();
+
+    const ids = collectCodeLayerSubtreeDataNodeIds(
+      tree,
+      cardNode!.id,
+      nodesById,
+    );
+
+    expect(ids).toEqual(new Set(["card", "card-title", "card-cta"]));
+    // The unrelated sibling is not included.
+    expect(ids.has("footer")).toBe(false);
+  });
+
+  it("returns an empty set for an unknown target id", () => {
+    const html = `<div data-agent-native-node-id="only"></div>`;
+    const projection = buildCodeLayerProjection(html);
+    const tree = buildCodeLayerTree(projection);
+    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+    expect(
+      collectCodeLayerSubtreeDataNodeIds(tree, "does-not-exist", nodesById),
+    ).toEqual(new Set());
+  });
+});
+
+describe("U18: undo/redo refreshes stale layer selection", () => {
+  const html = `
+    <div data-agent-native-node-id="kept">Kept</div>
+    <div data-agent-native-node-id="also-kept">Also kept</div>
+  `;
+
+  it("drops ids that no longer exist in the new content", () => {
+    expect(
+      refreshSelectedLayerIdsFromContent(html, ["kept", "removed-by-undo"]),
+    ).toEqual(["kept"]);
+  });
+
+  it("returns the same array reference when nothing changed", () => {
+    const ids = ["kept", "also-kept"];
+    expect(refreshSelectedLayerIdsFromContent(html, ids)).toBe(ids);
+  });
+
+  it("returns the same (empty) array reference for an empty selection", () => {
+    const ids: string[] = [];
+    expect(refreshSelectedLayerIdsFromContent(html, ids)).toBe(ids);
+  });
+
+  it("matches by projection node id as well as the stamped data attribute", () => {
+    const projection = buildCodeLayerProjection(html);
+    const keptNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "kept",
+    );
+    expect(keptNode).toBeDefined();
+    expect(refreshSelectedLayerIdsFromContent(html, [keptNode!.id])).toEqual([
+      keptNode!.id,
+    ]);
+  });
+});
+
+describe("U3: local content history fallback mirror", () => {
+  it("appends a new entry for a different file", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "b",
+      before: "x",
+      after: "y",
+    });
+    expect(next).toEqual([
+      { fileId: "a", before: "1", after: "2" },
+      { fileId: "b", before: "x", after: "y" },
+    ]);
+  });
+
+  it("coalesces a continuing edit to the same file into the last entry", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "2",
+      after: "3",
+    });
+    expect(next).toEqual([{ fileId: "a", before: "1", after: "3" }]);
+  });
+
+  it("appends rather than merges when the edit does not continue from the last entry", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "9",
+      after: "10",
+    });
+    expect(next).toEqual([
+      { fileId: "a", before: "1", after: "2" },
+      { fileId: "a", before: "9", after: "10" },
+    ]);
+  });
+
+  it("drops a no-op change (before === after)", () => {
+    const stack = [{ fileId: "a", before: "1", after: "2" }];
+    expect(
+      mergeLocalContentHistoryFallback(stack, {
+        fileId: "a",
+        before: "same",
+        after: "same",
+      }),
+    ).toBe(stack);
+  });
+});
+
+// L11: screen rename must preserve the file extension instead of writing the
+// raw typed display name (which never itself has a valid extension — the
+// panel edits prettyScreenName's stripped/reformatted display text) straight
+// into the filename column.
+describe("renameFilenamePreservingExtension", () => {
+  it("appends the current extension when the typed name has none", () => {
+    expect(renameFilenamePreservingExtension("index.html", "Dashboard")).toBe(
+      "Dashboard.html",
+    );
+  });
+
+  it("respects a typed name that already ends with the current extension", () => {
+    expect(
+      renameFilenamePreservingExtension("about.html", "contact.html"),
+    ).toBe("contact.html");
+  });
+
+  it("respects a typed name ending with a different known web extension", () => {
+    expect(renameFilenamePreservingExtension("styles.css", "theme.css")).toBe(
+      "theme.css",
+    );
+  });
+
+  it("reverts to the current filename when the typed name is empty/whitespace", () => {
+    expect(renameFilenamePreservingExtension("index.html", "   ")).toBe(
+      "index.html",
+    );
+  });
+
+  it("preserves multi-word names with spaces converted by the caller elsewhere", () => {
+    expect(
+      renameFilenamePreservingExtension("page-pricing.html", "Pricing page"),
+    ).toBe("Pricing page.html");
+  });
+
+  it("handles a filename with no extension at all", () => {
+    expect(renameFilenamePreservingExtension("README", "notes")).toBe("notes");
+  });
+});
+
+describe("replaceDataScreenReferences", () => {
+  it("updates a double-quoted data-screen reference", () => {
+    expect(
+      replaceDataScreenReferences(
+        '<a data-screen="index.html">Home</a>',
+        "index.html",
+        "dashboard.html",
+      ),
+    ).toBe('<a data-screen="dashboard.html">Home</a>');
+  });
+
+  it("updates a single-quoted data-screen reference", () => {
+    expect(
+      replaceDataScreenReferences(
+        "<a data-screen='index.html'>Home</a>",
+        "index.html",
+        "dashboard.html",
+      ),
+    ).toBe("<a data-screen='dashboard.html'>Home</a>");
+  });
+
+  it("updates every matching reference in the document", () => {
+    const html =
+      '<a data-screen="index.html">Home</a><a data-screen="index.html">Also home</a>';
+    expect(
+      replaceDataScreenReferences(html, "index.html", "dashboard.html"),
+    ).toBe(
+      '<a data-screen="dashboard.html">Home</a><a data-screen="dashboard.html">Also home</a>',
+    );
+  });
+
+  it("does not touch a data-screen value that only partially matches", () => {
+    const html = '<a data-screen="index-old.html">Home</a>';
+    expect(
+      replaceDataScreenReferences(html, "index.html", "dashboard.html"),
+    ).toBe(html);
+  });
+
+  it("is a no-op when old and new filenames are identical", () => {
+    const html = '<a data-screen="index.html">Home</a>';
+    expect(replaceDataScreenReferences(html, "index.html", "index.html")).toBe(
+      html,
+    );
+  });
+
+  it("escapes regex-special characters in the filename", () => {
+    const html = '<a data-screen="a+b.html">Link</a>';
+    expect(replaceDataScreenReferences(html, "a+b.html", "c.html")).toBe(
+      '<a data-screen="c.html">Link</a>',
+    );
+  });
+});
+
+describe("geometrySnapshotsEqual", () => {
+  it("returns true for two empty maps", () => {
+    expect(geometrySnapshotsEqual({}, {})).toBe(true);
+  });
+
+  it("returns true for structurally identical maps with different object identity", () => {
+    const a = { "screen-a": { x: 0, y: 0, width: 100, height: 100 } };
+    const b = { "screen-a": { x: 0, y: 0, width: 100, height: 100 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(true);
+  });
+
+  it("returns false when a frame's geometry differs", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = { "screen-a": { x: 5, y: 0 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+
+  it("returns false when key counts differ", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = {
+      "screen-a": { x: 0, y: 0 },
+      "screen-b": { x: 1, y: 1 },
+    };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+
+  it("returns false when the same key count has different keys", () => {
+    const a = { "screen-a": { x: 0, y: 0 } };
+    const b = { "screen-b": { x: 0, y: 0 } };
+    expect(geometrySnapshotsEqual(a, b)).toBe(false);
+  });
+});
+
+describe("findScreenFrameAtCanvasPoint", () => {
+  const frames = [
+    { id: "screen-a", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+    { id: "screen-b", geometry: { x: 200, y: 200, width: 100, height: 100 } },
+  ];
+
+  it("returns the frame containing the point", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, frames)).toEqual(
+      frames[0],
+    );
+    expect(findScreenFrameAtCanvasPoint({ x: 250, y: 250 }, frames)).toEqual(
+      frames[1],
+    );
+  });
+
+  it("returns null when the point lands outside every frame", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 500, y: 500 }, frames)).toBeNull();
+  });
+
+  it("treats frame bounds as inclusive at the edges", () => {
+    expect(findScreenFrameAtCanvasPoint({ x: 0, y: 0 }, frames)).toEqual(
+      frames[0],
+    );
+    expect(findScreenFrameAtCanvasPoint({ x: 100, y: 100 }, frames)).toEqual(
+      frames[0],
+    );
+  });
+
+  it("excludes a given file id (e.g. the board file) even if the point lands on it", () => {
+    expect(
+      findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, frames, "screen-a"),
+    ).toBeNull();
+  });
+
+  it("picks the LAST matching frame when frames overlap (topmost by render order)", () => {
+    const overlapping = [
+      { id: "back", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+      { id: "front", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+    ];
+    expect(findScreenFrameAtCanvasPoint({ x: 50, y: 50 }, overlapping)).toEqual(
+      overlapping[1],
+    );
+  });
+});
+
+describe("applyRelativeDeltaToStyleValue", () => {
+  it("applies a positive delta to a px value, preserving the unit", () => {
+    expect(applyRelativeDeltaToStyleValue("12px", 4)).toBe("16px");
+  });
+
+  it("applies a negative delta to a deg value", () => {
+    expect(applyRelativeDeltaToStyleValue("45deg", -10)).toBe("35deg");
+  });
+
+  it("applies a delta to a unitless value (e.g. opacity/line-height)", () => {
+    expect(applyRelativeDeltaToStyleValue("0.5", 0.25)).toBe("0.75");
+  });
+
+  it("preserves each value's own unit rather than assuming a shared one", () => {
+    expect(applyRelativeDeltaToStyleValue("100%", 10)).toBe("110%");
+  });
+
+  it("returns null for a non-numeric keyword value", () => {
+    expect(applyRelativeDeltaToStyleValue("auto", 5)).toBeNull();
+    expect(applyRelativeDeltaToStyleValue("none", 5)).toBeNull();
+  });
+
+  it("returns null for undefined input", () => {
+    expect(applyRelativeDeltaToStyleValue(undefined, 5)).toBeNull();
+  });
+
+  it("collapses floating point noise from repeated addition", () => {
+    const result = applyRelativeDeltaToStyleValue("0.1px", 0.2);
+    expect(result).toBe("0.3px");
+  });
+
+  it("handles negative current values", () => {
+    expect(applyRelativeDeltaToStyleValue("-10px", 5)).toBe("-5px");
+  });
+});
+
+describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
+  // B5-1: clicking empty infinite-canvas space while an element INSIDE a
+  // screen is selected must deselect it too, not just an overview screen
+  // frame. handleLayerMarqueeSelectionChange already clears the host-side
+  // selectedElement state whenever the marquee/hit-test resolves to zero
+  // elements and the gesture isn't additive; this helper is the same
+  // decision, extracted so the "also tell the bridge/iframe overlays to
+  // clear their own selection highlight" branch (overviewClearSelectionRequest)
+  // is covered without needing to render the full DesignEditor component.
+  it("clears when an empty-space click resolves to zero elements", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 0,
+        additive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not clear when the click hit an element", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 1,
+        additive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear a multi-hit marquee resolution", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 3,
+        additive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear an additive (shift-click) empty-space click", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 0,
+        additive: true,
+      }),
+    ).toBe(false);
   });
 });

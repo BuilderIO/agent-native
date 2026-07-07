@@ -127,10 +127,26 @@ describe("booking availability", () => {
     expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
   });
 
-  it("marks owner availability unavailable when Google free/busy reports errors", async () => {
+  it("marks owner availability unavailable when Google free/busy reports errors, ignoring any listEvents data", async () => {
     vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
       calendars: {},
       errors: [{ email: "host@example.com", error: "invalid_grant" }],
+    });
+    // getConflictItems fetches freeBusy and listEvents in parallel for
+    // performance, but the freeBusy-error path must still take priority and
+    // discard any listEvents data — even when listEvents "succeeds" with
+    // events that would otherwise produce conflict items.
+    vi.mocked(googleCalendar.listEvents).mockResolvedValue({
+      events: [
+        {
+          id: "evt-1",
+          title: "Should be ignored",
+          start: "2026-07-20T15:00:00.000Z",
+          end: "2026-07-20T16:00:00.000Z",
+          allDay: false,
+        } as any,
+      ],
+      errors: [],
     });
 
     const result = await getConflictItems({
@@ -148,7 +164,6 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
-    expect(googleCalendar.listEvents).not.toHaveBeenCalled();
   });
 
   it("marks owner availability unavailable when Google event listing reports errors", async () => {

@@ -5,12 +5,7 @@ description: "Agent-Native Plans transforma o plano do seu agente de codificaç�
 
 # Planos Visuais
 
-> **A maioria das pessoas instala o Plan como uma habilidade, não como um aplicativo de scaffold.** Um comando CLI
-> adiciona o `/visual-plan` e `/visual-recap` skills mais o plano hospedado
-> para seu agente de codificação — consulte [Plan plugin & marketplace](/docs/plan-plugin)
-> para as rotas de plugin e mercado. Modelo de bifurcação do plano (abordado em
-> [For developers](#for-developers)) é o caminho secundário, para auto-hospedagem ou
-> com base no próprio Plano.
+> **A maioria das pessoas instala o Plan como uma skill, não como um app scaffolded.** Um comando CLI adiciona as skills `/visual-plan`, `/visual-recap` e `/visualize-repo`, além do conector Plan hospedado, ao seu agente de código — consulte [Plan plugin & marketplace](/docs/plan-plugin) para as rotas de plugin e marketplace. Fazer fork do template Plan (coberto em [For developers](#for-developers)) é o caminho secundário para auto-hospedagem ou para construir sobre o próprio Plan.
 
 Agent-Native Plans é o modo de plano visual para agentes de codificação. Acontece uma coisa comum
 Codex, código Claude, Markdown ou plano de implementação colado em um plano de implementação estruturado
@@ -117,7 +112,7 @@ atingiu uma parede OAuth:
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-O comando instala ambos os comandos: `/visual-plan` e `/visual-recap`.
+O comando instala três comandos: `/visual-plan`, `/visual-recap` e `/visualize-repo`.
 
 Se você estiver usando um host baseado em bate-papo que aceita conectores MCP diretamente dos URLs
 (em vez de um cliente configurado com CLI), conecte o conector de Planos hospedado em
@@ -360,6 +355,25 @@ e comentando e retorna o URL hospedado. O modo de arquivos locais não
 tornar automaticamente o LLM do seu agente de codificação local; escolha um local ou aprovado
 modele se esse limite de privacidade também é importante.
 
+## Documentação visual do repositório {#visualize-repo}
+
+Use `/visualize-repo` quando quiser uma camada durável de documentação visual para uma base de código, em vez de um plano ou recap pontual. Ele cria ou abre um workspace local de Plan MDX, atualiza `agent-native.json` com uma seção `apps.visualize-repo` em modo local-files e serve os docs pela mesma ponte localhost:
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+Se `agent-native.json` não existir, o comando cria um arquivo inicial e recomenda um pequeno conjunto de partida a partir da estrutura do repositório, como `actions/`, `app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`, `templates/`, `docs/` ou `content/`. Você pode mirar âncoras de código específicas:
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+A pasta inicial fica em `.agent-native/visual-docs/repo-overview` por padrão. Os comentários permanecem locais em `comments.json`, para que revisores marquem seções para um agente de código e o agente atualize código e MDX na mesma mudança. Execute `visualize-repo check` para lint local e `visualize-repo verify` quando quiser que o schema do renderizador Plan valide o MDX.
+
 ## Sincronização de arquivos locais na área de trabalho {#desktop-local-sync}
 
 O Agent Native Desktop também oferece aos planos hospedados uma ponte nativa de pastas locais. Isto
@@ -411,6 +425,8 @@ toque nos arquivos locais.
 - "Execute `/visual-recap` neste PR para que eu possa revisar primeiro o formato da mudança."
 - "Use `/visual-recap` na diferença entre `main` e esta ramificação."
 - "Use `/visual-recap` no modo de arquivos locais para que nenhum conteúdo de recapitulação seja gravado no banco de dados do plano."
+
+- "Execute `/visualize-repo` e comece pelas nossas ações de API públicas e pelo schema."
 
 ## Recuperando-se de erros de autenticação {#auth-errors}
 

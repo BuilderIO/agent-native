@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconCopy,
   IconDownload,
@@ -15,7 +14,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type MouseEvent } from "react";
 
-import { Dialog, DialogOverlay, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -248,82 +247,80 @@ function PlanImageLightbox({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogOverlay className="z-[250] bg-black/85 backdrop-blur-sm" />
-        <DialogPrimitive.Content
-          className="fixed inset-0 z-[251] flex items-center justify-center focus:outline-none"
-          aria-describedby={undefined}
-          onOpenAutoFocus={(event) => event.preventDefault()}
+      <DialogContent
+        hideClose
+        className="fixed inset-0 left-0 top-0 z-[281] flex h-screen max-h-none w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 overflow-hidden rounded-none border-0 bg-black/85 p-0 text-white shadow-none backdrop-blur-sm focus:outline-none data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100"
+        aria-describedby={undefined}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <DialogTitle className="sr-only">
+          {alt || t("raw.imageViewer.closePreview")}
+        </DialogTitle>
+
+        <div
+          className="flex h-full w-full items-center justify-center overflow-auto p-6"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) handleOpenChange(false);
+          }}
         >
-          <DialogTitle className="sr-only">
-            {alt || t("raw.imageViewer.closePreview")}
-          </DialogTitle>
+          <img
+            src={src}
+            alt={alt}
+            draggable={false}
+            onClick={() => setZoomed((value) => !value)}
+            className={cn(
+              "rounded-lg shadow-2xl transition-transform",
+              zoomed
+                ? "max-w-none cursor-zoom-out"
+                : "max-h-[90vh] max-w-[92vw] cursor-zoom-in object-contain",
+            )}
+          />
+        </div>
 
-          <div
-            className="flex h-full w-full items-center justify-center overflow-auto p-6"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) handleOpenChange(false);
-            }}
+        <div className="fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/70 px-2 py-1.5 text-white shadow-xl backdrop-blur">
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
+            aria-label={t("raw.imageViewer.fitToScreen")}
+            disabled={!zoomed}
+            onClick={() => setZoomed(false)}
           >
-            <img
-              src={src}
-              alt={alt}
-              draggable={false}
-              onClick={() => setZoomed((value) => !value)}
-              className={cn(
-                "rounded-lg shadow-2xl transition-transform",
-                zoomed
-                  ? "max-w-none cursor-zoom-out"
-                  : "max-h-[90vh] max-w-[92vw] cursor-zoom-in object-contain",
-              )}
-            />
-          </div>
-
-          <div className="fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/70 px-2 py-1.5 text-white shadow-xl backdrop-blur">
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label={t("raw.imageViewer.fitToScreen")}
-              disabled={!zoomed}
-              onClick={() => setZoomed(false)}
-            >
-              <IconMinus size={17} />
-            </button>
-            <span className="min-w-[5.5rem] text-center text-xs font-medium tabular-nums">
-              {zoomed
-                ? t("raw.imageViewer.actualSize")
-                : t("raw.imageViewer.fitToScreen")}
-            </span>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label={t("raw.imageViewer.actualSize")}
-              disabled={zoomed}
-              onClick={() => setZoomed(true)}
-            >
-              <IconPlus size={17} />
-            </button>
-            <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label={t("raw.imageViewer.downloadImage")}
-              onClick={() => void downloadImage(src, alt, actionMessages)}
-            >
-              <IconDownload size={17} />
-            </button>
-            <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label={t("raw.imageViewer.closePreview")}
-              onClick={() => handleOpenChange(false)}
-            >
-              <IconX size={17} />
-            </button>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
+            <IconMinus size={17} />
+          </button>
+          <span className="min-w-[5.5rem] text-center text-xs font-medium tabular-nums">
+            {zoomed
+              ? t("raw.imageViewer.actualSize")
+              : t("raw.imageViewer.fitToScreen")}
+          </span>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
+            aria-label={t("raw.imageViewer.actualSize")}
+            disabled={zoomed}
+            onClick={() => setZoomed(true)}
+          >
+            <IconPlus size={17} />
+          </button>
+          <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
+            aria-label={t("raw.imageViewer.downloadImage")}
+            onClick={() => void downloadImage(src, alt, actionMessages)}
+          >
+            <IconDownload size={17} />
+          </button>
+          <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
+            aria-label={t("raw.imageViewer.closePreview")}
+            onClick={() => handleOpenChange(false)}
+          >
+            <IconX size={17} />
+          </button>
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }

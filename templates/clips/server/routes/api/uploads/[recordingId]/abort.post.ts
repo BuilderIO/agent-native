@@ -72,14 +72,14 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const preserveRecoveryState =
-      existing.status === "failed" &&
-      (isStoredButUnservableFinalizeError(failureReason) ||
-        isStoredButUnservableFinalizeError(existing.failureReason));
-    const cleared = preserveRecoveryState
-      ? 0
-      : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
-    if (!preserveRecoveryState) {
-      await deleteResumableSession(recordingId).catch(() => {});
+      isStoredButUnservableFinalizeError(failureReason) ||
+      isStoredButUnservableFinalizeError(existing.failureReason);
+
+    // Already a terminal failure (e.g. a duplicate/retried abort call, or
+    // finalize's own failChunkAssembly already flipped it) — no-op instead of
+    // re-clearing chunk state and overwriting the original failureReason.
+    if (existing.status === "failed" && !preserveRecoveryState) {
+      return { ok: true, recordingId, alreadyFailed: true, chunksCleared: 0 };
     }
 
     const now = new Date().toISOString();
@@ -106,6 +106,13 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+
+    const cleared = preserveRecoveryState
+      ? 0
+      : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
+    if (!preserveRecoveryState) {
+      await deleteResumableSession(recordingId).catch(() => {});
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return { ok: true, recordingId, chunksCleared: cleared };

@@ -807,6 +807,76 @@ function authLoginResponse(
   return email ? { ok: true, token, email } : { ok: true, token };
 }
 
+function decodeEmailVerificationTokenEmail(request: Request): string | null {
+  try {
+    const token = new URL(request.url).searchParams.get("token");
+    const payloadSegment = token?.split(".")[1];
+    if (!payloadSegment) return null;
+    const payload = JSON.parse(
+      Buffer.from(payloadSegment, "base64url").toString("utf8"),
+    ) as { email?: unknown; updateTo?: unknown };
+    return normalizeAuthEmail(payload.updateTo ?? payload.email);
+  } catch {
+    return null;
+  }
+}
+
+function verifyEmailRedirectHasError(
+  location: string,
+  requestUrl: string,
+): boolean {
+  try {
+    return new URL(location, requestUrl).searchParams.has("error");
+  } catch {
+    return /[?&]error=/.test(location);
+  }
+}
+
+function appendVerifiedParamToLocation(location: string): string {
+  const hashIndex = location.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
+  const hash = hashIndex >= 0 ? location.slice(hashIndex) : "";
+  const sep = beforeHash.includes("?") ? "&" : "?";
+  return `${beforeHash}${sep}verified=1${hash}`;
+}
+
+async function ensureEmailVerifiedForRedirect(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const email =
+    (await emailFromVerificationResponseSession(response)) ??
+    decodeEmailVerificationTokenEmail(request);
+  if (!email) return;
+  try {
+    const db = getDbExec();
+    await db.execute({
+      sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+      args: [email],
+    });
+  } catch {
+    // Better Auth already handled the verification route. This repair is
+    // best-effort so response cookies/redirects are never lost to DB noise.
+  }
+}
+
+async function emailFromVerificationResponseSession(
+  response: Response,
+): Promise<string | null> {
+  const sessionToken = extractSessionTokenFromSetCookies(response);
+  if (!sessionToken) return null;
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [sessionToken],
+    });
+    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Bad-credential / already-registered errors are normal user behavior, not
  * bugs we want to investigate. Filtering them out keeps Sentry signal
@@ -1674,6 +1744,16 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Durable sandbox-execution processor (run-code background queue). The
+    // enqueueing request self-dispatches here so long compute runs in a fresh
+    // invocation with its own budget; the dispatch carries ONLY a Bearer HMAC
+    // internal token (verified by the route) and NO session cookie, plus an
+    // atomic SQL claim prevents double execution — same scheme as the
+    // agent-teams/_process-run bypass above. Exact path only.
+    if (p === "/_agent-native/sandbox/_process-execution") {
+      return;
+    }
+
     // Read-only agent chat share links. The random token is the bearer secret;
     // the route returns a sanitized transcript plus bounded run summaries and
     // exposes no write surface, live event stream, tool payloads, or owner APIs.
@@ -2131,10 +2211,17 @@ function mapBetterAuthSession(baSession: {
  * org is active.
  *
  */
-async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
+async function backfillSessionOrg(
+  session: AuthSession,
+  event: H3Event,
+): Promise<AuthSession> {
   if (session.orgId) return session;
-  const { resolveOrgIdForEmail } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmail(session.email).catch(() => null);
+  // Event-aware variant: shares the per-request org_members lookup with
+  // getOrgContext so one request never pays the membership query twice.
+  const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
+    () => null,
+  );
   return orgId ? { ...session, orgId } : session;
 }
 
@@ -2166,7 +2253,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   };
   return (ctx.__anSessionCache ??= (async () => {
     const session = await resolveSessionUncached(event);
-    return session?.email ? backfillSessionOrg(session) : session;
+    return session?.email ? backfillSessionOrg(session, event) : session;
   })());
 }
 
@@ -3005,9 +3092,16 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (loc && !/[?&]verified=/.test(loc)) {
-          const sep = loc.includes("?") ? "&" : "?";
-          response.headers.set("location", loc + sep + "verified=1");
+        if (
+          loc &&
+          !/[?&]verified=/.test(loc) &&
+          !verifyEmailRedirectHasError(loc, authRequest.url)
+        ) {
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
+            response as Response,
+          );
+          response.headers.set("location", appendVerifiedParamToLocation(loc));
         }
       }
 

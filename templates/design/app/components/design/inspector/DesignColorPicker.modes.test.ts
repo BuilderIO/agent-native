@@ -13,8 +13,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  expandHexShorthand,
   GRADIENT_PAINT_TYPES,
   inferPaintType,
+  parseNumericDraft,
   resolveActivePaint,
 } from "./DesignColorPicker";
 
@@ -218,5 +220,50 @@ describe("resolveActivePaint – localPaintType stability", () => {
     const r3 = resolveActivePaint("solid", "radial", css, 100);
     expect(r3.effectivePaintType).toBe("radial");
     expect(r3.showGradientEditor).toBe(true);
+  });
+});
+
+// ─── parseNumericDraft (IP20) ─────────────────────────────────────────────────
+
+describe("parseNumericDraft", () => {
+  it("parses ordinary numeric drafts", () => {
+    expect(parseNumericDraft("42")).toBe(42);
+    expect(parseNumericDraft("-3.5")).toBe(-3.5);
+    expect(parseNumericDraft("  10  ")).toBe(10);
+  });
+
+  it("returns null (revert) for an emptied draft instead of committing 0", () => {
+    // The bug: Number("") === 0, so clearing the field used to commit 0.
+    expect(parseNumericDraft("")).toBeNull();
+    expect(parseNumericDraft("   ")).toBeNull();
+  });
+
+  it("returns null for non-numeric drafts", () => {
+    expect(parseNumericDraft("abc")).toBeNull();
+    expect(parseNumericDraft("--")).toBeNull();
+  });
+
+  it("returns 0 only when the draft explicitly says 0", () => {
+    expect(parseNumericDraft("0")).toBe(0);
+  });
+});
+
+// ─── expandHexShorthand (IP20 nice-to-have) ──────────────────────────────────
+
+describe("expandHexShorthand", () => {
+  it("expands a single hex digit into 3-digit shorthand", () => {
+    expect(expandHexShorthand("F")).toBe("FFF");
+    expect(expandHexShorthand("a")).toBe("aaa");
+    expect(expandHexShorthand("#F")).toBe("FFF");
+  });
+
+  it("leaves standard-length hex values unchanged", () => {
+    expect(expandHexShorthand("FFF")).toBe("FFF");
+    expect(expandHexShorthand("FFFFFF")).toBe("FFFFFF");
+    expect(expandHexShorthand("#336699")).toBe("336699");
+  });
+
+  it("leaves non-single-digit fragments (e.g. 2-char) unchanged", () => {
+    expect(expandHexShorthand("F0")).toBe("F0");
   });
 });

@@ -50,7 +50,10 @@ const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
 const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
-const WEBVIEW_PRELOAD_PATH = `${__dirname.replace(/[/\\]$/, "")}/webview.js`;
+const WEBVIEW_PRELOAD_PATH =
+  process.argv
+    .find((arg) => arg.startsWith("--an-webview-preload="))
+    ?.slice("--an-webview-preload=".length) ?? "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;

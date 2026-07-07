@@ -41,6 +41,16 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
+:root {
+  --agent-native-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --agent-native-viewport-height: 100dvh;
+  }
+}
+
 /* Shared shell depth.
    Use these classes on app layouts that have a persistent left nav:
 
@@ -63,6 +73,8 @@
     var(--agent-native-raised-border);
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
+  height: var(--agent-native-viewport-height);
+  min-height: 0;
   background: var(--agent-native-lower-surface);
 }
 
@@ -89,16 +101,6 @@
       in srgb,
       hsl(var(--sidebar-background, var(--background))) 94%,
       black
-    );
-    --agent-native-raised-surface: color-mix(
-      in srgb,
-      hsl(var(--background)) 78%,
-      hsl(var(--muted)) 22%
-    );
-    --agent-native-card-surface: color-mix(
-      in srgb,
-      var(--agent-native-raised-surface) 88%,
-      hsl(var(--muted)) 12%
     );
   }
 }
@@ -167,43 +169,45 @@
   container: agent-native-main / inline-size;
 }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :where(header, div).border-b:first-child,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell .agent-native-shell-topbar {
-  border-bottom-color: transparent !important;
-}
+@media (min-width: 768px) {
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :where(header, div).border-b:first-child,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell .agent-native-shell-topbar {
+    border-bottom-color: transparent !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b {
-  background-color: var(--agent-native-raised-surface) !important;
-}
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b {
+    background-color: var(--agent-native-raised-surface) !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b.h-12,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b.h-12 {
-  min-height: 4rem;
-  height: 4rem;
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b.h-12,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b.h-12 {
+    min-height: 4rem;
+    height: 4rem;
+  }
 }
 
 .dark
@@ -682,6 +686,31 @@
   line-height: 1.75rem;
 }
 
+.agent-composer-stack {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.agent-composer-stack[data-agent-composer-adjacent-ui="true"],
+.agent-composer-stack:has(.agent-selection-attached-pill) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-composer-setup-card {
+  width: 100%;
+}
+
+/* Plan-mode callout pill: lives inside .agent-composer-stack directly above
+   the composer. Matching .agent-composer-area's own width keeps the pill
+   visually attached to (and right-aligned with) the composer instead of the
+   full pane, whether the pane is a narrow sidebar or a wide centered page. */
+.agent-plan-mode-callout {
+  width: 100%;
+}
+
 [data-agent-empty-state="centered"] {
   justify-content: center;
 }
@@ -691,9 +720,31 @@
   overflow: visible;
 }
 
-[data-agent-empty-state="compact-setup"] > .agent-chat-scroll {
-  flex: 0 0 auto;
-  overflow: visible;
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+}
+
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card[data-agent-composer-setup-position="above"] {
+  bottom: calc(100% + 0.5rem);
+}
+
+[data-agent-empty-state="centered"]
+  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
+    :has(.agent-selection-attached-pill)
+  )
+  > .agent-composer-setup-card[data-agent-composer-setup-position="below"] {
+  top: calc(100% + 0.5rem);
 }
 
 [data-agent-empty-state="compact-setup"] .agent-empty-state {

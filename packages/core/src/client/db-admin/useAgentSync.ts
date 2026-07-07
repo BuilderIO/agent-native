@@ -64,6 +64,7 @@ export interface DbAdminNavigationState {
 export interface UseDbAdminAgentSyncArgs {
   table: string | null;
   mode: "table" | "sql";
+  enabled?: boolean;
 }
 
 /**
@@ -74,8 +75,10 @@ export interface UseDbAdminAgentSyncArgs {
 export function useDbAdminAgentSync({
   table,
   mode,
+  enabled = true,
 }: UseDbAdminAgentSyncArgs): void {
   useEffect(() => {
+    if (!enabled) return;
     const state: DbAdminNavigationState = { view: "database", table, mode };
     fetch(NAVIGATION_PATH, {
       method: "PUT",
@@ -84,7 +87,7 @@ export function useDbAdminAgentSync({
       headers: headers({ "Content-Type": "application/json" }),
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [table, mode]);
+  }, [enabled, table, mode]);
 }
 
 interface NavigateCommand {
@@ -97,11 +100,15 @@ interface NavigateCommand {
  * a database table, invoke `onNavigate(table)` then clear the key so it does
  * not replay on the next poll.
  */
-export function useNavigateConsumer(onNavigate: (table: string) => void): void {
+export function useNavigateConsumer(
+  onNavigate: (table: string) => void,
+  enabled = true,
+): void {
   const handlerRef = useRef(onNavigate);
   handlerRef.current = onNavigate;
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -143,5 +150,5 @@ export function useNavigateConsumer(onNavigate: (table: string) => void): void {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [enabled]);
 }

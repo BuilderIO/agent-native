@@ -144,6 +144,45 @@ export default defineAction({
         lines.push("```");
       }
 
+      const selection = (await readAppStateForCurrentTab(
+        "slides-selection",
+      )) as {
+        slideId?: string;
+        mode?: string;
+        activeTool?: string;
+        items?: Array<{
+          selector?: string;
+          text?: string;
+          kind?: string;
+          tagName?: string;
+          imageSrc?: string;
+          style?: Record<string, unknown>;
+        }>;
+      } | null;
+      if (
+        selection &&
+        (!selection.slideId || selection.slideId === currentSlide?.id)
+      ) {
+        lines.push(``);
+        lines.push(`### Current visual selection`);
+        lines.push(`mode: ${selection.mode ?? "unknown"}`);
+        lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
+        if (Array.isArray(selection.items) && selection.items.length > 0) {
+          for (const [index, item] of selection.items.entries()) {
+            lines.push(
+              `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
+            );
+            if (item.text) lines.push(`text: ${item.text}`);
+            if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
+            if (item.style) {
+              lines.push(`style: ${JSON.stringify(item.style)}`);
+            }
+          }
+        } else {
+          lines.push(`(no selected elements)`);
+        }
+      }
+
       // ─── Layout-fit measurement ──────────────────────────────────────────
       // The editor measures the rendered slide and reports vertical overflow
       // here whenever the natural content height exceeds the canvas content

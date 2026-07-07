@@ -239,20 +239,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Kernaktionen für eine schnelle Datenbankinspektion und einmalige Wartung
+# Kernaktionen für eine schnelle Datenbankinspektion
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Chirurgisches find/replace für eine große Textspalte – sendet einen Unterschied, nicht den gesamten Wert
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-Das Produktionsagenten-Chat-Plugin ermöglicht standardmäßig Rohdatenbank-Schreibvorgänge.
-(`databaseTools: "write"`), damit Agenten App-eigene Daten reparieren können, ohne auf eine
-neue typisierte Aktion. Diese Schreibvorgänge sind auf den authentifizierten Benutzer/die authentifizierte Organisation beschränkt. Festlegen
-`databaseTools: "read"`, um nur die `db-schema`/`db-query`-Inspektion beizubehalten, oder
-`databaseTools: "off"` / `false` erfordert die typisierte App actions für alle Daten
+Das Produktions-Agent-Chat-Plugin setzt rohe SQL-Werkzeuge standardmäßig auf read-only
+(`databaseTools: "read"`). Agenten prüfen App-Daten mit `db-schema` /
+`db-query` und schreiben über typisierte App-Actions. Setze
+`databaseTools: "write"` (oder `true`) nur für bewusste Wartungsflächen, die
+auch scoped `db-exec` / `db-patch` anbieten sollen; `databaseTools: "off"` /
+`false` erfordert typisierte App-Actions für alle Daten
 Zugriff.
 
 ## Agent-Chat-Brücke {#agent-chat-bridge}
@@ -437,6 +434,7 @@ Diese basieren auf demselben Vertrag und haben ihre eigenen Tiefgänge:
 
 - **[Dispatch](/docs/dispatch)** – die Steuerungsebene des Arbeitsbereichs: gemeinsamer Posteingang, Geheimspeicher, geplante Jobs und ein Orchestrator, der über A2A an spezielle Apps delegiert.
 - **[Extensions](/docs/extensions)** – Sandbox-Alpine.js-Mini-Apps, die der Agent zur Laufzeit erstellt, keine Quelländerungen oder Migrationen.
+- **[Datenprogramme](/docs/data-programs)** – gespeicherte, vom Agenten verfasste `run-code`-Skripte, die Dashboard-Panels ein zwischengespeichertes, aktualisierbares Ergebnis liefern statt einer fest codierten Provider-action.
 - **[A2A Protocol](/docs/a2a-protocol)** – wie Apps im selben Arbeitsbereich einander über JSON-RPC erkennen und aufrufen.
 
 ## Was Sie kostenlos bekommen {#what-you-get-for-free}

@@ -70,6 +70,7 @@ describe("resolveAppForSkill", () => {
 
   it("is case-insensitive", () => {
     expect(resolveAppForSkill("Visual-Plan")?.serverName).toBe("plan");
+    expect(resolveAppForSkill("Visualize-Repo")?.serverName).toBe("plan");
     expect(resolveAppForSkill("ASSETS")?.serverName).toBe(
       "agent-native-assets",
     );
@@ -85,6 +86,7 @@ describe("appHasMcp", () => {
   it("is true for known skills and false otherwise", () => {
     expect(appHasMcp("visual-plan")).toBe(true);
     expect(appHasMcp("visual-recap")).toBe(true);
+    expect(appHasMcp("visualize-repo")).toBe(true);
     expect(appHasMcp("assets")).toBe(true);
     expect(appHasMcp("content")).toBe(true);
     expect(appHasMcp("design-exploration")).toBe(true);

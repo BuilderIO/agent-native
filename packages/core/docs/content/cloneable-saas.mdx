@@ -1,19 +1,19 @@
 ---
-title: "Templates"
+title: "Apps"
 description: "Fork a working SaaS product and make it yours — agent included."
 ---
 
-# Templates
+# Apps
 
-Want to ship your own AI-powered analytics tool? Mail client? Forms builder? Pick a template, and you've got a working SaaS in minutes — agent, database, auth, and deploy pipeline already wired up.
+Want to ship your own AI-powered analytics tool? Mail client? Forms builder? Pick an example app, and you've got a working SaaS in minutes — agent, database, auth, and deploy pipeline already wired up.
 
-Most "templates" give you a blank scaffold and a long TODO list. Agent-native flips that. Each one is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy. Think of them as cloneable SaaS, not starter kits: you're forking a finished product, not staring at boilerplate.
+Most starter templates give you a blank scaffold and a long TODO list. Agent-native flips that. Each example app is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy. Think of them as cloneable SaaS, not starter kits: you're forking a finished product, not staring at boilerplate.
 
-## Templates available {#catalog}
+## Example apps {#catalog}
 
 Each one is a real app you could use today, and the launching pad for your own version of it.
 
-| Template                                  | What it is                                                                                                     |
+| App                                       | What it is                                                                                                     |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | [**Chat**](/docs/template-chat)           | Minimal chat-first app with durable threads, actions, auth, and a clean path to custom UI or your own backend. |
 | [**Mail**](/docs/template-mail)           | An agent-native Superhuman. Inbox, labels, AI triage, keyboard-first, drafts and sends through the agent.      |
@@ -22,7 +22,6 @@ Each one is a real app you could use today, and the launching pad for your own v
 | [**Brain**](/docs/template-brain)         | Clean company chat backed by cited institutional memory, approved sources, review gates, and citations.        |
 | [**Assets**](/docs/template-assets)       | Digital asset manager for brand libraries, uploads, references, and on-brand image/video generation.           |
 | [**Slides**](/docs/template-slides)       | An agent-native Google Slides. React-based decks the agent generates and edits directly.                       |
-| [**Video**](/docs/template-videos)        | Programmatic motion graphics and product-demo videos on Remotion.                                              |
 | [**Analytics**](/docs/template-analytics) | An agent-native Amplitude/Mixpanel. Connect data sources, prompt for charts, pin to dashboards.                |
 | [**Clips**](/docs/template-clips)         | Async screen + camera recording with transcription, chapters, and AI summaries.                                |
 | [**Design**](/docs/template-design)       | Agent-native HTML prototyping studio for interactive Alpine/Tailwind designs.                                  |
@@ -36,16 +35,16 @@ See the full catalog under [Apps](/apps), or jump straight to one — for exampl
 
 ## What you get out of the box {#what-you-get}
 
-Every template ships with the parts that normally take months to build:
+Every example app ships with the parts that normally take months to build:
 
 - **A working agent** — already wired into the app, already able to take actions on your data, already context-aware about what you're looking at. See [Messaging the agent](/docs/messaging) for how it works.
 - **Auth** — sign in, sessions, organizations, multi-tenant isolation. Already done.
-- **A database** — every template has its schema, queries, and migrations ready to go. Bring your own SQL database (Postgres, SQLite, Turso, D1) — the framework adapts.
+- **A database** — every example app has its schema, queries, and migrations ready to go. Bring your own SQL database (Postgres, SQLite, Turso, D1) — the framework adapts.
 - **A real-time UI** — the screen stays in sync with what the agent does. Click "draft an email" in chat, watch the draft appear in your inbox immediately.
 - **Deploy-ready** — push to Netlify, Vercel, Cloudflare, AWS, or anywhere else that runs Node. No vendor lock-in.
 - **Branding hooks** — name, colors, logo, copy are all easy to change.
 
-This isn't a theoretical claim. The framework's author runs his actual inbox on the Mail template, his actual calendar on the Calendar template, and his actual analytics on the Analytics template. Templates are daily-driver software.
+This isn't a theoretical claim. The framework's author runs his actual inbox on the Mail app, his actual calendar on the Calendar app, and his actual analytics on the Analytics app. These are daily-driver apps.
 
 ## What you do {#what-you-do}
 
@@ -57,7 +56,7 @@ The path from "I want my own SaaS" to "I have my own SaaS" is short:
 <div class="diagram-fork">
   <div class="diagram-card">
     <span class="diagram-pill">1</span><strong>Pick</strong
-    ><small class="diagram-muted">a complete template</small>
+    ><small class="diagram-muted">a complete app</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
@@ -99,8 +98,8 @@ The path from "I want my own SaaS" to "I have my own SaaS" is short:
 
 </Diagram>
 
-1. **Pick a template.** Use the CLI picker, or browse the docs and pick one to start from.
-2. **Brand it.** Change the name, colors, logo, and copy. Most templates expose this in a single config file.
+1. **Pick an example app.** Use the CLI picker, or browse the docs and pick one to start from.
+2. **Brand it.** Change the name, colors, logo, and copy. Most example apps expose this in a single config file.
 3. **Customize it.** Ask the agent to add the column you need, change how the inbox groups, connect to your internal API, add a new view. The agent edits the code; you review the diff.
 4. **Ship it.** Run the deploy command. You now have your own production SaaS at your own domain.
 
@@ -160,7 +159,7 @@ The result: Claude-Code-level flexibility for each user, with normal SaaS deploy
 
 ## Don't want to fork? {#hosted}
 
-You don't have to. Every template is also available as a hosted app on `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, and so on. Use the hosted version for free or paid; fork only when you want to change something the hosted version doesn't expose.
+You don't have to. Every example app is also available as a hosted app on `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, and so on. Use the hosted version for free or paid; fork only when you want to change something the hosted version doesn't expose.
 
 ## Try it with a skill {#try-with-a-skill}
 
@@ -169,10 +168,10 @@ Not ready to scaffold? You can add agent-native superpowers to a coding agent yo
 ## Building on this
 
 - [**Getting Started**](/docs/getting-started) — create a chat-first app, add an action, render a structured result, and grow into a page
-- [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each template
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several templates into one workspace that shares auth, brand, and agent
-- [**Dispatch**](/docs/template-dispatch) — the workspace control plane template
-- [**Creating Templates**](/docs/creating-templates) — author and publish your own template
+- [**Messaging the agent**](/docs/messaging) — how users (and you) talk to the agent that ships with each app
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle several apps into one workspace that shares auth, brand, and agent
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane app
+- [**Creating Templates**](/docs/creating-templates) — author and publish your own app template
 
 ### For developers {#dev-details}
 
@@ -182,10 +181,10 @@ If you're scaffolding now, the CLI command is:
 npx @agent-native/core@latest create my-platform
 ```
 
-You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need. For a no-browser automation instead of a template UI, use `npx @agent-native/core@latest create my-agent --headless`.
+You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked app is scaffolded into `apps/<name>/` with every file you need. For a no-browser automation instead of an app UI, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, `pnpm dev`, and it works. No "TODO: implement login," no placeholder routes.
 
 Deploy targets: any Nitro-compatible host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) and any Drizzle-compatible SQL database (SQLite, Postgres, Turso, D1, Supabase, Neon). For workspaces, `npx @agent-native/core@latest deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
 
-To author and publish your own template, see [Creating Templates](/docs/creating-templates).
+To author and publish your own app template, see [Creating Templates](/docs/creating-templates).

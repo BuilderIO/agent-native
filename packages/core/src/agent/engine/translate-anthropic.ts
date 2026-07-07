@@ -280,6 +280,9 @@ export function backfillEngineMessagesToolResults(
         toolInput,
         content: part.content,
         ...(part.isError ? { isError: true } : {}),
+        ...(part.images && part.images.length > 0
+          ? { images: part.images }
+          : {}),
       };
       if (pendingLookup) {
         matchedPendingToolResults.set(part.toolCallId, filled);
@@ -399,6 +402,11 @@ function enginePartToAnthropic(
       if (builderGateway) {
         const tool_name = part.toolName.trim();
         const tool_input = part.toolInput;
+        // Gateway degrade: the Builder gateway multiplexes to non-Anthropic
+        // models whose tool_result handling is string-only, so images are
+        // dropped here. The content string already carries a `[image: …]`
+        // note per image (appended by runToolCall), so the model still knows
+        // an image existed and any https URL survives.
         return {
           type: "tool_result",
           tool_use_id: part.toolCallId,
@@ -411,7 +419,7 @@ function enginePartToAnthropic(
       return {
         type: "tool_result",
         tool_use_id: part.toolCallId,
-        content: part.content,
+        content: toolResultContentToAnthropic(part),
         ...(part.isError ? { is_error: true } : {}),
       } as any;
     }
@@ -424,6 +432,40 @@ function enginePartToAnthropic(
         signature: part.signature ?? "",
       } as any;
   }
+}
+
+/**
+ * tool_result `content` for the native Anthropic API: a plain string normally,
+ * or a text + image block array when the result carries vision images
+ * (https://platform.claude.com/docs — "Example of tool result with images").
+ * Error results stay string-only; malformed image entries are skipped.
+ */
+function toolResultContentToAnthropic(
+  part: Extract<EngineContentPart, { type: "tool-result" }>,
+): string | Anthropic.ContentBlockParam[] {
+  if (part.isError || !part.images || part.images.length === 0) {
+    return part.content;
+  }
+  const imageBlocks: Anthropic.ImageBlockParam[] = [];
+  for (const image of part.images) {
+    if (image.url) {
+      imageBlocks.push({
+        type: "image",
+        source: { type: "url", url: image.url },
+      });
+    } else if (image.data && image.mediaType) {
+      imageBlocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: image.mediaType,
+          data: image.data,
+        },
+      });
+    }
+  }
+  if (imageBlocks.length === 0) return part.content;
+  return [{ type: "text", text: part.content }, ...imageBlocks];
 }
 
 // ---------------------------------------------------------------------------

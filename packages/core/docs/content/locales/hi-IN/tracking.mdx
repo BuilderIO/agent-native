@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 यह फ्रेमवर्क के आंतरिक ब्राउज़र टेलीमेट्री (`trackEvent()` / स्वचालित पेजव्यू - नीचे [Browser defaults](#browser-defaults) देखें) से अलग है, जो Agent Native के स्वयं के उत्पाद विश्लेषण को शक्ति प्रदान करता है। अपने ऐप के स्वयं के एनालिटिक्स इवेंट के लिए `track()` का उपयोग करें जो आपके कॉन्फ़िगर किए गए प्रदाताओं तक पहुंचना चाहिए।
 
+## Session replay {#session-replay}
+
+Agent Native ऐप्स दूसरा एनालिटिक्स SDK जोड़े बिना फर्स्ट-पार्टी ब्राउज़र session replay को ऑप्ट इन कर सकते हैं। ब्राउज़र रूट में एक बार `configureTracking()` को कॉल करें और Analytics पब्लिक की के साथ collector endpoint पास करें:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+जब `sessionReplay.enabled` truthy होता है, तो क्लाइंट स्टार्टअप के बाद `@rrweb/record` को डायनेमिक रूप से इंपोर्ट करता है और replay chunks को replay endpoint पर पोस्ट करता है। यदि `endpoint`, `/api/analytics/track` या `/track` पर समाप्त होता है, तो replay endpoint स्वचालित रूप से `/api/analytics/replay` के रूप में व्युत्पन्न होता है। जब replay collector कहीं और हो, तो इसे `sessionReplay.endpoint` के साथ स्पष्ट रूप से ओवरराइड करें।
+
+Agent Native टेम्पलेट रूट पहले से ही `configureTracking()` को कॉल करते हैं। होस्टेड टेम्पलेट डिप्लॉयमेंट Vite/Netlify एनवायरनमेंट वेरिएबल्स के साथ replay चालू कर सकते हैं, जबकि लाइब्रेरी उपभोक्ताओं को ऊपर दिए गए स्पष्ट `configureTracking({ key, endpoint, sessionReplay })` फॉर्म को प्राथमिकता देनी चाहिए:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+ब्राउज़र हेल्पर वर्तमान Agent Native auth session का एक बेस्ट-एफर्ट, नॉन-ब्लॉकिंग रीड भी करता है। Replay डिफ़ॉल्ट रूप से केवल साइन-इन उपयोगकर्ताओं के लिए है: जब `sessionReplay` सक्षम होता है, तो जब तक session किसी उपयोगकर्ता के ईमेल पते पर रिज़ॉल्व नहीं होता, तब तक रिकॉर्डिंग शुरू नहीं होती। साइन-इन replays में ईमेल-बैक्ड `userId`/`userEmail` के साथ `orgId` शामिल होता है।
+
+`sessionReplay.requireSignedInUser: false` या `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` को केवल एक जानबूझकर किए गए एनोनिमस replay डिप्लॉयमेंट के लिए सेट करें। जब auth gating अक्षम होती है, तो एनोनिमस रिकॉर्डिंग्स एनोनिमस विज़िटर, session, app/template, hostname, और path के अनुसार क्वेरी करने योग्य बनी रहती हैं।
+
+Session replay प्रत्येक ब्राउज़र session के लिए निर्धारक रूप से सैंपल किया जाता है। `0.1` का `sampleRate` लगभग 10% योग्य sessions को रिकॉर्ड करता है; जब योग्य आबादी जानबूझकर छोटी हो, जैसे कि केवल-साइन-इन डॉगफूडिंग, तो `1` का उपयोग करें।
+
+प्राइवेसी डिफ़ॉल्ट जानबूझकर रूढ़िवादी हैं लेकिन फिर भी प्लेबैक के लिए उपयोगी हैं:
+
+- Inputs डिफ़ॉल्ट रूप से मास्क किए जाते हैं (`maskAllInputs: true`)।
+- पेज टेक्स्ट तब तक दिखाई देता रहता है जब तक कि किसी एलिमेंट को `.an-mask` या `data-an-mask` से चिह्नित न किया जाए।
+- संवेदनशील ज़ोन को `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, और क्रेडिट-कार्ड/पासवर्ड/SSN-जैसे फ़ील्ड्स जैसे सेलेक्टर्स के साथ ब्लॉक किया जाता है।
+- URLs को ब्राउज़र एनालिटिक्स द्वारा उपयोग किए जाने वाले समान `scrubUrl()` हेल्पर के साथ स्क्रब किया जाता है।
+- Replay capture केवल-वेब और ऑप्ट-इन है; यह नेटिव डेस्कटॉप स्क्रीन को रिकॉर्ड नहीं करता।
+
+रिकॉर्डिंग के दौरान, session replay ब्राउज़र कंसोल आउटपुट (`log`, `info`, `warn`, `error`, `debug`, साथ ही window `error` / `unhandledrejection`) और नेटवर्क रिक्वेस्ट मेटाडेटा (`fetch` और XHR) को टैग किए गए rrweb कस्टम इवेंट्स के रूप में भी कैप्चर करता है, ताकि एजेंट और replay viewer उपयोगकर्ता-रिपोर्ट की गई समस्याओं को डीबग कर सकें। जब replay सक्षम होता है तो capture डिफ़ॉल्ट रूप से चालू होता है; इसे `sessionReplay.console` और `sessionReplay.network` विकल्पों के साथ ट्यून या अक्षम करें, प्रत्येक एक बूलियन या एक विकल्प ऑब्जेक्ट स्वीकार करता है (`{ maxEvents?: number }`, जिसमें `network` अतिरिक्त रूप से `captureErrorBodies` और `maxErrorBodyLength` भी स्वीकार करता है)। Request bodies और headers कभी कैप्चर नहीं किए जाते; response bodies केवल 5xx (सर्वर एरर) रिस्पॉन्स के लिए एक बाउंडेड, रिडैक्टेड स्निपेट के रूप में कैप्चर किए जाते हैं (`captureErrorBodies`, डिफ़ॉल्ट true, `maxErrorBodyLength` वर्णों तक सीमित, डिफ़ॉल्ट 2048) — non-5xx और नेटवर्क-फेलियर (status 0) रिस्पॉन्स में कभी कोई body नहीं होती। URLs स्क्रब किए जाते हैं, संदेश छोटे किए जाते हैं, रिकॉर्डर का अपना ingest/tracking ट्रैफ़िक बाहर रखा जाता है, और प्रति-session बजट (1000 console / 2000 network events) से अधिक होने पर एक truncation नोटिस जोड़ते हैं।
+
+Analytics टेम्पलेट replay मेटाडेटा को SQL (`session_recordings`) में संग्रहीत करता है और chunks को प्राइवेट blob refs (`session_replay_chunks`) के माध्यम से संग्रहीत करता है। ब्राउज़र और एजेंट को कभी भी प्रदाता URLs प्राप्त नहीं होते। Playback स्कोप्ड सर्वर रूट्स के माध्यम से जाता है और डिफ़ॉल्ट एजेंट टूल्स सारांश या बाउंडेड replay events लौटाते हैं, कच्ची chunk table एक्सेस नहीं।
+
+जब आपको किसी बाहरी एजेंट को एक प्राइवेट रिकॉर्डिंग सौंपने की आवश्यकता हो, तो session डिटेल पेज के **Copy for agent** नियंत्रण का उपयोग करें। यह एक दो-घंटे का, रिकॉर्डिंग-स्कोप्ड `agent_access` लिंक बनाता है, `/sessions/:recordingId` पर एक छोटा डिस्कवरी पेलोड SSR करता है, और केवल एजेंट context/events JSON APIs को एक्सपोज़ करता है। रिकॉर्डिंग की visibility नहीं बदलती।
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+केवल स्थानीय विकास के लिए, Analytics प्राइवेट blob storage उपलब्ध न होने पर capped SQL inline chunks पर फ़ॉलबैक कर सकता है। प्रोडक्शन डिप्लॉयमेंट्स को replay payloads के लिए Postgres पर निर्भर रहने के बजाय प्राइवेट या एन्क्रिप्टेड blob storage कॉन्फ़िगर करना चाहिए।
+
 ## उन्नत: कस्टम प्रदाता और आंतरिक {#advanced}
 
 अधिकांश ऐप्स को केवल `track()` / `identify()` और एक अंतर्निहित प्रदाता की आवश्यकता होती है। शेष सतह - कस्टम प्रदाताओं का पंजीकरण, `TrackingProvider` इंटरफ़ेस, बैचिंग आंतरिक, और फ्रेमवर्क का अपना ब्राउज़र टेलीमेट्री - नीचे है।

@@ -18,6 +18,7 @@ import { NotionToggle } from "./extensions/NotionExtensions";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
+  getRecentEditPresenceMarkerRect,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -99,6 +100,24 @@ afterEach(() => {
 });
 
 describe("VisualEditor markdown round-tripping", () => {
+  it("renders recent edits as presence markers instead of range boxes", () => {
+    const marker = getRecentEditPresenceMarkerRect(
+      new DOMRect(120, 240, 680, 22),
+    );
+
+    expect(marker.left).toBe(120);
+    expect(marker.top).toBe(240);
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(22);
+  });
+
+  it("keeps recent edit markers visible for collapsed caret coordinates", () => {
+    const marker = getRecentEditPresenceMarkerRect(new DOMRect(120, 240, 0, 0));
+
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(18);
+  });
+
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
     const editor = createMarkdownEditor("A\n<empty-block/>\n<empty-block/>\nB");
 

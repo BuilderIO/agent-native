@@ -1,10 +1,37 @@
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
+import * as schema from "../db/schema.js";
 
-export default runMigrations(
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports (e.g. re-exported `eq`/`sql`) the same way db.spec.ts's
+ * `isDrizzleTable` regression guard does: a real table carries a
+ * Symbol-keyed drizzle metadata bag, plain exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v75-v83 incident documented on v75 below.
+const runAnalyticsMigrations = runMigrations(
   [
     {
       version: 1,
@@ -513,8 +540,19 @@ export default runMigrations(
         sqlite: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now'))`,
       },
     },
+    // v75-v83: a parallel branch shipped unrelated DDL under these SAME version
+    // numbers, so whichever branch deployed first "used up" v75-v83 in
+    // `analytics_migrations` and the other branch's DDL below was silently
+    // never applied on any database that had already advanced past v83 — the
+    // exact version-collision failure class `runMigrations` name-based
+    // tracking exists to fix (see packages/core/src/db/migrations.ts). v75-v80
+    // below now carry a `name:` so they apply by name on every database
+    // regardless of what its recorded MAX(version) already is. All SQL here
+    // is untouched (still the original IF NOT EXISTS / ADD COLUMN IF NOT
+    // EXISTS DDL) — only the `name:` field was added.
     {
       version: 75,
+      name: "analytics-alert-rules-table",
       sql: {
         postgres: `CREATE TABLE IF NOT EXISTS analytics_alert_rules (
       id TEXT PRIMARY KEY,
@@ -568,6 +606,7 @@ export default runMigrations(
     },
     {
       version: 76,
+      name: "analytics-alert-incidents-table",
       sql: {
         postgres: `CREATE TABLE IF NOT EXISTS analytics_alert_incidents (
       id TEXT PRIMARY KEY,
@@ -607,12 +646,99 @@ export default runMigrations(
     },
     {
       version: 77,
+      name: "analytics-alert-rules-scope-enabled-idx",
       sql: `CREATE INDEX IF NOT EXISTS analytics_alert_rules_scope_enabled_idx ON analytics_alert_rules (org_id, owner_email, enabled, updated_at)`,
     },
     {
       version: 78,
+      name: "analytics-alert-incidents-rule-triggered-idx",
       sql: `CREATE INDEX IF NOT EXISTS analytics_alert_incidents_rule_triggered_idx ON analytics_alert_incidents (rule_id, triggered_at)`,
+    },
+    // v79: session_recordings gained `network_error_count` in schema.ts (failed
+    // network requests observed in captured replay diagnostics events) without
+    // a matching migration, so pre-existing production tables never got the
+    // column — every read/write touching it 42703'd. Backfill it the same way
+    // page_count/error_count/rage_click_count/privacy_mode were added (v61-64).
+    // Also caught by the v75-v83 version-collision incident described above —
+    // named so it applies regardless of a database's recorded MAX(version).
+    {
+      version: 79,
+      name: "session-recordings-network-error-count",
+      sql: `ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS network_error_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 80,
+      name: "analytics-alert-rules-enabled-eval-idx",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_alert_rules_enabled_eval_idx ON analytics_alert_rules (enabled, last_status, last_evaluated_at, created_at)`,
+    },
+    {
+      version: 81,
+      name: "analytics-db-admin-connections-table",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_db_admin_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      app_id TEXT,
+      app_url TEXT,
+      database_url_secret_key TEXT NOT NULL,
+      database_auth_token_secret_key TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      updated_at TEXT NOT NULL DEFAULT (now()::text),
+      org_id TEXT NOT NULL
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_db_admin_connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      app_id TEXT,
+      app_url TEXT,
+      database_url_secret_key TEXT NOT NULL,
+      database_auth_token_secret_key TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      org_id TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 82,
+      name: "analytics-db-admin-connections-org-updated-idx",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_db_admin_connections_org_updated_idx ON analytics_db_admin_connections (org_id, updated_at)`,
     },
   ],
   { table: "analytics_migrations" },
 );
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the specific failure mode that caused the
+ * v79 migration above: a column added to schema.ts without a matching
+ * hand-written ALTER migration, which silently 500s every query touching a
+ * pre-existing production table. It only ever adds missing columns — never
+ * drops, renames, or retypes anything — and any failure here is logged and
+ * swallowed so it can never fail boot.
+ */
+export default async (nitroApp: any): Promise<void> => {
+  await runAnalyticsMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};

@@ -7,6 +7,8 @@ description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시
 
 템플릿은 실제 워크플로를 해결하는 완전하고 포크 가능한 에이전트 기반 앱입니다. 자사 템플릿은 귀하가 사용하는 것과 동일한 프레임워크 표면으로 구축됩니다. UI용 React 경로, 데이터용 Drizzle SQL, 작업용 actions, 에이전트 동작용 작업 공간 리소스, 에이전트와 UI가 정렬 상태를 유지하도록 폴링 동기화합니다.
 
+`@agent-native/core`는 runtime contract에 사용하세요: actions, server plugins, database helpers, app state, routing helpers, agent chat입니다. `@agent-native/toolkit`은 shared primitives, toast/mobile hooks, date pickers, simple app shell slots 같은 reusable app-building UI와 helpers에 사용하세요. 제품 동작이나 visual identity를 담는 template-specific variants는 로컬에 유지하세요.
+
 좋은 템플릿:
 
 - 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.

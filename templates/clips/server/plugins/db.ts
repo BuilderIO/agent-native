@@ -1,4 +1,9 @@
-import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
+import {
+  runMigrations,
+  getDbExec,
+  isPostgres,
+  ensureAdditiveColumns,
+} from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
 
@@ -8,6 +13,25 @@ import { z } from "zod";
 // are loaded in a separate Vite SSR bundle from user actions, so we trigger
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 /**
  * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
@@ -63,6 +87,10 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v41 incident documented on v41 below.
 const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
@@ -648,9 +676,19 @@ const migrations = runMigrations(
     // and `dictation_shares` (v25) are NOT on any access path — the schema and
     // every `accessFilter` callsite use the `clips_*` prefixed tables — so they
     // are intentionally skipped.
+    //
+    // v41 was recorded as applied in `clips_migrations` on the shared Neon
+    // database, but none of its 8 indexes actually existed live (confirmed via
+    // `pg_indexes` — the exact "recorded but never ran" collision class
+    // `runMigrations` name-based tracking exists to fix; see
+    // packages/core/src/db/migrations.ts). All statements here are
+    // `CREATE INDEX IF NOT EXISTS` (unchanged, still idempotent), so it is
+    // named to re-apply by name regardless of this database's recorded
+    // MAX(version).
     // -------------------------------------------------------------------------
     {
       version: 41,
+      name: "recordings-comments-shares-hot-path-indexes",
       sql: [
         // recordings list: library view filters owner_email + workspace_id and
         // sorts by created_at; the accessFilter owner branch also scopes by
@@ -747,6 +785,44 @@ const migrations = runMigrations(
         )`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
+      ].join("; "),
+    },
+    {
+      version: 45,
+      name: "recording-transcripts-retry-count",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    // ---------------------------------------------------------------------------
+    // Per-view records — append-only log of counted views (who viewed a clip
+    // and when), backing the owner-facing "Viewed by" popover and the
+    // `list-clip-views` action. Newer rows include a per-player-open
+    // view_session_id so returning viewers can appear again while duplicate
+    // threshold posts for the same open are idempotent.
+    // ---------------------------------------------------------------------------
+    {
+      version: 46,
+      name: "recording-views-per-view-log",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          viewer_id TEXT NOT NULL,
+          viewer_key TEXT,
+          view_session_id TEXT,
+          viewer_email TEXT,
+          viewer_name TEXT,
+          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
+      ].join("; "),
+    },
+    {
+      version: 47,
+      name: "recording-views-session-idempotency",
+      sql: [
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS view_session_id TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
       ].join("; "),
     },
   ],
@@ -1160,6 +1236,158 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
   }
 }
 
+function rowNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+/**
+ * Sweep orphaned resumable upload sessions out of `application_state`.
+ *
+ * The streaming upload path stores provider session handles under
+ * `resumable-session-<recordingId>` and deletes them after finalize commits a
+ * ready recording. Crashes between those two steps can strand small session
+ * rows forever. We only delete sessions whose recording row is gone, or whose
+ * recording reached a terminal status more than an hour ago. Abandoned browser
+ * uploads can leave the recording stuck in `uploading`, so those are swept only
+ * after a much longer grace window.
+ */
+async function sweepOrphanedResumableSessions(): Promise<void> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+
+  let sessionRows: Array<{
+    session_id?: unknown;
+    key?: unknown;
+    updated_at?: unknown;
+  }> = [];
+  try {
+    const probe = await exec.execute({
+      sql: `SELECT session_id, key, updated_at FROM application_state WHERE key LIKE 'resumable-session-%'`,
+      args: [],
+    });
+    sessionRows =
+      (probe.rows as Array<{
+        session_id?: unknown;
+        key?: unknown;
+        updated_at?: unknown;
+      }>) ?? [];
+  } catch (err) {
+    const message = (err as Error)?.message ?? String(err);
+    if (
+      /no such table:\s*application_state/i.test(message) ||
+      /relation ["']?application_state["']? does not exist/i.test(message)
+    ) {
+      return;
+    }
+    console.warn(
+      "[db] resumable-session sweep: application_state probe failed",
+      message,
+    );
+    return;
+  }
+
+  if (sessionRows.length === 0) return;
+
+  const prefix = "resumable-session-";
+  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const staleInProgressIso = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
+  let totalDeleted = 0;
+
+  for (const row of sessionRows) {
+    const key = typeof row.key === "string" ? row.key : "";
+    if (!key.startsWith(prefix)) continue;
+    const recordingId = key.slice(prefix.length);
+    if (!recordingId) continue;
+
+    let shouldSweep = false;
+    try {
+      const probe = await exec.execute({
+        sql: pg
+          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
+          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
+        args: [recordingId],
+      });
+      const recording = (
+        probe.rows as Array<{ status?: string; updated_at?: string }>
+      )[0];
+      if (!recording) {
+        shouldSweep = true;
+      } else if (
+        (recording.status === "ready" || recording.status === "failed") &&
+        (recording.updated_at ?? "") < oneHourAgoIso
+      ) {
+        shouldSweep = true;
+      } else if (
+        (recording.status === "uploading" ||
+          recording.status === "processing") &&
+        (recording.updated_at ?? "") < staleInProgressIso
+      ) {
+        try {
+          await exec.execute({
+            sql: pg
+              ? `UPDATE recordings SET status = 'failed', failure_reason = $1, updated_at = $2 WHERE id = $3 AND status = $4`
+              : `UPDATE recordings SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
+            args: [
+              "Upload did not finish before the resumable upload cleanup window.",
+              new Date().toISOString(),
+              recordingId,
+              recording.status,
+            ],
+          });
+        } catch (err) {
+          console.warn(
+            "[db] resumable-session sweep: stale upload mark-failed failed",
+            {
+              recordingId,
+              status: recording.status,
+              err: (err as Error)?.message ?? err,
+            },
+          );
+        }
+        shouldSweep = true;
+      }
+    } catch (err) {
+      console.warn("[db] resumable-session sweep: recording probe failed", {
+        recordingId,
+        err: (err as Error)?.message ?? err,
+      });
+      continue;
+    }
+
+    if (!shouldSweep) continue;
+
+    try {
+      await exec.execute({
+        sql: pg
+          ? `DELETE FROM application_state WHERE session_id = $1 AND key = $2`
+          : `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
+        args: [String(row.session_id ?? ""), key],
+      });
+      totalDeleted += 1;
+    } catch (err) {
+      console.warn("[db] resumable-session sweep: delete failed", {
+        key,
+        updatedAt: rowNumber(row.updated_at),
+        err: (err as Error)?.message ?? err,
+      });
+    }
+  }
+
+  if (totalDeleted > 0) {
+    console.log("[db] swept orphaned resumable upload sessions", {
+      totalDeleted,
+    });
+  }
+}
+
 async function backfillRecordingOrgId(): Promise<void> {
   const exec = getDbExec();
   try {
@@ -1402,6 +1630,15 @@ async function backfillLegacyClipsTables(): Promise<void> {
   }
 }
 
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it (and after the
+ * other startup backfills) as a belt-and-braces safety net: a column added to
+ * schema.ts without a matching hand-written ALTER migration silently 500s
+ * every query touching a pre-existing production table. It only ever adds
+ * missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
@@ -1412,6 +1649,32 @@ export default async (nitroApp: any): Promise<void> => {
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
   });
+  sweepOrphanedResumableSessions().catch((err) => {
+    console.warn(
+      "[db] resumable-session sweep failed:",
+      (err as Error)?.message ?? err,
+    );
+  });
+
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.

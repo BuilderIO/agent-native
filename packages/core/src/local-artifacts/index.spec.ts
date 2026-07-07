@@ -144,6 +144,31 @@ describe("local artifact helpers", () => {
     ]);
   });
 
+  it("treats an explicit empty roots array as no local roots", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          roots: [],
+        },
+      },
+    });
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(root, "docs", "intro.mdx"), "# Intro", "utf8");
+
+    const files = await listLocalArtifactFiles({
+      appId: "content",
+      manifestPath,
+      defaults: {
+        roots: [{ path: "docs", extensions: [".mdx"] }],
+      },
+    });
+
+    expect(files).toEqual([]);
+  });
+
   it("loads configured local component and extension roots", async () => {
     const root = tmpDir();
     const manifestPath = path.join(root, "agent-native.json");

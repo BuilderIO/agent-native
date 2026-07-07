@@ -11,11 +11,39 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 
 1. The library has a `canonicalLogoUrl` (set via `set-canonical-logo --libraryId --assetId`). The asset's role is `logo_reference`.
 2. **Logo compositing is a preset option.** A generation preset carries `includeLogo` (stored in the preset `settings` and surfaced as a first-class field). When a generation resolves to a preset with `includeLogo: true`, `generate-image` composites the logo. A generate call's own `includeLogo` arg, when passed, overrides the preset for that run; when omitted, the preset's value wins.
-3. When logo compositing is on, the prompt envelope adds:
+3. **Preset skeletons generalize logo compositing.** A preset can also carry `settings.skeletonSpec`: background first, generated subject second, foreground layers last. If the skeleton already has a `foreground` layer with `source: "canonicalLogo"`, `includeLogo` is treated as a no-op for that run so the logo is not stamped twice. If the skeleton does not include the logo and `includeLogo` is true, the existing canonical-logo layer is appended at the default upper-right position during compositing.
+4. When logo compositing is on, the prompt envelope adds:
    > Leave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself.
-4. Gemini returns an image with empty space in that corner.
-5. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image.
-6. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
+5. Gemini returns an image with empty space in that corner.
+6. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image. Skeleton runs use `applyPresetSkeleton()` at the same seam.
+7. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
+
+## Preset skeletons
+
+`settings.skeletonSpec` is the prototype storage shape:
+
+```ts
+{
+  background: { type: "asset"; assetId: string };
+  mask?: { type: "asset"; assetId: string };
+  contentMode: "fill" | "cutout";
+  contentRegion?: { x: number; y: number; w: number; h: number };
+  dropShadow?: boolean;
+  foreground?: Array<{
+    source: "canonicalLogo" | { assetId: string };
+    x: number;
+    y: number;
+    w: number;
+  }>;
+}
+```
+
+- The background is an uploaded or selected brand-library image asset. The compositor cover-fits it to the preset canvas and throws if the asset pixels are unavailable.
+- `fill` drops an opaque generation into the content region, so it works through the normal managed provider path.
+- When the resolved skeleton model is `gpt-image-2`, the action sends a managed edit/inpaint request instead of generate-then-composite: the uploaded plate is the `edit_target`, an optional same-size `mask` asset becomes the editable-area mask, and `maskFromPlateAlpha()` is only the fallback when no manual mask is set. Transparent mask pixels are editable, opaque pixels are sent as preserved regions, and the returned image is final. The manual mask or plate fallback must have transparent pixels.
+- Other `cutout` skeletons ask for an isolated transparent subject, force `gpt-image-1`, attach the background plate as a `background_reference`/composition reference, request `background: "transparent"` through the managed Builder image provider, and only fall back to OpenAI BYOK when the managed provider fails. They clamp only the provider subject ratio to `1:1`, `2:3`, or `3:2`. The final skeleton canvas still uses the preset's requested aspect ratio.
+- The prompt envelope for cutout mode asks for an isolated subject on an empty transparent background. The gpt-image-2 inpaint branch instead asks the model to render the requested foreground content inside the mask's transparent/open region while preserving logos, text, framing, and other opaque plate content.
+- Background and foreground `assetId` values must belong to the selected brand kit and must be images.
 
 ## When to use it
 
@@ -26,8 +54,8 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 ## When NOT to use it
 
 - **Logo on a product** (a t-shirt mockup, a billboard scene, a coffee cup).
-  Compositing onto a flat corner is fine; compositing onto a curved or perspective surface needs mask-based inpainting that Gemini doesn't expose. v2 will use OpenAI `gpt-image-1`'s edit API for this. v1: tell the user to mock that up in design.
-- **Multi-logo scenes** (a partner-logo wall, a footer sponsor row). Same reason. v2.
+  Compositing onto a flat corner is fine; compositing onto a curved or perspective surface needs mask-based inpainting. Use a gpt-image-2 skeleton plate with transparent editable regions when that exact layout is required.
+- **Multi-logo scenes** (a partner-logo wall, a footer sponsor row). Same reason: use a prepared plate plus mask-inpaint skeleton, or ask the user to mock it up in design.
 
 ## Setting a canonical logo
 

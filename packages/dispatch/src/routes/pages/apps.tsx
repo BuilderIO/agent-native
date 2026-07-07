@@ -11,7 +11,6 @@ import {
   IconChartBar,
   IconChevronDown,
   IconClipboardList,
-  IconContract,
   IconEyeOff,
   IconFileText,
   IconLoader2,
@@ -22,7 +21,6 @@ import {
   IconScreenShare,
   IconSparkles,
   IconStack3,
-  IconVideo,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -70,9 +68,7 @@ const TEMPLATE_ICONS: Record<string, typeof IconMail> = {
   Photo: IconPhoto,
   ChartBar: IconChartBar,
   ClipboardList: IconClipboardList,
-  Contract: IconContract,
   Brush: IconBrush,
-  Video: IconVideo,
 };
 
 export default function AppsRoute() {

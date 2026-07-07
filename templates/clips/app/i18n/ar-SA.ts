@@ -120,6 +120,10 @@ const messages = {
     restoreFailed: "فشلت الاستعادة",
     permanentlyDeleted: "تم الحذف نهائيا",
     deleteFailed: "فشل الحذف",
+    clipsRestored: "تمت استعادة {{count}} مقاطع",
+    clipsRestoreFailed: "تعذرت استعادة {{count}} مقاطع",
+    clipsPermanentlyDeleted: "تم حذف {{count}} مقاطع نهائيا",
+    clipsDeleteFailed: "تعذر حذف {{count}} مقاطع",
   },
   recordingRoute: {
     pageTitle: "تسجيل المقطع · Clips",
@@ -338,6 +342,17 @@ const messages = {
     attendee_two: "{{count}} attendees",
     attendee_few: "{{count}} attendees",
     attendee_many: "{{count}} attendees",
+    timeRemaining_zero: "{{count}} دقيقة متبقية",
+    timeRemaining_one: "{{count}} دقيقة متبقية",
+    timeRemaining_two: "{{count}} دقيقتان متبقيتان",
+    timeRemaining_few: "{{count}} دقائق متبقية",
+    timeRemaining_many: "{{count}} دقيقة متبقية",
+    timeRemaining_other: "{{count}} دقيقة متبقية",
+    endMeeting: "إنهاء الاجتماع",
+    endThisMeeting: "هل تريد إنهاء هذا الاجتماع؟",
+    endMeetingDescription:
+      "يوقف هذا التسجيل والنسخ لهذا الاجتماع. لا يزال بإمكانك إنشاء ملاحظات مما تم التقاطه حتى الآن.",
+    couldNotEndMeeting: "تعذر إنهاء الاجتماع",
   },
   transcriptPanel: {
     transcribing: "جارٍ النسخ…",
@@ -419,7 +434,9 @@ const messages = {
     agentPrompt:
       "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
     agentTokenDescription:
-      "يستخدم هذا الوكيل URL رمزًا مميزًا قصير العمر، بحيث يمكن للعملاء قراءة المقطع دون الكشف عن كلمة المرور.",
+      "يسمح URL المؤقت هذا للوكلاء بقراءة المقطع دون جعله عاما. تنتهي صلاحيته بعد ساعتين.",
+    agentLinkUnavailable: "تعذر إنشاء رابط الوكيل.",
+    retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
     downloadMp4: "تحميل MP4",
@@ -490,6 +507,12 @@ const messages = {
     send: "إرسال",
     sentToChat:
       "تم الإرسال إلى الدردشة — راجع الشريط الجانبي للوكيل للحصول على الرد.",
+    suggestQuestions: "اقترح أسئلة لأطرحها",
+    suggestQuestionsPrompt:
+      "اقترح بضعة أسئلة جيدة يمكنني طرحها لاحقًا في هذا الاجتماع، بناءً على ما تمت مناقشته حتى الآن.",
+    makeMeSoundSmart: "اجعلني أبدو ذكيًا",
+    makeMeSoundSmartPrompt:
+      "أعطني تعليقًا أو سؤالًا ذكيًا ومؤثرًا يمكنني إضافته الآن، بناءً على هذا الاجتماع حتى الآن.",
   },
   brandingEditor: {
     title: "العلامة التجارية",
@@ -637,6 +660,11 @@ const messages = {
     s3SecretAccessKeyLabel: "مفتاح الوصول السري",
     s3RegionLabel: "المنطقة",
     s3PublicBaseUrlLabel: "عنوان URL الأساسي العام",
+    s3UrlInvalid:
+      "يجب أن يكون عنوان URL صالحًا (مثال: https://s3.us-east-1.amazonaws.com)",
+    s3BucketInvalid:
+      "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
+    s3RegionInvalid: 'يجب أن تكون منطقة صالحة (مثال: us-east-1) أو "auto"',
     apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription:
       "صِل الذكاء الاصطناعي باستخدام أرصدة Builder.io المجانية أو مفاتيح LLM الخاصة بك.",
@@ -651,6 +679,8 @@ const messages = {
     providerKeysSet: "تم تعيين {{count}}",
     checkingProviderKeys: "جار فحص مفاتيح المزود…",
     keySet: "تم التعيين",
+    keyCleared: "تم مسح بيانات اعتماد التخزين",
+    clearAllS3: "مسح بيانات الاعتماد",
     replaceKey: "استبدال المفتاح…",
     pasteProviderKey: "الصق مفتاح مزود أولًا.",
     apiKeySaved: "تم حفظ مفتاح API",
@@ -750,6 +780,9 @@ const messages = {
     anonymous: "مجهول",
     anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
+    viewedBy: "شاهده",
+    someone: "شخص ما",
+    noViewsYet: "لا توجد مشاهدات بعد.",
   },
   libraryGrid: {
     spaceRoot: "جذر المساحة",
@@ -768,6 +801,10 @@ const messages = {
     clipsArchiveFailed: "تعذرت أرشفة {{count}} مقاطع",
     clipsMovedToTrash: "تم نقل {{count}} مقاطع إلى المهملات",
     clipsTrashFailed: "تعذر نقل {{count}} مقاطع إلى المهملات",
+    loadFailedTitle: "تعذر تحميل تسجيلاتك",
+    loadFailedBody:
+      "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
+    retry: "إعادة المحاولة",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",
@@ -903,6 +940,8 @@ const messages = {
     noVideo: "لا يوجد فيديو متاح",
     thanks: "شكرًا للمشاهدة",
     playClip: "تشغيل المقطع",
+    unsupportedFormat:
+      "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
   },
   searchBar: {
     placeholder: "البحث في التسجيلات…",
@@ -965,6 +1004,13 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    searchTranscript: "البحث في النص",
+    searchPlaceholder: "البحث في النص…",
+    searchMatchCount: "{{current}} من {{total}}",
+    searchNoMatches: "لا توجد نتائج",
+    searchPrevMatch: "النتيجة السابقة",
+    searchNextMatch: "النتيجة التالية",
+    searchClose: "إغلاق البحث",
   },
   editorLayout: {
     trimmed: "تم القص",
@@ -1239,6 +1285,11 @@ const messages = {
     browserDictation: "Browser dictation (مترجم)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (مترجم)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (مترجم)",
+    quickNoteTitle: "Quick dictation note (مترجم)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (مترجم)",
     desktopShortcuts: "Desktop shortcuts (مترجم)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (مترجم)",
     holdFn: "Hold Fn (مترجم)",
@@ -1271,6 +1322,18 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (مترجم)",
     loadFailed: "Couldn't load dictations. (مترجم)",
     noFilterMatches: "No dictations matching this filter. (مترجم)",
+    dictionaryTitle: "Dictionary (مترجم)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (مترجم)",
+    dictionaryTermPlaceholder: "Term (مترجم)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (مترجم)",
+    dictionaryAdd: "Add (مترجم)",
+    dictionaryLoading: "Loading dictionary... (مترجم)",
+    dictionaryEmpty: "No learned terms yet. (مترجم)",
+    dictionaryUsesCount: "Used {{count}}x (مترجم)",
+    dictionaryRemove: "Remove (مترجم)",
+    vocabularyAddFailed: "Couldn't add term (مترجم)",
+    vocabularyRemoveFailed: "Couldn't remove term (مترجم)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
