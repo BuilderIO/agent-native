@@ -557,6 +557,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return path;
   }
 
+  // Editor-internal CSS custom-property prefixes — selection chrome colors,
+  // editor-chrome scale compensation, framework clipboard/surface tokens.
+  // These have no meaning outside this editor session and must never leak
+  // into persisted user HTML/exports. DesignEditor.tsx's
+  // applyPortableStyleSnapshotToHtml (isEditorInternalCssVar /
+  // EDITOR_INTERNAL_CSS_VAR_PREFIXES) already filters them back out on the
+  // apply side; filtering here too at COLLECTION time is pure bloat
+  // reduction (skips carrying them across the postMessage boundary at all)
+  // and changes no observable behavior on the apply side.
+  //
+  // keep in sync with DesignEditor.tsx's EDITOR_INTERNAL_CSS_VAR_PREFIXES
+  var EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+    "--design-editor-",
+    "--agent-native-editor-chrome-",
+    "--agent-native-",
+  ];
+
+  function isEditorInternalCssVarName(name: string): boolean {
+    for (var i = 0; i < EDITOR_INTERNAL_CSS_VAR_PREFIXES.length; i += 1) {
+      if (name.indexOf(EDITOR_INTERNAL_CSS_VAR_PREFIXES[i]) === 0) return true;
+    }
+    return false;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
   ): Record<string, string> {
@@ -571,7 +595,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     });
     for (var index = 0; index < cs.length; index += 1) {
       var name = cs.item(index);
-      if (name && name.indexOf("--") === 0) {
+      if (
+        name &&
+        name.indexOf("--") === 0 &&
+        !isEditorInternalCssVarName(name)
+      ) {
         var customValue = cs.getPropertyValue(name);
         if (customValue && customValue.trim()) {
           styles[name] = customValue.trim();
@@ -5399,12 +5427,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // pre-marker content — exactly the default white AND the destination is
   // light), switch it to `color:inherit` so it picks up the container's
   // effective text color. A color the user explicitly set is NEVER touched:
-  // DesignEditor should stamp `data-an-auto-text-color` when IT auto-picks
-  // the color at creation and remove the marker on any explicit color edit;
-  // when the marker is present the color is definitely auto (always safe to
-  // adapt), and when absent the conservative default-white + light-target
-  // heuristic below only fires in the exact case where the text would be
-  // invisible anyway.
+  // DesignEditor's appendCanvasPrimitiveToHtml stamps `data-an-auto-text-color`
+  // when IT auto-picks the color at creation (BOARD_TEXT_AUTO_COLOR_MARKER
+  // export in DesignEditor.tsx) and any explicit color edit removes the
+  // marker; when the marker is present the color is definitely auto (always
+  // safe to adapt), and when absent the conservative default-white +
+  // light-target heuristic below only fires in the exact case where the text
+  // would be invisible anyway.
+  //
+  // keep in sync with DesignEditor.tsx's
+  // adaptAutoTextColorForCrossScreenNode / shouldAdaptAutoTextColorForCrossScreenMove
+  // — the cross-screen mirror of this same decision, applied host-side (HTML
+  // string, post-reparent) after handleCrossScreenElementDrop moves a text
+  // node between documents, since this in-iframe bridge only ever sees
+  // same-document re-parents.
   var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
   function parseCssRgb(
@@ -5714,6 +5750,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // with the container-fill affordance instead of an insertion line). Both
   // in-screen drag paths now route container-background hits through this
   // helper so dropping between children works and shows the line.
+  //
+  // keep in sync with hit-test.bridge.ts's own nearestChildInsertionTarget
+  // (finding 6's cross-screen/canvas-to-screen mirror of this same fix —
+  // that copy omits the `excludeEls` param since hit-test.bridge.ts never
+  // has a dragged element of its own).
   function nearestChildInsertionTarget(
     container: Element,
     clientX: number,

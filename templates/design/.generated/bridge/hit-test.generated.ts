@@ -282,6 +282,33 @@ export const hitTestBridgeScript: string = `"use strict";
       parts.unshift("body");
       return parts.join(" > ");
     }
+    function nearestChildInsertionTarget(container, clientX, clientY) {
+      var children = draggableElementChildren(container);
+      if (!children.length) return null;
+      var axis = parentFlowAxis(container);
+      var best = null;
+      var bestDistance = Infinity;
+      var placement = "after";
+      for (var j = 0; j < children.length; j += 1) {
+        var rect = children[j].getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+        var pointer = axis === "x" ? clientX : clientY;
+        var distance = Math.abs(pointer - center);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = children[j];
+          placement = pointer < center ? "before" : "after";
+        }
+      }
+      if (!best) return null;
+      return {
+        anchor: best,
+        placement,
+        axis,
+        dropMode: "flow-insert"
+      };
+    }
     function resolveHitTarget(clientX, clientY) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
@@ -318,6 +345,12 @@ export const hitTestBridgeScript: string = `"use strict";
               dropMode: "flow-insert"
             };
           }
+          var betweenChildren = nearestChildInsertionTarget(
+            cursor,
+            clientX,
+            clientY
+          );
+          if (betweenChildren) return betweenChildren;
           return {
             anchor: cursor,
             placement: "inside",

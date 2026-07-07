@@ -403,6 +403,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return path;
     }
+    var EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+      "--design-editor-",
+      "--agent-native-editor-chrome-",
+      "--agent-native-"
+    ];
+    function isEditorInternalCssVarName(name) {
+      for (var i = 0; i < EDITOR_INTERNAL_CSS_VAR_PREFIXES.length; i += 1) {
+        if (name.indexOf(EDITOR_INTERNAL_CSS_VAR_PREFIXES[i]) === 0) return true;
+      }
+      return false;
+    }
     function collectPortableComputedStyles(el) {
       if (!el) return {};
       var cs = window.getComputedStyle(el);
@@ -415,7 +426,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       for (var index = 0; index < cs.length; index += 1) {
         var name = cs.item(index);
-        if (name && name.indexOf("--") === 0) {
+        if (name && name.indexOf("--") === 0 && !isEditorInternalCssVarName(name)) {
           var customValue = cs.getPropertyValue(name);
           if (customValue && customValue.trim()) {
             styles[name] = customValue.trim();

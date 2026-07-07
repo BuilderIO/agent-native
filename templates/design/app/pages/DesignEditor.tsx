@@ -3528,6 +3528,144 @@ export function applyPortableStyleSnapshotToHtml(
   }
 }
 
+// Relative luminance threshold mirroring containerBackgroundIsLight in
+// editor-chrome.bridge.ts (keep both in sync) — used by the pure decision
+// helper below so its threshold can't drift from the in-screen bridge path.
+const AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD = 150;
+
+function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
+  return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+}
+
+/**
+ * Pure decision: should a moved text node's auto-applied board color be
+ * rewritten to `inherit` once it lands in its cross-screen destination?
+ *
+ * Mirrors adaptAutoTextColorForNest's decision in editor-chrome.bridge.ts
+ * (keep both in sync), adapted to the host's HTML-string world instead of a
+ * live DOM re-parent check — the cross-screen drop path
+ * (handleCrossScreenElementDrop) always represents an actual re-parent (the
+ * node moves from one document's body into another), so there is no
+ * same-parent short-circuit to mirror here.
+ *
+ * - `hasAutoMarker`: BOARD_TEXT_AUTO_COLOR_MARKER is present on the moved
+ *   text node — always safe to adapt regardless of the destination
+ *   background, since the color is definitely auto-applied, not user-set.
+ * - No marker (pre-marker content, or a node the stamp missed): fall back to
+ *   the conservative default-white + light-destination heuristic so a
+ *   deliberately-white user color is never touched.
+ */
+export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
+  inlineColor: string | null | undefined;
+  hasAutoMarker: boolean;
+  destinationBackgroundIsLight: boolean;
+}): boolean {
+  const { inlineColor, hasAutoMarker, destinationBackgroundIsLight } = params;
+  const normalized = (inlineColor || "").trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized === "inherit" ||
+    normalized === "currentcolor"
+  ) {
+    return false;
+  }
+  if (hasAutoMarker) return true;
+  const isDefaultWhite =
+    normalized === "#ffffff" ||
+    normalized === "#fff" ||
+    normalized === "rgb(255,255,255)" ||
+    normalized === "rgb(255, 255, 255)" ||
+    normalized === "white";
+  if (!isDefaultWhite) return false;
+  return destinationBackgroundIsLight;
+}
+
+// Walks up from `element` until it finds a non-transparent background-color
+// (inline or from a <style> rule matched via getComputedStyle) and reports
+// whether it's light. Host-side equivalent of containerBackgroundIsLight in
+// editor-chrome.bridge.ts, operating on a DOMParser-parsed detached document
+// instead of a live iframe — getComputedStyle still resolves author
+// stylesheet rules against a parsed document's own tree, just with no
+// layout, which is fine since only backgroundColor is read. An unstyled
+// chain (or a parse/DOM API failure) conservatively reports "light" so the
+// default-white heuristic can still fire and prevent invisible text.
+function destinationBackgroundIsLightForNode(element: Element): boolean {
+  try {
+    const ownerDocument = element.ownerDocument;
+    const view = ownerDocument?.defaultView;
+    if (!view) return true;
+    let cursor: Element | null = element;
+    while (cursor && cursor !== ownerDocument.documentElement) {
+      const bg = view.getComputedStyle(cursor).backgroundColor;
+      const match = /^rgba?\(([^)]+)\)$/.exec((bg || "").trim());
+      if (match) {
+        const parts = match[1]
+          .split(",")
+          .map((part) => parseFloat(part.trim()));
+        const [r, g, b, a = 1] = parts;
+        if (![r, g, b].some((n) => Number.isNaN(n)) && a > 0.01) {
+          return (
+            relativeLuminance({ r, g, b }) >
+            AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD
+          );
+        }
+      }
+      cursor = cursor.parentElement;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Cross-screen counterpart to adaptAutoTextColorForNest — runs HOST-SIDE
+ * after moveNodeBetweenDocuments has already re-parented the text node into
+ * `destContent`'s DOM (identified by `destNodeAttrId`). Board-drawn text
+ * carries an explicit inline `color:#ffffff` default (see
+ * defaultCanvasTextColor / appendCanvasPrimitiveToHtml) because
+ * `currentColor` would inherit black on the always-dark board; dropped into
+ * a light destination screen/container, that stale inline white is
+ * invisible white-on-white. The in-screen drag path already handles this
+ * via the bridge's adaptAutoTextColorForNest; this is the missing
+ * cross-screen mirror (finding 8).
+ *
+ * No-op (returns `content` unchanged) when the moved node isn't a text
+ * primitive, carries no color needing adaptation, or the DOM can't be
+ * parsed — always best-effort, never a hard requirement for the move to
+ * succeed.
+ */
+export function adaptAutoTextColorForCrossScreenNode(
+  content: string,
+  destNodeAttrId: string,
+): string {
+  if (typeof window === "undefined" || !destNodeAttrId) return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const moved = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(destNodeAttrId)}"]`,
+    );
+    if (!moved) return content;
+    const kind = (
+      moved.getAttribute("data-an-primitive") ||
+      moved.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (kind !== "text") return content;
+    const el = moved as HTMLElement;
+    const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
+      inlineColor: el.style.color,
+      hasAutoMarker: moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER),
+      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(moved),
+    });
+    if (!shouldAdapt) return content;
+    el.style.color = "inherit";
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
 function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
   const position = String(node?.style.position ?? "").toLowerCase();
   return position === "absolute" || position === "fixed";
@@ -3947,6 +4085,20 @@ export function defaultCanvasTextColor(isBoardTarget: boolean): string {
 export const CANVAS_TEXT_DEFAULT_FONT_FAMILY =
   '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
+/**
+ * Marker attribute stamped on board-drawn text whose inline `color` is the
+ * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
+ * NOT a user-chosen color. Mirrors BOARD_TEXT_AUTO_COLOR_MARKER in
+ * editor-chrome.bridge.ts (keep both in sync) — that bridge's
+ * adaptAutoTextColorForNest reads this marker to decide whether an
+ * in-screen re-parent should switch the forced white to `inherit` so the
+ * text doesn't render white-on-white in a light container. Cross-screen
+ * drops (handleCrossScreenElementDrop below) key off the same marker via
+ * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
+ * remove this attribute so the text is never "helpfully" overridden again.
+ */
+export const BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
+
 function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -4194,9 +4346,20 @@ function appendCanvasPrimitiveToHtml(
       // the target surface only (see defaultCanvasTextColor). Screens keep
       // "currentColor" so text dropped into an existing (often light)
       // screen still inherits its surrounding styles/theme as before.
-      element.style.color =
+      const resolvedTextColor =
         primitive.fill ??
         defaultCanvasTextColor(options?.isBoardTarget === true);
+      element.style.color = resolvedTextColor;
+      // Stamp the auto-color marker whenever the color came from the
+      // default (no explicit primitive.fill) rather than a user-chosen
+      // value, so a later cross-screen or in-screen re-parent (see
+      // adaptAutoTextColorForCrossScreenNode below and
+      // adaptAutoTextColorForNest in editor-chrome.bridge.ts) can safely
+      // detect "this white was auto-applied" and rewrite it to inherit
+      // instead of leaving invisible white-on-white text.
+      if (primitive.fill === undefined) {
+        element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
+      }
       element.style.fontSize = "16px";
       element.style.lineHeight = "1.2";
       element.style.whiteSpace = "pre-wrap";
@@ -19395,6 +19558,23 @@ export default function DesignEditor() {
         ) {
           destContent = stamped.content;
           effectiveAnchorNodeId = targetAnchorPendingNodeId;
+        } else {
+          // Silent degradation: the hit-test found a valid before/after/
+          // inside slot, but the pending anchor id couldn't be honestly
+          // persisted (e.g. targetAnchorSelector resolved to an Alpine
+          // template instance or no longer matches uniquely) — this drop
+          // falls through to absolute placement below with no anchor at
+          // all. Surface it instead of failing quietly; fallback behavior
+          // itself is intentionally unchanged.
+          console.warn(
+            "[design] cross-screen drop: could not stamp pending anchor node id — falling back to absolute placement",
+            {
+              targetScreenId,
+              targetAnchorSelector,
+              targetAnchorPendingNodeId,
+              status: stamped.result.status,
+            },
+          );
         }
       }
 
@@ -19455,11 +19635,23 @@ export default function DesignEditor() {
       // there is no anchor, preserve absolute mode and rebase left/top to the
       // release point so screen↔board moves behave like Figma absolute layers.
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
-      const stylePreservedDest = applyPortableStyleSnapshotToHtml(
+      const styleSnapshotDest = applyPortableStyleSnapshotToHtml(
         result.destHtml,
         destNodeAttrId,
         styleSnapshot,
         sourceContent,
+      );
+      // Finding 8: board/screen text carrying the auto-applied white default
+      // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not
+      // keep that forced white when it lands cross-screen in a light
+      // destination — otherwise it renders invisible white-on-white. The
+      // in-screen drag path already adapts via the bridge's
+      // adaptAutoTextColorForNest; this is the cross-screen mirror, applied
+      // host-side now that the node has actually been re-parented into
+      // destContent.
+      const stylePreservedDest = adaptAutoTextColorForCrossScreenNode(
+        styleSnapshotDest,
+        destNodeAttrId,
       );
       const nextDestContent = targetAnchorAttrId
         ? targetDropMode === "absolute-container"

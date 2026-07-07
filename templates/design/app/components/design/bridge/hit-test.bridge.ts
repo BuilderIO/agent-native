@@ -455,6 +455,58 @@
     return parts.join(" > ");
   }
 
+  // Resolves a between-children insertion inside `container` from the
+  // pointer position: the nearest visible child (by flow-axis center)
+  // becomes the anchor with before/after placement, which renders as the
+  // Figma-style insertion LINE between children. Returns null when the
+  // container has no eligible children (caller falls back to "inside").
+  //
+  // This is the finding-6 fix, ported from editor-chrome.bridge.ts's own
+  // B5-4 fix (nearestChildInsertionTarget there): hovering the container's
+  // own background — its padding, or the gaps BETWEEN children, which is
+  // where the pointer naturally sits when dropping "between two cards" —
+  // used to resolve to placement "inside" (append at end) instead of
+  // inserting at the hovered slot. hit-test.bridge.ts never has a dragged
+  // element of its own (it only resolves anchors for a cross-screen/
+  // canvas-to-screen drag whose source lives in a different iframe), so
+  // this version omits the editor-chrome original's `excludeEls` parameter.
+  //
+  // keep in sync with editor-chrome.bridge.ts nearestChildInsertionTarget
+  function nearestChildInsertionTarget(
+    container: Element,
+    clientX: number,
+    clientY: number,
+  ) {
+    var children = draggableElementChildren(container);
+    if (!children.length) return null;
+    var axis = parentFlowAxis(container);
+    var best: Element | null = null;
+    var bestDistance = Infinity;
+    var placement = "after";
+    for (var j = 0; j < children.length; j += 1) {
+      var rect = children[j].getBoundingClientRect();
+      // Skip zero-size children (e.g. Alpine <template> nodes, hidden
+      // elements) — they are not visible slots.
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      var center =
+        axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+      var pointer = axis === "x" ? clientX : clientY;
+      var distance = Math.abs(pointer - center);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = children[j];
+        placement = pointer < center ? "before" : "after";
+      }
+    }
+    if (!best) return null;
+    return {
+      anchor: best,
+      placement: placement,
+      axis: axis,
+      dropMode: "flow-insert",
+    };
+  }
+
   /**
    * Resolve the deepest container element under (x, y) and a placement hint,
    * mirroring reorderTargetForPoint from editor-chrome.bridge.ts but
@@ -510,6 +562,17 @@
             dropMode: "flow-insert",
           };
         }
+        // finding 6: the pointer is over the container's inner area — its
+        // padding or the gap BETWEEN children (a direct child under the
+        // pointer would have been the hit instead). Resolve to the nearest
+        // child slot so the drop lands between children with the insertion
+        // LINE, instead of placement:"inside" append-after-last.
+        var betweenChildren = nearestChildInsertionTarget(
+          cursor,
+          clientX,
+          clientY,
+        );
+        if (betweenChildren) return betweenChildren;
         return {
           anchor: cursor,
           placement: "inside",

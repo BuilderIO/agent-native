@@ -5099,3 +5099,161 @@ it(
     }
   },
 );
+
+// ── hit-test bridge — gap-between-children resolution (finding 6) ─────────
+//
+// Companion to editor-chrome.bridge.ts's B5-4 fix (nearestChildInsertionTarget
+// there): a cross-screen/canvas-to-screen drop hovering a flex/auto-layout
+// container's own background — its padding, or the gap BETWEEN two children,
+// which is exactly where the pointer naturally sits when dropping "between
+// two cards" — used to resolve to placement:"inside" (append-after-last)
+// instead of a before/after slot next to the nearest child. hit-test.bridge.ts
+// now routes that same case through its own nearestChildInsertionTarget so
+// cross-screen drops show the same Figma-style insertion line the in-screen
+// drag path already gets.
+
+it(
+  "hit-test bridge resolves a hover over the gap BETWEEN children to a before/after slot instead of inside-append",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // A column flex container with a visible gap between two children —
+      // data-agent-native-node-id on every node so the reply's anchorNodeId
+      // is deterministic (no pendingNodeId minting to account for).
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      main {
+        display: flex; flex-direction: column; gap: 40px; padding: 20px;
+        width: 300px;
+      }
+      .row { padding: 12px; background: #eee; height: 40px; }
+    </style>
+  </head>
+  <body>
+    <main data-agent-native-node-id="main-anchor">
+      <div class="row" data-agent-native-node-id="row-a">Row A</div>
+      <div class="row" data-agent-native-node-id="row-b">Row B</div>
+    </main>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const runHitTest = (x: number, y: number) =>
+        page.evaluate(
+          ({ x, y }) =>
+            new Promise((resolve) => {
+              const onMsg = (e: MessageEvent) => {
+                if (e.data?.type === "agent-native:hit-test-result") {
+                  window.removeEventListener("message", onMsg);
+                  resolve(e.data);
+                }
+              };
+              window.addEventListener("message", onMsg);
+              window.postMessage(
+                {
+                  type: "agent-native:hit-test",
+                  correlationId: "gap-test",
+                  x,
+                  y,
+                  preview: false,
+                },
+                "*",
+              );
+            }),
+          { x, y },
+        );
+
+      // Row A occupies roughly y=20..72 (padding 20 + 40px height + border
+      // box), then a 40px gap, then Row B starts around y=112. y=90 sits
+      // squarely in that gap — a direct child hit-test would have missed
+      // both rows and landed on <main> itself, the exact case that used to
+      // resolve to placement:"inside".
+      const reply = (await runHitTest(150, 90)) as {
+        anchorNodeId: string;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      };
+
+      expect(reply.placement).not.toBe("inside");
+      expect(["before", "after"]).toContain(reply.placement);
+      expect(["row-a", "row-b"]).toContain(reply.anchorNodeId);
+      expect(reply.axis).toBe("y");
+      expect(reply.dropMode).toBe("flow-insert");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge still resolves an empty auto-layout container to placement inside (no children to route to)",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      main {
+        display: flex; flex-direction: column; gap: 8px; padding: 20px;
+        width: 300px; height: 200px;
+      }
+    </style>
+  </head>
+  <body>
+    <main data-agent-native-node-id="empty-main"></main>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const reply = (await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const onMsg = (e: MessageEvent) => {
+              if (e.data?.type === "agent-native:hit-test-result") {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "empty-test",
+                x: 100,
+                y: 60,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+      )) as { anchorNodeId: string; placement: string };
+
+      expect(reply.anchorNodeId).toBe("empty-main");
+      expect(reply.placement).toBe("inside");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
