@@ -854,13 +854,22 @@ function PropertyRow({
 function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
-  if (sourceFieldType === "number") return "number";
-  if (sourceFieldType === "datetime" || sourceFieldType === "date") {
+  const normalized = sourceFieldType.trim().toLowerCase();
+  if (normalized === "number") return "number";
+  if (normalized === "datetime" || normalized === "date") {
     return "date";
   }
-  if (sourceFieldType === "url") return "url";
-  if (sourceFieldType === "boolean" || sourceFieldType === "checkbox") {
+  if (normalized === "url") return "url";
+  if (normalized === "boolean" || normalized === "checkbox") {
     return "checkbox";
+  }
+  if (
+    normalized === "list" ||
+    normalized === "array" ||
+    normalized === "tags" ||
+    normalized === "multi_select"
+  ) {
+    return "multi_select";
   }
   return "text";
 }
@@ -2781,33 +2790,39 @@ export function AddProperty({
                     name: group.source.sourceName,
                   })}
                 </div>
-                {group.fields.map((field) => (
-                  <button
-                    key={field.id}
-                    type="button"
-                    aria-label={t("editor.properties.sourceField", {
-                      name: field.sourceFieldLabel,
-                    })}
-                    disabled={isAddingProperty}
-                    aria-busy={pendingSourceFieldId === field.id}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
-                    onClick={() => void addFromSourceField(field.id)}
-                  >
-                    {pendingSourceFieldId === field.id ? (
-                      <Spinner className="size-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <IconLink className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">
-                      {field.sourceFieldLabel}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {group.source.metadata.federation?.role === "secondary"
-                        ? t("editor.properties.federated")
-                        : t("editor.properties.source")}
-                    </span>
-                  </button>
-                ))}
+                {group.fields.map((field) => {
+                  const SourceFieldIcon =
+                    TYPE_ICONS[
+                      propertyTypeForSourceFieldType(field.sourceFieldType)
+                    ];
+                  return (
+                    <button
+                      key={field.id}
+                      type="button"
+                      aria-label={t("editor.properties.sourceField", {
+                        name: field.sourceFieldLabel,
+                      })}
+                      disabled={isAddingProperty}
+                      aria-busy={pendingSourceFieldId === field.id}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                      onClick={() => void addFromSourceField(field.id)}
+                    >
+                      {pendingSourceFieldId === field.id ? (
+                        <Spinner className="size-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <SourceFieldIcon className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {field.sourceFieldLabel}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {group.source.metadata.federation?.role === "secondary"
+                          ? t("editor.properties.federated")
+                          : t("editor.properties.source")}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             ))}
             {filteredPropertyTypes.length === 0 ? (

@@ -178,6 +178,19 @@ describe("Builder CMS read client", () => {
                         fields: [
                           { name: "title", type: "text", required: true },
                           { name: "handle", type: "string", required: false },
+                          {
+                            name: "topics",
+                            label: "Topics",
+                            type: "list",
+                            inputType: "tags",
+                            options: [
+                              {
+                                label: "Headless CMS",
+                                value: "headless-cms",
+                              },
+                              "Governance &amp; Security",
+                            ],
+                          },
                         ],
                       },
                     ],
@@ -198,6 +211,14 @@ describe("Builder CMS read client", () => {
     ).resolves.toEqual([
       { name: "title", type: "text", required: true },
       { name: "handle", type: "string", required: false },
+      {
+        name: "topics",
+        label: "Topics",
+        type: "list",
+        inputType: "tags",
+        options: ["Headless CMS", "Governance &amp; Security"],
+        required: false,
+      },
     ]);
   });
 
