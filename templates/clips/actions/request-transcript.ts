@@ -123,6 +123,36 @@ const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
+const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
+const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
+const BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
+const BUILDER_TRANSCRIPTION_PER_MINUTE_MS = 3_000;
+
+function clampTimeoutMs(value: number): number {
+  return Math.max(
+    BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS,
+    Math.min(BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS, Math.floor(value)),
+  );
+}
+
+export function builderTranscriptionTimeoutMs(
+  durationMs: number | null | undefined,
+): number {
+  const override = Number(process.env.CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) {
+    return clampTimeoutMs(override);
+  }
+
+  if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS;
+  }
+
+  const durationMinutes = Math.ceil(durationMs / 60_000);
+  return clampTimeoutMs(
+    BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS +
+      durationMinutes * BUILDER_TRANSCRIPTION_PER_MINUTE_MS,
+  );
+}
 
 // Bounded automatic retry for transient failures (ffmpeg timeout, transient
 // provider network/5xx errors) — NOT for permanent failures like "no audio
@@ -1075,6 +1105,7 @@ const requestTranscriptAction = defineAction({
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
           instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+          timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
         });
 
         const segments = (builderResult.segments ?? [])

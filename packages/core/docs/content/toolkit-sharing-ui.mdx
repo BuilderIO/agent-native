@@ -5,8 +5,20 @@ description: "Reusable sharing display components with core-owned sharing runtim
 
 # Toolkit Sharing UI
 
-`@agent-native/toolkit/sharing` contains sharing UI that does not perform access
-checks or mutations. Today it exports `VisibilityBadge`:
+`@agent-native/toolkit/sharing` contains presentational sharing UI for badges,
+share rows, role pickers, and base dialogs. It does not perform access checks or
+mutations; core and app wrappers inject data and callbacks.
+
+<WireframeBlock id="doc-block-toolkit-sharing-ui">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:480px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:1fr 300px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Resource header</h2><span class='wf-pill'>Org visible</span><div style='flex:1'></div><button>Share</button></div><div class='wf-box' style='height:120px'>Share list row</div><div class='wf-box' style='height:180px'>Shared resource preview</div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Presentational pieces</strong><div class='wf-box'>VisibilityBadge</div><div class='wf-box'>Grant row</div><div class='wf-box'>Role selector</div><div class='wf-box'>Policy hint</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+The most common low-level import is:
 
 ```tsx
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
@@ -14,7 +26,8 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 
 Core still owns the sharing runtime: share tables, resource registration, access
 filters, visibility changes, invites, roles, and private access tokens for
-agent-readable public surfaces.
+agent-readable public surfaces. See the [Sharing Kit](/docs/toolkit-sharing) for
+the full behaviorful contract.
 
 Use core wrappers when a component needs to call sharing actions:
 
@@ -22,9 +35,8 @@ Use core wrappers when a component needs to call sharing actions:
 import { ShareButton, ShareDialog } from "@agent-native/core/client";
 ```
 
-Those imports remain compatible. As more sharing UI is split into presentational
-base components, core wrappers should keep doing the runtime work and pass data
-and callbacks into Toolkit-owned UI.
+Those imports remain compatible. Core wrappers keep doing the runtime work and
+pass data and callbacks into Toolkit-owned UI.
 
 ## Boundary {#boundary}
 

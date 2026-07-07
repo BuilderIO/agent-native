@@ -1,0 +1,38 @@
+import { z } from "zod";
+
+import { defineAction } from "../../action.js";
+import { assertReviewableResourceAccess } from "../registry.js";
+import { consumeReviewFeedback } from "../store.js";
+import type { ReviewResourceContext } from "../types.js";
+
+const schema = z.object({
+  resourceType: z.string().min(1),
+  resourceId: z.string().min(1),
+  commentIds: z.array(z.string().min(1)).min(1),
+});
+
+export default defineAction({
+  description:
+    "Mark review feedback as consumed by the agent or reviewer workflow.",
+  schema,
+  run: async (args, ctx) => {
+    const actionCtx = ctx as ReviewResourceContext | undefined;
+    await assertReviewableResourceAccess(
+      args.resourceType,
+      args.resourceId,
+      actionCtx,
+      "editor",
+    );
+    await consumeReviewFeedback(args.commentIds, undefined, {
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+    });
+    return { consumedCommentIds: args.commentIds };
+  },
+  audit: {
+    target: (args) => ({
+      type: args.resourceType,
+      id: args.resourceId,
+    }),
+  },
+});

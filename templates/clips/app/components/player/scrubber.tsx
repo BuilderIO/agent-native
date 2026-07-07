@@ -2,7 +2,10 @@ import { useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { scrubberPositionFromClientX } from "./scrubber-position";
+import {
+  scrubberFillPercent,
+  scrubberPositionFromClientX,
+} from "./scrubber-position";
 
 export interface ScrubberProps {
   currentMs: number;
@@ -35,7 +38,7 @@ export function Scrubber(props: ScrubberProps) {
     | null
   >(null);
 
-  const pct = durationMs > 0 ? (currentMs / durationMs) * 100 : 0;
+  const pct = scrubberFillPercent(currentMs, durationMs);
 
   const recentReactions = useMemo(
     () => (reactions ? reactions.slice(-50) : []),

@@ -10,12 +10,12 @@ import {
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   IconAdjustments,
-  IconBuilding,
   IconDeviceFloppy,
   IconFileText,
   IconGauge,
   IconMessageCircle,
   IconShieldCheck,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -152,7 +152,7 @@ export default function SettingsRoute() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <IconBuilding className="size-4 text-primary" />
+                    <IconUsersGroup className="size-4 text-primary" />
                     {t("settings.identityTitle")}
                   </CardTitle>
                   <CardDescription>

@@ -297,6 +297,7 @@ export default defineAction({
       mimeType: media.mimeType,
       ownerEmail,
       skipCompressionWait: true,
+      recordAsset: false,
     });
 
     const recordingValues = buildRecordingValues(media.sizeBytes);

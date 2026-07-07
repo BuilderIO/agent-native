@@ -1,0 +1,57 @@
+---
+title: "Resource Kit"
+description: "Resource tree, editor primitives, file picker/search, attachments, and local file mode."
+---
+
+# Resource Kit
+
+The Resource Kit gives apps a shared way to browse, edit, upload, attach, and
+search files or workspace resources. It powers the agent panel workspace tab,
+can be rendered as a page or drawer, and connects naturally to local file mode
+for repo-backed content.
+
+<WireframeBlock id="doc-block-toolkit-resources">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:260px 1fr 240px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Resources</strong><div class='wf-box'>docs/</div><div class='wf-box'>blog/</div><div class='wf-box'>assets/</div><div class='wf-box'>Q3 forecast.md</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Q3 forecast.md</h2><div class='wf-box' style='height:330px'>ResourceEditor</div><button class='primary'>Save</button></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Attachments</strong><div class='wf-box'>Drop file</div><div class='wf-box'>Search resources</div><div class='wf-box'>local file mode: on</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                                 | Purpose                                                       |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `<ResourcesPanel>`                    | Complete resource browser/editor panel.                       |
+| `<ResourceTree>`                      | Tree primitive for personal, shared, and workspace resources. |
+| `<ResourceEditor>`                    | Editor primitive for selected resources.                      |
+| `useResourceTree()` / `useResource()` | Data hooks for custom resource chrome.                        |
+| Resource mutations                    | Create, update, delete, upload, rename, and move resources.   |
+| File uploads                          | Shared attachment path for chat, resources, and app actions.  |
+| Local file mode                       | Repo-backed resources where files are the source of truth.    |
+
+## Usage {#usage}
+
+```tsx
+import {
+  ResourceEditor,
+  ResourceTree,
+  useResource,
+  useResourceTree,
+} from "@agent-native/core/client/resources";
+
+const tree = useResourceTree("workspace");
+const resource = useResource(selectedId);
+```
+
+## UX Standard {#ux-standard}
+
+- Use a stable tree/editor split for file-heavy apps.
+- Keep attachments inspectable and agent-readable.
+- Local file mode should preserve the repo as source of truth, while hosted
+  collaboration still uses SQL-backed runtime state.
+- Resource actions should return deep links to the focused file/resource.
+
+Related docs: [Local File Mode](/docs/local-file-mode),
+[File Uploads](/docs/file-uploads), [Component API](/docs/components#resources).

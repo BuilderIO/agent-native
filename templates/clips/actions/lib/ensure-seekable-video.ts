@@ -219,6 +219,7 @@ export async function ensureRecordingSeekable(params: {
     mimeType,
     ownerEmail,
     skipCompressionWait: true,
+    recordAsset: false,
   });
 
   if (!upload?.url) {

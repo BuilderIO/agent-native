@@ -8,6 +8,15 @@ description: "Reusable presence, cursor, selection, and recent-edit UI for colla
 `@agent-native/toolkit/collab-ui` contains the presentational collaboration
 pieces that do not own transport or storage:
 
+<WireframeBlock id="doc-block-toolkit-collaboration-ui">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:1fr 290px;gap:16px'><main class='wf-card' style='position:relative;display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><h2 style='margin:0'>Editor canvas</h2><div style='flex:1'></div><span class='wf-pill'>Ava</span><span class='wf-pill'>Agent</span></div><div class='wf-box' style='height:92px;border-color:hsl(var(--primary))'>Remote selection ring</div><div class='wf-box' style='height:220px'>Recent edit highlight</div><span class='wf-pill' style='position:absolute;right:38px;top:205px'>Sam cursor</span></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Display layer</strong><div class='wf-box'>PresenceBar</div><div class='wf-box'>LiveCursorOverlay</div><div class='wf-box'>RecentEditHighlights</div><div class='wf-box'>AgentPresenceChip</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
 ```tsx
 import {
   AgentPresenceChip,
@@ -29,6 +38,9 @@ import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 
 Existing imports from `@agent-native/core/client` still work because core
 re-exports these Toolkit components as compatibility shims.
+
+See the [Collaboration Kit](/docs/toolkit-collaboration) for the full runtime,
+presence, and undo contract.
 
 ## Responsibilities {#responsibilities}
 

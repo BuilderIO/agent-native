@@ -1,0 +1,109 @@
+---
+title: "Setup & Connections Kit"
+description: "Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect."
+---
+
+# Setup & Connections Kit
+
+The Setup & Connections Kit turns missing credentials into a guided product
+flow. It covers onboarding steps, encrypted secrets, workspace-scoped
+connections, OAuth/provider readiness, and Builder connect so apps can explain
+what is missing and link users to the exact fix.
+
+<WireframeBlock id="doc-block-toolkit-setup-connections">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:1fr 330px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>Setup checklist</h2><div class='wf-box'>1. Connect Builder - complete</div><div class='wf-box'>2. Add OpenAI key - needs attention</div><div class='wf-box'>3. Connect Slack workspace - optional</div><div class='wf-box'>4. Enable GitHub OAuth - ready</div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:12px'><strong>Provider readiness</strong><div class='wf-box'>Builder: connected</div><div class='wf-box'>LLM: missing key</div><div class='wf-box'>GitHub: OAuth ready</div><button class='primary'>Open Settings</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                 | Purpose                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| Onboarding registry   | Declares setup steps and completion checks.                             |
+| Secrets UI            | Writes encrypted user, org, or workspace secrets.                       |
+| Workspace connections | Shared provider connections with scoped grants.                         |
+| OAuth flows           | Provider authorization, callback handling, and token storage.           |
+| Provider readiness    | App-visible status for missing keys, expired auth, or incomplete setup. |
+| Builder connect       | First-party Builder identity and managed gateway setup.                 |
+
+## API {#api}
+
+Use the integrated core kit for the server-side registry/store and the client
+page/components for the standard settings surface.
+
+```tsx
+import {
+  ProviderReadinessBadge,
+  SetupConnectionsPage,
+} from "@agent-native/core/client/setup-connections";
+
+export function SettingsConnectionsTab() {
+  return (
+    <SetupConnectionsPage
+      providerReadiness={
+        <div className="flex items-center gap-2">
+          <span>GitHub</span>
+          <ProviderReadinessBadge status="ready" />
+        </div>
+      }
+    />
+  );
+}
+```
+
+Register setup steps close to the feature that needs them. Link users to the
+standard settings tab instead of building bespoke credential forms.
+
+```ts
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+registerOnboardingStep({
+  id: "openai-key",
+  title: "Add an OpenAI key",
+  description: "Store an OpenAI key so the agent can use OpenAI models.",
+  order: 10,
+  required: true,
+  methods: [
+    {
+      id: "settings",
+      kind: "link",
+      label: "Open settings",
+      primary: true,
+      payload: { url: "/settings#secrets" },
+    },
+  ],
+  isComplete: async () => hasOpenAIKey(),
+});
+```
+
+Workspace/provider setup can use the kit helper:
+
+```ts
+import { registerWorkspaceConnectionOnboardingStep } from "@agent-native/core/setup-connections";
+
+registerWorkspaceConnectionOnboardingStep({
+  providerId: "github",
+  providerLabel: "GitHub",
+  required: true,
+  isComplete: async () => hasGitHubWorkspaceConnection(),
+});
+```
+
+For app settings, compose `SettingsTabsPage` with `SetupConnectionsPage` and the
+standard Settings Kit tabs so keys, connections, Builder connect, and team
+settings live in one predictable place.
+
+## UX Standard {#ux-standard}
+
+- Errors explain the missing connection and offer the direct settings link.
+- Secrets are never stored in app tables or pasted into docs/examples.
+- App setup pages and settings tabs use the same readiness source.
+- Builder connect is offered as a first-class path, not buried as an env-var
+  fallback.
+
+Related docs: [Onboarding](/docs/onboarding),
+[Workspace Connections](/docs/workspace-connections), [Security](/docs/security).

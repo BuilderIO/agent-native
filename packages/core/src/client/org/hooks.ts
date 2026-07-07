@@ -1,9 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+import {
+  canInviteOrgMembers,
+  canManageOrg,
+  canManageOrgDomain,
+} from "../../org/permissions.js";
 import type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
+  OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
 
@@ -46,6 +52,32 @@ export function useOrg() {
     queryFn: () => apiFetch(`${ORG_BASE}/me`),
     staleTime: 30_000,
   });
+}
+
+export interface UseOrgRoleResult {
+  org: OrgInfo | undefined;
+  role: OrgRole | null;
+  isOwner: boolean;
+  canManageOrg: boolean;
+  canInviteMembers: boolean;
+  canManageDomain: boolean;
+  isLoading: boolean;
+  error: Error | null;
+}
+
+export function useOrgRole(): UseOrgRoleResult {
+  const query = useOrg();
+  const role = query.data?.role ?? null;
+  return {
+    org: query.data,
+    role,
+    isOwner: role === "owner",
+    canManageOrg: canManageOrg(role),
+    canInviteMembers: canInviteOrgMembers(role),
+    canManageDomain: canManageOrgDomain(role),
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }
 
 export function useOrgMembers() {

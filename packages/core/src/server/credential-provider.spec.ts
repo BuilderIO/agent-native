@@ -32,7 +32,10 @@ import {
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
+  getProviderCredentialAuthFailure,
+  providerCredentialFingerprint,
   recordBuilderCredentialAuthFailure,
+  recordProviderCredentialAuthFailure,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -379,6 +382,64 @@ describe("Builder credential auth failure markers", () => {
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
       `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    );
+  });
+});
+
+describe("provider credential auth failure markers", () => {
+  it("records provider auth failures against a fingerprint without storing raw keys in the setting key", async () => {
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "401 status code (no body)",
+    });
+
+    expect(mockPutSetting).toHaveBeenCalledTimes(1);
+    const [key, value] = mockPutSetting.mock.calls[0];
+    expect(key).toMatch(/^provider-auth-failure:[a-f0-9]{24}$/);
+    expect(key).not.toContain("OPENAI_API_KEY");
+    expect(key).not.toContain("sk-example-invalid");
+    expect(value).toMatchObject({
+      key: "OPENAI_API_KEY",
+      message: "401 status code (no body)",
+      status: 401,
+      code: "http_401",
+      ownerEmail: null,
+      orgId: null,
+    });
+  });
+
+  it("reads a provider auth-failure marker for the same effective key", async () => {
+    const fingerprint = providerCredentialFingerprint(
+      "OPENAI_API_KEY",
+      "sk-example-invalid",
+    );
+    mockGetSetting.mockResolvedValue({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at: 123,
+    });
+
+    const failure = await getProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+    });
+
+    expect(failure).toMatchObject({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at: 123,
+    });
+    expect(mockGetSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${fingerprint}`,
     );
   });
 });

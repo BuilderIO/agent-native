@@ -125,6 +125,7 @@ async function putViaEncryptedPublicUpload(
     filename: input.filename ?? input.key ?? "private-blob.bin",
     mimeType: "application/octet-stream",
     ownerEmail: input.ownerEmail,
+    recordAsset: false,
   });
   if (!uploaded) return null;
 

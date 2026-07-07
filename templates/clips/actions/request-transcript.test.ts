@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
@@ -141,11 +141,37 @@ vi.mock("./lib/loom-transcript.js", () => ({
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable.",
 }));
 
-import { importLoomTranscriptForRecording } from "./request-transcript";
+import {
+  builderTranscriptionTimeoutMs,
+  importLoomTranscriptForRecording,
+} from "./request-transcript";
 
 const existingSegments = JSON.stringify([
   { startMs: 0, endMs: 1200, text: "Saved transcript." },
 ]);
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("builderTranscriptionTimeoutMs", () => {
+  it("keeps short or unknown recordings on the historical timeout", () => {
+    expect(builderTranscriptionTimeoutMs(null)).toBe(45_000);
+    expect(builderTranscriptionTimeoutMs(30_000)).toBe(45_000);
+  });
+
+  it("scales longer recordings without exceeding the Netlify function budget", () => {
+    expect(builderTranscriptionTimeoutMs(15 * 60_000)).toBe(65_000);
+  });
+
+  it("allows an operator override while preserving safety bounds", () => {
+    vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "120000");
+    expect(builderTranscriptionTimeoutMs(60_000)).toBe(65_000);
+
+    vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "50000");
+    expect(builderTranscriptionTimeoutMs(60_000)).toBe(50_000);
+  });
+});
 
 describe("importLoomTranscriptForRecording", () => {
   beforeEach(() => {

@@ -20,9 +20,9 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArrowLeft,
-  IconBuilding,
   IconLock,
   IconRefresh,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -98,7 +98,7 @@ function MissingDeckAccessPane({
 }) {
   const t = useT();
   const Icon =
-    hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
+    hasTeamJoinOption || orgLoading || orgError ? IconUsersGroup : IconLock;
   const title = orgLoading
     ? t("deckEditor.lookingForDeck")
     : orgError

@@ -15,4 +15,12 @@ describe("recording share popover", () => {
     expect(videoPlayerSource).toContain("absolute inset-x-0 bottom-0 z-20");
     expect(shareDialogSource).toContain("z-[260] w-[440px]");
   });
+
+  it("keeps agent sharing private-only and lazy", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain("{!isPublic ? (");
+    expect(shareDialogSource).toContain("if (!isPublic && agentShareOpen)");
+    expect(shareDialogSource).toContain("{isPublic ? <SlackShareHint");
+  });
 });

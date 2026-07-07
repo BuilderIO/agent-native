@@ -8,7 +8,11 @@
  * All providerOptions.anthropic fields are forwarded directly to the SDK.
  */
 
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
 import {
@@ -187,6 +191,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: "ANTHROPIC_API_KEY",
+        value: this.apiKey,
+      });
 
       // Emit stop reason
       const stopReason = finalMessage.stop_reason ?? "end_turn";
@@ -200,10 +208,26 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      const statusCode: number | undefined =
+        typeof err?.status === "number"
+          ? err.status
+          : typeof err?.statusCode === "number"
+            ? err.statusCode
+            : undefined;
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: "ANTHROPIC_API_KEY",
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: err?.message ?? String(err),
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
+        ...(statusCode === 401 ? { errorCode: "http_401", statusCode } : {}),
       };
       throw err;
     }

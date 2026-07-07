@@ -1,0 +1,65 @@
+---
+title: "Settings Kit"
+description: "A standard settings-page contract for app, agent, provider, team, and language settings."
+---
+
+# Settings Kit
+
+The Settings Kit gives every app one predictable settings surface. Users should
+not have to wonder whether model keys live in an app settings page, a giant
+agent sidebar panel, or a provider-specific setup card. The app route owns the
+page; framework tabs can be mounted inside it.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:220px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Settings</strong><div class='wf-pill'>General</div><div class='wf-pill'>AI and models</div><div class='wf-pill'>Connections</div><div class='wf-pill'>Team</div><div class='wf-pill'>Developer</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>AI and models</h2><div class='wf-box'>Default model: GPT-5</div><div class='wf-box'>LLM keys: OpenAI configured, Anthropic missing</div><div class='wf-box'>Provider readiness: Builder connected</div><div style='display:flex;gap:10px'><button>Open agent settings</button><button class='primary'>Save changes</button></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                    | Purpose                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `<SettingsTabsPage>`     | Standard tabbed settings route surface.                                               |
+| `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount. |
+| `<LanguagePicker>`       | Standard language selector for app settings.                                          |
+| `openAgentSettings()`    | Compatibility escape hatch for opening the sidebar settings tab when needed.          |
+| Hash deep links          | Stable links such as `/settings#secrets:OPENAI_API_KEY` and `/settings#connections`.  |
+
+## Page Contract {#page-contract}
+
+Every app should expose `/settings`. App-specific tabs can sit beside framework
+tabs; framework tabs should not be hidden in a second settings universe.
+
+```tsx
+import {
+  LanguagePicker,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/core/client";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+  return (
+    <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
+      general={<LanguagePicker label="Interface language" />}
+    />
+  );
+}
+```
+
+## UX Standard {#ux-standard}
+
+- Keep model keys, OAuth connections, Builder connect, language, team, and app
+  preferences in one route.
+- Link to tabs by hash so setup prompts can send users to the exact missing
+  credential.
+- Use the agent sidebar settings only as a compact access point, not as the
+  primary home for every setting.
+
+Related docs: [Internationalization](/docs/internationalization),
+[Onboarding](/docs/onboarding), [Workspace Connections](/docs/workspace-connections).

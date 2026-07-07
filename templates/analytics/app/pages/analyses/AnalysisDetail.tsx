@@ -11,9 +11,9 @@ import {
   IconTrash,
   IconClock,
   IconArrowLeft,
-  IconBuilding,
   IconDatabase,
   IconLock,
+  IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -295,7 +295,7 @@ export default function AnalysisDetail() {
               {analysis.visibility === "public" ? (
                 <IconWorld className="h-3 w-3" />
               ) : analysis.visibility === "org" ? (
-                <IconBuilding className="h-3 w-3" />
+                <IconUsersGroup className="h-3 w-3" />
               ) : (
                 <IconLock className="h-3 w-3" />
               )}

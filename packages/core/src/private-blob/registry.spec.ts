@@ -105,6 +105,9 @@ describe("private blob registry", () => {
     expect(Buffer.from(uploadedInput!.data).toString("utf8")).not.toContain(
       "secret replay payload",
     );
+    expect(uploadedInput).toMatchObject({
+      recordAsset: false,
+    });
 
     const read = await registry.readPrivateBlob(handle!);
     expect(new TextDecoder().decode(read.data)).toBe("secret replay payload");

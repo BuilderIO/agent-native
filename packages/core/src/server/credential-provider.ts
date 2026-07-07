@@ -720,6 +720,114 @@ export async function clearBuilderCredentialAuthFailure(creds: {
   }
 }
 
+const PROVIDER_AUTH_FAILURE_SETTING_PREFIX = "provider-auth-failure:";
+
+export interface ProviderCredentialAuthFailure {
+  fingerprint: string;
+  key: string;
+  message: string;
+  status?: number;
+  code?: string;
+  at: number;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+}
+
+export function providerCredentialFingerprint(
+  key?: string | null,
+  value?: string | null,
+): string | null {
+  const normalizedKey = key?.trim().toUpperCase();
+  const normalizedValue = value?.trim();
+  if (!normalizedKey || !normalizedValue) return null;
+  return createHash("sha256")
+    .update(normalizedKey)
+    .update("\0")
+    .update(normalizedValue)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function providerAuthFailureSettingKey(fingerprint: string): string {
+  return `${PROVIDER_AUTH_FAILURE_SETTING_PREFIX}${fingerprint}`;
+}
+
+export async function getProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+}): Promise<ProviderCredentialAuthFailure | null> {
+  const key = opts.key?.trim().toUpperCase() ?? "";
+  const fingerprint = providerCredentialFingerprint(key, opts.value);
+  if (!fingerprint) return null;
+  try {
+    const { getSetting } = await import("../settings/store.js");
+    const row = await getSetting(providerAuthFailureSettingKey(fingerprint));
+    if (!row) return null;
+    if (row.fingerprint !== fingerprint) return null;
+    return {
+      fingerprint,
+      key:
+        typeof row.key === "string" && row.key
+          ? row.key
+          : key || "UNKNOWN_PROVIDER_KEY",
+      message:
+        typeof row.message === "string" && row.message
+          ? row.message
+          : "The model provider rejected the saved API key.",
+      status: typeof row.status === "number" ? row.status : undefined,
+      code: typeof row.code === "string" ? row.code : undefined,
+      at: typeof row.at === "number" ? row.at : Date.now(),
+      ownerEmail:
+        typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
+      orgId: typeof row.orgId === "string" ? row.orgId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function recordProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  try {
+    const key = opts.key?.trim().toUpperCase() ?? "";
+    const value = opts.value?.trim();
+    const fingerprint = providerCredentialFingerprint(key, value);
+    if (!fingerprint) return;
+    const { putSetting } = await import("../settings/store.js");
+    await putSetting(providerAuthFailureSettingKey(fingerprint), {
+      fingerprint,
+      key,
+      message: opts.message || "The model provider rejected the saved API key.",
+      ...(typeof opts.status === "number" && { status: opts.status }),
+      ...(opts.code && { code: opts.code }),
+      at: Date.now(),
+      ownerEmail: getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    });
+  } catch {
+    // Best-effort marker only; the chat error is still returned to the user.
+  }
+}
+
+export async function clearProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+}): Promise<void> {
+  const fingerprint = providerCredentialFingerprint(opts.key, opts.value);
+  if (!fingerprint) return;
+  try {
+    const { deleteSetting } = await import("../settings/store.js");
+    await deleteSetting(providerAuthFailureSettingKey(fingerprint));
+  } catch {
+    // A stale failure marker should not block writing or using fresh keys.
+  }
+}
+
 /**
  * Write Builder credentials to `app_secrets`.
  *

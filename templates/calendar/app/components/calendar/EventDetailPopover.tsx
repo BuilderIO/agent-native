@@ -93,6 +93,51 @@ import {
 import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
 import { shortcutModifierLabel } from "@/lib/utils";
 
+const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
+const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
+
+function getStoredZoomAfterConnectEventId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(
+      ZOOM_AFTER_CONNECT_EVENT_ID_KEY,
+    );
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as {
+      eventId?: unknown;
+      startedAt?: unknown;
+    };
+    if (
+      typeof parsed.eventId === "string" &&
+      typeof parsed.startedAt === "number" &&
+      Date.now() - parsed.startedAt < ZOOM_AFTER_CONNECT_MAX_AGE_MS
+    ) {
+      return parsed.eventId;
+    }
+    window.sessionStorage.removeItem(ZOOM_AFTER_CONNECT_EVENT_ID_KEY);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredZoomAfterConnectEventId(eventId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (eventId) {
+      window.sessionStorage.setItem(
+        ZOOM_AFTER_CONNECT_EVENT_ID_KEY,
+        JSON.stringify({ eventId, startedAt: Date.now() }),
+      );
+    } else {
+      window.sessionStorage.removeItem(ZOOM_AFTER_CONNECT_EVENT_ID_KEY);
+    }
+  } catch {
+    // Storage can be unavailable in locked-down browsers; in-memory state still
+    // handles the normal popup path.
+  }
+}
+
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
   const hours = Math.floor(totalMinutes / 60);
@@ -403,6 +448,9 @@ export function EventDetailPopover({
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
     "meet" | "zoom" | null
   >(null);
+  const [zoomAfterConnectEventId, setZoomAfterConnectEventId] = useState<
+    string | null
+  >(() => getStoredZoomAfterConnectEventId());
   const isOverlay = !!event.overlayEmail;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
@@ -686,45 +734,73 @@ export function EventDetailPopover({
     })();
   }, [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent]);
 
+  const addZoomToConnectedEvent = useCallback(() => {
+    if (!event.id || updateEvent.isPending) return;
+
+    if (isDraft) {
+      onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
+      return;
+    }
+
+    setPendingVideoProvider("zoom");
+    void (async () => {
+      const updates = { addZoom: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+      });
+      if (!guestNotification) {
+        setPendingVideoProvider(null);
+        return;
+      }
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onSuccess: () => toast(t("eventForm.zoomAdded")),
+          onError: (error) =>
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("eventForm.zoomAddFailed"),
+            ),
+          onSettled: () => setPendingVideoProvider(null),
+        },
+      );
+    })();
+  }, [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent]);
+
+  useEffect(() => {
+    if (
+      !zoomStatus.data?.connected ||
+      !zoomAfterConnectEventId ||
+      zoomAfterConnectEventId !== event.id ||
+      updateEvent.isPending
+    ) {
+      return;
+    }
+
+    setZoomAfterConnectEventId(null);
+    setStoredZoomAfterConnectEventId(null);
+    addZoomToConnectedEvent();
+  }, [
+    addZoomToConnectedEvent,
+    event.id,
+    updateEvent.isPending,
+    zoomAfterConnectEventId,
+    zoomStatus.data?.connected,
+  ]);
+
   const handleAddZoom = useCallback(() => {
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
-      if (isDraft) {
-        onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
-        return;
-      }
-      setPendingVideoProvider("zoom");
-      void (async () => {
-        const updates = { addZoom: true };
-        const guestNotification = await promptGuestNotification({
-          event,
-          action: "update",
-          updates,
-        });
-        if (!guestNotification) {
-          setPendingVideoProvider(null);
-          return;
-        }
-        updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
-          {
-            onSuccess: () => toast(t("eventForm.zoomAdded")),
-            onError: (error) =>
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : t("eventForm.zoomAddFailed"),
-              ),
-            onSettled: () => setPendingVideoProvider(null),
-          },
-        );
-      })();
+      addZoomToConnectedEvent();
       return;
     }
 
@@ -733,21 +809,25 @@ export function EventDetailPopover({
       return;
     }
 
+    setZoomAfterConnectEventId(event.id);
+    setStoredZoomAfterConnectEventId(event.id);
     connectZoom.mutate(undefined, {
       onSuccess: () => toast(t("eventForm.zoomConnectionOpened")),
-      onError: (error) =>
+      onError: (error) => {
+        setZoomAfterConnectEventId(null);
+        setStoredZoomAfterConnectEventId(null);
         toast.error(
           error instanceof Error
             ? error.message
             : t("eventForm.zoomConnectFailed"),
-        ),
+        );
+      },
     });
   }, [
+    addZoomToConnectedEvent,
     connectZoom,
     event,
-    isDraft,
-    onDraftUpdate,
-    promptGuestNotification,
+    t,
     updateEvent,
     zoomStatus.data?.configured,
     zoomStatus.data?.connected,

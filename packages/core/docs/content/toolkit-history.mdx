@@ -1,0 +1,95 @@
+---
+title: "History Kit"
+description: "Version history, audit log, undo/redo, restore flows, and what-changed surfaces."
+---
+
+# History Kit
+
+The History Kit helps users answer the questions that matter after humans and
+agents edit together: what changed, who changed it, can I undo it, and can I
+restore an older version?
+
+<WireframeBlock id="doc-block-toolkit-history">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:1fr 300px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Document</h2><div class='wf-box' style='height:320px'>Current version with highlighted changes</div><div style='display:flex;gap:10px'><button>Undo</button><button>Redo</button><button class='primary'>Restore selected</button></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>History</strong><div class='wf-box'>v12 - Agent edited chart text</div><div class='wf-box'>v11 - Maya added notes</div><div class='wf-box'>Audit: share changed to org</div><div class='wf-box'>What changed: 4 sections</div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                         | Purpose                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerVersionedResource()` | Register a resource type, access resolver, optional `getSnapshot()`, and optional `restoreSnapshot()` handler.                        |
+| Version actions               | `create-resource-version`, `list-resource-versions`, `get-resource-version`, `restore-resource-version`, and `list-resource-history`. |
+| `VersionHistoryPanel`         | Drop-in React panel for listing versions and restoring a selected version.                                                            |
+| `HistoryTimeline`             | Controlled presentational timeline for custom history layouts.                                                                        |
+| History hooks                 | `useResourceVersions()`, `useResourceHistory()`, `useCreateResourceVersion()`, and `useRestoreResourceVersion()`.                     |
+| Audit log                     | Durable record of human and agent actions, scoped by access, included by `list-resource-history`.                                     |
+| `useCollabUndo()`             | CRDT undo/redo for collaborative document edits.                                                                                      |
+| `useLocalOpUndo()`            | App-local inverse operations for commands outside the Yjs document.                                                                   |
+| What-changed views            | Diff summaries, changed sections, and reviewer-friendly explanations.                                                                 |
+
+## Register A Resource {#register-resource}
+
+```ts
+import { registerVersionedResource } from "@agent-native/core/history";
+
+registerVersionedResource({
+  type: "document",
+  async resolveAccess(resourceId, ctx) {
+    return {
+      role: "owner",
+      ownerEmail: ctx?.userEmail,
+      orgId: ctx?.orgId,
+      visibility: "private",
+    };
+  },
+  async getSnapshot({ resourceId }) {
+    return loadDocumentSnapshot(resourceId);
+  },
+  async restoreSnapshot({ resourceId, snapshot }) {
+    return restoreDocumentSnapshot(resourceId, snapshot);
+  },
+});
+```
+
+When a resource is already registered with the Sharing Kit, History can reuse
+that access model. Register a History adapter when the app wants automatic
+snapshot capture or restore behavior.
+
+## UI Usage {#ui-usage}
+
+```tsx
+import { VersionHistoryPanel } from "@agent-native/core/client/history";
+
+export function DocumentHistory({ documentId }: { documentId: string }) {
+  return (
+    <VersionHistoryPanel
+      resourceType="document"
+      resourceId={documentId}
+      onRestored={() => refreshDocument()}
+    />
+  );
+}
+```
+
+Agents and UI call the same actions. Apps can also use the hooks directly when
+they need a custom timeline, preview, or compare view.
+
+## UX Standard {#ux-standard}
+
+- History should identify human vs agent edits.
+- Restore is a new action, not a silent database rewind.
+- Undo should be scoped to the user's local intent and never erase remote edits
+  unexpectedly.
+- Audit logs should be access-scoped; users see events for resources they can
+  read.
+- Snapshot data should be app-owned JSON. The kit stores and scopes it; the app
+  decides how to render, diff, and restore it.
+
+Related docs: [Audit Log](/docs/audit-log),
+[Realtime Collaboration](/docs/real-time-collaboration),
+[Component API](/docs/components#collab-presence).
