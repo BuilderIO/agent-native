@@ -72,13 +72,13 @@ const responseChartResultSchema = z.object({
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({
-    formId: z.string().default("demo")
+  schema: z.object({ 
+    formId: z.string().default("demo") 
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: {
-    renderer: "responses.response-chart",
-    title: "Response chart"
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "Response chart" 
   },
   readOnly: true,
   run: async ({ formId }) => ({
