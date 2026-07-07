@@ -259,8 +259,10 @@ patterns live in `.agents/skills/`.
   skill's Phase 5 for when to run these.
 - **Breakpoints**: `add-breakpoint`, `remove-breakpoint`, and
   `set-active-breakpoint` manage the design's device-width frame set and which
-  frame new edits target. See the `design-generation` skill's "Breakpoints &
-  screen states" section.
+  frame new edits target. Breakpoint frames are one document with a
+  Framer-style cascade (base = widest frame; narrower-frame edits persist as
+  width-scoped overrides via `apply-visual-edit` + `activeFrameWidthPx`).
+  Read the `responsive-breakpoints` skill before responsive edits.
 - **Design states**: `create-design-state`, `apply-design-state`,
   `capture-design-state`, `list-design-states`, and `delete-design-state`
   manage named DOM/Alpine states (Loading/Empty/Error), static data fixtures,
@@ -338,9 +340,14 @@ and requires Builder connected. See `full-app-build` skill for the full flow.
 Read the relevant skill before deeper work:
 
 - `design-generation` for creating/editing prototype HTML and variant flows.
+- `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
+  cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
 - `full-app-build` for flag-gated fusion-backed full app building.
+- `shader-fills` for code-backed GLSL shader fills/effects (editable source
+  in screen HTML, uniform knobs, preset library, and the picker's "Create a
+  custom shader fill." prompt).
 - `frontend-design` and `shadcn-ui` for app UI changes.
 - `actions`, `delegate-to-agent`, `security`, and `self-modifying-code` for
   framework patterns.

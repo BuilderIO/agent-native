@@ -42,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
+import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
@@ -54,6 +55,7 @@ import {
 import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
+  MACOS_SCREEN_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
@@ -1785,7 +1787,7 @@ export function App() {
         );
         if (!granted) {
           setReadinessOpen(true);
-          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return;
         }
@@ -1795,6 +1797,8 @@ export function App() {
         return;
       }
     }
+
+    stopAllMicMeters();
 
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
@@ -2379,7 +2383,7 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
-          meterActive={popoverVisible && !isRecording}
+          meterActive={popoverVisible && !isRecording && !recordingFlowActive}
         />
       </div>
 
@@ -2410,11 +2414,16 @@ export function App() {
             : "Start local recording"}
       </button>
       {recError ? (
-        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+        recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
-            panes={permissionPanesForRecording(mode, cameraOn, micOn)}
+            panes={
+              recError === MACOS_SCREEN_PERMISSION_MESSAGE
+                ? ["screen"]
+                : permissionPanesForRecording(mode, cameraOn, micOn)
+            }
             onRetry={handleStartRecording}
           />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (

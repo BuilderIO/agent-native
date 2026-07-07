@@ -356,6 +356,23 @@ const NotionBlockquote = Blockquote.extend({
 const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
   "Press ‘space’ for AI or ‘/’ for commands";
 
+const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
+const RECENT_EDIT_MARKER_WIDTH = 2;
+const RECENT_EDIT_MIN_MARKER_HEIGHT = 18;
+
+type EditorCoordinateRect = Pick<DOMRect, "left" | "top" | "bottom">;
+
+export function getRecentEditPresenceMarkerRect(
+  anchor: EditorCoordinateRect,
+): DOMRect {
+  return new DOMRect(
+    anchor.left,
+    anchor.top,
+    RECENT_EDIT_MARKER_WIDTH,
+    Math.max(RECENT_EDIT_MIN_MARKER_HEIGHT, anchor.bottom - anchor.top),
+  );
+}
+
 const NotionMarkdownShortcuts = Extension.create({
   name: "notionMarkdownShortcuts",
   priority: 1000,
@@ -1990,14 +2007,9 @@ export function VisualEditor({
       if (!found) return null;
 
       try {
-        const { from, to } = found;
+        const { from } = found;
         const start = editor.view.coordsAtPos(from);
-        const end = editor.view.coordsAtPos(Math.max(from, to - 1), 1);
-        const left = Math.min(start.left, end.left);
-        const right = Math.max(start.right, end.right);
-        const top = Math.min(start.top, end.top);
-        const bottom = Math.max(start.bottom, end.bottom);
-        return new DOMRect(left, top, Math.max(1, right - left), bottom - top);
+        return getRecentEditPresenceMarkerRect(start);
       } catch {
         return null;
       }
@@ -2186,6 +2198,7 @@ export function VisualEditor({
         edits={recentEdits}
         resolveRect={resolveRecentEditRect}
         containerRef={wrapperRef}
+        ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />

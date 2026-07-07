@@ -3,15 +3,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAncestorIdMap,
+  collectDescendantContainerIds,
   dropDescendantsOfSelectedAncestors,
   dropPlacementForEvent,
   findNodeWithAncestors,
   flattenRows,
+  getContextMenuTargetIds,
   getDraggedLayerIdsForRows,
   getLayerSelectionAnchorFromExternalSelection,
   getTreeOrderedLayerIds,
   mapPanelPlacementToDomPlacement,
   nextAutoExpandedIds,
+  nextExpandedIdsForSubtree,
   shouldResyncLayerSelectionAnchor,
   type FlatLayerRow,
   type LayersPanelNode,
@@ -348,5 +351,128 @@ describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () 
     // check node.renamable and return false without starting the rename.
     const found = findNodeWithAncestors(tree, "locked-name");
     expect(found?.node.renamable).toBe(false);
+  });
+});
+
+describe("LayersPanel alt-click expand/collapse subtree (collectDescendantContainerIds)", () => {
+  it("collects the node itself plus every descendant that has children", () => {
+    const tree: LayersPanelNode = {
+      id: "frame-1",
+      name: "Frame 1",
+      children: [
+        {
+          id: "group-1",
+          name: "Group 1",
+          children: [
+            { id: "text-1", name: "Text 1" },
+            {
+              id: "group-2",
+              name: "Group 2",
+              children: [{ id: "text-2", name: "Text 2" }],
+            },
+          ],
+        },
+        { id: "leaf-1", name: "Leaf 1" },
+      ],
+    };
+    expect(collectDescendantContainerIds(tree)).toEqual([
+      "frame-1",
+      "group-1",
+      "group-2",
+    ]);
+  });
+
+  it("returns just the node id when it has no children", () => {
+    const leaf: LayersPanelNode = { id: "leaf", name: "Leaf" };
+    expect(collectDescendantContainerIds(leaf)).toEqual([]);
+  });
+
+  it("returns an empty array for a node whose children array is empty", () => {
+    const emptyContainer: LayersPanelNode = {
+      id: "empty",
+      name: "Empty",
+      children: [],
+    };
+    expect(collectDescendantContainerIds(emptyContainer)).toEqual([]);
+  });
+});
+
+describe("LayersPanel alt-click expand/collapse subtree (nextExpandedIdsForSubtree)", () => {
+  const tree: LayersPanelNode = {
+    id: "frame-1",
+    name: "Frame 1",
+    children: [
+      {
+        id: "group-1",
+        name: "Group 1",
+        children: [
+          {
+            id: "group-2",
+            name: "Group 2",
+            children: [{ id: "text-1", name: "Text 1" }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("expands the node and every nested container in ONE batched update", () => {
+    const next = nextExpandedIdsForSubtree([], tree, true);
+    expect(new Set(next)).toEqual(new Set(["frame-1", "group-1", "group-2"]));
+  });
+
+  it("collapses the node and every nested container in one batched update", () => {
+    const next = nextExpandedIdsForSubtree(
+      ["frame-1", "group-1", "group-2", "unrelated"],
+      tree,
+      false,
+    );
+    expect(next).toEqual(["unrelated"]);
+  });
+
+  it("preserves ids unrelated to the subtree when expanding", () => {
+    const next = nextExpandedIdsForSubtree(["other-node"], tree, true);
+    expect(new Set(next)).toEqual(
+      new Set(["other-node", "frame-1", "group-1", "group-2"]),
+    );
+  });
+});
+
+describe("LayersPanel row context-menu target resolution (getContextMenuTargetIds)", () => {
+  const rows = [
+    row("parent"),
+    row("first", ["parent"]),
+    row("second", ["parent"]),
+    row("third", ["parent"]),
+  ];
+
+  it("operates on just the right-clicked row when it is NOT part of the current selection", () => {
+    expect(
+      getContextMenuTargetIds({
+        selectedIds: ["first"],
+        nodeId: "second",
+        visibleRows: rows,
+      }),
+    ).toEqual(["second"]);
+  });
+
+  it("operates on the whole current selection when the right-clicked row IS part of it", () => {
+    expect(
+      getContextMenuTargetIds({
+        selectedIds: ["third", "first"],
+        nodeId: "first",
+        visibleRows: rows,
+      }),
+    ).toEqual(["first", "third"]);
+  });
+
+  it("normalizes the returned selection to visible tree order", () => {
+    expect(
+      getContextMenuTargetIds({
+        selectedIds: ["third", "second", "first"],
+        nodeId: "third",
+        visibleRows: rows,
+      }),
+    ).toEqual(["first", "second", "third"]);
   });
 });

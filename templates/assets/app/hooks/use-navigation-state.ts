@@ -38,6 +38,14 @@ function navigationFromPath(pathname: string, search = "") {
       threadId: decodePathParam(chat[1]),
     };
   }
+  const preset = pathname.match(/^\/brand-kits\/([^/]+)\/presets\/([^/]+)/);
+  if (preset) {
+    return {
+      view: "preset",
+      libraryId: decodePathParam(preset[1]),
+      presetId: decodePathParam(preset[2]),
+    };
+  }
   // The "library" view is the unified Library workspace. Keep the internal
   // detail key stable for agent/MCP callers that already navigate by brand-kit
   // id, while the URL is now /library/:id.
@@ -112,6 +120,9 @@ function pathFromCommand(command: any): string | null {
     }
     const query = params.toString();
     return `/library/${command.libraryId}${query ? `?${query}` : ""}`;
+  }
+  if (command.view === "preset" && command.libraryId && command.presetId) {
+    return `/brand-kits/${encodeURIComponent(command.libraryId)}/presets/${encodeURIComponent(command.presetId)}`;
   }
   if (
     (command.view === "asset" || command.view === "image") &&

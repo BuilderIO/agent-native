@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.89.0",
+  "version": "0.90.1",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -162,6 +162,10 @@
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
     "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
+    "./data-programs": {
+      "types": "./dist/data-programs/index.d.ts",
+      "default": "./dist/data-programs/index.js"
+    },
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"

@@ -9,6 +9,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
+import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
   IconPlus,
@@ -115,6 +116,10 @@ export default function Index() {
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
+  const generateTitleMutation = useActionMutation("generate-design-title");
+  // Designs the user has manually renamed since creation — an AI-generated
+  // title that resolves later must never clobber an explicit rename.
+  const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
     defaultSystem,
@@ -267,6 +272,38 @@ export default function Index() {
     [queryClient, createMutation],
   );
 
+  // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
+  // immediately, then a short AI-generated name replaces it in the
+  // background once it resolves. Never blocks navigation or generation.
+  const handleGenerateDesignTitle = useCallback(
+    (designId: string, prompt: string, previousTitle: string) => {
+      generateTitleMutation
+        .mutateAsync({ designId, prompt, previousTitle } as any)
+        .then((result: any) => {
+          if (!result?.updated || !result.title) return;
+          if (userRenamedDesignIdsRef.current.has(designId)) return;
+          queryClient.setQueriesData(
+            { queryKey: ["action", "list-designs"] },
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return {
+                ...old,
+                count: old.count ?? (old.designs ?? []).length,
+                designs: (old.designs ?? []).map((d: Design) =>
+                  d.id === designId ? { ...d, title: result.title } : d,
+                ),
+              };
+            },
+          );
+        })
+        .catch(() => {
+          // Best-effort background enhancement — the placeholder title
+          // already saved at creation time stays as the final title.
+        });
+    },
+    [generateTitleMutation, queryClient],
+  );
+
   const handleSubmitPrompt = useCallback(
     (
       prompt: string,
@@ -284,6 +321,7 @@ export default function Index() {
           : newDesignSystemId;
 
       const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      handleGenerateDesignTitle(id, prompt, title);
 
       if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
         // Full-app designs are backed by a real running container, not a
@@ -344,6 +382,7 @@ export default function Index() {
     [
       createDesign,
       createFusionAppMutation,
+      handleGenerateDesignTitle,
       navigate,
       newDesignMode,
       newDesignSystemId,
@@ -433,6 +472,8 @@ export default function Index() {
     const next = renameDraft.trim();
     setRenameId(null);
     if (!next) return;
+
+    userRenamedDesignIdsRef.current.add(id);
 
     queryClient.setQueriesData(
       { queryKey: ["action", "list-designs"] },
@@ -813,28 +854,6 @@ export default function Index() {
       </AlertDialog>
     </>
   );
-}
-
-/**
- * Derive a short, friendly title from a prompt. The full prompt still drives
- * generation — the title is just a label that shows up in the editor header
- * and the design card, so longer is worse.
- *
- * Strategy: take the first line, strip trailing punctuation, then truncate
- * at the nearest word boundary near 40 chars (with an ellipsis when cut).
- */
-function derivePromptTitle(prompt: string): string {
-  const firstLine = prompt
-    .split("\n")[0]
-    ?.trim()
-    .replace(/[.!?]+$/, "");
-  if (!firstLine) return "Untitled Design";
-  const MAX = 40;
-  if (firstLine.length <= MAX) return firstLine;
-  const slice = firstLine.slice(0, MAX);
-  const lastSpace = slice.lastIndexOf(" ");
-  const trimmed = lastSpace > 20 ? slice.slice(0, lastSpace) : slice;
-  return `${trimmed.trim()}…`;
 }
 
 /**

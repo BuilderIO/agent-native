@@ -239,20 +239,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Acciones principales para una inspección rápida de la base de datos y un mantenimiento único
+# Acciones principales para una inspección rápida de la base de datos
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# find/replace quirúrgico en una columna de texto grande: envía una diferencia, no el valor completo
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-El complemento de chat del agente de producción permite escrituras sin formato en bases de datos de forma predeterminada
-(`databaseTools: "write"`) para que los agentes puedan corregir datos propiedad de la aplicación sin esperar a
-nueva acción escrita. Esas escrituras están dirigidas al usuario/organización autenticado. Establecer
-`databaseTools: "read"` para mantener solo la inspección de `db-schema` / `db-query`, o
-`databaseTools: "off"` / `false` requerirá la aplicación escrita actions para todos los datos
+El complemento de chat del agente de producción deja las herramientas SQL sin formato en modo lectura por defecto
+(`databaseTools: "read"`), por lo que los agentes inspeccionan datos de la app con `db-schema` /
+`db-query` y escriben mediante actions tipadas de la app. Establece
+`databaseTools: "write"` (o `true`) solo para superficies de mantenimiento que
+también deban exponer `db-exec` / `db-patch` con alcance; usa
+`databaseTools: "off"` / `false` para requerir actions tipadas para todos los datos
 acceso.
 
 ## Puente de chat del agente {#agent-chat-bridge}
@@ -437,6 +434,7 @@ Estos se encuentran en la parte superior del mismo contrato y tienen sus propios
 
 - **[Dispatch](/docs/dispatch)**: el plano de control del espacio de trabajo: bandeja de entrada compartida, bóveda de secretos, trabajos programados y un orquestador que delega a aplicaciones especializadas a través de A2A.
 - **[Extensions](/docs/extensions)**: miniaplicaciones Alpine.js en espacio aislado que el agente crea en tiempo de ejecución, sin cambios de origen ni migraciones.
+- **[Programas de datos](/docs/data-programs)**: scripts `run-code` almacenados y escritos por el agente que entregan a los paneles de dashboard un resultado en caché y actualizable, en lugar de una action de proveedor codificada.
 - **[A2A Protocol](/docs/a2a-protocol)**: cómo las aplicaciones en el mismo espacio de trabajo se descubren y se llaman entre sí a través de JSON-RPC.
 
 ## Lo que obtienes gratis {#what-you-get-for-free}

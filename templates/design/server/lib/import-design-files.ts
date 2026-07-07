@@ -12,6 +12,7 @@ import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
@@ -228,16 +229,24 @@ export async function saveImportedDesignFiles(
         usedFilenames,
       );
       const fileId = nanoid();
+      // Stamp missing data-agent-native-node-id attributes before persisting
+      // so imported screens are fully addressable by id-keyed editor
+      // operations immediately, instead of depending on a client-side
+      // backfill the first time someone opens the imported screen.
+      const annotatedContent = annotateScreenHtmlForPersist(
+        file.content,
+        file.fileType,
+      );
       await tx.insert(schema.designFiles).values({
         id: fileId,
         designId,
         filename,
         fileType: file.fileType,
-        content: file.content,
+        content: annotatedContent,
         createdAt: now,
         updatedAt: now,
       });
-      seedRecords.push({ id: fileId, content: file.content });
+      seedRecords.push({ id: fileId, content: annotatedContent });
 
       const width = positiveDimension(
         file.preferredFrame?.width,

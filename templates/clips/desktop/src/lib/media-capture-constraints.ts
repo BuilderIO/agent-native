@@ -1,3 +1,10 @@
+import {
+  chooseFallbackAudioInput,
+  enumerateAudioInputDevices,
+  isLikelyPhoneMicLabel,
+  type AudioInputFallback,
+} from "./media-device-selection";
+
 export const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: { ideal: true },
   noiseSuppression: { ideal: true },
@@ -53,6 +60,108 @@ export function isMediaConstraintFailure(err: unknown): boolean {
   );
 }
 
+function stopStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function getVoiceFocusedAudioStream(
+  deviceId?: string | null,
+): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: voiceFocusedAudioConstraints(deviceId),
+    video: false,
+  });
+}
+
+async function fallbackAudioInput(
+  savedLabel?: string | null,
+  avoidDeviceIds: Array<string | null | undefined> = [],
+): Promise<AudioInputFallback | null> {
+  try {
+    return chooseFallbackAudioInput(await enumerateAudioInputDevices(), {
+      savedLabel,
+      avoidDeviceIds,
+    });
+  } catch (err) {
+    console.warn(
+      "[clips-recorder] could not enumerate fallback microphones",
+      err,
+    );
+    return null;
+  }
+}
+
+async function tryFallbackAudioInput(
+  savedLabel: string | null | undefined,
+  avoidDeviceIds: Array<string | null | undefined>,
+): Promise<MediaStream | null> {
+  const fallback = await fallbackAudioInput(savedLabel, avoidDeviceIds);
+  if (!fallback) return null;
+  try {
+    console.warn(
+      `[clips-recorder] selected mic unavailable; retrying ${fallback.reason} microphone`,
+      { deviceId: fallback.deviceId, label: fallback.label },
+    );
+    return await getVoiceFocusedAudioStream(fallback.deviceId);
+  } catch (fallbackErr) {
+    if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
+    console.warn(
+      "[clips-recorder] explicit mic fallback failed; continuing fallback chain",
+      fallbackErr,
+    );
+    return null;
+  }
+}
+
+async function getDefaultAudioStreamWithBasicFallback(
+  reason: unknown,
+): Promise<MediaStream> {
+  try {
+    return await getVoiceFocusedAudioStream();
+  } catch (fallbackErr) {
+    if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
+    console.warn(
+      "[clips-recorder] voice-focused mic constraints failed; retrying basic audio",
+      fallbackErr,
+    );
+    return navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+  } finally {
+    if (reason) {
+      console.warn(
+        "[clips-recorder] no explicit mic fallback was available; using system default mic",
+        reason,
+      );
+    }
+  }
+}
+
+async function replacePhoneDefaultMicIfPossible(
+  stream: MediaStream,
+): Promise<MediaStream> {
+  const track = stream.getAudioTracks()[0];
+  if (!track || !isLikelyPhoneMicLabel(track.label)) return stream;
+  const settings = track.getSettings?.();
+  const replacement = await tryFallbackAudioInput(null, [
+    settings?.deviceId ?? null,
+  ]);
+  if (!replacement) return stream;
+  console.warn(
+    "[clips-recorder] default mic resolved to a phone-like input; using explicit fallback mic",
+    { label: track.label },
+  );
+  stopStream(stream);
+  return replacement;
+}
+
 export async function getCameraStreamWithFallback(
   deviceId?: string | null,
   videoConstraints?: MediaTrackConstraints,
@@ -87,46 +196,21 @@ export async function getCameraStreamWithFallback(
 
 export async function getAudioStreamWithFallback(
   deviceId?: string | null,
+  savedLabel?: string | null,
 ): Promise<MediaStream> {
   const id = deviceId?.trim();
 
   try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio: voiceFocusedAudioConstraints(id),
-      video: false,
-    });
+    const stream = await getVoiceFocusedAudioStream(id);
+    return id ? stream : replacePhoneDefaultMicIfPossible(stream);
   } catch (err) {
     if (!isMediaConstraintFailure(err)) throw err;
     if (id) {
-      console.warn(
-        "[clips-recorder] selected mic constraint failed; retrying default mic",
-        err,
-      );
-      try {
-        return await navigator.mediaDevices.getUserMedia({
-          audio: VOICE_FOCUSED_AUDIO_CONSTRAINTS,
-          video: false,
-        });
-      } catch (fallbackErr) {
-        if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
-        console.warn(
-          "[clips-recorder] voice-focused mic constraints failed; retrying basic audio",
-          fallbackErr,
-        );
-        return navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false,
-        });
-      }
+      const fallback = await tryFallbackAudioInput(savedLabel, [id]);
+      if (fallback) return fallback;
     }
 
-    console.warn(
-      "[clips-recorder] voice-focused mic constraints failed; retrying basic audio",
-      err,
-    );
-    return navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: false,
-    });
+    const defaultStream = await getDefaultAudioStreamWithBasicFallback(err);
+    return replacePhoneDefaultMicIfPossible(defaultStream);
   }
 }

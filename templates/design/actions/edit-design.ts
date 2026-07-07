@@ -1,9 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import {
-  hasCollabState,
-  getText,
-  applyText,
-  seedFromText,
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
@@ -13,6 +9,11 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   applyOneEdit,
   type ApplyEditsResult,
@@ -225,7 +226,6 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
-    const now = new Date().toISOString();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
       ? undefined
@@ -238,7 +238,9 @@ export default defineAction({
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
         filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -263,20 +265,26 @@ export default defineAction({
       );
     }
 
-    // Prefer live collab content so we edit in-flight changes, not a stale
-    // persisted copy (mirrors get-design-snapshot).
-    let base = file.content ?? "";
-    try {
-      if (await hasCollabState(file.id)) {
-        // When a collab session exists it is authoritative — use its text even
-        // if empty (a legitimately cleared file), rather than silently editing
-        // stale stored HTML.
-        const live = await getText(file.id, "content");
-        if (typeof live === "string") base = live;
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
-    }
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff
+    // computed from a stale base, char-diffed into a collab doc that has
+    // since moved on, corrupts or drops the other writer's change).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: file.fileType ?? "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const base = live.content;
 
     const resolvedMode =
       mode ??
@@ -296,8 +304,9 @@ export default defineAction({
       // rather than a fabricated `[data-edit-target=...]` selector that could
       // never resolve against the rendered iframe. Region attribution instead
       // rides on the `{ kind: "text", quote }` recentEdits descriptor that
-      // `applyText(..., "agent")` auto-publishes from the content diff below —
-      // clients render a lingering highlight over the changed text.
+      // `applyText(..., "agent")` auto-publishes from the content diff inside
+      // writeInlineSourceFile below — clients render a lingering highlight
+      // over the changed text.
       agentEnterDocument(file.id);
       agentUpdateSelection(file.id, {
         selection: null,
@@ -306,23 +315,12 @@ export default defineAction({
       });
 
       try {
-        await db
-          .update(schema.designFiles)
-          .set({ content: nextContent, updatedAt: now })
-          .where(eq(schema.designFiles.id, file.id));
-
-        // Push the full new content through the collab layer; it diffs internally
-        // so live editors get a minimal update.
-        if (await hasCollabState(file.id)) {
-          await applyText(file.id, nextContent, "content", "agent");
-        } else {
-          await seedFromText(file.id, nextContent);
-        }
-
-        await db
-          .update(schema.designs)
-          .set({ updatedAt: now })
-          .where(eq(schema.designs.id, designId));
+        await writeInlineSourceFile({
+          designId: file.designId,
+          file: workspaceFile,
+          content: nextContent,
+          expectedVersionHash: live.versionHash,
+        });
       } finally {
         agentLeaveDocument(file.id);
       }

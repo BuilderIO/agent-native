@@ -13,8 +13,28 @@ const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
-let previousWorkspaceAppsJson: string | undefined;
-let previousAppUrl: string | undefined;
+const DISCOVERY_ENV_KEYS = [
+  "NODE_ENV",
+  "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+  "APP_URL",
+  "WORKSPACE_OAUTH_ORIGIN",
+  "VITE_WORKSPACE_OAUTH_ORIGIN",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "URL",
+  "DEPLOY_URL",
+  "VERCEL",
+  "VERCEL_URL",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+  "NETLIFY",
+  "AWS_LAMBDA_FUNCTION_NAME",
+] as const;
+let previousEnv: Record<
+  (typeof DISCOVERY_ENV_KEYS)[number],
+  string | undefined
+>;
 
 vi.mock("../resources/store.js", () => ({
   resourceGet: resourceGetMock,
@@ -35,15 +55,15 @@ describe("agent discovery", () => {
     resourceListAccessibleMock.mockResolvedValue([]);
     resourceGetMock.mockResolvedValue(null);
     getSettingMock.mockResolvedValue(null);
-    previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
-    previousAppUrl = process.env.APP_URL;
-    delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
-    delete process.env.APP_URL;
+    previousEnv = Object.fromEntries(
+      DISCOVERY_ENV_KEYS.map((key) => [key, process.env[key]]),
+    ) as typeof previousEnv;
+    for (const key of DISCOVERY_ENV_KEYS) delete process.env[key];
+    process.env.NODE_ENV = "test";
   });
 
   afterEach(() => {
-    restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
-    restoreEnv("APP_URL", previousAppUrl);
+    for (const key of DISCOVERY_ENV_KEYS) restoreEnv(key, previousEnv[key]);
   });
 
   it("derives built-in connected agents from public and default-agent production templates", () => {
@@ -97,6 +117,45 @@ describe("agent discovery", () => {
       expect(agent.url).not.toContain("localhost");
       expect(agent.url).not.toContain("127.0.0.1");
     }
+  });
+
+  it("uses local built-in agent URLs only for truly local runtimes", () => {
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
+  it("uses production built-in agent URLs when a public app URL is configured", () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("https://slides.agent-native.com");
+  });
+
+  it("keeps localhost built-in agent URLs when only a loopback app URL is configured", () => {
+    process.env.APP_URL = "http://localhost:8080";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
+  it("does not treat generic URL env vars alone as hosted runtime signals", () => {
+    process.env.URL = "https://branch-preview.example.test";
+    process.env.DEPLOY_URL = "https://deploy-preview.example.test";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
   });
 
   it("ignores stale hidden first-party remote-agent resources", async () => {
@@ -238,6 +297,28 @@ describe("agent discovery", () => {
       name: "Workspace Mail",
       description: "Custom workspace mail app",
       url: "https://mail.workspace.example.test/",
+    });
+  });
+
+  it("ignores stale localhost workspace URLs for first-party agents on public runtimes", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "slides",
+          name: "Slides",
+          description: "Slides workspace app",
+          path: "/slides",
+          url: "http://localhost:8086",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.find((agent) => agent.id === "slides")).toMatchObject({
+      url: "https://slides.agent-native.com",
     });
   });
 

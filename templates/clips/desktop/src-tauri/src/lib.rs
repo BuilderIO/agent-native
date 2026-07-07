@@ -121,6 +121,8 @@ pub fn run() {
             native_speech::native_speech_request_permission,
             // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
+            native_screen::native_fullscreen_take_upload_finished,
+            native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_capture_thumbnail,
@@ -165,6 +167,7 @@ pub fn run() {
             system_audio::system_audio_open_privacy_settings,
             system_audio::audio_transcription_start,
             system_audio::audio_transcription_stop,
+            system_audio::audio_transcription_reset_timeline,
             // silence detector — Granola-style auto-stop heuristics
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,

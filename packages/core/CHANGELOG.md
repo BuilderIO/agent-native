@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.90.1
+
+### Patch Changes
+
+- 2054fed: Fix Cloudflare Pages deploys that import the Node console builtin.
+
+## 0.90.0
+
+### Minor Changes
+
+- e1ad535: Add the data-programs primitive: named, stored, agent-authored JS scripts executed server-side through the existing run-code sandbox, with a SQL result cache (TTL/manual refresh, background execution, stale-serve on failure). Exposes `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, and `delete-data-program` actions, a `data_program` sharing-registry entry (private by default, org sharing only — never public, since a shared program executes its author's code with the viewer's credentials), and is wired into every app automatically alongside `run-code`. No new sandboxing, credential, or SSRF code — all provider access flows through the existing sandbox bridge globals (`providerFetch`, `providerFetchAll`, `providerSearchAll`, `appAction`, `workspace*`), always executing with the calling viewer's own request context.
+- e1ad535: Default agent SQL tools to read-only so app data writes go through typed actions unless raw write tools are explicitly enabled. Apps that intentionally rely on raw SQL writes must opt in with `databaseTools: "write"` (or `true`) to expose `db-exec` and `db-patch`.
+
+### Patch Changes
+
+- e1ad535: Add the generic `data-programs` skill to the workspace-core template, documenting the `emit(rows, schema)` contract, caching/refresh model, limits, and security invariants for the data-programs primitive so any workspace app can author and reuse stored, refreshable data sources.
+- e1ad535: Fix email verification redirects so failed tokens do not show a verified state and resend actions keep a visible cooldown.
+- e1ad535: Treat explicit empty local-file root lists as no roots instead of falling back to default roots.
+- e1ad535: Clarify the legacy `.fig` compatibility helper so local file processing points to Builder design-system indexing.
+- e1ad535: Fix hosted cross-app agent discovery so public runtimes do not advertise localhost A2A URLs, and use the Agent Native Desktop webview clipboard bridge for shared chat copy actions.
+- e1ad535: Add a Clips opt-in for Builder stable video asset URLs.
+- e1ad535: Keep shared app shell headers, main content, mobile chrome, and extension iframes on the same semantic background surface instead of mixing a near-duplicate raised gray in dark mode.
+- Updated dependencies [e1ad535]
+  - @agent-native/toolkit@0.4.1
+
 ## 0.89.0
 
 ### Minor Changes
@@ -981,7 +1006,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
 
 ### Patch Changes
 
-- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the public Figma parser export.
+- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the legacy compatibility export.
 - 1d77419: Fix avatar lookup routes so profile photos load for users signed in through legacy Google OAuth sessions.
 - 1d77419: Keep shared app shell outlines visible around the top corners when app content fills the main surface.
 
@@ -4937,7 +4962,7 @@ alt? }>`. A self-contained ProseMirror plugin wires paste-image and
 
 ### Patch Changes
 
-- ce7f37c: Expose shared Brand Kit helpers for parsing Figma `.fig` local-copy files.
+- ce7f37c: Expose shared Brand Kit helpers for `.fig` local-copy compatibility.
 - ce7f37c: Add the visual-questions Plans skill to the installer and support compact share triggers.
 
 ## 0.37.1

@@ -261,37 +261,87 @@ pub(crate) mod macos {
         pub source: &'static str,
     }
 
-    /// Cheap peak-magnitude meter over channel 0 of a PCM buffer. Returns a
+    /// Cheap peak-magnitude meter across all channels of a PCM buffer. Returns a
     /// value in `0..=1`. Used by both the mic tap (here) and the system-audio
     /// tap (in `system_audio.rs`) to drive the dual-stream waveform.
     pub(crate) fn peak_level_for_pcm(buf: &AVAudioPCMBuffer) -> f32 {
         // SAFETY: AVAudioPCMBuffer with float format exposes `floatChannelData`
         // as a pointer to `channelCount` pointers, each pointing at
-        // `frameLength` floats. We only read channel 0, bounded by the
+        // `frameLength` floats. We read each channel, bounded by the
         // engine-reported frame length.
         unsafe {
             let frames = buf.frameLength() as usize;
             if frames == 0 {
                 return 0.0;
             }
+            let channel_count = buf.format().channelCount() as usize;
+            if channel_count == 0 {
+                return 0.0;
+            }
             let channels_ptr = buf.floatChannelData();
             if channels_ptr.is_null() {
                 return 0.0;
             }
-            let ch0 = (*channels_ptr).as_ptr();
-            let slice = std::slice::from_raw_parts(ch0, frames);
             let mut peak: f32 = 0.0;
             // Sample sparsely — we don't need every frame for a meter.
             let step = (frames / 64).max(1);
-            let mut i = 0;
-            while i < frames {
-                let v = slice[i].abs();
-                if v > peak {
-                    peak = v;
+            for channel in 0..channel_count {
+                let channel_ptr = (*channels_ptr.add(channel)).as_ptr();
+                if channel_ptr.is_null() {
+                    continue;
                 }
-                i += step;
+                let slice = std::slice::from_raw_parts(channel_ptr, frames);
+                let mut i = 0;
+                while i < frames {
+                    let v = slice[i].abs();
+                    if v > peak {
+                        peak = v;
+                    }
+                    i += step;
+                }
             }
             peak.min(1.0)
+        }
+    }
+
+    fn mono_mix_pcm(buf: &AVAudioPCMBuffer) -> Vec<f32> {
+        // SAFETY: Same buffer layout as `peak_level_for_pcm`. Multi-channel
+        // built-in Mac microphones can put useful voice energy outside channel
+        // 0, so mix all channels for Whisper instead of forwarding only the
+        // first channel.
+        unsafe {
+            let frames = buf.frameLength() as usize;
+            if frames == 0 {
+                return Vec::new();
+            }
+            let channel_count = buf.format().channelCount() as usize;
+            if channel_count == 0 {
+                return Vec::new();
+            }
+            let channels_ptr = buf.floatChannelData();
+            if channels_ptr.is_null() {
+                return Vec::new();
+            }
+            let mut mono = vec![0.0_f32; frames];
+            let mut mixed_channels = 0usize;
+            for channel in 0..channel_count {
+                let channel_ptr = (*channels_ptr.add(channel)).as_ptr();
+                if channel_ptr.is_null() {
+                    continue;
+                }
+                let slice = std::slice::from_raw_parts(channel_ptr, frames);
+                for (dst, src) in mono.iter_mut().zip(slice.iter()) {
+                    *dst += *src;
+                }
+                mixed_channels += 1;
+            }
+            if mixed_channels > 1 {
+                let scale = 1.0 / mixed_channels as f32;
+                for sample in &mut mono {
+                    *sample *= scale;
+                }
+            }
+            mono
         }
     }
 
@@ -962,12 +1012,14 @@ pub(crate) mod macos {
         }
     }
 
-    /// Start mic capture (VPIO AEC on, other-audio ducking off) and forward
-    /// every mono channel-0 f32 buffer to `on_samples`.
+    /// Start mic capture and forward a mono mix of every available channel to
+    /// `on_samples`. Recording transcription can disable VPIO so the tap does
+    /// not precondition the shared mic before ScreenCaptureKit opens it.
     pub(crate) fn start_raw_mic_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
+        voice_processing: bool,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
@@ -978,15 +1030,17 @@ pub(crate) mod macos {
         )?;
         let input_node: Retained<objc2_avf_audio::AVAudioInputNode> = unsafe { engine.inputNode() };
 
-        unsafe {
-            if let Err(err) = input_node.setVoiceProcessingEnabled_error(true) {
+        if voice_processing {
+            if let Err(err) = unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
                 eprintln!(
                     "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
                     ns_error_message(&err)
                 );
             }
+        } else {
+            eprintln!("[whisper-mic] voice processing disabled for shared mic capture");
         }
-        // Finalize VPIO format negotiation.
+        // Finalize input format negotiation.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
@@ -998,14 +1052,9 @@ pub(crate) mod macos {
                 move |buffer: std::ptr::NonNull<AVAudioPCMBuffer>,
                       _when: std::ptr::NonNull<AVAudioTime>| {
                     let buf = unsafe { buffer.as_ref() };
-                    let frames = unsafe { buf.frameLength() } as usize;
-                    if frames > 0 {
-                        let ch_ptr = unsafe { buf.floatChannelData() };
-                        if !ch_ptr.is_null() {
-                            let slice =
-                                unsafe { std::slice::from_raw_parts((*ch_ptr).as_ptr(), frames) };
-                            on_samples(slice);
-                        }
+                    let mono = mono_mix_pcm(buf);
+                    if !mono.is_empty() {
+                        on_samples(&mono);
                     }
                     let n = level_tick.fetch_add(1, Ordering::Relaxed);
                     if n % 2 == 0 {
@@ -1052,20 +1101,22 @@ pub(crate) mod macos {
             unsafe { format.channelCount() }
         );
 
-        // Disable other-audio ducking so the separately-captured system audio
-        // isn't dropped to near-silent while the mic VPIO runs.
-        unsafe {
-            let responds: bool = objc2::msg_send![
-                &*input_node,
-                respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
-            ];
-            if responds {
-                input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
-                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
-                        enableAdvancedDucking: objc2::runtime::Bool::NO,
-                        duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
-                    },
-                );
+        if voice_processing {
+            // Disable other-audio ducking so the separately-captured system audio
+            // isn't dropped to near-silent while the mic VPIO runs.
+            unsafe {
+                let responds: bool = objc2::msg_send![
+                    &*input_node,
+                    respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
+                ];
+                if responds {
+                    input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
+                        AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+                            enableAdvancedDucking: objc2::runtime::Bool::NO,
+                            duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
+                        },
+                    );
+                }
             }
         }
 

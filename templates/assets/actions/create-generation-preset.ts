@@ -13,7 +13,9 @@ import {
   IMAGE_MODELS,
   IMAGE_SIZES,
 } from "../shared/api.js";
+import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
+import { assertPresetSkeletonAssetsValid } from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -38,13 +40,14 @@ export default defineAction({
       .describe(
         "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
       ),
-    settings: z.record(z.string(), z.unknown()).optional(),
+    settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
   run: async (args) => {
+    const db = getDb();
     await assertAccess("asset-library", args.libraryId, "editor");
     if (args.collectionId) {
-      const [collection] = await getDb()
+      const [collection] = await db
         .select()
         .from(schema.assetCollections)
         .where(eq(schema.assetCollections.id, args.collectionId))
@@ -53,6 +56,11 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
+    await assertPresetSkeletonAssetsValid({
+      db,
+      libraryId: args.libraryId,
+      settings: args.settings,
+    });
     const now = nowIso();
     const row = {
       id: nanoid(),
@@ -78,7 +86,7 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     };
-    await getDb().insert(schema.assetGenerationPresets).values(row);
+    await db.insert(schema.assetGenerationPresets).values(row);
     return serializeGenerationPreset(row);
   },
 });

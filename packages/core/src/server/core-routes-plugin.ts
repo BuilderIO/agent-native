@@ -3141,6 +3141,16 @@ export function createCoreRoutesPlugin(
         // Extensions module not available — skip
       }
 
+      // ─── Data programs (stored server-side JS scripts + run cache) ─────
+      try {
+        const { ensureDataProgramTables, registerDataProgramsShareable } =
+          await import("../data-programs/store.js");
+        ensureDataProgramTables().catch(() => {});
+        registerDataProgramsShareable();
+      } catch {
+        // Data programs module not available — skip
+      }
+
       // ─── Page-level legacy redirect: /tools → /extensions ──────────────
       // Catches direct browser navigation / bookmarks for the old page route
       // (`/tools`, `/tools/:id`) and 302s to the renamed equivalent under

@@ -1319,7 +1319,7 @@ export default function SqlDashboardPage() {
 
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
             value={nameInput}
@@ -1331,14 +1331,14 @@ export default function SqlDashboardPage() {
           />
         ) : canEdit ? (
           <button
-            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
               setNameInput(dashboard.name);
               setEditingName(true);
             }}
           >
             <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
+            <IconPencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
           </button>
         ) : (
           <span className="truncate text-lg font-semibold">

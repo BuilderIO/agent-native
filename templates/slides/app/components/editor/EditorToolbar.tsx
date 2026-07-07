@@ -64,6 +64,7 @@ import {
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import { parseUploadResponse } from "@/lib/upload-response";
 import { shortcutLabel } from "@/lib/utils";
 
 import { ExportMenu } from "./ExportMenu";
@@ -331,7 +332,15 @@ export default function EditorToolbar({
         method: "POST",
         body: formData,
       });
-      const uploadData = await uploadRes.json();
+      // R83 — guard the parse: a failed upload can come back as a non-JSON
+      // body (upstream proxy/platform error page, plaintext "Internal
+      // Error", etc.). Parsing before the ok check used to throw a raw
+      // "Unexpected token ... is not valid JSON" SyntaxError into this
+      // toast instead of the clean message below.
+      const uploadData = await parseUploadResponse(
+        uploadRes,
+        t("editorToolbar.uploadFailed"),
+      );
       if (!uploadRes.ok) {
         throw new Error(uploadData?.error || t("editorToolbar.uploadFailed"));
       }
@@ -352,7 +361,11 @@ export default function EditorToolbar({
           }),
         },
       );
-      const importData = await importRes.json();
+      // R83 — same parse guard as the upload response above.
+      const importData = await parseUploadResponse(
+        importRes,
+        t("editorToolbar.importFailed"),
+      );
       if (!importRes.ok || importData?.error) {
         throw new Error(importData?.error || t("editorToolbar.importFailed"));
       }
