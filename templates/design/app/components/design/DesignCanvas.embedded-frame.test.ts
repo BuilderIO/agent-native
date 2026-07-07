@@ -4,6 +4,7 @@ import {
   getEmbeddedFrameDocumentContent,
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedIframeBackgroundColor,
+  isElementInfoPayload,
 } from "./DesignCanvas";
 
 describe("DesignCanvas embedded frame backgrounds", () => {
@@ -70,5 +71,37 @@ describe("DesignCanvas embedded frame backgrounds", () => {
     expect(content).not.toMatch(
       /<style[^>]*data-agent-native-content-offset[^>]*>\[data-agent-native-node-id\]/,
     );
+  });
+});
+
+describe("DesignCanvas bridge payload validation", () => {
+  it("accepts complete element info payloads from the live edit bridge", () => {
+    expect(
+      isElementInfoPayload({
+        tagName: "section",
+        selector: "[data-agent-native-node-id='hero']",
+        sourceId: "hero",
+        classes: ["hero"],
+        computedStyles: { color: "rgb(15, 23, 42)" },
+        inlineStyles: {},
+        boundingRect: { x: 10, y: 20, width: 300, height: 120 },
+        isFlexChild: false,
+        isFlexContainer: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects partial style-change payloads before they reach inspector state", () => {
+    expect(
+      isElementInfoPayload({
+        tagName: "section",
+        selector: "[data-agent-native-node-id='hero']",
+        sourceId: "hero",
+        classes: ["hero"],
+        computedStyles: { width: "320px" },
+        isFlexChild: false,
+        isFlexContainer: true,
+      }),
+    ).toBe(false);
   });
 });

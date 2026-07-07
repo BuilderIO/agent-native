@@ -669,6 +669,32 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return styles;
   }
 
+  var liveVisualEditOriginalInlineStyles =
+    typeof WeakMap !== "undefined"
+      ? new WeakMap<Element, Record<string, string>>()
+      : null;
+
+  function rememberLiveVisualEditOriginalStyles(el: Element | null): void {
+    if (!el || !liveVisualEditOriginalInlineStyles) return;
+    if (liveVisualEditOriginalInlineStyles.has(el)) return;
+    liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+  }
+
+  function originalInlineStylesForPatch(
+    el: Element | null,
+    styles: Record<string, string>,
+  ): Record<string, string> {
+    if (!el || !liveVisualEditOriginalInlineStyles) return {};
+    rememberLiveVisualEditOriginalStyles(el);
+    var original = liveVisualEditOriginalInlineStyles.get(el) || {};
+    var patch: Record<string, string> = {};
+    Object.keys(styles).forEach(function (property) {
+      patch[property] =
+        typeof original[property] === "string" ? original[property] : "";
+    });
+    return patch;
+  }
+
   function chromeColorForElement(el: Element | null): string {
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-color)"
@@ -1011,6 +1037,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function postElementSelect(el: Element, e?: MouseEvent): void {
+    rememberLiveVisualEditOriginalStyles(el);
     var message: {
       type: string;
       payload: unknown;
@@ -4719,6 +4746,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         type: "visual-style-change",
         selector: getSelector(selectedEl),
         styles: styles,
+        originalStyles: originalInlineStylesForPatch(selectedEl, styles),
         payload: getElementInfo(selectedEl),
       },
       "*",
@@ -4911,13 +4939,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     setActiveDragCancel(cancelSpacingDrag);
   }
 
-  function postTextContentChange(el, value, html) {
+  function postTextContentChange(el, value, html, originalValue, originalHtml) {
     (window.parent as Window).postMessage(
       {
         type: "text-content-change",
         selector: getSelector(el),
         value: value,
         html: html,
+        originalValue:
+          typeof originalValue === "string" ? originalValue : undefined,
+        originalHtml:
+          typeof originalHtml === "string" ? originalHtml : undefined,
         payload: getElementInfo(el),
       },
       "*",
@@ -5410,15 +5442,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     el.style.display = "flex";
     el.style.flexDirection = inferred.direction;
     el.style.gap = inferred.gap + "px";
+    var styles = {
+      display: "flex",
+      "flex-direction": inferred.direction,
+      gap: inferred.gap + "px",
+    };
     (window.parent as Window).postMessage(
       {
         type: "visual-style-change",
         selector: getSelector(container),
-        styles: {
-          display: "flex",
-          "flex-direction": inferred.direction,
-          gap: inferred.gap + "px",
-        },
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(container, styles),
         payload: getElementInfo(container),
       },
       "*",
@@ -5515,11 +5549,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (!containerBackgroundIsLight(container)) return;
     }
     el.style.color = "inherit";
+    var styles = { color: "inherit" };
     (window.parent as Window).postMessage(
       {
         type: "visual-style-change",
         selector: getSelector(member),
-        styles: { color: "inherit" },
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(member, styles),
         payload: getElementInfo(member),
       },
       "*",
@@ -7249,15 +7285,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         // order — the host composes them against its synchronous same-tick
         // content refs exactly like multi-property style commits.
         memberStates.forEach(function (state) {
+          var styles = {
+            position: state.el.style.position,
+            left: state.el.style.left,
+            top: state.el.style.top,
+          };
           (window.parent as Window).postMessage(
             {
               type: "visual-style-change",
               selector: getSelector(state.el),
-              styles: {
-                position: state.el.style.position,
-                left: state.el.style.left,
-                top: state.el.style.top,
-              },
+              styles: styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
               payload: getElementInfo(state.el),
             },
             "*",
@@ -7491,6 +7529,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           type: "visual-style-change",
           selector: getSelector(resizeEl),
           styles: styles,
+          originalStyles: originalInlineStylesForPatch(resizeEl, styles),
           payload: getElementInfo(resizeEl),
         },
         "*",
@@ -7561,11 +7600,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       cleanupRotateDrag();
       hideTransformBadge();
       if (!rotateEl) return;
+      var styles = { transform: rotateEl.style.transform };
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",
           selector: getSelector(rotateEl),
-          styles: { transform: rotateEl.style.transform },
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(rotateEl, styles),
           payload: getElementInfo(rotateEl),
         },
         "*",
@@ -8294,7 +8335,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         target.isConnected &&
         (next !== originalText || nextHtml !== originalHtml)
       ) {
-        postTextContentChange(target, next, nextHtml);
+        postTextContentChange(
+          target,
+          next,
+          nextHtml,
+          originalText,
+          originalHtml,
+        );
       }
       // T13: replay the latest runtime-content update that arrived (and was
       // buffered) while this edit session was active, so the canvas isn't
@@ -8835,6 +8882,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       cancelActiveBridgeDrag();
       return;
     }
+    if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {
+      if (liveVisualEditOriginalInlineStyles) {
+        liveVisualEditOriginalInlineStyles = new WeakMap<
+          Element,
+          Record<string, string>
+        >();
+      }
+      return;
+    }
     if (e.data.type === "clear-selection") {
       // During marquee drag, empty hit sets are replayed back from the host as a
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
@@ -9110,6 +9166,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       removeRuntimeTarget(e.data.selector, e.data.selectorCandidates);
       return;
     }
+    if (e.data.type === "set-text-content") {
+      var textTarget = findRuntimeTarget(
+        String(e.data.selector || ""),
+        Array.isArray(e.data.selectorCandidates)
+          ? e.data.selectorCandidates
+          : [],
+      ) as HTMLElement | null;
+      if (!textTarget) return;
+      if (typeof e.data.html === "string") {
+        textTarget.innerHTML = e.data.html;
+      } else {
+        textTarget.textContent =
+          typeof e.data.value === "string" ? e.data.value : "";
+      }
+      refreshOverlays();
+      return;
+    }
     if (e.data.type !== "style-change") return;
     var sel = e.data.selector;
     var prop = e.data.property;
@@ -9153,6 +9226,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         activeTextEditEl,
         activeTextEditEl!.textContent || "",
         activeTextEditEl!.innerHTML || "",
+        undefined,
+        undefined,
       );
       refreshOverlays();
       return;

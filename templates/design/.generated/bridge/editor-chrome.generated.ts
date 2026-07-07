@@ -481,6 +481,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return styles;
     }
+    var liveVisualEditOriginalInlineStyles = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
+    function rememberLiveVisualEditOriginalStyles(el) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return;
+      if (liveVisualEditOriginalInlineStyles.has(el)) return;
+      liveVisualEditOriginalInlineStyles.set(el, collectInlineStyles(el));
+    }
+    function originalInlineStylesForPatch(el, styles) {
+      if (!el || !liveVisualEditOriginalInlineStyles) return {};
+      rememberLiveVisualEditOriginalStyles(el);
+      var original = liveVisualEditOriginalInlineStyles.get(el) || {};
+      var patch = {};
+      Object.keys(styles).forEach(function(property) {
+        patch[property] = typeof original[property] === "string" ? original[property] : "";
+      });
+      return patch;
+    }
     function chromeColorForElement(el) {
       return elementLooksLikeComponent(el) ? "var(--design-editor-component-color)" : "var(--design-editor-accent-color)";
     }
@@ -734,6 +750,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     function postElementSelect(el, e) {
+      rememberLiveVisualEditOriginalStyles(el);
       var message = {
         type: "element-select",
         payload: getElementInfo(el)
@@ -3290,6 +3307,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           type: "visual-style-change",
           selector: getSelector(selectedEl),
           styles,
+          originalStyles: originalInlineStylesForPatch(selectedEl, styles),
           payload: getElementInfo(selectedEl)
         },
         "*"
@@ -3427,13 +3445,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keyup", onKey, true);
       setActiveDragCancel(cancelSpacingDrag);
     }
-    function postTextContentChange(el, value, html) {
+    function postTextContentChange(el, value, html, originalValue, originalHtml) {
       window.parent.postMessage(
         {
           type: "text-content-change",
           selector: getSelector(el),
           value,
           html,
+          originalValue: typeof originalValue === "string" ? originalValue : void 0,
+          originalHtml: typeof originalHtml === "string" ? originalHtml : void 0,
           payload: getElementInfo(el)
         },
         "*"
@@ -3739,15 +3759,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       el.style.display = "flex";
       el.style.flexDirection = inferred.direction;
       el.style.gap = inferred.gap + "px";
+      var styles = {
+        display: "flex",
+        "flex-direction": inferred.direction,
+        gap: inferred.gap + "px"
+      };
       window.parent.postMessage(
         {
           type: "visual-style-change",
           selector: getSelector(container),
-          styles: {
-            display: "flex",
-            "flex-direction": inferred.direction,
-            gap: inferred.gap + "px"
-          },
+          styles,
+          originalStyles: originalInlineStylesForPatch(container, styles),
           payload: getElementInfo(container)
         },
         "*"
@@ -3796,11 +3818,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!containerBackgroundIsLight(container)) return;
       }
       el.style.color = "inherit";
+      var styles = { color: "inherit" };
       window.parent.postMessage(
         {
           type: "visual-style-change",
           selector: getSelector(member),
-          styles: { color: "inherit" },
+          styles,
+          originalStyles: originalInlineStylesForPatch(member, styles),
           payload: getElementInfo(member)
         },
         "*"
@@ -4940,15 +4964,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           setMembersOpacity(null);
           memberStates.forEach(function(state) {
+            var styles = {
+              position: state.el.style.position,
+              left: state.el.style.left,
+              top: state.el.style.top
+            };
             window.parent.postMessage(
               {
                 type: "visual-style-change",
                 selector: getSelector(state.el),
-                styles: {
-                  position: state.el.style.position,
-                  left: state.el.style.left,
-                  top: state.el.style.top
-                },
+                styles,
+                originalStyles: originalInlineStylesForPatch(state.el, styles),
                 payload: getElementInfo(state.el)
               },
               "*"
@@ -5135,6 +5161,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             type: "visual-style-change",
             selector: getSelector(resizeEl),
             styles,
+            originalStyles: originalInlineStylesForPatch(resizeEl, styles),
             payload: getElementInfo(resizeEl)
           },
           "*"
@@ -5197,11 +5224,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         cleanupRotateDrag();
         hideTransformBadge();
         if (!rotateEl) return;
+        var styles = { transform: rotateEl.style.transform };
         window.parent.postMessage(
           {
             type: "visual-style-change",
             selector: getSelector(rotateEl),
-            styles: { transform: rotateEl.style.transform },
+            styles,
+            originalStyles: originalInlineStylesForPatch(rotateEl, styles),
             payload: getElementInfo(rotateEl)
           },
           "*"
@@ -5718,7 +5747,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextHtml = target.innerHTML || "";
         refreshOverlays();
         if (target.isConnected && (next !== originalText || nextHtml !== originalHtml)) {
-          postTextContentChange(target, next, nextHtml);
+          postTextContentChange(
+            target,
+            next,
+            nextHtml,
+            originalText,
+            originalHtml
+          );
         }
         if (pendingRuntimeDocumentUpdate) {
           var pending = pendingRuntimeDocumentUpdate;
@@ -6117,6 +6152,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelActiveBridgeDrag();
         return;
       }
+      if (e.data.type === "agent-native:reset-live-visual-edit-baselines") {
+        if (liveVisualEditOriginalInlineStyles) {
+          liveVisualEditOriginalInlineStyles = /* @__PURE__ */ new WeakMap();
+        }
+        return;
+      }
       if (e.data.type === "clear-selection") {
         if (activeMarqueeSelection) return;
         clearRuntimeSelection();
@@ -6314,6 +6355,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         removeRuntimeTarget(e.data.selector, e.data.selectorCandidates);
         return;
       }
+      if (e.data.type === "set-text-content") {
+        var textTarget = findRuntimeTarget(
+          String(e.data.selector || ""),
+          Array.isArray(e.data.selectorCandidates) ? e.data.selectorCandidates : []
+        );
+        if (!textTarget) return;
+        if (typeof e.data.html === "string") {
+          textTarget.innerHTML = e.data.html;
+        } else {
+          textTarget.textContent = typeof e.data.value === "string" ? e.data.value : "";
+        }
+        refreshOverlays();
+        return;
+      }
       if (e.data.type !== "style-change") return;
       var sel = e.data.selector;
       var prop = e.data.property;
@@ -6332,7 +6387,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         postTextContentChange(
           activeTextEditEl,
           activeTextEditEl.textContent || "",
-          activeTextEditEl.innerHTML || ""
+          activeTextEditEl.innerHTML || "",
+          void 0,
+          void 0
         );
         refreshOverlays();
         return;

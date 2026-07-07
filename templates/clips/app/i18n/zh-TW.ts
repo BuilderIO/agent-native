@@ -191,6 +191,11 @@ const messages = {
     edit: "編輯",
     aiTools: "AI 工具",
     enhanceRecording: "強化此錄製",
+    includeFullVideo: "包含完整影片",
+    includeFullVideoDescription:
+      "開啟時，AI 工具會觀看錄製內容（僅 Gemini）以取得螢幕脈絡，而不只是音訊文字紀錄。也適用於預設標題與說明產生。需透過 Builder 或 GEMINI_API_KEY 使用 Gemini 模型。",
+    includeFullVideoOn: "AI 工具將使用完整影片（Gemini）",
+    includeFullVideoOff: "AI 工具將只使用文字紀錄",
     regenerateTitle: "重新產生標題",
     regenerateDescription: "重新產生描述",
     autoChapters: "自動章節",
@@ -314,7 +319,7 @@ const messages = {
     removing: "正在刪除...",
     remove: "移除",
     desktopHint:
-      "從 Clips 桌面應用程式記錄本次會議的即時筆記；逐字稿和 AI 筆記將自動出現在此處。",
+      "若要開始筆記，請從選單列開啟 Clips Desktop 並選擇 Start Meeting Notes，或在提醒出現時按 Start notes。Clips 會擷取麥克風和系統音訊，並在這裡寫入逐字稿。",
     getDesktopApp: "取得桌面應用程式",
     generateNotesFailed: "無法產生筆記。請再試一次。",
     attendee_one: "{{count}} 與會者",
@@ -949,7 +954,9 @@ const messages = {
     inHours: "{{count}} 小時後",
     join: "加入",
     openNotes: "開啟筆記",
-    open: "開啟",
+    open: "開啟筆記",
+    startFromDesktopNow: "從桌面提醒或選單列開始即時筆記。",
+    startFromDesktopLater: "時間到了，Clips Desktop 會顯示 Start notes。",
   },
   transcriptBubbles: {
     listening: "正在聆聽…",
@@ -1359,23 +1366,35 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
-    desktopReminder: "會議開始時取得桌面提醒，錄製筆記就會自動存入此歷史記錄。",
+    desktopReminder:
+      "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",
-    requiredForReminders: "會議提醒與轉錄需要此功能。",
+    requiredForReminders: "桌面應用程式會擷取麥克風和系統音訊以轉錄會議。",
     calendarConnected: "日曆已連線",
     calendarDisconnected: "日曆已中斷連線",
     calendarSettings: "日曆設定",
     connectCalendarReminder: "連線 Google Calendar 以取得會議提醒。",
     disconnectGoogleCalendarTitle: "要中斷連線 Google Calendar 嗎？",
     title: "會議",
-    intro: "即將到來的日曆會議與您的錄製筆記。",
+    intro:
+      "即將到來的日曆會議與您的錄製筆記。會議時間到了，請從 Clips Desktop 開始即時筆記。",
     searchPlaceholder: "搜尋會議...",
     clearSearch: "清除搜尋",
     noMeetingsYet: "還沒有會議",
     noMeetingsDescription:
-      "即將到來的日曆會議會顯示在這裡，完成的錄製也會在您做筆記後出現在這裡。",
+      "連線您的日曆並保持 Clips Desktop 開啟。會議開始時，請從提醒或選單列使用 Start notes。",
     noMeetingsMatch: "沒有符合「{{query}}」的會議",
     refreshing: "正在重新整理…",
+    howToTriggerTitle: "如何觸發會議筆記",
+    howToTriggerDescription:
+      "會議筆記是 Clips 中類似 Granola 的流程：日曆事件會顯示在這裡，桌面應用程式會擷取麥克風和系統音訊，逐字稿和 AI 筆記會回到這個歷史記錄。",
+    guideCalendarTitle: "連線 Google Calendar",
+    guideCalendarDescription: "Clips 會從您的日曆讀取會議，才知道何時提醒您。",
+    guideDesktopTitle: "保持 Clips Desktop 開啟",
+    guideDesktopDescription: "需要桌面擷取才能同時轉錄麥克風和系統音訊。",
+    guideStartTitle: "點選 Start notes",
+    guideStartDescription:
+      "通話開始時，使用桌面提醒或選單列中的 Start Meeting Notes 項目。",
   },
 };
 

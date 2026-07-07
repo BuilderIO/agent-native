@@ -22,6 +22,5 @@ export {
   ensureResourceVersionsTable,
   getResourceVersionById,
   getResourceVersionByNumber,
-  insertResourceVersion,
   queryResourceVersions,
 } from "./store.js";

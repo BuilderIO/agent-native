@@ -999,7 +999,6 @@ async function captureTitleForRecording(params: {
 }
 
 const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
-const COUNTDOWN_OVERLAY_SETTLE_MS = 120;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1652,10 +1651,6 @@ async function runRecordingCountdown(wantsScreen: boolean) {
     console.warn("[clips-recorder] countdown timed out — proceeding");
     return;
   }
-  // The countdown webview emits before it finishes closing. Give macOS a
-  // brief beat to remove the overlay and any shortcut handling before capture
-  // starts, so the first frame/audio sample is the real recording.
-  await wait(COUNTDOWN_OVERLAY_SETTLE_MS);
 }
 
 function showFinalizingFeedback() {
@@ -1852,29 +1847,35 @@ async function startNativeFullscreenRecording(
       }).catch((err) => {
         console.warn("[clips-recorder] mic warm failed:", err);
       });
-    const countdownPromise = runRecordingCountdown(true);
     if (localOnly) {
+      const countdownPromise = runRecordingCountdown(true);
       id = localFolderName;
       await Promise.all([countdownPromise, warmMic(id)]);
     } else {
-      const captureTitle = await captureTitleForRecording({
+      const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
         source: params.source,
       });
-      console.time("[clips-recorder] createServerRecording duration");
-      const recordingPromise = createServerRecording(
-        params.serverUrl,
-        wantsCamera,
-        wantsRecordedAudio,
-        captureTitle,
-        {
-          mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
-          requestStreaming: true,
-          streamingUploadClient: "desktop-native",
-        },
-      ).finally(() => {
-        console.timeEnd("[clips-recorder] createServerRecording duration");
-      });
+      const countdownPromise = runRecordingCountdown(true);
+      const recordingPromise = (async () => {
+        const captureTitle = await captureTitlePromise;
+        console.time("[clips-recorder] createServerRecording duration");
+        try {
+          return await createServerRecording(
+            params.serverUrl,
+            wantsCamera,
+            wantsRecordedAudio,
+            captureTitle,
+            {
+              mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
+              requestStreaming: true,
+              streamingUploadClient: "desktop-native",
+            },
+          );
+        } finally {
+          console.timeEnd("[clips-recorder] createServerRecording duration");
+        }
+      })();
       // The recording id usually lands well before the countdown ends — warm
       // native capture as soon as it does so setup overlaps the 3-2-1.
       const warmAndId = (async () => {
@@ -1918,6 +1919,11 @@ async function startNativeFullscreenRecording(
     // Capture is now live — after rebasing the transcript timeline, stamp the
     // timer baseline so the toolbar clock lines up with the real start.
     startedAt = Date.now();
+    emit("clips:toolbar-enabled", true).catch(() => {});
+    emit("clips:recorder-state", {
+      paused: false,
+      elapsedMs: 0,
+    }).catch(() => {});
     localCameraExport?.start(2_000);
   } catch (err) {
     await localCameraExport?.cancel().catch(() => {});

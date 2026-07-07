@@ -228,6 +228,7 @@ describe("pending visual edit breakpoint stamping (gesture parity)", () => {
     selector: ".hero",
     classes: [],
     styles: { left: "137px" },
+    originalStyles: { left: "120px" },
     updatedAt: 1,
     breakpoint: { activeWidthPx: 390, upperBoundPx: 809 },
   };

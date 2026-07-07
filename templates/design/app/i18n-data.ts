@@ -618,9 +618,13 @@ const enUS = {
       previewLabel: "Pending visual preview",
       applyWithAgent: "Apply with Design agent",
       copyPrompt: "Copy prompt to your agent",
+      abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Style edits sent to the Design agent",
       copiedToast: "Style prompt copied",
+      abortedToast: "Pending preview discarded",
+      interactBlocked:
+        "Apply or abort pending live edits before switching to Interact.",
       leaveTitle: "Apply styles before leaving?",
       leaveDescriptionOne:
         "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",
@@ -9786,9 +9790,12 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "待處理的視覺預覽",
         applyWithAgent: "用 Design 代理套用",
         copyPrompt: "將提示複製給您的代理",
+        abortPreview: "中止預覽並互動",
         agentMessage: "將待處理的視覺樣式編輯套用到來源。",
         sentToast: "樣式編輯已傳送給 Design 代理",
         copiedToast: "樣式提示已複製",
+        abortedToast: "待處理的預覽已捨棄",
+        interactBlocked: "請先套用或中止待處理的即時編輯，再切換到互動模式。",
         leaveTitle: "離開前要套用樣式嗎？",
         leaveDescriptionOne:
           "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
@@ -9807,9 +9814,12 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "待处理的视觉预览",
         applyWithAgent: "用 Design 代理应用",
         copyPrompt: "将提示复制给你的代理",
+        abortPreview: "中止预览并互动",
         agentMessage: "将待处理的视觉样式编辑应用到源文件。",
         sentToast: "样式编辑已发送给 Design 代理",
         copiedToast: "样式提示已复制",
+        abortedToast: "待处理的预览已丢弃",
+        interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
         leaveTitle: "离开前应用样式？",
         leaveDescriptionOne:
           "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这个未应用的样式更改。",
@@ -9828,10 +9838,14 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "Vista previa visual pendiente",
         applyWithAgent: "Aplicar con el agente de Design",
         copyPrompt: "Copiar prompt a tu agente",
+        abortPreview: "Cancelar vista previa e interactuar",
         agentMessage:
           "Aplica las ediciones visuales de estilo pendientes al código fuente.",
         sentToast: "Ediciones de estilo enviadas al agente de Design",
         copiedToast: "Prompt de estilo copiado",
+        abortedToast: "Vista previa pendiente descartada",
+        interactBlocked:
+          "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
         leaveTitle: "¿Aplicar estilos antes de salir?",
         leaveDescriptionOne:
           "Tienes {{count}} edición visual de estilo pendiente en la vista previa en vivo. Si sales ahora, se descartará ese cambio de estilo sin aplicar.",
@@ -9850,10 +9864,14 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "Aperçu visuel en attente",
         applyWithAgent: "Appliquer avec l’agent Design",
         copyPrompt: "Copier le prompt vers votre agent",
+        abortPreview: "Annuler l’aperçu et interagir",
         agentMessage:
           "Appliquez les modifications visuelles de style en attente à la source.",
         sentToast: "Modifications de style envoyées à l’agent Design",
         copiedToast: "Prompt de style copié",
+        abortedToast: "Aperçu en attente supprimé",
+        interactBlocked:
+          "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
         leaveTitle: "Appliquer les styles avant de quitter ?",
         leaveDescriptionOne:
           "Vous avez {{count}} modification visuelle de style en attente dans l’aperçu en direct. Quitter maintenant supprimera cette modification non appliquée.",
@@ -9872,10 +9890,14 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "Ausstehende visuelle Vorschau",
         applyWithAgent: "Mit Design-Agent anwenden",
         copyPrompt: "Prompt an deinen Agent kopieren",
+        abortPreview: "Vorschau abbrechen und interagieren",
         agentMessage:
           "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
         sentToast: "Stiländerungen an den Design-Agent gesendet",
         copiedToast: "Stil-Prompt kopiert",
+        abortedToast: "Ausstehende Vorschau verworfen",
+        interactBlocked:
+          "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
         leaveTitle: "Stile vor dem Verlassen anwenden?",
         leaveDescriptionOne:
           "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerung. Wenn du jetzt gehst, wird diese nicht angewendete Stiländerung verworfen.",
@@ -9894,10 +9916,14 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "保留中のビジュアルプレビュー",
         applyWithAgent: "Design エージェントで適用",
         copyPrompt: "エージェントにプロンプトをコピー",
+        abortPreview: "プレビューを中止して操作",
         agentMessage:
           "保留中のビジュアルスタイル編集をソースに適用してください。",
         sentToast: "スタイル編集を Design エージェントに送信しました",
         copiedToast: "スタイルプロンプトをコピーしました",
+        abortedToast: "保留中のプレビューを破棄しました",
+        interactBlocked:
+          "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
         leaveTitle: "離れる前にスタイルを適用しますか？",
         leaveDescriptionOne:
           "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
@@ -9916,9 +9942,13 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "보류 중인 시각 미리보기",
         applyWithAgent: "Design 에이전트로 적용",
         copyPrompt: "에이전트에 프롬프트 복사",
+        abortPreview: "미리보기를 중단하고 상호작용",
         agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
         sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
         copiedToast: "스타일 프롬프트가 복사되었습니다",
+        abortedToast: "보류 중인 미리보기를 버렸습니다",
+        interactBlocked:
+          "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
         leaveTitle: "나가기 전에 스타일을 적용할까요?",
         leaveDescriptionOne:
           "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
@@ -9937,10 +9967,14 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "Prévia visual pendente",
         applyWithAgent: "Aplicar com o agente Design",
         copyPrompt: "Copiar prompt para seu agente",
+        abortPreview: "Cancelar prévia e interagir",
         agentMessage:
           "Aplique as edições visuais de estilo pendentes à origem.",
         sentToast: "Edições de estilo enviadas ao agente Design",
         copiedToast: "Prompt de estilo copiado",
+        abortedToast: "Prévia pendente descartada",
+        interactBlocked:
+          "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
         leaveTitle: "Aplicar estilos antes de sair?",
         leaveDescriptionOne:
           "Você tem {{count}} edição visual de estilo pendente na prévia ao vivo. Sair agora descartará essa alteração de estilo não aplicada.",
@@ -9959,9 +9993,12 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "लंबित visual preview",
         applyWithAgent: "Design agent से लागू करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
+        abortPreview: "Preview रोकें और interact करें",
         agentMessage: "लंबित visual style edits को source पर लागू करें।",
         sentToast: "Style edits Design agent को भेजे गए",
         copiedToast: "Style prompt कॉपी हुआ",
+        abortedToast: "लंबित preview हटा दिया गया",
+        interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
         leaveTitle: "छोड़ने से पहले styles लागू करें?",
         leaveDescriptionOne:
           "Live preview में {{count}} लंबित visual style edit है। अभी छोड़ने पर वह unapplied style change हट जाएगा।",
@@ -9980,9 +10017,13 @@ const designPendingVisualStyleOverrides = {
         previewLabel: "معاينة مرئية معلقة",
         applyWithAgent: "تطبيق عبر وكيل Design",
         copyPrompt: "نسخ الموجه إلى وكيلك",
+        abortPreview: "إلغاء المعاينة والتفاعل",
         agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
         sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
         copiedToast: "تم نسخ موجه النمط",
+        abortedToast: "تم تجاهل المعاينة المعلقة",
+        interactBlocked:
+          "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
         leaveTitle: "تطبيق الأنماط قبل المغادرة؟",
         leaveDescriptionOne:
           "لديك {{count}} تعديل نمط مرئي معلق في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغيير النمط غير المطبق.",

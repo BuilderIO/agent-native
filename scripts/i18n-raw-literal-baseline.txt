@@ -19,5 +19,6 @@ templates/design/app/components/design/code-workbench/search/search-engine.ts|In
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
 templates/design/app/components/design/code-workbench/workspace/types.ts|` or `localhost:
+templates/design/app/pages/DesignEditor.tsx|, primaryInfo?: Pick
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/DesignEditor.tsx|Migration failed

@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.90.4
+
+### Patch Changes
+
+- 9f396bc: Fail closed for unregistered History/Review resource types, allocate unique version numbers atomically, verify resolve/consume update counts, and prefer server snapshots over client-supplied ones.
+- 9f396bc: Add live visual-edit bridge support for localhost apps so Design can render editable live iframes instead of static HTML snapshots.
+- 9f396bc: Expire sticky provider auth-failure markers, skip rejected deploy env keys during engine auto-detect, and clear failure markers from the legacy save-key path.
+- 9f396bc: Keep React Router build packages installed for scaffolded app builds and report missing build dependencies before spawning the CLI.
+
 ## 0.90.3
 
 ### Patch Changes

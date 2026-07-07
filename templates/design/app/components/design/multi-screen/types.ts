@@ -340,7 +340,7 @@ export interface MultiScreenCanvasProps {
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   /**
    * Called when a style property changes on a board element.
    * Target file is boardFileId.

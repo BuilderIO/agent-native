@@ -1,4 +1,8 @@
-import { ForbiddenError, resolveAccess } from "../sharing/access.js";
+import {
+  ForbiddenError,
+  resolveAccess,
+  type AccessContext,
+} from "../sharing/access.js";
 import { getShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type Visibility } from "../sharing/schema.js";
 import type {
@@ -31,6 +35,16 @@ export function listVersionedResources(): VersionedResourceRegistration[] {
   return Array.from(registrations.values());
 }
 
+function accessContextFrom(
+  ctx?: VersionedResourceContext,
+): AccessContext | undefined {
+  if (!ctx) return undefined;
+  return {
+    userEmail: ctx.userEmail ?? undefined,
+    orgId: ctx.orgId ?? undefined,
+  };
+}
+
 export async function resolveVersionedResourceAccess(
   resourceType: string,
   resourceId: string,
@@ -42,7 +56,11 @@ export async function resolveVersionedResourceAccess(
   }
 
   if (getShareableResource(resourceType)) {
-    const access = await resolveAccess(resourceType, resourceId);
+    const access = await resolveAccess(
+      resourceType,
+      resourceId,
+      accessContextFrom(ctx),
+    );
     if (!access) {
       return null;
     }
@@ -55,16 +73,10 @@ export async function resolveVersionedResourceAccess(
     };
   }
 
-  const userEmail = ctx?.userEmail ?? null;
-  if (!userEmail) {
-    return null;
-  }
-  return {
-    role: "owner",
-    ownerEmail: userEmail,
-    orgId: ctx?.orgId ?? null,
-    visibility: "private",
-  };
+  // Fail closed: unregistered types, and registered types without an access
+  // resolver that aren't shareable, never invent ownership. bypassScope on
+  // history queries is only safe after a real resource ACL.
+  return null;
 }
 
 export async function assertVersionedResourceAccess(

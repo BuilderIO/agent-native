@@ -22,6 +22,17 @@ export interface ListReviewCommentsResult {
   reviewStatus: ReviewStatusEntry | null;
 }
 
+export interface GetReviewFeedbackParams {
+  resourceType: string;
+  resourceId: string;
+  includeHumanTargeted?: boolean;
+  limit?: number;
+}
+
+export interface GetReviewFeedbackResult {
+  comments: ReviewComment[];
+}
+
 export interface CreateReviewCommentInput {
   resourceType: string;
   resourceId: string;
@@ -59,6 +70,12 @@ export interface DeleteReviewCommentInput {
   commentId: string;
 }
 
+export interface ConsumeReviewFeedbackInput {
+  resourceType: string;
+  resourceId: string;
+  commentIds: string[];
+}
+
 export interface SetReviewStatusInput {
   resourceType: string;
   resourceId: string;
@@ -81,6 +98,20 @@ export function useReviewComments(
   );
 }
 
+export function useReviewFeedback(
+  params: GetReviewFeedbackParams,
+  options?: { enabled?: boolean },
+) {
+  return useActionQuery<GetReviewFeedbackResult>(
+    "get-review-feedback",
+    params,
+    {
+      enabled:
+        options?.enabled ?? Boolean(params.resourceType && params.resourceId),
+    },
+  );
+}
+
 export function useCreateReviewComment() {
   return useActionMutation<ReviewComment, CreateReviewCommentInput>(
     "create-review-comment",
@@ -95,16 +126,23 @@ export function useReplyReviewComment() {
 
 export function useResolveReviewThread() {
   return useActionMutation<
-    { threadId: string; resolved: true },
+    { threadId: string; resolved: true; updatedCount: number },
     ResolveReviewThreadInput
   >("resolve-review-thread");
 }
 
 export function useDeleteReviewComment() {
   return useActionMutation<
-    { commentId: string; deleted: true },
+    { commentId: string; deleted: true; updatedCount: number },
     DeleteReviewCommentInput
   >("delete-review-comment");
+}
+
+export function useConsumeReviewFeedback() {
+  return useActionMutation<
+    { consumedCommentIds: string[]; updatedCount: number },
+    ConsumeReviewFeedbackInput
+  >("consume-review-feedback");
 }
 
 export function useSetReviewStatus() {

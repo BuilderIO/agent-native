@@ -24,13 +24,8 @@ export {
 } from "./registry.js";
 export {
   __resetReviewInitForTests,
-  consumeReviewFeedback,
-  deleteReviewComment,
   ensureReviewTables,
   getReviewCommentById,
   getReviewStatus,
-  insertReviewComment,
   queryReviewComments,
-  resolveReviewThread,
-  upsertReviewStatus,
 } from "./store.js";
