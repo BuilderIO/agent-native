@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Fail Netlify builds when the generated output is missing the catch-all server function needed to serve the app.
+Emit and require a Netlify fallback redirect so single-template deploys route dynamic app requests to the server function instead of publishing platform 404s.
