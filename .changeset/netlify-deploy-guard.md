@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Force Netlify single-template SSR routing by patching the scanned server function to preferStatic false, and refuse the harmful default-function URL rewrite that is incompatible with Nitro's config.path catch-all.
+Fix Netlify single-template deploy previews by keeping Nitro's preferStatic true (so /assets/* is served from dist) and stripping the harmful default-function URL rewrite that is incompatible with config.path "/*".

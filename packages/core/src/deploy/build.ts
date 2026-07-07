@@ -2436,41 +2436,6 @@ export const config = {
 const NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT =
   "/* /.netlify/functions/server 200";
 
-export function patchSingleTemplateNetlifyServerFunction(
-  projectCwd: string,
-): void {
-  const serverEntryPath = path.join(
-    projectCwd,
-    ".netlify",
-    "functions-internal",
-    "server",
-    "server.mjs",
-  );
-  if (!fs.existsSync(serverEntryPath)) return;
-
-  let serverEntry = fs.readFileSync(serverEntryPath, "utf-8");
-  if (/\bpreferStatic:\s*false\b/.test(serverEntry)) {
-    return;
-  }
-
-  if (/\bpreferStatic:\s*true\b/.test(serverEntry)) {
-    serverEntry = serverEntry.replace(
-      /\bpreferStatic:\s*true\b/,
-      "preferStatic: false",
-    );
-  } else {
-    console.warn(
-      "[deploy] Netlify server patch skipped: server.mjs has no preferStatic flag.",
-    );
-    return;
-  }
-
-  fs.writeFileSync(serverEntryPath, serverEntry);
-  console.log(
-    "[deploy] Patched Netlify server function to preferStatic: false for SSR routing.",
-  );
-}
-
 export function assertSingleTemplateNetlifyBuildOutput(
   projectCwd: string,
 ): void {
@@ -2484,7 +2449,19 @@ export function assertSingleTemplateNetlifyBuildOutput(
 
   if (!fs.existsSync(publishDir)) {
     failures.push("missing publish directory: dist");
-  } else if (fs.existsSync(redirectsPath)) {
+  } else {
+    const assetsDir = path.join(publishDir, "assets");
+    if (
+      !fs.existsSync(assetsDir) ||
+      fs.readdirSync(assetsDir).every((name) => name.startsWith("."))
+    ) {
+      failures.push(
+        "dist/assets is missing hashed client assets — the publish dir would load an infinite spinner",
+      );
+    }
+  }
+
+  if (fs.existsSync(publishDir) && fs.existsSync(redirectsPath)) {
     const redirects = fs.readFileSync(redirectsPath, "utf-8");
     if (
       redirects
@@ -2534,9 +2511,9 @@ export function assertSingleTemplateNetlifyBuildOutput(
         "Netlify server entry does not reference the generated main.mjs bundle",
       );
     }
-    if (!/\bpreferStatic:\s*false\b/.test(serverEntry)) {
+    if (!/\bpreferStatic:\s*true\b/.test(serverEntry)) {
       failures.push(
-        "Netlify server entry must set preferStatic: false (SSR apps publish no index.html)",
+        "Netlify server entry must keep preferStatic: true so /assets/* is served from dist before the SSR catch-all",
       );
     }
   }
@@ -3187,7 +3164,6 @@ export default bundle;
   }
 
   if (preset === "netlify") {
-    patchSingleTemplateNetlifyServerFunction(cwd);
     writeSingleTemplateNetlifyRedirects(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }

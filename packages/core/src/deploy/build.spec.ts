@@ -25,7 +25,6 @@ import {
   getNodeBuiltinNames,
   isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
-  patchSingleTemplateNetlifyServerFunction,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -1330,6 +1329,11 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
     fs.mkdirSync(path.join(cwd, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "dist", "assets"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, "dist", "assets", "entry.client-abc.js"),
+      "export {};\n",
+    );
     const serverDir = path.join(
       cwd,
       ".netlify",
@@ -1500,19 +1504,8 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   });
 
   function prepareSingleTemplateNetlifyOutput(cwd: string): void {
-    patchSingleTemplateNetlifyServerFunction(cwd);
     writeSingleTemplateNetlifyRedirects(cwd);
   }
-
-  it("patches Nitro server output from preferStatic true to false", () => {
-    const cwd = setupNetlifyOutput();
-
-    patchSingleTemplateNetlifyServerFunction(cwd);
-
-    const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
-    expect(serverEntry).toContain("preferStatic: false");
-    expect(serverEntry).not.toContain("preferStatic: true");
-  });
 
   it("passes a valid single-template Netlify deploy output", () => {
     const cwd = setupNetlifyOutput();
@@ -1546,7 +1539,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
 
   it("fails deploy output that still rewrites to the removed default function URL", () => {
     const cwd = setupNetlifyOutput();
-    patchSingleTemplateNetlifyServerFunction(cwd);
+    writeSingleTemplateNetlifyRedirects(cwd);
     fs.writeFileSync(
       path.join(cwd, "dist", "_redirects"),
       "/* /.netlify/functions/server 200\n",
@@ -1557,12 +1550,30 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
-  it("fails deploy output that would publish without preferStatic false", () => {
+  it("fails deploy output that would publish without preferStatic true", () => {
     const cwd = setupNetlifyOutput();
     writeSingleTemplateNetlifyRedirects(cwd);
+    const entry = fs.readFileSync(serverEntryPath(cwd), "utf8");
+    fs.writeFileSync(
+      serverEntryPath(cwd),
+      entry.replace("preferStatic: true", "preferStatic: false"),
+    );
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
-      /preferStatic: false/,
+      /preferStatic: true/,
+    );
+  });
+
+  it("fails deploy output that would publish without client assets in dist", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    fs.rmSync(path.join(cwd, "dist", "assets"), {
+      recursive: true,
+      force: true,
+    });
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /dist\/assets is missing hashed client assets/,
     );
   });
 
