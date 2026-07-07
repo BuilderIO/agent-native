@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.90.9
+
+### Patch Changes
+
+- a1db610: Fix Netlify single-template deploy previews by keeping Nitro's `preferStatic` true (so `/assets/*` is served from `dist`) and stripping the harmful default-function URL rewrite that is incompatible with `config.path: "/*"`.
+
 ## 0.90.8
 
 ### Patch Changes
