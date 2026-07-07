@@ -201,6 +201,11 @@ const messages = {
     edit: "편집",
     aiTools: "AI 도구",
     enhanceRecording: "이 녹음 품질을 향상하세요",
+    includeFullVideo: "전체 동영상 포함",
+    includeFullVideoDescription:
+      "켜면 AI 도구가 녹화(Gemini 전용)를 시청해 화면 맥락을 파악합니다 — 오디오 스크립트만 사용하지 않습니다. 기본 제목 및 설명 생성에도 적용됩니다. Builder 또는 GEMINI_API_KEY를 통한 Gemini 모델이 필요합니다.",
+    includeFullVideoOn: "AI 도구가 전체 동영상을 사용합니다 (Gemini)",
+    includeFullVideoOff: "AI 도구가 스크립트만 사용합니다",
     regenerateTitle: "제목 재생성",
     regenerateDescription: "설명 재생성",
     autoChapters: "자동 챕터",
@@ -327,7 +332,7 @@ const messages = {
     removing: "풀이...",
     remove: "제거하다",
     desktopHint:
-      "Clips 데스크톱 앱에서 이 회의에 대한 실시간 메모를 녹음하세요. 대화 내용과 AI 메모가 여기에 자동으로 표시됩니다.",
+      "메모를 시작하려면 메뉴 막대에서 Clips Desktop을 열고 Start Meeting Notes를 선택하거나, 알림이 표시되면 Start notes를 클릭하세요. Clips가 마이크와 시스템 오디오를 캡처하고 여기에 기록을 작성합니다.",
     getDesktopApp: "데스크톱 앱 받기",
     generateNotesFailed: "메모를 생성할 수 없습니다. 다시 시도해 보세요.",
     attendee_one: "{{count}} 참석자",
@@ -993,7 +998,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     inHours: "{{count}}시간 후",
     join: "참가",
     openNotes: "노트 열기",
-    open: "열기",
+    open: "노트 열기",
+    startFromDesktopNow:
+      "데스크톱 알림 또는 메뉴 막대에서 실시간 메모를 시작하세요.",
+    startFromDesktopLater:
+      "시간이 되면 Clips Desktop에 Start notes가 표시됩니다.",
   },
   transcriptBubbles: {
     listening: "듣는 중…",
@@ -1427,10 +1436,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically. (현지화됨)",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",
     requiredForReminders:
-      "Required for meeting reminders and transcription. (현지화됨)",
+      "Desktop captures mic + system audio for meeting transcription. (현지화됨)",
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
@@ -1438,14 +1447,27 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",
     title: "Meetings (현지화됨)",
-    intro: "Upcoming calendar meetings and your recorded notes. (현지화됨)",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
     searchPlaceholder: "Search meetings... (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes. (현지화됨)",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (현지화됨)",
     noMeetingsMatch: 'No meetings match "{{query}}" (현지화됨)',
     refreshing: "Refreshing… (현지화됨)",
+    howToTriggerTitle: "How to trigger meeting notes (현지화됨)",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (현지화됨)",
+    guideCalendarTitle: "Connect Google Calendar (현지화됨)",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you. (현지화됨)",
+    guideDesktopTitle: "Keep Clips Desktop open (현지화됨)",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription. (현지화됨)",
+    guideStartTitle: "Click Start notes (현지화됨)",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
 };
 

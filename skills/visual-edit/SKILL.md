@@ -21,6 +21,19 @@ iframe-backed screens on the infinite canvas.
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
+- Localhost Edit mode renders the running app through the local bridge as a live
+  iframe with the same editor bridge used by HTML designs. It is not a frozen
+  static DOM snapshot.
+- The live editor is same-origin through the local bridge proxy. This boots
+  CSR apps and root-relative assets, but it is still a localhost editing proxy:
+  app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
+  future dev-server/plugin integration for perfect parity with the app's own
+  origin.
+- Interact mode renders the app's normal URL so app navigation, scrolling,
+  links, and form controls behave as they would in the browser.
+- While a localhost screen has pending live visual edits, do not switch back to
+  Interact until the user either applies the edits to source or explicitly
+  aborts/discards the preview.
 - Start in Design's screen overview mode. In overview, screens are static
   design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the
@@ -168,6 +181,13 @@ Keep localhost screens as URL files plus `screenMetadata[fileId]`. Do not
 replace them with copied `srcdoc` HTML unless the user explicitly asks for a
 frozen snapshot. To change a state, rerun `add-localhost-screens` with the new
 path/query or duplicate the screen and update the copy's URL metadata.
+
+## Code Tab
+
+For connected localhost projects, the Code tab should feel like VS Code opened
+at the connected project directory: file tree, search, open/edit, and save are
+backed by the real local files through the bridge. It is not a generated "code
+for this design" workspace except for pure inline Design prototypes.
 
 ## Verification
 

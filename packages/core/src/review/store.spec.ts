@@ -95,7 +95,9 @@ describe("review store", () => {
       body: "Open item",
       ownerEmail: "alice@example.com",
     });
-    await resolveReviewThread(root.threadId, "alice@example.com");
+    await expect(
+      resolveReviewThread(root.threadId, "alice@example.com"),
+    ).resolves.toBeGreaterThan(0);
 
     const open = await queryReviewComments({
       resourceType: "doc",
@@ -115,6 +117,15 @@ describe("review store", () => {
     expect(all[0].resolvedBy).toBe("alice@example.com");
   });
 
+  it("returns zero when resolving a missing thread", async () => {
+    await expect(
+      resolveReviewThread("missing-thread", "alice@example.com", {
+        resourceType: "doc",
+        resourceId: "d1",
+      }),
+    ).resolves.toBe(0);
+  });
+
   it("marks feedback consumed separately from resolution", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",
@@ -128,10 +139,12 @@ describe("review store", () => {
       body: "Different resource",
       ownerEmail: "alice@example.com",
     });
-    await consumeReviewFeedback([root.id], "2026-07-07T00:00:00.000Z", {
-      resourceType: "doc",
-      resourceId: "d1",
-    });
+    await expect(
+      consumeReviewFeedback([root.id], "2026-07-07T00:00:00.000Z", {
+        resourceType: "doc",
+        resourceId: "d1",
+      }),
+    ).resolves.toBe(1);
 
     const comments = await queryReviewComments({
       resourceType: "doc",
@@ -140,6 +153,15 @@ describe("review store", () => {
     });
     expect(comments[0].status).toBe("open");
     expect(comments[0].consumedAt).toBe("2026-07-07T00:00:00.000Z");
+  });
+
+  it("returns zero when consuming unmatched comment ids", async () => {
+    await expect(
+      consumeReviewFeedback(["missing"], "2026-07-07T00:00:00.000Z", {
+        resourceType: "doc",
+        resourceId: "d1",
+      }),
+    ).resolves.toBe(0);
   });
 
   it("filters resolve operations to the target resource", async () => {

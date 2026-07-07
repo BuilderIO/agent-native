@@ -206,6 +206,12 @@ const messages = {
     edit: "Editar",
     aiTools: "herramientas de inteligencia artificial",
     enhanceRecording: "Mejorar esta grabación",
+    includeFullVideo: "Incluir el video completo",
+    includeFullVideoDescription:
+      "Cuando está activado, las herramientas de IA miran la grabación (solo Gemini) para el contexto en pantalla, no solo la transcripción de audio. También se aplica a la generación predeterminada del título y la descripción. Requiere un modelo Gemini vía Builder o GEMINI_API_KEY.",
+    includeFullVideoOn:
+      "Las herramientas de IA usarán el video completo (Gemini)",
+    includeFullVideoOff: "Las herramientas de IA usarán solo la transcripción",
     regenerateTitle: "Regenerar título",
     regenerateDescription: "Regenerar descripción",
     autoChapters: "capítulos automáticos",
@@ -334,7 +340,7 @@ const messages = {
     removing: "Eliminando...",
     remove: "Eliminar",
     desktopHint:
-      "Grabe notas en vivo para esta reunión desde la aplicación de escritorio Clips: la transcripción y las notas de IA aparecerán aquí automáticamente.",
+      "Para iniciar notas, abre Clips Desktop desde la barra de menús y elige Start Meeting Notes, o haz clic en Start notes cuando aparezca el recordatorio. Clips captura micrófono y audio del sistema, y escribe la transcripción aquí.",
     getDesktopApp: "Obtener aplicación de escritorio",
     generateNotesFailed: "No se pudieron generar notas. Intentar otra vez.",
     attendee_one: "asistente {{count}}",
@@ -1014,7 +1020,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     inHours: "en {{count}} h",
     join: "Unirse",
     openNotes: "Abrir notas",
-    open: "Abrir",
+    open: "Abrir notas",
+    startFromDesktopNow:
+      "Inicia notas en vivo desde el recordatorio de escritorio o la barra de menús.",
+    startFromDesktopLater:
+      "Clips Desktop mostrará Start notes cuando sea la hora.",
   },
   transcriptBubbles: {
     listening: "Escuchando…",
@@ -1449,10 +1459,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localizado)",
     connectGoogleCalendar: "Connect Google Calendar (Localizado)",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically. (Localizado)",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localizado)",
     getDesktopApp: "Get desktop app (Localizado)",
     requiredForReminders:
-      "Required for meeting reminders and transcription. (Localizado)",
+      "Desktop captures mic + system audio for meeting transcription. (Localizado)",
     calendarConnected: "Calendar connected (Localizado)",
     calendarDisconnected: "Calendar disconnected (Localizado)",
     calendarSettings: "Calendar settings (Localizado)",
@@ -1460,14 +1470,27 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Connect Google Calendar for meeting reminders. (Localizado)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Localizado)",
     title: "Meetings (Localizado)",
-    intro: "Upcoming calendar meetings and your recorded notes. (Localizado)",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localizado)",
     searchPlaceholder: "Search meetings... (Localizado)",
     clearSearch: "Clear search (Localizado)",
     noMeetingsYet: "No meetings yet (Localizado)",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes. (Localizado)",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (Localizado)",
     noMeetingsMatch: 'No meetings match "{{query}}" (Localizado)',
     refreshing: "Refreshing… (Localizado)",
+    howToTriggerTitle: "How to trigger meeting notes (Localizado)",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (Localizado)",
+    guideCalendarTitle: "Connect Google Calendar (Localizado)",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you. (Localizado)",
+    guideDesktopTitle: "Keep Clips Desktop open (Localizado)",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription. (Localizado)",
+    guideStartTitle: "Click Start notes (Localizado)",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localizado)",
   },
 };
 

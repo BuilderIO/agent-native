@@ -59,6 +59,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -513,6 +514,37 @@ export default function RecordingPage() {
     },
     onError: handleAiError,
   });
+  const aiPrefsQ = useActionQuery<{ includeFullVideoInAi?: boolean }>(
+    "get-clips-ai-prefs" as any,
+    undefined,
+    { retry: false },
+  );
+  const updateAiPrefs = useActionMutation("update-clips-ai-prefs" as any, {
+    onError: handleAiError,
+  });
+  const [includeFullVideoOverride, setIncludeFullVideoOverride] = useState<
+    boolean | null
+  >(null);
+  const includeFullVideoInAi =
+    includeFullVideoOverride ?? aiPrefsQ.data?.includeFullVideoInAi === true;
+  function handleIncludeFullVideoChange(checked: boolean) {
+    setIncludeFullVideoOverride(checked);
+    updateAiPrefs.mutate({ includeFullVideoInAi: checked } as any, {
+      onSuccess: () => {
+        void aiPrefsQ.refetch().finally(() => {
+          setIncludeFullVideoOverride(null);
+        });
+        toast.success(
+          checked
+            ? t("recordingPage.includeFullVideoOn")
+            : t("recordingPage.includeFullVideoOff"),
+        );
+      },
+      onError: () => {
+        setIncludeFullVideoOverride(null);
+      },
+    });
+  }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
     setEditing(false);
@@ -998,10 +1030,20 @@ export default function RecordingPage() {
                   <IconChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel>
                   {t("recordingPage.enhanceRecording")}
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={includeFullVideoInAi}
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onCheckedChange={handleIncludeFullVideoChange}
+                  onSelect={(event) => event.preventDefault()}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                >
+                  {t("recordingPage.includeFullVideo")}
+                </DropdownMenuCheckboxItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={regenerateTitle.isPending}

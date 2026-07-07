@@ -23,6 +23,10 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
   intType: () => "INTEGER",
   isPostgres: () => false,
+  isUniqueViolation: (error: unknown) => {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return /unique constraint/i.test(message);
+  },
 }));
 
 const {
@@ -84,6 +88,40 @@ describe("resource history store", () => {
       blocks: [{ id: "intro" }],
     });
     expect(full?.metadata).toEqual({ source: "test" });
+  });
+
+  it("enforces unique version numbers per resource", async () => {
+    await insertResourceVersion({
+      resourceType: "doc",
+      resourceId: "d1",
+      ownerEmail: "alice@example.com",
+      snapshot: { n: 1 },
+    });
+    await expect(
+      rawClient.execute({
+        sql: `INSERT INTO agent_resource_versions (
+          id, resource_type, resource_id, version_number, created_at, created_by,
+          actor_kind, owner_email, org_id, visibility, title, summary,
+          snapshot_json, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          "ver_dup",
+          "doc",
+          "d1",
+          1,
+          new Date().toISOString(),
+          null,
+          "human",
+          "alice@example.com",
+          null,
+          "private",
+          null,
+          null,
+          JSON.stringify({ n: "dup" }),
+          null,
+        ],
+      }),
+    ).rejects.toThrow(/unique/i);
   });
 
   it("scopes private, org, and public versions", async () => {

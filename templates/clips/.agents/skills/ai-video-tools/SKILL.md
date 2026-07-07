@@ -27,14 +27,40 @@ The agent is already the user's primary interface — it has full project contex
 
 | Feature                   | Trigger                                                                               | What the action does                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Default title             | Native transcript is saved and the recording still has the default title              | `regenerate-title --recordingId=<id>` → writes `clips-ai-request-:id`; the UI bridge sends it to the agent chat |
+| Include full video        | User toggles "Include full video" in the AI tools menu                                | `update-clips-ai-prefs --includeFullVideoInAi=true\|false` → stored in `clips-user-prefs`; default off |
+| Default title             | Native transcript is saved and the recording still has the default title              | `regenerate-title --recordingId=<id>` → writes `clips-ai-request-:id`; the UI bridge sends it to the agent chat. If Include full video is on, skips the transcript-only Gemini fast path and always delegates so the agent watches the recording |
 | Manual title suggestion   | User asks the agent "rename this"                                                     | Agent reads transcript and calls `update-recording --id=<id> --title=...`                             |
-| Summary / description     | Upload completes, or user clicks "Summarize"                                          | `generate-ai-metadata --id=<id> --kind=summary` → agent writes `update-recording --description=...`   |
-| Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` → agent writes `chapters_json`                                          |
+| Summary / description     | Upload completes, or user clicks "Summarize" / "Regenerate description"               | `regenerate-summary` / `generate-ai-metadata --id=<id> --kind=summary` → agent writes `update-recording --description=...`. With Include full video, agent must watch the clip, not transcript alone |
+| Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference) |
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
 | Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
 | Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
 | **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
+
+## Include full video
+
+Screen recordings often have thin or misleading audio ("real quick", "um this
+thing"). Titles, descriptions, chapters, and workflow docs (PR / SOP / ticket /
+email) are more accurate when the agent can **see** the UI, product names, and
+on-screen text.
+
+- Preference key: `includeFullVideoInAi` on user setting `clips-user-prefs`.
+- UI: checkbox at the top of the recording-page **AI tools** dropdown (copy
+  notes Gemini-only).
+- Actions: `get-clips-ai-prefs`, `update-clips-ai-prefs`.
+- **Gemini only:** sending / understanding the full recording video requires a
+  Gemini model (Builder Gemini or `GEMINI_API_KEY`). Claude and OpenAI cannot
+  ingest the MP4/WebM. When the preference is on, the AI-request bridge prefers
+  Builder `gemini-3-5-flash` for that turn.
+- When on, queued `clips-ai-request-*` messages include instructions to attach
+  or upload the recording to Gemini when possible, otherwise use
+  `get-recording-player-data` / `create-recording-agent-link` and follow
+  recommended frames / the frame API across the timeline — not transcript only.
+- Default title generation also honors this: `regenerate-title` skips the
+  transcript-only Gemini cleanup path and always queues the agent.
+
+Do not invent a parallel "video LLM" path in the UI. Keep the preference on the
+shared user-prefs object and keep delegation through the agent chat.
 
 ## The delegation pattern
 

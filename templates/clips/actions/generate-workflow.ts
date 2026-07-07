@@ -21,6 +21,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 const KIND_PROMPTS = {
   pr: `Compose a pull-request description. Include:
@@ -51,7 +53,7 @@ Keep it concise, warm, and professional.`,
 
 export default defineAction({
   description:
-    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript. The agent writes the result to clips-workflow-<recordingId> in application_state.",
+    "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent writes the result to clips-workflow-<recordingId> in application_state.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     kind: z.enum(["pr", "sop", "ticket", "email"]).describe("Workflow kind"),
@@ -74,6 +76,7 @@ export default defineAction({
       .limit(1);
 
     const stateKey = `clips-workflow-${args.recordingId}`;
+    const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
     // Seed the output state with a "generating" placeholder so the UI can show
     // a loading state immediately.
@@ -83,6 +86,14 @@ export default defineAction({
       recordingId: args.recordingId,
       requestedAt: new Date().toISOString(),
     } as any);
+
+    const baseMessage =
+      `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
+      `(title: "${rec.title}"). Read the transcript from this request's context. ` +
+      `${KIND_PROMPTS[args.kind]} ` +
+      `Then write the final markdown to application_state key "${stateKey}" as ` +
+      `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
+      `Finish by replying in chat with the same generated markdown so the user can read it immediately.`;
 
     const request = {
       kind: "generate-workflow" as const,
@@ -95,13 +106,12 @@ export default defineAction({
       transcriptText: transcript?.fullText ?? "",
       stateKey,
       instructions: KIND_PROMPTS[args.kind],
-      message:
-        `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
-        `(title: "${rec.title}"). Read the transcript from this request's context. ` +
-        `${KIND_PROMPTS[args.kind]} ` +
-        `Then write the final markdown to application_state key "${stateKey}" as ` +
-        `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
-        `Finish by replying in chat with the same generated markdown so the user can read it immediately.`,
+      includeFullVideoInAi,
+      message: withFullVideoAiInstructions(
+        baseMessage,
+        args.recordingId,
+        includeFullVideoInAi,
+      ),
     };
 
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
@@ -115,6 +125,7 @@ export default defineAction({
       recordingId: args.recordingId,
       kind: args.kind,
       stateKey,
+      includeFullVideoInAi,
     };
   },
 });

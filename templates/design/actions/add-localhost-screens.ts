@@ -468,6 +468,7 @@ export default defineAction({
         sourceFile: screen.sourceFile,
         path: screen.path,
         bridgeUrl: connection.bridgeUrl ?? undefined,
+        bridgeToken: connection.bridgeToken ?? undefined,
       };
       previousMetadata[screen.id] = metadata;
       previousLocalhostScreens[screen.id] = metadata;

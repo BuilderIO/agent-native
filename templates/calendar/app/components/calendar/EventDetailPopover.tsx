@@ -294,6 +294,12 @@ function mergeAttendeesForPrompt(
       email,
       displayName: attendee.displayName ?? current?.displayName,
       photoUrl: attendee.photoUrl ?? current?.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : attendee.optional === false
+            ? undefined
+            : current?.optional,
     });
   }
 
@@ -939,6 +945,7 @@ export function EventDetailPopover({
           email: attendee.email,
           displayName: attendee.displayName,
           photoUrl: attendee.photoUrl,
+          optional: attendee.optional === true ? true : undefined,
         })),
     [event.accountEmail, event.attendees],
   );
@@ -1004,6 +1011,7 @@ export function EventDetailPopover({
         email,
         displayName: attendee.displayName,
         photoUrl: attendee.photoUrl,
+        ...(attendee.optional === true ? { optional: true as const } : {}),
       };
 
       if (isDraft) {
@@ -1013,6 +1021,27 @@ export function EventDetailPopover({
       }
     },
     [event.attendees, isDraft, saveField],
+  );
+
+  const handleToggleAttendeeOptional = useCallback(
+    (email: string, optional: boolean) => {
+      const existing = event.attendees || [];
+      const key = email.trim().toLowerCase();
+      if (!existing.some((attendee) => attendee.email.toLowerCase() === key)) {
+        return;
+      }
+      saveField({
+        attendees: existing.map((attendee) =>
+          attendee.email.toLowerCase() === key
+            ? {
+                ...attendee,
+                optional: optional ? true : undefined,
+              }
+            : attendee,
+        ),
+      });
+    },
+    [event.attendees, saveField],
   );
 
   const handleSaveMeetingLink = useCallback(() => {
@@ -1606,7 +1635,11 @@ export function EventDetailPopover({
 
             {/* Attendees — always shown */}
             {event.attendees && event.attendees.length > 0 ? (
-              <EventAttendeesSection event={event} />
+              <EventAttendeesSection
+                event={event}
+                canEditOptional={!isOverlay}
+                onToggleOptional={handleToggleAttendeeOptional}
+              />
             ) : !isOverlay ? (
               <div className="px-4 py-1">
                 <div className="flex items-start gap-3">

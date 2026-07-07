@@ -59,7 +59,13 @@ import {
   shouldMirrorSelectedElementToAgentChat,
   sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
+  buildPendingVisualStyleRevertPatches,
+  mergePendingLiveNonStyleEdits,
   mergePendingVisualStyleEdit,
+  mergePendingVisualStyleEdits,
+  originalStylesForPendingVisualEdit,
+  pendingLiveTextUndoRevertValue,
+  pendingVisualStyleUndoRevertStyles,
   upsertMotionStyleKeyframes,
 } from "./DesignEditor";
 
@@ -273,11 +279,13 @@ describe("DesignEditor pending visual style edits", () => {
       tagName: "section",
       classes: ["hero"],
       styles: { color: "red" },
+      originalStyles: { color: "" },
       updatedAt: 1,
     };
     const second = {
       ...first,
       styles: { backgroundColor: "blue" },
+      originalStyles: { color: "red", backgroundColor: "" },
       updatedAt: 2,
     };
 
@@ -288,7 +296,90 @@ describe("DesignEditor pending visual style edits", () => {
       color: "red",
       backgroundColor: "blue",
     });
+    expect(edits[0].originalStyles).toEqual({
+      color: "",
+      backgroundColor: "",
+    });
     expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+  });
+
+  it("keeps repeated same-target style undo scoped to the latest gesture", () => {
+    const first = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "[data-agent-native-node-id='hero']",
+      sourceId: "hero",
+      tagName: "section",
+      classes: ["hero"],
+      styles: { color: "red" },
+      originalStyles: { color: "" },
+      updatedAt: 1,
+    };
+    const second = {
+      ...first,
+      styles: { color: "blue" },
+      originalStyles: { color: "" },
+      updatedAt: 2,
+    };
+    const mergedAfterFirst = mergePendingVisualStyleEdits([first]);
+
+    expect(
+      pendingVisualStyleUndoRevertStyles(mergedAfterFirst, second),
+    ).toEqual({
+      color: "red",
+    });
+    expect(mergePendingVisualStyleEdits([first, second])).toEqual([
+      {
+        ...first,
+        styles: { color: "blue" },
+        originalStyles: { color: "" },
+        updatedAt: 2,
+      },
+    ]);
+  });
+
+  it("derives original live-edit values from authored inline styles", () => {
+    expect(
+      originalStylesForPendingVisualEdit(
+        { color: "blue", backgroundColor: "yellow" },
+        {
+          inlineStyles: { color: "red" },
+          computedStyles: {
+            color: "rgb(255, 0, 0)",
+            backgroundColor: "rgb(255, 255, 255)",
+          },
+        },
+      ),
+    ).toEqual({
+      color: "red",
+      backgroundColor: "",
+    });
+  });
+
+  it("builds revert patches from pending original styles", () => {
+    expect(
+      buildPendingVisualStyleRevertPatches([
+        {
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: "#cta",
+          sourceId: "cta-node",
+          classes: [],
+          styles: { color: "blue" },
+          originalStyles: { color: "red" },
+          updatedAt: 1,
+        },
+      ]),
+    ).toEqual([
+      {
+        screenId: "home",
+        selector: "#cta",
+        sourceId: "cta-node",
+        styles: { color: "red" },
+      },
+    ]);
   });
 
   it("formats a handoff prompt with screen and style details", () => {
@@ -307,16 +398,95 @@ describe("DesignEditor pending visual style edits", () => {
           tagName: "section",
           classes: ["hero"],
           styles: { color: "rgb(37, 99, 235)" },
+          originalStyles: { color: "rgb(15, 23, 42)" },
           updatedAt: 1,
         },
       ],
     });
 
     expect(prompt).toContain(
-      'Apply these pending visual style edits to "Docs homepage"',
+      'Apply these pending live visual edits to "Docs homepage"',
     );
     expect(prompt).toContain('"screenId": "home"');
     expect(prompt).toContain('"color": "rgb(37, 99, 235)"');
+  });
+
+  it("formats pending live text and structure edits in the handoff prompt", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      designTitle: "Docs homepage",
+      activeFileId: "home",
+      activeFilename: "index.html",
+      edits: [],
+      liveEdits: [
+        {
+          kind: "text",
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: "#headline",
+          sourceId: "headline",
+          classes: [],
+          value: "New headline",
+          originalValue: "Old headline",
+          updatedAt: 1,
+        },
+        {
+          kind: "structure",
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: "#cta",
+          sourceId: "cta",
+          anchorSelector: "#hero",
+          anchorSourceId: "hero",
+          placement: "inside",
+          requestId: "move-1",
+          updatedAt: 2,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("Pending text/structure edits:");
+    expect(prompt).toContain('"kind": "text"');
+    expect(prompt).toContain('"value": "New headline"');
+    expect(prompt).toContain('"kind": "structure"');
+    expect(prompt).toContain('"placement": "inside"');
+  });
+
+  it("keeps repeated live text undo scoped to the latest gesture", () => {
+    const first = {
+      kind: "text" as const,
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "#headline",
+      sourceId: "headline",
+      classes: [],
+      value: "First headline",
+      originalValue: "Original headline",
+      updatedAt: 1,
+    };
+    const second = {
+      ...first,
+      value: "Second headline",
+      originalValue: "Original headline",
+      updatedAt: 2,
+    };
+    const mergedAfterFirst = mergePendingLiveNonStyleEdits([first]);
+
+    expect(pendingLiveTextUndoRevertValue(mergedAfterFirst, second)).toEqual({
+      value: "First headline",
+      html: undefined,
+    });
+    expect(mergePendingLiveNonStyleEdits([first, second])).toEqual([
+      {
+        ...first,
+        value: "Second headline",
+        originalValue: "Original headline",
+        updatedAt: 2,
+      },
+    ]);
   });
 
   it("blocks navigation away while pending visual styles exist", () => {
@@ -357,6 +527,7 @@ describe("DesignEditor pending visual style edits", () => {
             selector: ".hero",
             classes: [],
             styles: { color: "rgb(37, 99, 235)" },
+            originalStyles: { color: "" },
             updatedAt: 1,
           },
         ],
@@ -374,6 +545,7 @@ describe("DesignEditor pending visual style edits", () => {
         selector: ".hero",
         classes: [],
         styles: { color: "rgb(37, 99, 235)" },
+        originalStyles: { color: "" },
         updatedAt: 1,
       },
     ];

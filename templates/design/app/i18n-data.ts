@@ -618,9 +618,13 @@ const enUS = {
       previewLabel: "Pending visual preview",
       applyWithAgent: "Apply with Design agent",
       copyPrompt: "Copy prompt to your agent",
+      abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Style edits sent to the Design agent",
       copiedToast: "Style prompt copied",
+      abortedToast: "Pending preview discarded",
+      interactBlocked:
+        "Apply or abort pending live edits before switching to Interact.",
       leaveTitle: "Apply styles before leaving?",
       leaveDescriptionOne:
         "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",

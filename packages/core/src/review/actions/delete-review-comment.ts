@@ -39,12 +39,19 @@ export default defineAction({
     }
     const isAuthor =
       Boolean(actionCtx?.userEmail) &&
-      comment.authorEmail === actionCtx?.userEmail;
+      normalizeEmail(comment.authorEmail) ===
+        normalizeEmail(actionCtx?.userEmail);
     if (!isAuthor && (!access || !roleSatisfies(access.role, "editor"))) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
-    await deleteReviewComment(comment.id, actionCtx?.userEmail ?? null);
-    return { commentId: comment.id, deleted: true };
+    const updatedCount = await deleteReviewComment(
+      comment.id,
+      actionCtx?.userEmail ?? null,
+    );
+    if (updatedCount < 1) {
+      throw new Error("Review comment not found");
+    }
+    return { commentId: comment.id, deleted: true as const, updatedCount };
   },
   audit: {
     target: (args) => ({
@@ -53,3 +60,8 @@ export default defineAction({
     }),
   },
 });
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}

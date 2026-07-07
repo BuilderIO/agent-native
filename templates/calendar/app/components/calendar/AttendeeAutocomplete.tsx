@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client";
 import {
   IconAddressBook,
+  IconDots,
   IconLoader2,
   IconUserCircle,
   IconUsersGroup,
@@ -18,6 +19,12 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverAnchor,
@@ -39,6 +46,7 @@ export interface AttendeeRecipient {
   email: string;
   displayName?: string;
   photoUrl?: string;
+  optional?: boolean;
 }
 
 export interface AttendeeAutocompleteHandle {
@@ -50,6 +58,7 @@ interface AttendeeAutocompleteProps {
   selectedEmails?: string[];
   onAdd: (attendee: AttendeeRecipient) => void;
   onRemove?: (email: string) => void;
+  onToggleOptional?: (email: string, optional: boolean) => void;
   inputId?: string;
   placeholder?: string;
   autoFocus?: boolean;
@@ -116,6 +125,7 @@ export const AttendeeAutocomplete = forwardRef<
     selectedEmails,
     onAdd,
     onRemove,
+    onToggleOptional,
     inputId,
     placeholder = "Add guests",
     autoFocus,
@@ -208,6 +218,8 @@ export const AttendeeAutocomplete = forwardRef<
         email,
         displayName,
         photoUrl: person.photoUrl,
+        optional:
+          "optional" in person && person.optional === true ? true : undefined,
       });
       setInputValue("");
       setOpen(false);
@@ -348,6 +360,41 @@ export const AttendeeAutocomplete = forwardRef<
                   <span className="truncate">
                     {attendee.displayName || attendee.email}
                   </span>
+                  {attendee.optional && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {t("attendees.optionalBadge")}
+                    </span>
+                  )}
+                  {onToggleOptional && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(event) => event.stopPropagation()}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={t("attendees.guestOptions", {
+                            email: attendee.email,
+                          })}
+                        >
+                          <IconDots className="h-3 w-3" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            onToggleOptional(attendee.email, !attendee.optional)
+                          }
+                        >
+                          {attendee.optional
+                            ? t("attendees.markRequired")
+                            : t("attendees.markOptional")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   {onRemove && (
                     <button
                       type="button"

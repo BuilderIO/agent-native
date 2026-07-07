@@ -1958,6 +1958,12 @@ export interface PendingVisualStyleEdit {
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
+  /**
+   * Inline style values to replay when the user discards the live preview.
+   * Missing authored inline values are stored as "" so the bridge removes the
+   * temporary inline style and lets the app's real CSS win again.
+   */
+  originalStyles: Record<string, string>;
   updatedAt: number;
   /**
    * §6.4 — breakpoint scope active when the edit was made. When present the
@@ -1971,6 +1977,55 @@ export interface PendingVisualStyleEdit {
     upperBoundPx: number | null;
   };
 }
+
+export interface PendingLiveTextEdit {
+  kind: "text";
+  screenId: string;
+  filename: string;
+  screenName: string;
+  selector: string;
+  sourceId?: string | null;
+  tagName?: string | null;
+  classes: string[];
+  value: string;
+  html?: string;
+  originalValue: string;
+  originalHtml?: string;
+  updatedAt: number;
+}
+
+export interface PendingLiveStructureEdit {
+  kind: "structure";
+  screenId: string;
+  filename: string;
+  screenName: string;
+  selector: string;
+  sourceId?: string | null;
+  anchorSelector: string;
+  anchorSourceId?: string | null;
+  placement: "before" | "after" | "inside";
+  requestId?: string;
+  updatedAt: number;
+}
+
+type PendingLiveNonStyleEdit = PendingLiveTextEdit | PendingLiveStructureEdit;
+type PendingVisualStyleUndoEntry = {
+  edit: PendingVisualStyleEdit;
+  revertStyles: Record<string, string>;
+};
+type PendingLiveTextUndoEntry = {
+  kind: "text";
+  edit: PendingLiveTextEdit;
+  revertValue: string;
+  revertHtml?: string;
+};
+type PendingLiveStructureUndoEntry = {
+  kind: "structure";
+  edit: PendingLiveStructureEdit;
+};
+type PendingLiveNonStyleUndoEntry =
+  | PendingLiveTextUndoEntry
+  | PendingLiveStructureUndoEntry;
 
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
@@ -1993,9 +2048,89 @@ export function mergePendingVisualStyleEdit(
       ...nextEdit,
       classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
       styles: { ...edit.styles, ...nextEdit.styles },
+      originalStyles: {
+        ...nextEdit.originalStyles,
+        ...edit.originalStyles,
+      },
     };
   });
   return merged ? next : [...edits, nextEdit];
+}
+
+export function mergePendingVisualStyleEdits(
+  edits: readonly PendingVisualStyleEdit[],
+): PendingVisualStyleEdit[] {
+  return edits.reduce<PendingVisualStyleEdit[]>(
+    (merged, edit) => mergePendingVisualStyleEdit(merged, edit),
+    [],
+  );
+}
+
+export function pendingVisualStyleUndoRevertStyles(
+  currentEdits: readonly PendingVisualStyleEdit[],
+  nextEdit: PendingVisualStyleEdit,
+): Record<string, string> {
+  const currentForTarget = currentEdits.find(
+    (edit) =>
+      pendingVisualStyleEditKey(edit) === pendingVisualStyleEditKey(nextEdit),
+  );
+  return Object.fromEntries(
+    Object.keys(nextEdit.styles).map((property) => [
+      property,
+      currentForTarget?.styles[property] ??
+        nextEdit.originalStyles[property] ??
+        "",
+    ]),
+  );
+}
+
+function styleLookup(
+  styles: Record<string, string> | undefined,
+  property: string,
+): string | undefined {
+  if (!styles) return undefined;
+  const camel = camelStyleProperty(property);
+  const kebab = property.replace(
+    /[A-Z]/g,
+    (match) => `-${match.toLowerCase()}`,
+  );
+  return styles[property] ?? styles[camel] ?? styles[kebab];
+}
+
+export function originalStylesForPendingVisualEdit(
+  styles: Record<string, string>,
+  primaryInfo?: Pick<ElementInfo, "computedStyles" | "inlineStyles"> | null,
+  fallbackInfo?: Pick<ElementInfo, "computedStyles" | "inlineStyles"> | null,
+): Record<string, string> {
+  const sourceInfo = primaryInfo ?? fallbackInfo ?? null;
+  const inlineStyles = sourceInfo?.inlineStyles;
+  const computedStyles = sourceInfo?.computedStyles;
+  return Object.fromEntries(
+    Object.keys(styles).map((property) => {
+      const inlineValue = styleLookup(inlineStyles, property);
+      if (inlineValue !== undefined) return [property, inlineValue];
+      if (inlineStyles) return [property, ""];
+      return [property, styleLookup(computedStyles, property) ?? ""];
+    }),
+  );
+}
+
+export function buildPendingVisualStyleRevertPatches(
+  edits: readonly PendingVisualStyleEdit[],
+): Array<{
+  screenId: string;
+  selector: string;
+  sourceId?: string | null;
+  styles: Record<string, string>;
+}> {
+  return edits
+    .map((edit) => ({
+      screenId: edit.screenId,
+      selector: edit.selector,
+      sourceId: edit.sourceId,
+      styles: edit.originalStyles,
+    }))
+    .filter((patch) => Object.keys(patch.styles).length > 0);
 }
 
 export function getPendingVisualStylePropertyCount(
@@ -2024,6 +2159,7 @@ export function formatPendingVisualStylePrompt(args: {
   activeFileId?: string | null;
   activeFilename?: string | null;
   edits: readonly PendingVisualStyleEdit[];
+  liveEdits?: readonly PendingLiveNonStyleEdit[];
 }): string {
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
@@ -2040,21 +2176,50 @@ export function formatPendingVisualStylePrompt(args: {
   const hasBreakpointScopedEdits = args.edits.some(
     (edit) => edit.breakpoint && edit.breakpoint.upperBoundPx !== null,
   );
+  const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
+    if (edit.kind === "text") {
+      return {
+        kind: edit.kind,
+        screenId: edit.screenId,
+        filename: edit.filename,
+        screenName: edit.screenName,
+        selector: edit.selector,
+        sourceId: edit.sourceId ?? null,
+        tagName: edit.tagName ?? null,
+        classes: edit.classes,
+        value: edit.value,
+        html: edit.html,
+      };
+    }
+    return {
+      kind: edit.kind,
+      screenId: edit.screenId,
+      filename: edit.filename,
+      screenName: edit.screenName,
+      selector: edit.selector,
+      sourceId: edit.sourceId ?? null,
+      anchorSelector: edit.anchorSelector,
+      anchorSourceId: edit.anchorSourceId ?? null,
+      placement: edit.placement,
+    };
+  });
 
   return [
-    `Apply these pending visual style edits${title ? ` to "${title}"` : ""}.`,
+    `Apply these pending live visual edits${title ? ` to "${title}"` : ""}.`,
     args.designId ? `Design id: "${args.designId}".` : "",
     args.activeFileId
       ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
       : "",
     "",
-    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
     hasBreakpointScopedEdits
       ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports."
       : "",
     "",
     "Pending style edits:",
     JSON.stringify(editPayload, null, 2),
+    liveEditPayload.length > 0 ? "Pending text/structure edits:" : "",
+    liveEditPayload.length > 0 ? JSON.stringify(liveEditPayload, null, 2) : "",
   ]
     .filter((line) => line !== "")
     .join("\n");
@@ -2062,12 +2227,14 @@ export function formatPendingVisualStylePrompt(args: {
 
 export function shouldShowPendingVisualStyleApply(args: {
   edits: readonly PendingVisualStyleEdit[];
+  liveEdits?: readonly PendingLiveNonStyleEdit[];
   screenSourceTypes: ReadonlyMap<string, unknown>;
   fallbackSourceType?: unknown;
 }): boolean {
+  const allEdits = [...args.edits, ...(args.liveEdits ?? [])];
   return (
-    args.edits.length > 0 &&
-    args.edits.every(
+    allEdits.length > 0 &&
+    allEdits.every(
       (edit) =>
         normalizeDesignSourceType(
           args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
@@ -4673,6 +4840,54 @@ function codeLayerSelectorAliases(
   );
 }
 
+function pendingLiveTextEditKey(edit: PendingLiveTextEdit): string {
+  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
+}
+
+export function mergePendingLiveNonStyleEdits(
+  edits: readonly PendingLiveNonStyleEdit[],
+): PendingLiveNonStyleEdit[] {
+  const merged: PendingLiveNonStyleEdit[] = [];
+  for (const edit of edits) {
+    if (edit.kind === "structure") {
+      merged.push(edit);
+      continue;
+    }
+    const nextKey = pendingLiveTextEditKey(edit);
+    const index = merged.findIndex(
+      (candidate) =>
+        candidate.kind === "text" &&
+        pendingLiveTextEditKey(candidate) === nextKey,
+    );
+    if (index === -1) {
+      merged.push(edit);
+      continue;
+    }
+    const previous = merged[index] as PendingLiveTextEdit;
+    merged[index] = {
+      ...previous,
+      ...edit,
+      originalValue: previous.originalValue,
+      originalHtml: previous.originalHtml,
+    };
+  }
+  return merged;
+}
+
+export function pendingLiveTextUndoRevertValue(
+  currentEdits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveTextEdit,
+): { value: string; html?: string } {
+  const currentForTarget = currentEdits.find(
+    (edit): edit is PendingLiveTextEdit =>
+      edit.kind === "text" &&
+      pendingLiveTextEditKey(edit) === pendingLiveTextEditKey(nextEdit),
+  );
+  return currentForTarget
+    ? { value: currentForTarget.value, html: currentForTarget.html }
+    : { value: nextEdit.originalValue, html: nextEdit.originalHtml };
+}
+
 function normalizeCodeLayerSelector(selector: string): string {
   return (
     selector
@@ -6820,6 +7035,119 @@ export default function DesignEditor() {
   const [pendingVisualStyleEdits, setPendingVisualStyleEdits] = useState<
     PendingVisualStyleEdit[]
   >([]);
+  const [pendingLiveNonStyleEdits, setPendingLiveNonStyleEdits] = useState<
+    PendingLiveNonStyleEdit[]
+  >([]);
+  const [pendingVisualStyleRevertRequest, setPendingVisualStyleRevertRequest] =
+    useState<{
+      requestId: number;
+      patches: ReturnType<typeof buildPendingVisualStyleRevertPatches>;
+    } | null>(null);
+  const [pendingTextRevertRequest, setPendingTextRevertRequest] = useState<{
+    requestId: number;
+    patches: Array<{
+      screenId: string;
+      selector: string;
+      sourceId?: string | null;
+      value: string;
+      html?: string;
+    }>;
+  } | null>(null);
+  const [pendingStructureAckRequest, setPendingStructureAckRequest] = useState<{
+    requestId: number;
+    acks: Array<{ screenId: string; requestId: string; applied: boolean }>;
+  } | null>(null);
+  const [
+    pendingVisualStyleBaselineResetRequest,
+    setPendingVisualStyleBaselineResetRequest,
+  ] = useState<number | null>(null);
+  const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
+  const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingVisualStyleUndoStackRef = useRef<PendingVisualStyleUndoEntry[]>(
+    [],
+  );
+  const pendingVisualStyleRedoStackRef = useRef<PendingVisualStyleUndoEntry[]>(
+    [],
+  );
+  const pendingLiveNonStyleUndoStackRef = useRef<
+    PendingLiveNonStyleUndoEntry[]
+  >([]);
+  const pendingLiveTextRedoStackRef = useRef<PendingLiveTextUndoEntry[]>([]);
+  const requestPendingVisualStyleRevert = useCallback(
+    (edits: readonly PendingVisualStyleEdit[]) => {
+      const patches = buildPendingVisualStyleRevertPatches(edits);
+      if (patches.length === 0) return;
+      const requestId = Date.now() + Math.random();
+      setPendingVisualStyleRevertRequest({
+        requestId,
+        patches,
+      });
+      setPendingVisualStyleBaselineResetRequest(requestId);
+    },
+    [],
+  );
+  const requestPendingLiveNonStyleRevert = useCallback(
+    (edits: readonly PendingLiveNonStyleEdit[]) => {
+      const requestId = Date.now() + Math.random();
+      const textPatches = edits
+        .filter((edit): edit is PendingLiveTextEdit => edit.kind === "text")
+        .map((edit) => ({
+          screenId: edit.screenId,
+          selector: edit.selector,
+          sourceId: edit.sourceId,
+          value: edit.originalValue,
+          html: edit.originalHtml,
+        }));
+      const structureAcks = edits
+        .filter(
+          (edit): edit is PendingLiveStructureEdit =>
+            edit.kind === "structure" && Boolean(edit.requestId),
+        )
+        .map((edit) => ({
+          screenId: edit.screenId,
+          requestId: edit.requestId!,
+          applied: false,
+        }));
+      if (textPatches.length > 0) {
+        setPendingTextRevertRequest({ requestId, patches: textPatches });
+      }
+      if (structureAcks.length > 0) {
+        setPendingStructureAckRequest({ requestId, acks: structureAcks });
+      }
+    },
+    [],
+  );
+  const clearPendingLiveEditState = useCallback(() => {
+    pendingVisualStyleUndoStackRef.current = [];
+    pendingVisualStyleRedoStackRef.current = [];
+    pendingLiveNonStyleUndoStackRef.current = [];
+    pendingLiveTextRedoStackRef.current = [];
+    pendingVisualStyleEditsRef.current = [];
+    pendingLiveNonStyleEditsRef.current = [];
+    setPendingVisualStyleEdits([]);
+    setPendingLiveNonStyleEdits([]);
+  }, []);
+  useEffect(() => {
+    if (!pendingVisualStyleRevertRequest) return;
+    const timeout = window.setTimeout(() => {
+      setPendingVisualStyleRevertRequest(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [pendingVisualStyleRevertRequest]);
+  useEffect(() => {
+    if (!pendingTextRevertRequest) return;
+    const timeout = window.setTimeout(() => {
+      setPendingTextRevertRequest(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [pendingTextRevertRequest]);
+  useEffect(() => {
+    if (!pendingStructureAckRequest) return;
+    const timeout = window.setTimeout(() => {
+      setPendingStructureAckRequest(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [pendingStructureAckRequest]);
   const [textEditingState, setTextEditingState] = useState<{
     active: boolean;
     selector?: string;
@@ -7426,6 +7754,8 @@ export default function DesignEditor() {
     localContentRedoStackRef.current = [];
     geometryRedoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
+    pendingVisualStyleRedoStackRef.current = [];
+    pendingLiveTextRedoStackRef.current = [];
     redoOrderRef.current = [];
     undoManagerRef.current?.clear(false, true);
   }, []);
@@ -7476,7 +7806,9 @@ export default function DesignEditor() {
         activeHistoryFileId,
       ) !== -1;
     setCanUndo(
-      Boolean(undoManager?.canUndo()) ||
+      pendingVisualStyleEditsRef.current.length > 0 ||
+        pendingLiveNonStyleUndoStackRef.current.length > 0 ||
+        Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
@@ -7484,7 +7816,9 @@ export default function DesignEditor() {
             fileCreationUndoStackRef.current.length > 0)),
     );
     setCanRedo(
-      Boolean(undoManager?.canRedo()) ||
+      pendingVisualStyleRedoStackRef.current.length > 0 ||
+        pendingLiveTextRedoStackRef.current.length > 0 ||
+        Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
@@ -7492,6 +7826,14 @@ export default function DesignEditor() {
             fileCreationRedoStackRef.current.length > 0)),
     );
   }, []);
+  useEffect(() => {
+    pendingVisualStyleEditsRef.current = pendingVisualStyleEdits;
+    syncUndoRedoState();
+  }, [pendingVisualStyleEdits, syncUndoRedoState]);
+  useEffect(() => {
+    pendingLiveNonStyleEditsRef.current = pendingLiveNonStyleEdits;
+    syncUndoRedoState();
+  }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
     (entry: ContentHistoryEntry) => {
       const changes = getContentHistoryChanges(entry).filter(
@@ -8792,6 +9134,7 @@ export default function DesignEditor() {
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
           bridgeUrl: stringValue("bridgeUrl"),
+          bridgeToken: stringValue("bridgeToken"),
           // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
           // renders one iframe per width to the right of the primary frame.
           breakpointWidths: bpWidths,
@@ -9418,6 +9761,11 @@ export default function DesignEditor() {
     [activeOverviewScreenId, overviewScreens],
   );
   const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
+  const activeScreenBridgeToken =
+    "bridgeToken" in (activeOverviewScreen ?? {}) &&
+    typeof activeOverviewScreen?.bridgeToken === "string"
+      ? activeOverviewScreen.bridgeToken
+      : undefined;
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
     : undefined;
@@ -11324,6 +11672,7 @@ export default function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
+      metadata?: { originalStyles?: Record<string, string> },
     ) => {
       if (!canEditDesign) return;
       const entries = Object.entries(styles).filter(
@@ -11341,30 +11690,52 @@ export default function DesignEditor() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const [firstProperty, firstValue] = entries[0];
-
-      setPendingVisualStyleEdits((current) =>
-        mergePendingVisualStyleEdit(current, {
-          screenId,
-          filename: fallbackName,
-          screenName: prettyScreenName(fallbackName),
-          selector,
-          sourceId,
-          tagName: elementInfo?.tagName ?? null,
-          classes: elementInfo?.classes ?? [],
-          styles: stylePatch,
-          updatedAt: Date.now(),
-          // §6.4 — stamp the active breakpoint scope so the agent applies
-          // these as width-scoped overrides, not base writes.
-          ...(activeBreakpointWidthState != null
-            ? {
-                breakpoint: {
-                  activeWidthPx: activeBreakpointWidthState,
-                  upperBoundPx: activeBreakpointUpperBoundPx,
-                },
-              }
-            : {}),
-        }),
+      const originalStyles =
+        metadata?.originalStyles ??
+        originalStylesForPendingVisualEdit(
+          stylePatch,
+          screenId === activeFile?.id ? selectedElement : null,
+          elementInfo,
+        );
+      pendingVisualStyleRedoStackRef.current = [];
+      pendingLiveTextRedoStackRef.current = [];
+      const nextEdit: PendingVisualStyleEdit = {
+        screenId,
+        filename: fallbackName,
+        screenName: prettyScreenName(fallbackName),
+        selector,
+        sourceId,
+        tagName: elementInfo?.tagName ?? null,
+        classes: elementInfo?.classes ?? [],
+        styles: stylePatch,
+        originalStyles,
+        updatedAt: Date.now(),
+        // §6.4 — stamp the active breakpoint scope so the agent applies
+        // these as width-scoped overrides, not base writes.
+        ...(activeBreakpointWidthState != null
+          ? {
+              breakpoint: {
+                activeWidthPx: activeBreakpointWidthState,
+                upperBoundPx: activeBreakpointUpperBoundPx,
+              },
+            }
+          : {}),
+      };
+      const revertStyles = pendingVisualStyleUndoRevertStyles(
+        pendingVisualStyleEditsRef.current,
+        nextEdit,
       );
+      pendingVisualStyleUndoStackRef.current = [
+        ...pendingVisualStyleUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        { edit: nextEdit, revertStyles },
+      ];
+      const nextPending = mergePendingVisualStyleEdits(
+        pendingVisualStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingVisualStyleEditsRef.current = nextPending;
+      setPendingVisualStyleEdits(nextPending);
       setPatchProof({
         id: proofId,
         fileId: screenId,
@@ -11419,8 +11790,132 @@ export default function DesignEditor() {
       files,
       getProjectionContentForScreen,
       selectedElement?.computedStyles,
+      selectedElement?.inlineStyles,
       selectedElement?.sourceId,
     ],
+  );
+
+  const recordPendingLiveTextEdit = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      value: string,
+      elementInfo?: ElementInfo,
+      details?: {
+        html?: string;
+        originalValue?: string;
+        originalHtml?: string;
+      },
+    ) => {
+      if (!canEditDesign) return;
+      const screen = files.find((file) => file.id === screenId);
+      const fallbackName = screen?.filename ?? screenId;
+      const sourceId =
+        elementInfo?.sourceId ??
+        (screenId === activeFile?.id ? selectedElement?.sourceId : null);
+      pendingLiveTextRedoStackRef.current = [];
+      pendingVisualStyleRedoStackRef.current = [];
+      const originalValue =
+        details?.originalValue ??
+        elementInfo?.textContent ??
+        (screenId === activeFile?.id ? selectedElement?.textContent : "") ??
+        "";
+      const originalHtml =
+        details?.originalHtml ??
+        elementInfo?.htmlContent ??
+        (screenId === activeFile?.id
+          ? selectedElement?.htmlContent
+          : undefined);
+      const nextEdit: PendingLiveTextEdit = {
+        kind: "text",
+        screenId,
+        filename: fallbackName,
+        screenName: prettyScreenName(fallbackName),
+        selector,
+        sourceId,
+        tagName: elementInfo?.tagName ?? null,
+        classes: elementInfo?.classes ?? [],
+        value,
+        html: details?.html,
+        originalValue,
+        originalHtml,
+        updatedAt: Date.now(),
+      };
+      const revert = pendingLiveTextUndoRevertValue(
+        pendingLiveNonStyleEditsRef.current,
+        nextEdit,
+      );
+      pendingLiveNonStyleUndoStackRef.current = [
+        ...pendingLiveNonStyleUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        {
+          kind: "text",
+          edit: nextEdit,
+          revertValue: revert.value,
+          revertHtml: revert.html,
+        },
+      ];
+      const nextPending = mergePendingLiveNonStyleEdits(
+        pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      setPendingLiveNonStyleEdits(nextPending);
+    },
+    [
+      activeFile?.id,
+      canEditDesign,
+      files,
+      selectedElement?.htmlContent,
+      selectedElement?.sourceId,
+      selectedElement?.textContent,
+    ],
+  );
+
+  const recordPendingLiveStructureEdit = useCallback(
+    (
+      screenId: string,
+      selector: string,
+      anchorSelector: string,
+      placement: "before" | "after" | "inside",
+      elementInfo?: ElementInfo,
+      details?: {
+        sourceId?: string;
+        anchorSourceId?: string;
+        requestId?: string;
+      },
+    ) => {
+      if (!canEditDesign) return;
+      const screen = files.find((file) => file.id === screenId);
+      const fallbackName = screen?.filename ?? screenId;
+      pendingLiveTextRedoStackRef.current = [];
+      pendingVisualStyleRedoStackRef.current = [];
+      const nextEdit: PendingLiveStructureEdit = {
+        kind: "structure",
+        screenId,
+        filename: fallbackName,
+        screenName: prettyScreenName(fallbackName),
+        selector,
+        sourceId: details?.sourceId ?? elementInfo?.sourceId ?? null,
+        anchorSelector,
+        anchorSourceId: details?.anchorSourceId ?? null,
+        placement,
+        requestId: details?.requestId,
+        updatedAt: Date.now(),
+      };
+      pendingLiveNonStyleUndoStackRef.current = [
+        ...pendingLiveNonStyleUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        { kind: "structure", edit: nextEdit },
+      ];
+      const nextPending = mergePendingLiveNonStyleEdits(
+        pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      setPendingLiveNonStyleEdits(nextPending);
+    },
+    [canEditDesign, files],
   );
   const activeProjectionContent =
     activeFile?.id !== undefined
@@ -15374,6 +15869,7 @@ export default function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
+      metadata?: { originalStyles?: Record<string, string> },
     ) => {
       if (!activeFile?.id) return;
       // §gesture-persistence — only localhost screens need the agent-applied
@@ -15391,6 +15887,7 @@ export default function DesignEditor() {
           selector,
           styles,
           elementInfo,
+          metadata,
         );
         upsertMotionKeyframesFromStyles(styles, elementInfo, selector);
         return;
@@ -15426,6 +15923,17 @@ export default function DesignEditor() {
     ) => {
       if (!canEditDesign) return false;
       if (!activeFile) return false;
+      if (activeCanvasSourceType === "localhost") {
+        recordPendingLiveStructureEdit(
+          activeFile.id,
+          selector,
+          anchorSelector,
+          placement,
+          elementInfo,
+          details,
+        );
+        return "pending";
+      }
       const baseContent = getFreshActiveContent();
       const projection = buildCodeLayerProjection(baseContent);
       const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
@@ -15535,9 +16043,11 @@ export default function DesignEditor() {
     },
     [
       activeFile,
+      activeCanvasSourceType,
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      recordPendingLiveStructureEdit,
       t,
     ],
   );
@@ -15625,10 +16135,26 @@ export default function DesignEditor() {
       selector: string,
       value: string,
       elementInfo?: ElementInfo,
-      details?: { html?: string },
+      details?: {
+        html?: string;
+        originalValue?: string;
+        originalHtml?: string;
+      },
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
+      if (activeCanvasSourceType === "localhost") {
+        recordPendingLiveTextEdit(
+          activeFile.id,
+          selector,
+          value,
+          elementInfo,
+          details,
+        );
+        setActiveTool("move");
+        setMode("edit");
+        return;
+      }
       const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
       const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
       const projection = buildCodeLayerProjection(baseContent);
@@ -15711,10 +16237,12 @@ export default function DesignEditor() {
     },
     [
       activeFile,
+      activeCanvasSourceType,
       applyLocalContentUpdate,
       canEditDesign,
       getFreshActiveContent,
       liveScreenSnapshotsById,
+      recordPendingLiveTextEdit,
       t,
       updateLiveScreenSnapshotContent,
     ],
@@ -15726,9 +16254,10 @@ export default function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
+      metadata?: { originalStyles?: Record<string, string> },
     ) => {
       if (screenId === activeFile?.id) {
-        handleVisualStyleChange(selector, styles, elementInfo);
+        handleVisualStyleChange(selector, styles, elementInfo, metadata);
         return;
       }
       // §gesture-persistence — mirror handleVisualStyleChange's source-type
@@ -15744,7 +16273,13 @@ export default function DesignEditor() {
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
       if (screenSourceType === "localhost") {
-        recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo);
+        recordPendingVisualStyleEdit(
+          screenId,
+          selector,
+          styles,
+          elementInfo,
+          metadata,
+        );
         return;
       }
       if (!canEditDesign) return;
@@ -15820,17 +16355,32 @@ export default function DesignEditor() {
       },
     ) => {
       if (screenId === activeFile?.id) {
-        return (
-          handleVisualStructureChange(
-            selector,
-            anchorSelector,
-            placement,
-            elementInfo,
-            details,
-          ) !== false
+        return handleVisualStructureChange(
+          selector,
+          anchorSelector,
+          placement,
+          elementInfo,
+          details,
         );
       }
       if (!canEditDesign) return false;
+      const overviewScreen = overviewScreens.find(
+        (screen) => screen.id === screenId,
+      );
+      const screenSourceType =
+        normalizeDesignSourceType(overviewScreen?.sourceType) ??
+        designSourceType;
+      if (screenSourceType === "localhost") {
+        recordPendingLiveStructureEdit(
+          screenId,
+          selector,
+          anchorSelector,
+          placement,
+          elementInfo,
+          details,
+        );
+        return "pending";
+      }
       const baseContent = getScreenContent(screenId);
       const projection = buildCodeLayerProjection(baseContent);
       const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
@@ -15932,8 +16482,11 @@ export default function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      designSourceType,
       getScreenContent,
       handleVisualStructureChange,
+      overviewScreens,
+      recordPendingLiveStructureEdit,
       t,
     ],
   );
@@ -16019,13 +16572,36 @@ export default function DesignEditor() {
       selector: string,
       value: string,
       elementInfo?: ElementInfo,
-      details?: { html?: string },
+      details?: {
+        html?: string;
+        originalValue?: string;
+        originalHtml?: string;
+      },
     ) => {
       if (screenId === activeFile?.id) {
         handleTextContentChange(selector, value, elementInfo, details);
         return;
       }
       if (!canEditDesign) return;
+      const overviewScreen = overviewScreens.find(
+        (screen) => screen.id === screenId,
+      );
+      const screenSourceType =
+        normalizeDesignSourceType(overviewScreen?.sourceType) ??
+        designSourceType;
+      if (screenSourceType === "localhost") {
+        recordPendingLiveTextEdit(
+          screenId,
+          selector,
+          value,
+          elementInfo,
+          details,
+        );
+        setActiveFileId(screenId);
+        setActiveTool("move");
+        setMode("edit");
+        return;
+      }
       const liveSnapshot = liveScreenSnapshotsById[screenId];
       const baseContent = liveSnapshot?.html ?? getScreenContent(screenId);
       const projection = buildCodeLayerProjection(baseContent);
@@ -16109,9 +16685,12 @@ export default function DesignEditor() {
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      designSourceType,
       getScreenContent,
       handleTextContentChange,
       liveScreenSnapshotsById,
+      overviewScreens,
+      recordPendingLiveTextEdit,
       t,
       updateLiveScreenSnapshotContent,
     ],
@@ -19500,6 +20079,67 @@ export default function DesignEditor() {
     // element — the drag's eventual commit would then stomp the undo. Block
     // until the drag finishes (or is cancelled).
     if (activeEditorDragRef.current) return;
+    const pendingStyleUndoStack = pendingVisualStyleUndoStackRef.current;
+    const pendingStyleUndo =
+      pendingStyleUndoStack[pendingStyleUndoStack.length - 1];
+    const pendingNonStyleUndoStack = pendingLiveNonStyleUndoStackRef.current;
+    const pendingNonStyleUndo =
+      pendingNonStyleUndoStack[pendingNonStyleUndoStack.length - 1];
+    if (
+      pendingNonStyleUndo &&
+      (!pendingStyleUndo ||
+        pendingNonStyleUndo.edit.updatedAt > pendingStyleUndo.edit.updatedAt)
+    ) {
+      const nextUndoStack = pendingNonStyleUndoStack.slice(0, -1);
+      pendingLiveNonStyleUndoStackRef.current = nextUndoStack;
+      const nextPending = mergePendingLiveNonStyleEdits(
+        nextUndoStack.map((entry) => entry.edit),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      if (pendingNonStyleUndo.kind === "text") {
+        pendingLiveTextRedoStackRef.current = [
+          ...pendingLiveTextRedoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          pendingNonStyleUndo,
+        ];
+      }
+      requestPendingLiveNonStyleRevert([
+        pendingNonStyleUndo.kind === "text"
+          ? {
+              ...pendingNonStyleUndo.edit,
+              originalValue: pendingNonStyleUndo.revertValue,
+              originalHtml: pendingNonStyleUndo.revertHtml,
+            }
+          : pendingNonStyleUndo.edit,
+      ]);
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+      return;
+    }
+    if (pendingStyleUndo) {
+      const nextUndoStack = pendingStyleUndoStack.slice(0, -1);
+      pendingVisualStyleUndoStackRef.current = nextUndoStack;
+      const nextPending = mergePendingVisualStyleEdits(
+        nextUndoStack.map((entry) => entry.edit),
+      );
+      pendingVisualStyleEditsRef.current = nextPending;
+      pendingVisualStyleRedoStackRef.current = [
+        ...pendingVisualStyleRedoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        pendingStyleUndo,
+      ];
+      requestPendingVisualStyleRevert([
+        {
+          ...pendingStyleUndo.edit,
+          originalStyles: pendingStyleUndo.revertStyles,
+        },
+      ]);
+      setPendingVisualStyleEdits(nextPending);
+      syncUndoRedoState();
+      return;
+    }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
     let prunedUndoHistory = 0;
@@ -19825,6 +20465,8 @@ export default function DesignEditor() {
     queueFileContentSave,
     replacePreviewContent,
     restoreSelectionSnapshot,
+    requestPendingLiveNonStyleRevert,
+    requestPendingVisualStyleRevert,
     syncUndoRedoState,
     updateLiveScreenSnapshotContent,
     writeFrameGeometrySnapshot,
@@ -19836,6 +20478,69 @@ export default function DesignEditor() {
     // U10: see the matching guard in handleUndo — don't redo into a document
     // state an in-progress, uncommitted drag is about to overwrite anyway.
     if (activeEditorDragRef.current) return;
+    const pendingTextRedoStack = pendingLiveTextRedoStackRef.current;
+    const pendingTextRedo =
+      pendingTextRedoStack[pendingTextRedoStack.length - 1];
+    if (pendingTextRedo) {
+      const nextRedoStack = pendingTextRedoStack.slice(0, -1);
+      pendingLiveTextRedoStackRef.current = nextRedoStack;
+      pendingLiveNonStyleUndoStackRef.current = [
+        ...pendingLiveNonStyleUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        pendingTextRedo,
+      ];
+      const nextPending = mergePendingLiveNonStyleEdits(
+        pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingLiveNonStyleEditsRef.current = nextPending;
+      setPendingTextRevertRequest({
+        requestId: Date.now() + Math.random(),
+        patches: [
+          {
+            screenId: pendingTextRedo.edit.screenId,
+            selector: pendingTextRedo.edit.selector,
+            sourceId: pendingTextRedo.edit.sourceId,
+            value: pendingTextRedo.edit.value,
+            html: pendingTextRedo.edit.html,
+          },
+        ],
+      });
+      setPendingLiveNonStyleEdits(nextPending);
+      syncUndoRedoState();
+      return;
+    }
+    const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
+    const pendingLiveRedo =
+      pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+    if (pendingLiveRedo) {
+      const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
+      pendingVisualStyleRedoStackRef.current = nextRedoStack;
+      pendingVisualStyleUndoStackRef.current = [
+        ...pendingVisualStyleUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        pendingLiveRedo,
+      ];
+      const nextPending = mergePendingVisualStyleEdits(
+        pendingVisualStyleUndoStackRef.current.map((entry) => entry.edit),
+      );
+      pendingVisualStyleEditsRef.current = nextPending;
+      setPendingVisualStyleRevertRequest({
+        requestId: Date.now() + Math.random(),
+        patches: [
+          {
+            screenId: pendingLiveRedo.edit.screenId,
+            selector: pendingLiveRedo.edit.selector,
+            sourceId: pendingLiveRedo.edit.sourceId,
+            styles: pendingLiveRedo.edit.styles,
+          },
+        ],
+      });
+      setPendingVisualStyleEdits(nextPending);
+      syncUndoRedoState();
+      return;
+    }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
     let prunedRedoHistory = 0;
@@ -20446,10 +21151,24 @@ export default function DesignEditor() {
   }, [activeFile, enterOverviewFromZoom, mode, viewMode, zoom]);
 
   const handleModeChange = useCallback(
-    (next: EditorMode) => {
+    (next: EditorMode, options?: { discardPendingLiveEdits?: boolean }) => {
       if (!canEditDesign && next === "annotate") return;
       if ((next === "annotate" || next === "interact") && !activeFile) {
         return;
+      }
+      if (
+        next === "interact" &&
+        (pendingVisualStyleEdits.length > 0 ||
+          pendingLiveNonStyleEdits.length > 0) &&
+        !options?.discardPendingLiveEdits
+      ) {
+        toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
+        return;
+      }
+      if (options?.discardPendingLiveEdits) {
+        requestPendingVisualStyleRevert(pendingVisualStyleEdits);
+        requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+        clearPendingLiveEditState();
       }
 
       if (activeFile && viewMode === "overview") {
@@ -20474,7 +21193,17 @@ export default function DesignEditor() {
         setPinMode(false);
       }
     },
-    [activeFile, canEditDesign, viewMode],
+    [
+      activeFile,
+      canEditDesign,
+      pendingLiveNonStyleEdits,
+      pendingVisualStyleEdits,
+      clearPendingLiveEditState,
+      requestPendingLiveNonStyleRevert,
+      requestPendingVisualStyleRevert,
+      t,
+      viewMode,
+    ],
   );
 
   useEffect(() => {
@@ -21256,7 +21985,8 @@ export default function DesignEditor() {
     }
   }, [editorShareUrl, t]);
 
-  const hasPendingVisualStyleEdits = pendingVisualStyleEdits.length > 0;
+  const hasPendingVisualStyleEdits =
+    pendingVisualStyleEdits.length > 0 || pendingLiveNonStyleEdits.length > 0;
   useBeforeUnload(
     useCallback(
       (event: BeforeUnloadEvent) => {
@@ -21287,9 +22017,18 @@ export default function DesignEditor() {
   }, [pendingVisualStyleNavigationBlocker]);
   const handleDiscardPendingVisualStylesAndNavigate = useCallback(() => {
     if (pendingVisualStyleNavigationBlocker.state !== "blocked") return;
-    setPendingVisualStyleEdits([]);
+    requestPendingVisualStyleRevert(pendingVisualStyleEdits);
+    requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
+    clearPendingLiveEditState();
     pendingVisualStyleNavigationBlocker.proceed();
-  }, [pendingVisualStyleNavigationBlocker]);
+  }, [
+    clearPendingLiveEditState,
+    pendingLiveNonStyleEdits,
+    pendingVisualStyleEdits,
+    pendingVisualStyleNavigationBlocker,
+    requestPendingLiveNonStyleRevert,
+    requestPendingVisualStyleRevert,
+  ]);
 
   const pendingVisualStylePropertyCount = useMemo(
     () => getPendingVisualStylePropertyCount(pendingVisualStyleEdits),
@@ -21309,11 +22048,13 @@ export default function DesignEditor() {
     () =>
       shouldShowPendingVisualStyleApply({
         edits: pendingVisualStyleEdits,
+        liveEdits: pendingLiveNonStyleEdits,
         screenSourceTypes: pendingVisualStyleScreenSourceTypes,
         fallbackSourceType: designSourceType,
       }),
     [
       designSourceType,
+      pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
       pendingVisualStyleScreenSourceTypes,
     ],
@@ -21326,36 +22067,91 @@ export default function DesignEditor() {
         activeFileId: activeFile?.id,
         activeFilename: activeFile?.filename,
         edits: pendingVisualStyleEdits,
+        liveEdits: pendingLiveNonStyleEdits,
       }),
     [
       activeFile?.filename,
       activeFile?.id,
       design?.title,
       id,
+      pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
     ],
   );
   const handleApplyPendingVisualStylesWithAgent = useCallback(() => {
-    if (pendingVisualStyleEdits.length === 0) return;
+    if (
+      pendingVisualStyleEdits.length === 0 &&
+      pendingLiveNonStyleEdits.length === 0
+    ) {
+      return;
+    }
     sendToDesignAgentChat({
       message: t("designEditor.pendingVisualStyles.agentMessage"),
       context: pendingVisualStylePrompt,
       submit: true,
       openSidebar: true,
     });
-    setPendingVisualStyleEdits([]);
+    const structureAcks = pendingLiveNonStyleEdits
+      .filter(
+        (edit): edit is PendingLiveStructureEdit =>
+          edit.kind === "structure" && Boolean(edit.requestId),
+      )
+      .map((edit) => ({
+        screenId: edit.screenId,
+        requestId: edit.requestId!,
+        applied: true,
+      }));
+    if (structureAcks.length > 0) {
+      setPendingStructureAckRequest({
+        requestId: Date.now() + Math.random(),
+        acks: structureAcks,
+      });
+    }
+    clearPendingLiveEditState();
+    setPendingVisualStyleBaselineResetRequest(Date.now() + Math.random());
     setActiveLeftPanel("agent");
     toast.success(t("designEditor.pendingVisualStyles.sentToast"));
-  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
+  }, [
+    clearPendingLiveEditState,
+    pendingLiveNonStyleEdits,
+    pendingVisualStyleEdits.length,
+    pendingVisualStylePrompt,
+    t,
+  ]);
+  const handleAbortPendingVisualStyles = useCallback(() => {
+    if (
+      pendingVisualStyleEdits.length === 0 &&
+      pendingLiveNonStyleEdits.length === 0
+    ) {
+      return;
+    }
+    handleModeChange("interact", { discardPendingLiveEdits: true });
+    toast.success(t("designEditor.pendingVisualStyles.abortedToast"));
+  }, [
+    handleModeChange,
+    pendingLiveNonStyleEdits.length,
+    pendingVisualStyleEdits.length,
+    t,
+  ]);
   const handleCopyPendingVisualStylePrompt = useCallback(async () => {
-    if (pendingVisualStyleEdits.length === 0) return;
+    if (
+      pendingVisualStyleEdits.length === 0 &&
+      pendingLiveNonStyleEdits.length === 0
+    ) {
+      return;
+    }
     try {
       await navigator.clipboard.writeText(pendingVisualStylePrompt);
       toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [pendingVisualStyleEdits.length, pendingVisualStylePrompt, t]);
+  }, [
+    pendingLiveNonStyleEdits.length,
+    pendingVisualStyleEdits.length,
+    pendingVisualStylePrompt,
+    t,
+  ]);
 
   const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -24671,6 +25467,10 @@ ${serializedHtml}
         metadata.source ??
         designSourceType;
       const screenBridgeUrl = screen.bridgeUrl;
+      const screenBridgeToken =
+        "bridgeToken" in screen && typeof screen.bridgeToken === "string"
+          ? screen.bridgeToken
+          : undefined;
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const screenContentSignature = getContentSignature(screenContent);
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
@@ -24698,11 +25498,43 @@ ${serializedHtml}
             useRuntimeReplacement ? screenContent : undefined
           }
           runtimeReplacementKey={runtimeReplacementKey}
+          styleRevertRequest={
+            pendingVisualStyleRevertRequest
+              ? {
+                  requestId: pendingVisualStyleRevertRequest.requestId,
+                  patches: pendingVisualStyleRevertRequest.patches.filter(
+                    (patch) => patch.screenId === screen.id,
+                  ),
+                }
+              : null
+          }
+          styleBaselineResetRequest={pendingVisualStyleBaselineResetRequest}
+          textRevertRequest={
+            pendingTextRevertRequest
+              ? {
+                  requestId: pendingTextRevertRequest.requestId,
+                  patches: pendingTextRevertRequest.patches.filter(
+                    (patch) => patch.screenId === screen.id,
+                  ),
+                }
+              : null
+          }
+          structureAckRequest={
+            pendingStructureAckRequest
+              ? {
+                  requestId: pendingStructureAckRequest.requestId,
+                  acks: pendingStructureAckRequest.acks.filter(
+                    (ack) => ack.screenId === screen.id,
+                  ),
+                }
+              : null
+          }
           screenId={screen.id}
           zoom={100}
           deviceFrame="none"
           sourceType={screenSourceType}
           bridgeUrl={screenBridgeUrl}
+          bridgeToken={screenBridgeToken}
           externalSnapshotHtml={screenSnapshot}
           onExternalContentSnapshot={(snapshot) =>
             handleScreenExternalContentSnapshot(screen.id, snapshot)
@@ -24765,8 +25597,14 @@ ${serializedHtml}
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
           onIframeContextMenu={handleIframeContextMenu}
-          onVisualStyleChange={(selector, styles, info) =>
-            handleScreenVisualStyleChange(screen.id, selector, styles, info)
+          onVisualStyleChange={(selector, styles, info, metadata) =>
+            handleScreenVisualStyleChange(
+              screen.id,
+              selector,
+              styles,
+              info,
+              metadata,
+            )
           }
           onVisualStructureChange={(
             selector,
@@ -24823,6 +25661,10 @@ ${serializedHtml}
       getScreenContent,
       designSourceType,
       liveScreenSnapshotsById,
+      pendingVisualStyleRevertRequest,
+      pendingVisualStyleBaselineResetRequest,
+      pendingTextRevertRequest,
+      pendingStructureAckRequest,
       getContentSignature,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
@@ -26435,6 +27277,13 @@ ${serializedHtml}
                             <IconClipboard className="mr-2 h-4 w-4" />
                             {t("designEditor.pendingVisualStyles.copyPrompt")}
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={handleAbortPendingVisualStyles}
+                          >
+                            <IconX className="mr-2 h-4 w-4" />
+                            {t("designEditor.pendingVisualStyles.abortPreview")}
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -26627,11 +27476,48 @@ ${serializedHtml}
                       <DesignCanvas
                         content={activeContent}
                         contentKey={`${activeFile.id}:${contentRenderRevision}`}
+                        styleRevertRequest={
+                          pendingVisualStyleRevertRequest
+                            ? {
+                                requestId:
+                                  pendingVisualStyleRevertRequest.requestId,
+                                patches:
+                                  pendingVisualStyleRevertRequest.patches.filter(
+                                    (patch) => patch.screenId === activeFile.id,
+                                  ),
+                              }
+                            : null
+                        }
+                        styleBaselineResetRequest={
+                          pendingVisualStyleBaselineResetRequest
+                        }
+                        textRevertRequest={
+                          pendingTextRevertRequest
+                            ? {
+                                requestId: pendingTextRevertRequest.requestId,
+                                patches:
+                                  pendingTextRevertRequest.patches.filter(
+                                    (patch) => patch.screenId === activeFile.id,
+                                  ),
+                              }
+                            : null
+                        }
+                        structureAckRequest={
+                          pendingStructureAckRequest
+                            ? {
+                                requestId: pendingStructureAckRequest.requestId,
+                                acks: pendingStructureAckRequest.acks.filter(
+                                  (ack) => ack.screenId === activeFile.id,
+                                ),
+                              }
+                            : null
+                        }
                         zoom={zoom}
                         onZoomChange={setZoom}
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
                         bridgeUrl={activeScreenBridgeUrl}
+                        bridgeToken={activeScreenBridgeToken}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}
                         onExternalContentSnapshot={(snapshot) => {
                           if (!activeFile?.id) return;

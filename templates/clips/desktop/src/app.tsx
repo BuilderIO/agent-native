@@ -1,12 +1,14 @@
 import {
   IconAlertTriangle,
   IconArrowLeft,
+  IconCalendarEvent,
   IconCircleCheck,
   IconDownload,
   IconExternalLink,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
+  IconMicrophone2,
   IconRefresh,
   IconTrash,
   IconUpload,
@@ -16,6 +18,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
+  type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
@@ -26,7 +29,6 @@ import {
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
-  ClockIcon,
   CloseIcon,
   GoogleIcon,
   LibraryIcon,
@@ -93,14 +95,6 @@ import {
   type ScreenMemoryStatus,
 } from "./shared/config";
 
-interface RecordingSummary {
-  id: string;
-  title: string;
-  durationMs: number;
-  thumbnailUrl: string | null;
-  updatedAt: string;
-}
-
 interface PendingNativeUpload {
   kind: "native";
   recordingId: string;
@@ -120,6 +114,18 @@ interface PendingNativeUpload {
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
+
+type PopoverView = "recorder" | "settings" | "meetings" | "dictation";
+
+interface PopoverMeeting {
+  id: string;
+  title: string;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  joinUrl: string | null;
+  platform: string | null;
+  transcriptStatus: string | null;
+}
 
 interface LocalRecordingNotice {
   folderPath?: string;
@@ -183,25 +189,6 @@ const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
-
-function resolveDesktopThumbnailUrl(
-  rawUrl: string | null | undefined,
-  serverUrl: string,
-): string | null {
-  if (!rawUrl) return null;
-  if (
-    rawUrl.startsWith("http://") ||
-    rawUrl.startsWith("https://") ||
-    rawUrl.startsWith("data:") ||
-    rawUrl.startsWith("blob:")
-  ) {
-    return rawUrl;
-  }
-  if (rawUrl.startsWith("/")) {
-    return `${serverUrl.replace(/\/+$/, "")}${rawUrl}`;
-  }
-  return rawUrl;
-}
 
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
@@ -467,6 +454,78 @@ function formatAgo(iso: string): string {
   }
 }
 
+function formatMeetingWhen(meeting: PopoverMeeting): string {
+  const startMs = Date.parse(meeting.scheduledStart ?? "");
+  if (Number.isNaN(startMs)) return "Upcoming";
+
+  const endMs = Date.parse(meeting.scheduledEnd ?? "");
+  const now = Date.now();
+  if (startMs <= now && (Number.isNaN(endMs) || endMs >= now)) {
+    return "Now";
+  }
+
+  if (startMs > now && startMs - now < 60 * 60 * 1000) {
+    return `in ${Math.max(1, Math.round((startMs - now) / 60000))}m`;
+  }
+
+  const start = new Date(startMs);
+  const time = start.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const today = new Date(now);
+  const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
+  if (start.toDateString() === today.toDateString()) return `Today ${time}`;
+  if (start.toDateString() === tomorrow.toDateString()) {
+    return `Tomorrow ${time}`;
+  }
+
+  return `${start.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })} ${time}`;
+}
+
+function meetingCanStartNotes(meeting: PopoverMeeting): boolean {
+  const startMs = Date.parse(meeting.scheduledStart ?? "");
+  if (Number.isNaN(startMs)) return false;
+  const endMs = Date.parse(meeting.scheduledEnd ?? "");
+  const now = Date.now();
+  return (
+    startMs <= now + 10 * 60 * 1000 && (Number.isNaN(endMs) || endMs >= now)
+  );
+}
+
+function voiceShortcutLabel(
+  shortcut: VoiceShortcutPreference,
+  customShortcut: string,
+): string {
+  switch (shortcut) {
+    case "fn":
+      return "Fn";
+    case "cmd-shift-space":
+      return "Cmd+Shift+Space";
+    case "ctrl-shift-space":
+      return "Ctrl+Shift+Space";
+    case "custom":
+      return customShortcut || "Custom shortcut";
+    case "both":
+      return "Fn, Cmd+Shift+Space, or Ctrl+Shift+Space";
+  }
+}
+
+function voiceProviderLabel(provider: VoiceProvider): string {
+  if (provider === "whisper") return "Local Whisper";
+  if (provider === "builder" || provider === "builder-gemini") {
+    return "Builder.io cleanup";
+  }
+  if (provider === "gemini") return "Google Gemini";
+  if (provider === "groq") return "Groq";
+  if (provider === "macos-native") return "macOS on-device";
+  return "Browser speech";
+}
+
 function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "";
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -628,7 +687,6 @@ export function App() {
   const localRecordingMode: LocalRecordingMode =
     featureConfig?.localRecordingMode ?? "off";
 
-  const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
     [],
   );
@@ -641,11 +699,16 @@ export function App() {
   );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
-  const [showRecent, setShowRecent] = useState(false);
+  const [popoverView, setPopoverView] = useState<PopoverView>("recorder");
+  const [meetings, setMeetings] = useState<PopoverMeeting[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [meetingsError, setMeetingsError] = useState<string | null>(null);
+  const [meetingStartMessage, setMeetingStartMessage] = useState<string | null>(
+    null,
+  );
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
-  const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -1029,6 +1092,58 @@ export function App() {
     [serverUrl],
   );
 
+  const fetchUpcomingMeetings = useCallback(async () => {
+    if (authStatus !== "authed") {
+      setMeetings([]);
+      setMeetingsError(null);
+      return;
+    }
+
+    setMeetingsLoading(true);
+    setMeetingsError(null);
+    try {
+      const result = await callClipsAction<{ meetings?: unknown[] }>(
+        "list-meetings",
+        { view: "upcoming", limit: 3, upcomingWithinMin: 24 * 60 },
+        { method: "GET" },
+      );
+      const list = Array.isArray(result.meetings) ? result.meetings : [];
+      setMeetings(
+        list.slice(0, 3).map((raw) => {
+          const meeting = raw as Partial<PopoverMeeting>;
+          return {
+            id: String(meeting.id ?? ""),
+            title: meeting.title || "Untitled meeting",
+            scheduledStart: meeting.scheduledStart ?? null,
+            scheduledEnd: meeting.scheduledEnd ?? null,
+            joinUrl: meeting.joinUrl ?? null,
+            platform: meeting.platform ?? null,
+            transcriptStatus: meeting.transcriptStatus ?? null,
+          };
+        }),
+      );
+    } catch (err) {
+      setMeetings([]);
+      setMeetingsError(
+        err instanceof Error ? err.message : "Could not load meetings.",
+      );
+    } finally {
+      setMeetingsLoading(false);
+    }
+  }, [authStatus, callClipsAction]);
+
+  const startMeetingNotes = useCallback((meeting: PopoverMeeting) => {
+    setMeetingStartMessage(`Starting notes for ${meeting.title}…`);
+    emit("meetings:start-transcription", {
+      meetingId: meeting.id,
+      joinUrl: meeting.joinUrl,
+      reason: "user",
+    }).catch((err) => {
+      console.error("[clips-popover] start meeting notes failed:", err);
+      setMeetingStartMessage("Could not start notes. Try again from Meetings.");
+    });
+  }, []);
+
   useMeetingTranscription({
     callClipsAction,
     serverUrl,
@@ -1155,7 +1270,7 @@ export function App() {
     }
     clearDesktopAuthToken(serverUrl);
     await checkAuth();
-    setShowSettings(false);
+    setPopoverView("recorder");
   }
 
   // ---- Esc closes the popover --------------------------------------------
@@ -1529,32 +1644,8 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
     disabled: !popoverVisible || isRecording || recordingFlowActive,
-    width: showSettings ? 440 : 360,
+    width: popoverView === "settings" ? 440 : 360,
   });
-
-  // ---- recent list --------------------------------------------------------
-
-  const fetchRecent = useCallback(async () => {
-    if (authStatus !== "authed") return; // don't bother; would just 401
-    try {
-      const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/list-recordings?limit=3&sort=recent`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return;
-      const json = await res.json();
-      const list = Array.isArray(json?.recordings) ? json.recordings : [];
-      setRecordings(
-        list.slice(0, 3).map((r: any) => ({
-          id: r.id,
-          title: r.title ?? "Untitled",
-          durationMs: r.durationMs ?? 0,
-          thumbnailUrl: r.thumbnailUrl ?? null,
-          updatedAt: r.updatedAt ?? r.createdAt,
-        })),
-      );
-    } catch {
-      // ignore — server may be unreachable, we still render the chrome
-    }
-  }, [serverUrl, authStatus]);
 
   const loadPendingUploads = useCallback(async () => {
     try {
@@ -1580,8 +1671,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    fetchRecent();
-  }, [fetchRecent]);
+    if (popoverView === "meetings" && popoverVisible) {
+      void fetchUpcomingMeetings();
+    }
+  }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
 
   useEffect(() => {
     loadPendingUploads();
@@ -1651,7 +1744,6 @@ export function App() {
         });
       }
       await loadPendingUploads();
-      await fetchRecent();
       await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
       getCurrentWindow()
         .hide()
@@ -2008,7 +2100,7 @@ export function App() {
       return;
     }
 
-    setShowSettings(false);
+    setPopoverView("recorder");
     if (authStatus === "anon" && localRecordingMode === "off") {
       setRecError("Sign in to Clips before using the recording shortcut.");
       invoke("show_popover").catch(() => {});
@@ -2148,9 +2240,6 @@ export function App() {
                 .catch(() => {});
               emit("clips:popover-visible", false).catch(() => {});
             }
-            if (!stopResult?.localOnly) {
-              fetchRecent();
-            }
           }
         }
       }),
@@ -2210,7 +2299,7 @@ export function App() {
       });
       unlisteners.length = 0;
     };
-  }, [recorder, fetchRecent, loadPendingUploads]);
+  }, [recorder, loadPendingUploads]);
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
@@ -2224,7 +2313,7 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
-  if (showSettings) {
+  if (popoverView === "settings") {
     return (
       <div className="app app-settings" ref={appRef}>
         <Setup
@@ -2250,9 +2339,48 @@ export function App() {
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
             setServerUrl(url.replace(/\/+$/, ""));
-            setShowSettings(false);
+            setPopoverView("recorder");
           }}
-          onCancel={() => setShowSettings(false)}
+          onCancel={() => setPopoverView("recorder")}
+        />
+      </div>
+    );
+  }
+
+  if (popoverView === "meetings") {
+    return (
+      <div className="app app-popover-view" ref={appRef}>
+        <MeetingsPopoverView
+          meetings={meetings}
+          loading={meetingsLoading}
+          error={meetingsError}
+          startMessage={meetingStartMessage}
+          meetingsEnabled={featureConfig?.meetingsEnabled !== false}
+          onBack={() => setPopoverView("recorder")}
+          onRefresh={fetchUpcomingMeetings}
+          onOpenMeetings={() => openInBrowser("/meetings")}
+          onOpenMeeting={(meetingId) =>
+            openInBrowser(`/meetings/${encodeURIComponent(meetingId)}`)
+          }
+          onOpenSettings={() => setPopoverView("settings")}
+          onStartNotes={startMeetingNotes}
+        />
+      </div>
+    );
+  }
+
+  if (popoverView === "dictation") {
+    return (
+      <div className="app app-popover-view" ref={appRef}>
+        <DictationPopoverView
+          voiceEnabled={voiceDictationEnabled}
+          voiceShortcut={voiceShortcut}
+          voiceCustomShortcut={voiceCustomShortcut}
+          voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
+          onBack={() => setPopoverView("recorder")}
+          onOpenDictate={() => openInBrowser("/dictate")}
+          onOpenSettings={() => setPopoverView("settings")}
         />
       </div>
     );
@@ -2309,7 +2437,7 @@ export function App() {
           </>
         )}
         <div className="footer">
-          <a className="footer-link" onClick={() => setShowSettings(true)}>
+          <a className="footer-link" onClick={() => setPopoverView("settings")}>
             Settings
           </a>
         </div>
@@ -2472,45 +2600,22 @@ export function App() {
           onClick={() => openInBrowser("/")}
         />
         <BottomButton
-          icon="settings"
-          label="Settings"
-          onClick={() => setShowSettings(true)}
+          icon="meetings"
+          label="Meetings"
+          onClick={() => setPopoverView("meetings")}
         />
         <BottomButton
-          icon="recent"
-          label="Recent"
+          icon="dictation"
+          label="Dictate"
           badge={undefined}
-          onClick={() => setShowRecent((v) => !v)}
+          onClick={() => setPopoverView("dictation")}
+        />
+        <BottomButton
+          icon="settings"
+          label="Settings"
+          onClick={() => setPopoverView("settings")}
         />
       </div>
-
-      {showRecent && recordings.length > 0 ? (
-        <div className="recent-list">
-          {recordings.map((r) => (
-            <button
-              key={r.id}
-              className="recent-item"
-              onClick={() => openInBrowser(`/r/${r.id}`)}
-            >
-              {r.thumbnailUrl ? (
-                <img
-                  className="thumb"
-                  src={
-                    resolveDesktopThumbnailUrl(r.thumbnailUrl, serverUrl) ?? ""
-                  }
-                  alt=""
-                />
-              ) : (
-                <div className="thumb thumb-placeholder" />
-              )}
-              <div className="recent-meta">
-                <div className="recent-title">{r.title}</div>
-                <div className="recent-sub">{formatAgo(r.updatedAt)}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -3126,13 +3231,236 @@ function SignInForm({
   );
 }
 
+function PopoverSubViewHeader({
+  title,
+  onBack,
+  action,
+}: {
+  title: string;
+  onBack: () => void;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="setup-header popover-view-header">
+      <button
+        type="button"
+        className="setup-back"
+        onClick={onBack}
+        aria-label="Back"
+      >
+        <IconArrowLeft size={18} stroke={1.75} />
+      </button>
+      <h2>{title}</h2>
+      <div className="popover-view-header-spacer" />
+      {action}
+    </div>
+  );
+}
+
+function MeetingsPopoverView({
+  meetings,
+  loading,
+  error,
+  startMessage,
+  meetingsEnabled,
+  onBack,
+  onRefresh,
+  onOpenMeetings,
+  onOpenMeeting,
+  onOpenSettings,
+  onStartNotes,
+}: {
+  meetings: PopoverMeeting[];
+  loading: boolean;
+  error: string | null;
+  startMessage: string | null;
+  meetingsEnabled: boolean;
+  onBack: () => void;
+  onRefresh: () => void;
+  onOpenMeetings: () => void;
+  onOpenMeeting: (meetingId: string) => void;
+  onOpenSettings: () => void;
+  onStartNotes: (meeting: PopoverMeeting) => void;
+}) {
+  return (
+    <div className="setup popover-view">
+      <PopoverSubViewHeader
+        title="Meetings"
+        onBack={onBack}
+        action={
+          <button
+            type="button"
+            className="link-button popover-view-link"
+            onClick={onOpenMeetings}
+          >
+            Open web
+          </button>
+        }
+      />
+
+      <div className="setup-section">
+        <p className="setup-hint">
+          Start Granola-style live notes from calendar meetings without hunting
+          through Settings.
+        </p>
+      </div>
+
+      {!meetingsEnabled ? (
+        <div className="popover-empty-card">
+          <strong>Meeting notes are off</strong>
+          <p>Turn them on to show reminders and start live transcription.</p>
+          <button type="button" className="secondary" onClick={onOpenSettings}>
+            Open meeting settings
+          </button>
+        </div>
+      ) : error ? (
+        <div className="popover-empty-card">
+          <strong>Could not load meetings</strong>
+          <p>{error}</p>
+          <button type="button" className="secondary" onClick={onRefresh}>
+            Try again
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="popover-empty-card">
+          <strong>Loading meetings…</strong>
+          <p>Checking your connected calendar.</p>
+        </div>
+      ) : meetings.length === 0 ? (
+        <div className="popover-empty-card">
+          <strong>No meetings ready</strong>
+          <p>Connect Google Calendar or open the Meetings page to see setup.</p>
+          <button type="button" className="secondary" onClick={onOpenMeetings}>
+            Open Meetings
+          </button>
+        </div>
+      ) : (
+        <div className="popover-list">
+          {meetings.map((meeting) => {
+            const canStart = meetingCanStartNotes(meeting);
+            return (
+              <div className="popover-list-item" key={meeting.id}>
+                <div className="popover-list-icon">
+                  <IconCalendarEvent size={17} stroke={1.75} />
+                </div>
+                <div className="popover-list-main">
+                  <div className="popover-list-title">{meeting.title}</div>
+                  <div className="popover-list-sub">
+                    {formatMeetingWhen(meeting)}
+                    {meeting.platform ? ` · ${meeting.platform}` : ""}
+                  </div>
+                </div>
+                {canStart ? (
+                  <button
+                    type="button"
+                    className="popover-list-action popover-list-action-primary"
+                    onClick={() => onStartNotes(meeting)}
+                  >
+                    Start notes
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="popover-list-action"
+                    onClick={() => onOpenMeeting(meeting.id)}
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {startMessage ? <p className="setup-success">{startMessage}</p> : null}
+    </div>
+  );
+}
+
+function DictationPopoverView({
+  voiceEnabled,
+  voiceShortcut,
+  voiceCustomShortcut,
+  voiceMode,
+  voiceProvider,
+  onBack,
+  onOpenDictate,
+  onOpenSettings,
+}: {
+  voiceEnabled: boolean;
+  voiceShortcut: VoiceShortcutPreference;
+  voiceCustomShortcut: string;
+  voiceMode: VoiceMode;
+  voiceProvider: VoiceProvider;
+  onBack: () => void;
+  onOpenDictate: () => void;
+  onOpenSettings: () => void;
+}) {
+  const shortcut = voiceShortcutLabel(voiceShortcut, voiceCustomShortcut);
+  return (
+    <div className="setup popover-view">
+      <PopoverSubViewHeader
+        title="Dictate"
+        onBack={onBack}
+        action={
+          <button
+            type="button"
+            className="link-button popover-view-link"
+            onClick={onOpenDictate}
+          >
+            Open web
+          </button>
+        }
+      />
+
+      <div className="popover-empty-card">
+        <div className="popover-card-heading">
+          <IconMicrophone2 size={18} stroke={1.75} />
+          <strong>
+            {voiceEnabled ? "Ready to dictate" : "Dictation is off"}
+          </strong>
+        </div>
+        {voiceEnabled ? (
+          <>
+            <p>
+              {voiceMode === "toggle"
+                ? "Press once to start, then press again to stop."
+                : "Hold the shortcut while speaking; release to paste."}
+            </p>
+            <div className="popover-kv">
+              <span>Shortcut</span>
+              <strong>{shortcut}</strong>
+            </div>
+            <div className="popover-kv">
+              <span>Provider</span>
+              <strong>{voiceProviderLabel(voiceProvider)}</strong>
+            </div>
+          </>
+        ) : (
+          <p>Turn on voice dictation to speak to type anywhere on your Mac.</p>
+        )}
+      </div>
+
+      <div className="setup-button-row">
+        <button type="button" className="secondary" onClick={onOpenDictate}>
+          Open Dictate history
+        </button>
+        <button type="button" className="secondary" onClick={onOpenSettings}>
+          Dictation settings
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BottomButton({
   icon,
   label,
   badge,
   onClick,
 }: {
-  icon: "library" | "settings" | "recent";
+  icon: "library" | "settings" | "meetings" | "dictation";
   label: string;
   badge?: string;
   onClick: () => void;
@@ -3144,8 +3472,10 @@ function BottomButton({
           <LibraryIcon />
         ) : icon === "settings" ? (
           <SettingsIcon />
+        ) : icon === "meetings" ? (
+          <IconCalendarEvent size={18} stroke={1.75} />
         ) : (
-          <ClockIcon />
+          <IconMicrophone2 size={18} stroke={1.75} />
         )}
         {badge ? <span className="badge">{badge}</span> : null}
       </span>

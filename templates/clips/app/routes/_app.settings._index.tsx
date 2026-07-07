@@ -165,6 +165,7 @@ interface ClipsUserSettings {
   emailNotifications?: boolean;
   displayName?: string;
   transcriptCleanupEnabled?: boolean;
+  includeFullVideoInAi?: boolean;
 }
 
 interface SlackInstallation {

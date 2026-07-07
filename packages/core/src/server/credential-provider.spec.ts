@@ -416,13 +416,14 @@ describe("provider credential auth failure markers", () => {
       "OPENAI_API_KEY",
       "sk-example-invalid",
     );
+    const at = Date.now();
     mockGetSetting.mockResolvedValue({
       fingerprint,
       key: "OPENAI_API_KEY",
       message: "Invalid key",
       status: 401,
       code: "http_401",
-      at: 123,
+      at,
     });
 
     const failure = await getProviderCredentialAuthFailure({
@@ -436,9 +437,34 @@ describe("provider credential auth failure markers", () => {
       message: "Invalid key",
       status: 401,
       code: "http_401",
-      at: 123,
+      at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${fingerprint}`,
+    );
+  });
+
+  it("expires stale provider auth-failure markers", async () => {
+    const fingerprint = providerCredentialFingerprint(
+      "OPENAI_API_KEY",
+      "sk-example-invalid",
+    );
+    mockGetSetting.mockResolvedValue({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at: Date.now() - 16 * 60 * 1000,
+    });
+
+    await expect(
+      getProviderCredentialAuthFailure({
+        key: "OPENAI_API_KEY",
+        value: "sk-example-invalid",
+      }),
+    ).resolves.toBeNull();
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
       `provider-auth-failure:${fingerprint}`,
     );
   });

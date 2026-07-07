@@ -27,6 +27,12 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
+const REACT_ROUTER_BUILD_DEPENDENCIES = [
+  "@react-router/dev",
+  "@react-router/fs-routes",
+  "react-router",
+  "vite",
+] as const;
 const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
@@ -1045,6 +1051,7 @@ function postProcessStandalone(
       // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+      ensureReactRouterBuildDependencies(pkg);
 
       const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
       if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
@@ -1103,6 +1110,34 @@ function postProcessStandalone(
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
+  const allDeps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+  if (
+    !allDeps["@react-router/dev"] &&
+    !allDeps["react-router"] &&
+    !allDeps["@react-router/fs-routes"]
+  ) {
+    return;
+  }
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  for (const key of REACT_ROUTER_BUILD_DEPENDENCIES) {
+    const existing =
+      pkg.dependencies[key] ??
+      pkg.devDependencies?.[key] ??
+      pkg.peerDependencies?.[key];
+    if (!existing) continue;
+    pkg.dependencies[key] =
+      STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key] ?? existing;
+    delete pkg.devDependencies?.[key];
+    delete pkg.peerDependencies?.[key];
+  }
 }
 
 function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {

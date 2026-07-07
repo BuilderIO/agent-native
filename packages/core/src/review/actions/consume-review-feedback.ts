@@ -23,11 +23,21 @@ export default defineAction({
       actionCtx,
       "editor",
     );
-    await consumeReviewFeedback(args.commentIds, undefined, {
-      resourceType: args.resourceType,
-      resourceId: args.resourceId,
-    });
-    return { consumedCommentIds: args.commentIds };
+    const updatedCount = await consumeReviewFeedback(
+      args.commentIds,
+      undefined,
+      {
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+      },
+    );
+    if (updatedCount < 1) {
+      throw new Error("No matching review comments to consume");
+    }
+    return {
+      consumedCommentIds: args.commentIds,
+      updatedCount,
+    };
   },
   audit: {
     target: (args) => ({
