@@ -264,6 +264,12 @@ export interface StartRunOptions {
    * and to disabled otherwise (local dev stays unbounded).
    */
   noProgressTimeoutMs?: number;
+  /**
+   * Lifecycle metadata persisted to `agent_runs.dispatch_mode` and surfaced to
+   * clients through `/runs/active`. This does not change run-manager behavior;
+   * callers use it to describe who owns continuation at hosted chunk boundaries.
+   */
+  dispatchMode?: "foreground" | "foreground-self-chain";
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -480,11 +486,16 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
-    (error) => {
-      captureRunPersistenceError(error, "insert-run");
-    },
-  );
+  const insertOptions = options?.dispatchMode
+    ? { dispatchMode: options.dispatchMode }
+    : undefined;
+  const insertRunPromise = (
+    insertOptions
+      ? insertRun(runId, threadId, options?.turnId, insertOptions)
+      : insertRun(runId, threadId, options?.turnId)
+  ).catch((error) => {
+    captureRunPersistenceError(error, "insert-run");
+  });
 
   // Per-run event persistence chain: events are chained so SQL inserts commit
   // in seq order. Without this, a fast seq=5 commit before a slow seq=4 means
@@ -1356,7 +1367,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   status: string;
   heartbeatAt: number;
   lastProgressAt: number | null;
-  /** How the run was dispatched (NULL/foreground, background, background-processing). */
+  /** How the run was dispatched/continued (foreground, foreground-self-chain, background...). */
   dispatchMode?: string | null;
   /** Compact terminal classification, e.g. done, run_timeout, stale_run. */
   terminalReason?: string | null;

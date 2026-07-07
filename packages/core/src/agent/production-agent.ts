@@ -1132,6 +1132,7 @@ export function isRetryableError(err: unknown): boolean {
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
+    code === "http_429" ||
     code === "http_500" ||
     code === "http_502" ||
     code === "http_503" ||
@@ -1140,6 +1141,9 @@ export function isRetryableError(err: unknown): boolean {
     // Anthropic
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
+    // Bare provider rate-limit messages that carry no structured status,
+    // e.g. the Anthropic/AI-SDK "429 status code (no body)" format.
+    /\b429\b/.test(msg) ||
     msg.includes("529") ||
     // OpenAI phrasing
     msg.includes("rate limit reached") ||
@@ -4620,8 +4624,8 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
  * budget:
  *   - a durable-background WORKER run (`isBackgroundWorker`) — unconditional,
  *     unchanged from before; or
- *   - a FOREGROUND run when the opt-in `foregroundSelfChainEligible` flag is
- *     set (see `isAgentChatForegroundSelfChainEnabled` in
+ *   - a FOREGROUND run when the resolved `foregroundSelfChainEligible` gate is
+ *     true (see `isAgentChatForegroundSelfChainEnabled` in
  *     `durable-background.ts`) AND this specific run was never dispatched to
  *     the durable background worker (`dispatchedToBackground` false) — a run
  *     already headed to the durable background path chains via the
@@ -6189,12 +6193,12 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
         }
       : null;
-    // Opt-in (default-OFF) foreground self-chain: gated on the env flag AND
-    // this specific run never having been routed to the durable background
-    // worker. A run that WAS dispatched to background (`dispatchToBackground`)
-    // already has its recovery owned by the background circuit-breaker /
-    // `isBackgroundWorker` chain above — this flag must never double up with
-    // that path, only stand in for it on plain foreground turns. A persistent
+    // Foreground self-chain: gated on hosted runtime + A2A_SECRET, with an
+    // explicit env opt-out, AND this specific run never having been routed to
+    // the durable background worker. A run that WAS dispatched to background
+    // (`dispatchToBackground`) already has its recovery owned by the background
+    // circuit-breaker / `isBackgroundWorker` chain above — this flag must never
+    // double up with that path, only stand in for it on plain foreground turns. A persistent
     // threadId is required: the client discovers the pre-inserted successor
     // via `/runs/active?threadId` and the successor chunk resumes from the
     // thread's persisted thread_data — without a thread there is neither a
@@ -6302,8 +6306,8 @@ export function createProductionAgentHandler(
 
     // Wrap so the background worker is unblocked even when there is no app
     // onRunComplete / tracked-progress callback configured. Also installed for
-    // a foreground run eligible for the opt-in self-chain — that path needs
-    // this same wrapper to fire the continuation dispatch below.
+    // a foreground run eligible for self-chain — that path needs this same
+    // wrapper to fire the continuation dispatch below.
     const handleRunComplete =
       isBackgroundWorker || foregroundSelfChainEligible || baseHandleRunComplete
         ? async (run: ActiveRun) => {
@@ -6897,6 +6901,9 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        dispatchMode: foregroundSelfChainEligible
+          ? "foreground-self-chain"
+          : "foreground",
       },
     );
 
@@ -6920,7 +6927,11 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
-    setResponseHeader(event, "X-Dispatch-Mode", "foreground");
+    setResponseHeader(
+      event,
+      "X-Dispatch-Mode",
+      foregroundSelfChainEligible ? "foreground-self-chain" : "foreground",
+    );
 
     return stream;
   });

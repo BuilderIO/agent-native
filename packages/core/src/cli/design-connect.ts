@@ -33,6 +33,16 @@ const BRIDGE_OPERATIONS = [
 
 type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
 
+const SERVER_REGISTRATION_BRIDGE_OPERATIONS = new Set<BridgeOperation>([
+  "select",
+  "resolveNodeToFile",
+  "readFile",
+  "applyEdit",
+  "writeFile",
+  "captureSnapshot",
+  "captureState",
+]);
+
 /** Additive manifest capability flags advertised alongside the operation list. */
 const MANIFEST_CAPABILITIES = {
   listFiles: true,
@@ -1276,10 +1286,12 @@ export async function startDesignConnectBridge(
               manifest.devServerUrl,
               targetUrl,
             );
+            const includeEditorBridge =
+              requestUrl.searchParams.get("bridge") !== "0";
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
-              liveEditBridgeScript,
+              includeEditorBridge ? liveEditBridgeScript : "",
             );
             sendText(
               res,
@@ -1680,7 +1692,9 @@ export async function registerConnectionWithServer(
     devServerUrl: manifest.devServerUrl,
     bridgeUrl: manifest.bridgeUrl,
     rootPath: manifest.rootPath,
-    capabilities: manifest.capabilities,
+    capabilities: manifest.capabilities.filter((capability) =>
+      SERVER_REGISTRATION_BRIDGE_OPERATIONS.has(capability.operation),
+    ),
     routeManifest: {
       version: 1 as const,
       sourceType: "localhost" as const,

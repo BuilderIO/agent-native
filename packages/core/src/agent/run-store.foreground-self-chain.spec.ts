@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 
 /**
- * SQL invariants behind the OPT-IN foreground self-chain
+ * SQL invariants behind the foreground self-chain
  * (`AGENT_CHAT_FOREGROUND_SELF_CHAIN`) — the "no double-run when the client
  * also continues" proof, exercised against a real SQLite engine (so the
  * conditional UPDATE / rowsAffected semantics are real, not mocked).

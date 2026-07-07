@@ -183,9 +183,11 @@ async function ensureRunTables(): Promise<void> {
           //                at completion so errored/cut-off runs are queryable for
           //                pattern analysis (see listErroredRuns).
           // dispatch_mode marks how a run was started: NULL/"foreground" for the
-          // normal synchronous path, "background" for a run dispatched into a
-          // Netlify background function. The reaper/claim widen the stale window
-          // for background rows so a slow cold-start isn't falsely reaped.
+          // normal client-continued synchronous path, "foreground-self-chain" for
+          // a foreground run whose continuation boundary is server-driven, and
+          // "background" for a run dispatched into a Netlify background function.
+          // The reaper/claim widen the stale window for background rows so a slow
+          // cold-start isn't falsely reaped.
           // diag_stage records the last reached pipeline stage (+ any error) for a
           // background-dispatched run so a silent worker death is DIAGNOSABLE from
           // the client (/runs/active surfaces it) without reading the unreadable
@@ -273,9 +275,11 @@ async function ensureRunTables(): Promise<void> {
       //                at completion so errored/cut-off runs are queryable for
       //                pattern analysis (see listErroredRuns).
       // dispatch_mode marks how a run was started: NULL/"foreground" for the
-      // normal synchronous path, "background" for a run dispatched into a
-      // Netlify background function. The reaper/claim widen the stale window
-      // for background rows so a slow cold-start isn't falsely reaped.
+      // normal client-continued synchronous path, "foreground-self-chain" for
+      // a foreground run whose continuation boundary is server-driven, and
+      // "background" for a run dispatched into a Netlify background function.
+      // The reaper/claim widen the stale window for background rows so a slow
+      // cold-start isn't falsely reaped.
       // diag_stage records the last reached pipeline stage (+ any error) for a
       // background-dispatched run so a silent worker death is DIAGNOSABLE from
       // the client (/runs/active surfaces it) without reading the unreadable
@@ -420,7 +424,7 @@ export async function insertRun(
   threadId: string,
   turnId?: string,
   options?: {
-    dispatchMode?: "foreground" | "background";
+    dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     /**
      * JSON-serialized request body for a background dispatch. Persisted on the
      * run row so the self-POST to the background function carries only the
@@ -456,10 +460,11 @@ export async function insertRun(
  * subtracted by the resolved window so the comparison is
  * `COALESCE(heartbeat_at, started_at) < (now - window)`.
  *
- * `dispatch_mode` is one of NULL/"foreground" (normal sync path), "background"
- * (foreground inserted the row for a background dispatch), or
- * "background-processing" (the background worker claimed it). Both background
- * states get the wider window via a LIKE-prefix match.
+ * `dispatch_mode` is one of NULL/"foreground" (normal client-continued sync
+ * path), "foreground-self-chain" (server-driven continuation at the foreground
+ * chunk boundary), "background" (foreground inserted the row for a background
+ * dispatch), or "background-processing" (the background worker claimed it). Both
+ * background states get the wider window via a LIKE-prefix match.
  */
 function backgroundAwareStaleCutoffSql(): string {
   // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as

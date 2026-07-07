@@ -1,9 +1,6 @@
-import crypto from "node:crypto";
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -87,28 +84,6 @@ function isLoopbackUrl(value: string): boolean {
     parts[0] === "127" &&
     parts.every((part) => /^\d+$/.test(part) && Number(part) <= 255)
   );
-}
-
-/**
- * Derive a stable per-user connection id for a devServerUrl + rootPath pair.
- *
- * The owner email is embedded in the hash so two users with an identical
- * devServerUrl + rootPath (common with devcontainers/codespaces images) derive
- * DIFFERENT ids and never collide on the shared primary key. Connections
- * created before user scoping keep their old ids; those users simply
- * reconnect fresh under the new per-user id.
- */
-function stableConnectionId(
-  devServerUrl: string,
-  rootPath: string | undefined,
-  ownerEmail: string,
-) {
-  const hash = crypto
-    .createHash("sha256")
-    .update(`${ownerEmail}\n${devServerUrl}\n${rootPath ?? ""}`)
-    .digest("base64url")
-    .slice(0, 16);
-  return `localhost_${hash}`;
 }
 
 function designOverviewDeepLink(designId: string): string {
@@ -254,19 +229,11 @@ export default defineAction({
             }) ?? [],
           generatedAt: new Date().toISOString(),
         };
-    let connectionId = args.connectionId;
-    if (!connectionId) {
-      const ownerEmail = getRequestUserEmail();
-      if (!ownerEmail) throw new Error("no authenticated user");
-      connectionId = stableConnectionId(
-        devServerUrl,
-        args.rootPath,
-        ownerEmail,
-      );
-    }
-
     const connection = await connectLocalhostAction.run({
-      id: connectionId,
+      // Let connect-localhost be the single source of truth for stable
+      // per-user/per-org id derivation. Duplicating it here can create a second
+      // tokenless row after the CLI self-registers the bridge token.
+      id: args.connectionId,
       name: args.name,
       devServerUrl,
       bridgeUrl: args.bridgeUrl,

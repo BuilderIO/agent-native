@@ -91,7 +91,24 @@ describe("KeepTabOpenNotice", () => {
     expect(container.textContent ?? "").toBe("");
   });
 
-  it("hides immediately when the run transitions to a server-owned background dispatch", async () => {
+  it("never shows for a foreground self-chained run (server owns continuation)", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(activeRun({ dispatchMode: "foreground-self-chain" })),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <KeepTabOpenNotice threadId="thread-1" hosted showAfterMs={5_000} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+    expect(container.textContent ?? "").toBe("");
+  });
+
+  it("hides immediately when the run transitions to server-owned continuation", async () => {
     let dispatchMode: string | null = null;
     const fetchSpy = vi.fn(async () =>
       jsonResponse(activeRun({ dispatchMode })),
@@ -113,10 +130,9 @@ describe("KeepTabOpenNotice", () => {
     });
     expect(container.textContent).toContain("Keep this tab open");
 
-    // The foreground self-chain handed the turn to a server-side successor
-    // (or the client adopted a durable worker): the tab is no longer
+    // The foreground run became self-chainable: the tab is no longer
     // load-bearing — no linger, hide on the next poll.
-    dispatchMode = "background-processing";
+    dispatchMode = "foreground-self-chain";
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });

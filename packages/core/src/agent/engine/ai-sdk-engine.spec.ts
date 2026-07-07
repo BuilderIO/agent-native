@@ -147,6 +147,44 @@ describe("AISDKEngine Google Gemini thinking config", () => {
   });
 });
 
+describe("AISDKEngine error tagging", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("tags a 429 APICallError with http_429 + statusCode + providerRetryable", async () => {
+    class MockApiCallError extends Error {
+      statusCode = 429;
+      isRetryable = true;
+      constructor() {
+        super("Too Many Requests");
+      }
+    }
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw new MockApiCallError();
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    }).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("http_429");
+    expect(stopEvent?.statusCode).toBe(429);
+    expect(stopEvent?.providerRetryable).toBe(true);
+  });
+});
+
 describe("AISDKEngine OpenAI model selection", () => {
   beforeEach(() => {
     vi.resetModules();
