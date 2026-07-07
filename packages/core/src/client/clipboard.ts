@@ -1,16 +1,21 @@
-type ElectronClipboardApi = {
-  clipboard?: {
-    writeText?: (text: string) => boolean | Promise<boolean>;
+type ClipboardWriter = {
+  writeText?: (text: string) => boolean | Promise<boolean>;
+};
+
+type DesktopClipboardApis = {
+  electronAPI?: {
+    clipboard?: ClipboardWriter;
+  };
+  agentNativeDesktop?: {
+    clipboard?: ClipboardWriter;
   };
 };
 
-function getElectronClipboard(): ElectronClipboardApi["clipboard"] | null {
-  const api = (
-    globalThis as typeof globalThis & {
-      electronAPI?: ElectronClipboardApi;
-    }
-  ).electronAPI;
-  return api?.clipboard ?? null;
+function getDesktopClipboards(): ClipboardWriter[] {
+  const api = globalThis as typeof globalThis & DesktopClipboardApis;
+  return [api.electronAPI?.clipboard, api.agentNativeDesktop?.clipboard].filter(
+    (clipboard): clipboard is ClipboardWriter => !!clipboard?.writeText,
+  );
 }
 
 function writeWithExecCommand(text: string): boolean {
@@ -35,10 +40,9 @@ function writeWithExecCommand(text: string): boolean {
 }
 
 export async function writeClipboardText(text: string): Promise<boolean> {
-  const electronClipboard = getElectronClipboard();
-  if (electronClipboard?.writeText) {
+  for (const desktopClipboard of getDesktopClipboards()) {
     try {
-      const result = await electronClipboard.writeText(text);
+      const result = await desktopClipboard.writeText?.(text);
       if (result !== false) return true;
     } catch {
       // Fall through to browser clipboard options.

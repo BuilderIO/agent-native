@@ -19,7 +19,6 @@ import {
   IconPlus,
   IconBuilding,
   IconLock,
-  IconWorld,
   IconLink,
   IconMessageCircle,
   IconEye,
@@ -65,7 +64,6 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   visibility?: Visibility;
-  ownerEmail?: string | null;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
@@ -131,11 +129,6 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
-import {
-  ownerDisplayName,
-  visibilityLabelKey,
-  type ResourceVisibility,
-} from "@/lib/resource-metadata";
 
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -410,7 +403,7 @@ function SidebarSectionSettingsPopover({
 
 // --- Visibility types and helpers ---
 
-type Visibility = ResourceVisibility;
+type Visibility = "private" | "org" | "public";
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
@@ -430,7 +423,6 @@ function SortableRow({
   hidden,
   onPrefetch,
   visibility,
-  ownerEmail,
   onSetVisibility,
   children,
 }: {
@@ -452,7 +444,6 @@ function SortableRow({
   hidden?: boolean;
   onPrefetch?: () => void;
   visibility?: Visibility;
-  ownerEmail?: string | null;
   onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
@@ -476,21 +467,6 @@ function SortableRow({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
-  const ownerName = ownerDisplayName(ownerEmail);
-  const visibilityLabel = visibility ? t(visibilityLabelKey(visibility)) : null;
-  const visibilityTooltip =
-    visibilityLabel && ownerName
-      ? t("sidebar.visibilityWithOwner", {
-          visibility: visibilityLabel,
-          owner: ownerName,
-        })
-      : visibilityLabel;
-  const VisibilityIcon =
-    visibility === "public"
-      ? IconWorld
-      : visibility === "org"
-        ? IconBuilding
-        : IconLock;
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -656,39 +632,12 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                aria-label={
-                  visibilityTooltip ? `${name} - ${visibilityTooltip}` : name
-                }
-                className="min-w-0 flex-1 px-2 py-1.5 pe-16 text-xs transition-[padding] md:pe-8 md:group-hover/item:pe-16 md:group-focus-within/item:pe-16"
+                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
-                <span className="block truncate leading-4">{name}</span>
-                {visibility && visibilityTooltip && (
-                  <span
-                    className={cn(
-                      "mt-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-3",
-                      isActive
-                        ? "text-sidebar-accent-foreground/70"
-                        : "text-muted-foreground/70",
-                    )}
-                  >
-                    <VisibilityIcon className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{visibilityTooltip}</span>
-                  </span>
-                )}
+                <span className="block truncate">{name}</span>
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right">
-              {visibilityTooltip ? (
-                <span className="grid gap-0.5">
-                  <span>{name}</span>
-                  <span className="text-muted-foreground">
-                    {visibilityTooltip}
-                  </span>
-                </span>
-              ) : (
-                name
-              )}
-            </TooltipContent>
+            <TooltipContent side="right">{name}</TooltipContent>
           </Tooltip>
         )}
         <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
@@ -940,7 +889,6 @@ function SortableDashboardItem({
       onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
       visibility={d.visibility}
-      ownerEmail={d.ownerEmail}
       onSetVisibility={
         onSetVisibility ? (v) => onSetVisibility(d, v) : undefined
       }
@@ -1157,7 +1105,6 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
-  ownerEmail?: string | null;
   parentId?: string;
 };
 
@@ -1178,7 +1125,6 @@ async function fetchSqlDashboards(
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
             : ("private" as Visibility),
-        ownerEmail: typeof d.ownerEmail === "string" ? d.ownerEmail : null,
         parentId:
           typeof d.parentId === "string" && d.parentId.trim().length > 0
             ? d.parentId
@@ -1197,7 +1143,6 @@ async function fetchSidebarAnalyses(
     id: string;
     name: string;
     visibility: Visibility;
-    ownerEmail: string | null;
     hiddenAt: string | null;
   }[]
 > {
@@ -1221,7 +1166,6 @@ async function fetchSidebarAnalyses(
           a.visibility === "org" || a.visibility === "public"
             ? a.visibility
             : ("private" as Visibility),
-        ownerEmail: typeof a.ownerEmail === "string" ? a.ownerEmail : null,
         hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
       }));
   } catch {
@@ -1891,7 +1835,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
-      ownerEmail: d.ownerEmail,
       parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
@@ -2854,7 +2797,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                                 : undefined
                             }
                             visibility={a.visibility}
-                            ownerEmail={a.ownerEmail}
                             onSetVisibility={(v) =>
                               handleAnalysisSetVisibility(a, v)
                             }

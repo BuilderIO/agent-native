@@ -10,17 +10,13 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { isFigKiwiBuffer, isZipBuffer } from "../lib/figma-import/decode.js";
-import { importFigmaBuffer } from "../lib/figma-import/processor.js";
 import {
   normalizeImportedHtmlDocument,
   saveImportedDesignFiles,
-  type ImportedDesignFile,
 } from "../lib/import-design-files.js";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
-const MAX_FIG_BYTES = 50 * 1024 * 1024;
-const TOTAL_BODY_LIMIT = MAX_FIG_BYTES + 1024 * 1024;
+const TOTAL_BODY_LIMIT = MAX_HTML_BYTES + 1024 * 1024;
 
 function fieldText(
   parts: Awaited<ReturnType<typeof readMultipartFormData>>,
@@ -117,48 +113,13 @@ export const importDesignFile = defineEventHandler(async (event) => {
       };
     }
 
-    if (ext !== ".fig") {
-      throw new Error("Unsupported file type. Upload .fig, .html, or .htm.");
-    }
-    if (data.length > MAX_FIG_BYTES) {
-      throw new Error("Figma file is too large (max 50 MB).");
-    }
-    if (!isFigKiwiBuffer(data) && !isZipBuffer(data)) {
+    if (ext === ".fig") {
       throw new Error(
-        "Figma file contents do not match .fig or fig-kiwi format.",
+        "Use Design system setup to send .fig files through Builder indexing. This import route only accepts HTML.",
       );
     }
 
-    const imported = await importFigmaBuffer({
-      buffer: data,
-      filename: originalName,
-      sourceKind: "fig-file",
-    });
-    const files: ImportedDesignFile[] = imported.files.map((file) => ({
-      filename: file.filename,
-      fileType: "html",
-      content: file.content,
-      source: { ...file.source, originalName },
-      preferredFrame: {
-        title:
-          typeof file.source?.frameName === "string"
-            ? file.source.frameName
-            : undefined,
-        width: file.width,
-        height: file.height,
-      },
-    }));
-    const saved = await saveImportedDesignFiles({
-      designId,
-      sourceType: "fig-file",
-      files,
-      warnings: imported.warnings,
-    });
-    return {
-      importKind: "fig",
-      ...saved,
-      stats: imported.stats,
-    };
+    throw new Error("Unsupported file type. Upload .html or .htm.");
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "File import failed.";

@@ -711,7 +711,7 @@ export function Sidebar({
         data-open={open ? "true" : "false"}
         data-collapsed={collapsed ? "true" : "false"}
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden border-e border-border bg-card transition-[width,translate] duration-200 ease-out lg:static",
+          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
           collapsed ? "w-12" : "w-56",
         )}
       >

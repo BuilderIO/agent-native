@@ -431,7 +431,7 @@ function mergeAppConfig(
     mode: manifestApp?.mode ?? defaults?.mode,
     profile: manifestApp?.profile ?? defaults?.profile,
     roots:
-      manifestApp?.roots && manifestApp.roots.length > 0
+      manifestApp?.roots !== undefined
         ? manifestApp.roots
         : (defaults?.roots ?? []),
     components: manifestApp?.components ?? defaults?.components,

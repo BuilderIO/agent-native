@@ -121,22 +121,19 @@ capability is missing, add or extend a `defineAction` so both the agent and UI
 share the same operation. Do not create `/api/*` routes that only call,
 repackage, or proxy an action.
 
-| Action        | Args                                                                           | Purpose                                                                                 |
-| ------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `view-screen` |                                                                                | See current UI state                                                                    |
-| `navigate`    | `--view <name>` or `--path <url>`                                              | Navigate the UI                                                                         |
-| `hello`       | `[--name <name>]`                                                              | Example script                                                                          |
-| `db-schema`   |                                                                                | Show all tables, columns, types                                                         |
-| `db-query`    | `--sql "SELECT ..."`                                                           | Run a SELECT query                                                                      |
-| `db-exec`     | `--sql "UPDATE ..."`                                                           | Last-resort ad-hoc maintenance; prefer domain actions and Drizzle code for product work |
-| `db-patch`    | `--table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` | Surgical search/replace on a large text column — sends a diff instead of the full value |
+| Action        | Args                              | Purpose                         |
+| ------------- | --------------------------------- | ------------------------------- |
+| `view-screen` |                                   | See current UI state            |
+| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
+| `hello`       | `[--name <name>]`                 | Example script                  |
+| `db-schema`   |                                   | Show all tables, columns, types |
+| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
 
-**For one-off maintenance, pick the right SQL tool:**
+**For data changes, pick the right surface:**
 
 - Use domain actions first. They validate input, enforce access, and refresh the UI.
-- Use `db-exec UPDATE` only when no domain action exists and you need a small ad-hoc change.
-- Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
-- If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
+- Use `db-query` / `db-schema` for read-only inspection.
+- Raw write SQL (`db-exec` / `db-patch`) is not part of the default agent surface. If this app explicitly opts into `databaseTools: "write"`, use those tools only for deliberate maintenance when no domain action exists.
 - **Database admin (dev only):** in development, `db-admin-query` / `db-admin-mutate` / `db-admin-rows` / `db-admin-tables` / `db-admin-schema` give **unscoped, full-database** access to ANY table — including framework tables and tables without `owner_email`/`org_id`. Prefer these over `db-exec`/`db-query` for database-admin work and for any non-owner-scoped table: `db-exec`/`db-query` auto-scope to the current user and return **0 rows** on unscoped tables. These mirror the in-app Database admin UI, so prompts and the UI do the same thing.
 
 ## Skills

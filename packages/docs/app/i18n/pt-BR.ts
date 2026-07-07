@@ -1464,6 +1464,7 @@ const ptBR = {
     recurringJobs: "Jobs recorrentes",
     automations: "Automações",
     extensions: "Extensões",
+    dataPrograms: "Programas de dados",
     multiAppWorkspaces: "Workspaces multi-app",
     onboardingApiKeys: "Onboarding e chaves API",
     messaging: "Mensagens (Slack, Email...)",

@@ -1,6 +1,7 @@
 import {
   appApiPath,
   agentNativePath,
+  callAction,
   oauthRedirectUri,
   useActionMutation,
   useActionQuery,
@@ -112,19 +113,7 @@ const firstPartyAnalyticsEndpoint =
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ vars }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to save");
-  }
+  await callAction("update-data-source-credentials", { vars });
 }
 
 async function testConnection(
@@ -268,19 +257,7 @@ function StepItem({
 }
 
 async function deleteCredentials(keys: string[]): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ keys }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to delete");
-  }
+  await callAction("delete-data-source-credentials", { keys });
 }
 
 async function disconnectDataSource(source: DataSource): Promise<void> {

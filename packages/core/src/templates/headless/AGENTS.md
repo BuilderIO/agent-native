@@ -45,12 +45,15 @@ root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
 
 ## Actions
 
-| Action      | Args              | Purpose                 |
-| ----------- | ----------------- | ----------------------- |
-| `hello`     | `[--name <name>]` | Return a greeting       |
-| `db-schema` |                   | Show SQL schema         |
-| `db-query`  | `--sql "SELECT"`  | Run a scoped SELECT     |
-| `db-exec`   | `--sql "UPDATE"`  | Last-resort maintenance |
+| Action      | Args              | Purpose             |
+| ----------- | ----------------- | ------------------- |
+| `hello`     | `[--name <name>]` | Return a greeting   |
+| `db-schema` |                   | Show SQL schema     |
+| `db-query`  | `--sql "SELECT"`  | Run a scoped SELECT |
+
+Raw SQL writes are not exposed by default. Add or update a typed action for app
+data writes; opt into `databaseTools: "write"` only for deliberate maintenance
+surfaces.
 
 Run actions from this app root:
 

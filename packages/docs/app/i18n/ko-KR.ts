@@ -1461,6 +1461,7 @@ const koKR = {
     recurringJobs: "반복 작업",
     automations: "자동화",
     extensions: "확장",
+    dataPrograms: "데이터 프로그램",
     multiAppWorkspaces: "멀티 앱 Workspaces",
     onboardingApiKeys: "온보딩 및 API 키",
     messaging: "메시징 (Slack, Email...)",

@@ -384,24 +384,22 @@ openssl rand -hex 32
 ## 正式環境代理工具 {#production-agent-tools}
 
 正式環境代理從
-代理聊天外掛。預設情況下啟用資料庫寫入，因為原始資料庫
-工具的範圍僅限於經過驗證的使用者/組織，但應用程式所有者可以縮小範圍
-何時部署應該更加固執己見：
+代理聊天外掛。預設啟用 SQL 檢查；資料庫寫入會透過型別化應用程式 actions，
+除非應用程式明確啟用原始寫入工具：
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — 預設。寄存器`db-schema`、`db-query`、
-  `db-exec` 和 `db-patch`。寫入範圍僅限於目前使用者/組織和
-  架構更改被阻止。
-- `databaseTools: "read"` — 僅註冊 `db-schema` 和 `db-query`；代理
-  使用 SQL 檢查資料，但必須使用型別化應用程式 actions 進行寫入。
+- `databaseTools: "read"` — 預設。僅註冊 `db-schema` 和 `db-query`；
+  代理使用 SQL 檢查資料，但必須使用型別化應用程式 actions 進行寫入。
+- `databaseTools: "write"` 或 `true` — 也會註冊 `db-exec` 和 `db-patch`
+  供有意的原始 SQL 維護使用。寫入範圍限定為目前使用者/組織，並阻止架構變更。
 - `databaseTools: "off"` 或 `false` — 從
   代理表面，因此應用程式的 actions 是唯一的資料存取路徑。
 - `extensionTools: false` — 刪除框架擴充功能管理 actions 和

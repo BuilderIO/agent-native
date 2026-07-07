@@ -33,6 +33,19 @@ describe("document sidebar layout", () => {
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
   });
 
+  it("uses one sidebar surface for collapsed and expanded rails", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer flex h-full w-12 flex-col",
+    );
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
+    );
+    expect(sidebar).toContain("bg-sidebar");
+    expect(sidebar).not.toContain("bg-muted/30");
+  });
+
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
@@ -184,6 +197,34 @@ describe("document sidebar layout", () => {
     expect(sidebar.indexOf("{renderLocalFilesNavButton()}")).toBeLessThan(
       sidebar.indexOf("<ExtensionsSidebarSection />"),
     );
+  });
+
+  it("persists tree section collapse state and exposes local file actions", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const localFilesRoute = readSidebarSource(
+      "../../routes/_app.local-files.tsx",
+    );
+    const messages = readSidebarSource("../../i18n-data.ts");
+    const agents = readSidebarSource("../../../AGENTS.md");
+
+    expect(sidebar).toContain("useLocalStorage");
+    expect(sidebar).toContain("content-sidebar-collapsed-sections");
+    expect(sidebar).toContain("normalizeCollapsedSections");
+    expect(sidebar).toContain("renderLocalFilesSectionActions");
+    expect(sidebar).toContain('t("sidebar.localFilesActions")');
+    expect(sidebar).toContain('t("sidebar.manageLocalFolders")');
+    expect(sidebar).toContain('t("sidebar.removeLocalFilesFromSidebar")');
+    expect(sidebar).toContain('"remove-local-file-source"');
+    expect(sidebar).toContain("setRemoveLocalFilesDialogOpen(true)");
+    expect(localFilesRoute).toContain("localSourceDirectoriesFromDocuments");
+    expect(localFilesRoute).toContain("useDocuments()");
+    expect(localFilesRoute).toContain('"remove-local-file-source"');
+    expect(localFilesRoute).toContain('t("localFiles.importedFiles"');
+    expect(localFilesRoute).toContain('t("localFiles.remove")');
+    expect(messages).toContain('localFilesActions: "Local files actions"');
+    expect(messages).toContain('manageLocalFolders: "Manage folders"');
+    expect(messages).toContain('importedSource: "Imported source"');
+    expect(agents).toContain("remove-local-file-source");
   });
 
   it("keeps favorite rows constrained so long titles ellipsize", () => {

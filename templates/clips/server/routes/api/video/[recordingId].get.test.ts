@@ -49,6 +49,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  captureRouteError: vi.fn(),
+  getRequestOrgId: vi.fn(() => undefined),
+  resolveSecret: vi.fn(async () => null),
+  resolveBuilderPrivateKey: vi.fn(async () => null),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),

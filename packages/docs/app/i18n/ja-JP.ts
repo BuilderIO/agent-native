@@ -1465,6 +1465,7 @@ const jaJP = {
     recurringJobs: "定期ジョブ",
     automations: "自動化",
     extensions: "拡張",
+    dataPrograms: "データプログラム",
     multiAppWorkspaces: "マルチアプリ Workspaces",
     onboardingApiKeys: "オンボーディングと API キー",
     messaging: "メッセージング (Slack, Email...)",

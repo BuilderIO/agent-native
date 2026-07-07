@@ -32,7 +32,6 @@ import {
 } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
 import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
@@ -59,6 +58,7 @@ import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
+import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
@@ -124,41 +124,6 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentEditorSkeleton() {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-6 w-6 rounded-md" />
-          <Skeleton className="h-4 w-36" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-7 w-20 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-16 sm:px-8 md:px-16 md:pt-16">
-          <Skeleton className="mb-4 h-12 w-12 rounded-lg" />
-          <Skeleton className="h-11 w-2/3 rounded-md" />
-          <div className="space-y-3 pt-12">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-11/12" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-          <div className="space-y-3 pt-8">
-            <Skeleton className="h-4 w-10/12" />
-            <Skeleton className="h-4 w-4/5" />
-            <Skeleton className="h-4 w-7/12" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
   const t = useT();
 
@@ -188,8 +153,10 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: document, isError } = useDocument(documentId);
+  const { data: queriedDocument, isError } = useDocument(documentId);
   const navigate = useNavigate();
+  const document =
+    queriedDocument?.id === documentId ? queriedDocument : undefined;
 
   if (isError && !document) {
     return <DocumentUnavailable onOpenHome={() => navigate("/")} />;

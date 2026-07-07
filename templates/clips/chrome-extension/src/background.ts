@@ -40,6 +40,8 @@ type ExtensionSettings = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
 };
 
 type PopupStartMessage = {
@@ -145,6 +147,8 @@ type NativeRecording = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
@@ -228,6 +232,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
+  videoDeviceId: "",
+  audioDeviceId: "",
 };
 
 const sessions = new Map<string, CaptureSession>();
@@ -631,6 +637,10 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function normalizeDeviceId(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function chromeLastError(): Error | null {
   const error = chrome.runtime.lastError;
   return error ? new Error(error.message) : null;
@@ -661,6 +671,8 @@ async function readSettings(
     "includeCamera",
     "includeMicrophone",
     "includeDeveloperLogs",
+    "videoDeviceId",
+    "audioDeviceId",
   ]);
   return {
     clipsBaseUrl: normalizeBaseUrl(
@@ -680,6 +692,12 @@ async function readSettings(
     includeDeveloperLogs: normalizeBoolean(
       overrides?.includeDeveloperLogs ?? stored.includeDeveloperLogs,
       DEFAULT_SETTINGS.includeDeveloperLogs,
+    ),
+    videoDeviceId: normalizeDeviceId(
+      overrides?.videoDeviceId ?? stored.videoDeviceId,
+    ),
+    audioDeviceId: normalizeDeviceId(
+      overrides?.audioDeviceId ?? stored.audioDeviceId,
     ),
   };
 }
@@ -985,6 +1003,18 @@ function recordingUrl(
   return `${recording.clipsBaseUrl}/r/${encodeURIComponent(recording.recordingId)}`;
 }
 
+function settingsFromRecording(recording: NativeRecording): ExtensionSettings {
+  return {
+    clipsBaseUrl: recording.clipsBaseUrl,
+    captureSurface: recording.captureSurface,
+    includeCamera: recording.includeCamera,
+    includeMicrophone: recording.includeMicrophone,
+    includeDeveloperLogs: recording.includeDeveloperLogs,
+    videoDeviceId: recording.videoDeviceId ?? "",
+    audioDeviceId: recording.audioDeviceId ?? "",
+  };
+}
+
 function createSession(
   sessionId: string,
   tab: ChromeTab,
@@ -1090,6 +1120,8 @@ async function armRecording(args: {
     surface,
     includeMicrophone: settings.includeMicrophone,
     includeCamera: settings.includeCamera,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
   });
   console.log("[clips-bg] arm: acquired stream", acq);
 
@@ -1184,6 +1216,8 @@ async function armRecording(args: {
     includeCamera: settings.includeCamera,
     includeMicrophone: settings.includeMicrophone,
     includeDeveloperLogs: settings.includeDeveloperLogs,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
@@ -1358,13 +1392,7 @@ async function handleOverlayRestart() {
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
   recording.status = "recording";
   const restartAuthToken = (
-    await readAuthSession({
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    })
+    await readAuthSession(settingsFromRecording(recording))
   )?.token;
   // Re-arm the recorder on the same (re-homed) source streams with a fresh
   // pre-roll. The offscreen reports "recording" when it restarts.
@@ -1404,13 +1432,7 @@ async function resetRecordingChunks(
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
-  const headers = await authHeaders({
-    clipsBaseUrl: recording.clipsBaseUrl,
-    captureSurface: recording.captureSurface,
-    includeCamera: recording.includeCamera,
-    includeMicrophone: recording.includeMicrophone,
-    includeDeveloperLogs: recording.includeDeveloperLogs,
-  });
+  const headers = await authHeaders(settingsFromRecording(recording));
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -1470,17 +1492,9 @@ async function stopRecording() {
       // as an aborted take — discard the empty recording instead of opening a
       // playback tab for a finished-but-empty clip.
       await deleteSession(recording.sessionId);
-      await postAction(
-        {
-          clipsBaseUrl: recording.clipsBaseUrl,
-          captureSurface: recording.captureSurface,
-          includeCamera: recording.includeCamera,
-          includeMicrophone: recording.includeMicrophone,
-          includeDeveloperLogs: recording.includeDeveloperLogs,
-        },
-        "trash-recording",
-        { id: recording.recordingId },
-      ).catch(() => undefined);
+      await postAction(settingsFromRecording(recording), "trash-recording", {
+        id: recording.recordingId,
+      }).catch(() => undefined);
       resetOverlay();
       await broadcastUnmount();
       broadcastOverlayState();
@@ -1525,17 +1539,9 @@ async function cancelRecording() {
     sessionId: recording.sessionId,
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
-  await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
-    "trash-recording",
-    { id: recording.recordingId },
-  ).catch(() => undefined);
+  await postAction(settingsFromRecording(recording), "trash-recording", {
+    id: recording.recordingId,
+  }).catch(() => undefined);
   await clearNativeRecording();
   return { ok: true };
 }
@@ -1548,13 +1554,7 @@ async function saveNativeDiagnostics(
   if (!session) return;
   const diagnostics = snapshotSession(session);
   await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
+    settingsFromRecording(recording),
     "save-browser-diagnostics",
     {
       recordingId: recording.recordingId,

@@ -1413,13 +1413,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           <>
             {(!sidebarPinned || isMobile) && (
               <div
-                className="fixed inset-0 z-30 bg-black/20"
+                className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
                 onClick={() => setSidebarOpen(false)}
               />
             )}
             <div
               className={cn(
-                "flex flex-col overflow-hidden bg-background/85 backdrop-blur-2xl border-e border-border/30 shadow-2xl transition-[width] duration-200 ease-out",
+                "flex flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl border-e border-border/30 shadow-2xl transition-[width] duration-200 ease-out",
                 showCollapsedSidebar ? "w-12" : "w-64",
                 sidebarPinned && !isMobile
                   ? "absolute start-0 top-12 bottom-0 z-10"
@@ -2008,10 +2008,10 @@ function StandardLayout({ children }: AppLayoutProps) {
       {sidebarOpen && (
         <>
           <div
-            className="fixed inset-0 z-30 bg-black/20"
+            className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-background/70 backdrop-blur-2xl border-e border-border/30 shadow-2xl">
+          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl border-e border-border/30 shadow-2xl">
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="space-y-0.5">
                 {[

@@ -1517,7 +1517,7 @@ export function SettingsPage() {
   return (
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
       {/* Top tabs on mobile, left sidebar on desktop */}
-      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
+      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
         {allNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;

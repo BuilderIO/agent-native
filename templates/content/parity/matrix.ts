@@ -454,18 +454,22 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "local-files.import-export-mounted-folder",
     surface: "local-files",
-    label: "Import, check, export, and push local folder source files",
+    label: "Import, check, export, push, and remove local folder source files",
     uiEntrypoints: [
       "app/routes/_app.local-files.tsx",
       "actions/import-content-source.ts",
       "actions/export-content-source.ts",
     ],
     durableEffect:
-      "Local Markdown/MDX source files are imported into Content documents, and editable Content documents are exported back to source-friendly files.",
+      "Local Markdown/MDX source files are imported into Content documents, editable Content documents are exported back to source-friendly files, and imported source entries can be removed without deleting files on disk.",
     uiImplementation:
       "UI reads/writes browser or Desktop folder handles around import/export actions.",
     status: "action-backed",
-    actions: ["export-content-source", "import-content-source"],
+    actions: [
+      "export-content-source",
+      "import-content-source",
+      "remove-local-file-source",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

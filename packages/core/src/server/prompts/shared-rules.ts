@@ -61,7 +61,7 @@ export function sharedRule8(
   }
 
   if (databaseToolsMode === "read") {
-    return `8. **Read-only \`db-*\` tools are internal only** — \`db-schema\` and \`db-query\` ONLY inspect the app's own SQL database (settings, application_state, template tables). Raw SQL write tools such as \`db-exec\` and \`db-patch\` are not available on this surface; use typed app actions for writes. The DB tools CANNOT reach ${
+    return `8. **Read-only \`db-*\` tools are internal only** — \`db-schema\` and \`db-query\` ONLY inspect the app's own SQL database (settings, application_state, template tables); \`db-exec\` and \`db-patch\` are not available, so use typed app actions for writes. DB tools cannot reach ${
       providerList.length > 0
         ? providerList
             .split(",")
@@ -69,7 +69,7 @@ export function sharedRule8(
             .map((s) => s.trim())
             .join(", ")
         : "external data sources"
-    }, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. **Never use \`db-query\` for external data — it will fail.** When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;
+    } or any external source. If a table is NOT in the app schema, use the appropriate template action instead — ${warehouseExample}${providerExamples ? `${providerExamples} for their providers, ` : ""}etc. Named provider actions win over warehouse copies unless the user explicitly asks for the warehouse. **Never use \`db-query\` for external data.** When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination needed. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;
   }
 
   return `8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach ${

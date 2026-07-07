@@ -1,3 +1,5 @@
+import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
+
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("popup");
@@ -222,7 +224,7 @@ async function enumerateInputDevices(): Promise<{
           deviceId: device.deviceId,
           label: device.label.trim() || `Camera ${cameras.length + 1}`,
         });
-      } else if (device.kind === "audioinput") {
+      } else if (isSelectableAudioInputDevice(device)) {
         microphones.push({
           deviceId: device.deviceId,
           label: device.label.trim() || `Microphone ${microphones.length + 1}`,

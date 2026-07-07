@@ -1355,15 +1355,17 @@ function createDataWidgetActionEntries(): Record<string, ActionEntry> {
 
 /**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
- * These let the agent read and write the app's own SQL database. Scoping to
- * the current user/org is enforced automatically in production via temp views.
+ * By default these let the agent inspect the app's own SQL database; raw SQL
+ * writes are only exposed when the app explicitly opts into write mode.
+ * Scoping to the current user/org is enforced automatically in production via
+ * temp views.
  *
  * In dev mode template actions are invoked via bash and the agent can call
  * `pnpm action db-query ...` — but in production there is no bash, so these
  * must be registered as native tools for the agent to reach the app DB at all.
  */
 async function createDbScriptEntries(
-  mode: DatabaseToolsMode = "write",
+  mode: DatabaseToolsMode = "read",
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
@@ -2777,12 +2779,11 @@ export interface AgentChatPluginOptions {
   /**
    * Expose raw SQL/native database tools to the app agent.
    *
-   * Defaults to `"write"` (also `true`) for backwards-compatible agent/UI
-   * parity: `db-schema`, `db-query`, `db-exec`, and `db-patch` are available
-   * and writes remain scoped to the current user/org. Set to `"read"` to keep
-   * `db-schema`/`db-query` for inspection while routing writes through typed
-   * app actions. Set to `"off"` (also `false`) for chat-first apps that want
-   * agents to use typed actions only.
+   * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
+   * while writes route through typed app actions. Set to `"write"` (also
+   * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
+   * Set to `"off"` (also `false`) for chat-first apps that want agents to use
+   * typed actions only.
    */
   databaseTools?: DatabaseToolsOption;
   /**
@@ -3057,19 +3058,17 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
   "sql-tools": `### SQL Tools
 
-When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. When database write tools are enabled, \`db-exec\` and \`db-patch\` are also available. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
+When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. Raw SQL write tools are only available when the app explicitly opts into database write tools; by default, writes go through typed app actions. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
 
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE when raw DB writes are enabled (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
-- \`db-patch\` — surgical search-and-replace on a large text column when raw DB writes are enabled. Use for edits to large fields instead of re-sending multi-kilobyte strings.
+- \`db-exec\` — only when present: run INSERT / UPDATE / DELETE / REPLACE for scoped maintenance. For normal product data writes, use a typed app action instead.
+- \`db-patch\` — only when present: surgical search-and-replace on a large text column. If a typed app action exists for the resource, use that action.
 
 ### When to pick which SQL tool
-- Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
-- Insert/update several rows as one logical operation → \`db-exec\` with \`statements: '[{"sql":"...","args":[...]}]'\`
-- Change a small slice of a large text/JSON column → \`db-patch\`
 - A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
 - Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.
+- Raw write tools are present and no app action exists → use \`db-exec\` or \`db-patch\` only for deliberate maintenance, not normal product workflows.
 
 ### External data sources vs the app database
 The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
@@ -3125,7 +3124,7 @@ If the app exposes native actions or instructions for dashboards, reports, analy
 
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
-Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+Generated UI content can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). Use appAction() for app data writes, and dbQuery() only for read-only inspection of known app SQL tables. It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
@@ -3508,7 +3507,7 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  databaseTools: DatabaseToolsOption = "write",
+  databaseTools: DatabaseToolsOption = "read",
 ): Promise<string> {
   try {
     return await loadSchemaPromptBlock({
@@ -3826,14 +3825,51 @@ export async function loadRunCodeToolEntries(
   try {
     const { createRunCodeEntry, createGetCodeExecutionEntry } =
       await import("../coding-tools/run-code.js");
-    return {
+    const entries: Record<string, ActionEntry> = {
       "run-code": createRunCodeEntry(supplier, runCodeOptions),
       "get-code-execution": createGetCodeExecutionEntry(),
     };
+
+    // Data programs: stored JS scripts executed through this same run-code
+    // sandbox, cached in SQL, and rendered by dashboard panels. Registered
+    // identically to run-code — same try/dynamic-import guard, silently
+    // skipped when the module is unavailable (e.g. bundled browser build) —
+    // so every app gets the primitive without per-template wiring.
+    try {
+      const { initDataPrograms, createDataProgramActions } =
+        await import("../data-programs/index.js");
+      const appId = resolveDataProgramsAppId();
+      initDataPrograms({ appId, getActions: supplier });
+      Object.assign(
+        entries,
+        createDataProgramActions({ appId, getActions: supplier }),
+      );
+    } catch {
+      // Module unavailable — skip silently, mirroring the run-code guard above.
+    }
+
+    return entries;
   } catch {
     // Module unavailable (e.g. bundled browser build) — skip silently.
     return {};
   }
+}
+
+/**
+ * Resolve the stable app identity data programs are scoped under. Mirrors
+ * the precedent in `cli/agent.ts` (`AGENT_NATIVE_APP_ID` env override, then
+ * `APP_ID`, then a fixed fallback) — data programs don't need a per-call
+ * agent-supplied appId the way staged datasets do (staged datasets are
+ * scratch space the agent explicitly stages into); a data program is a
+ * persisted resource scoped to "this app deployment".
+ */
+function resolveDataProgramsAppId(): string {
+  return (
+    process.env.AGENT_NATIVE_APP_ID?.trim() ||
+    process.env.APP_ID?.trim() ||
+    process.env.APP_NAME?.trim() ||
+    "app"
+  );
 }
 
 type RecurringJobsRuntimeEnvKey =

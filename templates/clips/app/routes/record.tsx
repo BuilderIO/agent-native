@@ -959,6 +959,7 @@ export default function RecordRoute() {
     mode: RecordingMode;
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
+    micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
   } | null>(null);
   const tickRef = useRef<number | null>(null);
@@ -1042,6 +1043,7 @@ export default function RecordRoute() {
       mode: RecordingMode;
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
+      micDeviceLabel?: string | null;
       cameraDeviceId: string | null;
     }) => {
       const blockedFeature = isEmbeddedWindow()
@@ -1086,6 +1088,7 @@ export default function RecordRoute() {
           mode: opts.mode,
           displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
+          micDeviceLabel: opts.micDeviceLabel,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
           uploadUrl: "",
@@ -1195,12 +1198,10 @@ export default function RecordRoute() {
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
         //
-        // The one exception is when a stale saved mic forced the engine to
-        // fall back to the system default during acquire(): the recording is
-        // now on the default device, so live transcription would use the same
-        // mic and is safe to start.
-        const usingDefaultMic =
-          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        // The engine reports whether the final recorded mic stream really is
+        // the system default; corrected explicit fallbacks must not start Web
+        // Speech because it would listen to a different device.
+        const usingDefaultMic = engine.didMicUseSystemDefault();
         if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
@@ -1560,6 +1561,8 @@ export default function RecordRoute() {
               visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
+              mimeType: uploadMimeType,
+              requestStreaming: false,
             }),
           },
         );

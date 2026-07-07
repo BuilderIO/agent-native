@@ -384,24 +384,23 @@ openssl rand -hex 32
 ## उत्पादन एजेंट उपकरण {#production-agent-tools}
 
 प्रोडक्शन एजेंटों को ऐप के पंजीकृत actions प्लस फ्रेमवर्क टूल मिलते हैं
-एजेंट चैट प्लगइन. कच्चे DB
-टूल्स का दायरा प्रमाणित उपयोगकर्ता/संगठन तक होता है, लेकिन ऐप मालिक इसे सीमित कर सकते हैं
-सतह जब तैनाती अधिक विचारशील होनी चाहिए:
+एजेंट चैट प्लगइन. SQL निरीक्षण डिफ़ॉल्ट रूप से सक्षम है; डेटाबेस writes
+typed app actions से गुजरते हैं, जब तक ऐप स्पष्ट रूप से raw write tools सक्षम न करे:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` - डिफ़ॉल्ट। रजिस्टर `db-schema`, `db-query`,
-  `db-exec`, और `db-patch`। लेखन का दायरा मौजूदा उपयोगकर्ता/संगठन और
-  स्कीमा परिवर्तन अवरुद्ध हैं।
-- `databaseTools: "read"` - केवल `db-schema` और `db-query` पंजीकृत करता है; एजेंट
-  SQL के साथ डेटा का निरीक्षण करें लेकिन लिखने के लिए टाइप किए गए ऐप actions का उपयोग करना होगा।
+- `databaseTools: "read"` - डिफ़ॉल्ट। केवल `db-schema` और `db-query` पंजीकृत करता है;
+  एजेंट SQL से डेटा देखते हैं लेकिन writes के लिए typed app actions का उपयोग करते हैं।
+- `databaseTools: "write"` या `true` - deliberate raw SQL maintenance के लिए
+  `db-exec` और `db-patch` भी पंजीकृत करता है। writes मौजूदा उपयोगकर्ता/संगठन
+  तक scoped रहते हैं और schema changes blocked रहते हैं।
 - `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
   एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
 - `extensionTools: false` - फ्रेमवर्क एक्सटेंशन-प्रबंधन actions को हटा देता है और
