@@ -2428,10 +2428,11 @@ export const config = {
 }
 
 /**
- * Nitro's Netlify preset emits `preferStatic: true` on the scanned `server`
- * function. Workspace deploys already force `preferStatic: false` because our
- * SSR templates publish no `index.html`; with `preferStatic: true`, Netlify
- * can serve a platform 404 for `/` instead of invoking the catch-all function.
+ * Nitro's Netlify preset can emit a harmful fallback rewrite to
+ * `/.netlify/functions/server`. With `config.path: "/*"`, that default URL is
+ * removed, so the rewrite publishes platform 404s. Single-template deploys keep
+ * Nitro's `preferStatic: true` so hashed `/assets/*` files in dist win before
+ * the SSR catch-all runs.
  */
 const NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT =
   "/* /.netlify/functions/server 200";
