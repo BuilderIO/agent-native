@@ -6,7 +6,7 @@ export function hasBoardSurfaceContent(html: string | undefined) {
 }
 
 const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
-const BOARD_SURFACE_BACKGROUND = "hsl(0 0% 10%)";
+export const BOARD_SURFACE_BACKGROUND = "hsl(0 0% 10%)";
 
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;
 const BOARD_SURFACE_BACKDROP_MIN_AREA_PX = 8_000_000;

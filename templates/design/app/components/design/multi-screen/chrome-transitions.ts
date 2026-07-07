@@ -2,7 +2,7 @@
 // re-render); on commit it recomputes to its fixed screen size. These transitions
 // are enabled only for that brief settle, so normal selection, resize, and
 // screen-switch geometry stays pinned to the frame.
-const CHROME_SETTLE_MS = 150;
+export const CHROME_SETTLE_MS = 150;
 const CHROME_OPACITY_TRANSITION = "opacity 150ms ease-out";
 const CHROME_BORDER_SETTLE_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 const SELECTION_BOX_SETTLE_TRANSITION = `border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
