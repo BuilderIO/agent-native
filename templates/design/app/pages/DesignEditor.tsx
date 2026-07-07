@@ -12229,6 +12229,21 @@ export default function DesignEditor() {
         applyLocalContentUpdate(nextContent, options);
         return;
       }
+      // Cross-pipeline write race guard — same hazard commitVisualStyles
+      // already defends against (see its withShaderWriteLock note): a shader
+      // apply/remove/knob-commit for this same file runs a separate
+      // read-source-file -> apply-source-edit round trip, and the overview
+      // writeLiveDoc rewrite below replays FULL content into the connected
+      // overviewYdoc. Racing the two corrupts the doc (server-side diff vs
+      // synchronous untracked full rewrite). Defer the whole update until the
+      // in-flight shader write settles; the common no-shader case stays fully
+      // synchronous.
+      if (isShaderWriteInFlight(fileId)) {
+        void waitForShaderWriteToSettle(fileId).then(() => {
+          applyFileContentUpdate(fileId, nextContent, options);
+        });
+        return;
+      }
       const previousFile = files.find((file) => file.id === fileId);
       const previousContent =
         getScreenContent(fileId) ?? previousFile?.content ?? "";

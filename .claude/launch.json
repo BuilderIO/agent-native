@@ -276,24 +276,6 @@
       "port": 9335
     },
     {
-      "name": "design-ep5",
-      "runtimeExecutable": "env",
-      "runtimeArgs": [
-        "APP_NAME=design",
-        "DESIGN_DATABASE_URL=file:./data/ep5.db",
-        "AUTH_MODE=local",
-        "BETTER_AUTH_SECRET=ep5-verify-fixed-dev-secret-not-a-real-secret",
-        "PORT=9343",
-        "pnpm",
-        "--dir",
-        "templates/design",
-        "dev",
-        "--port",
-        "9343"
-      ],
-      "port": 9343
-    },
-    {
       "name": "dispatch",
       "runtimeExecutable": "env",
       "runtimeArgs": [
