@@ -2427,6 +2427,47 @@ export const config = {
   );
 }
 
+/**
+ * Nitro's Netlify preset emits `preferStatic: true` on the scanned `server`
+ * function. Workspace deploys already force `preferStatic: false` because our
+ * SSR templates publish no `index.html`; with `preferStatic: true`, Netlify
+ * can serve a platform 404 for `/` instead of invoking the catch-all function.
+ */
+export function patchSingleTemplateNetlifyServerFunction(
+  projectCwd: string,
+): void {
+  const serverEntryPath = path.join(
+    projectCwd,
+    ".netlify",
+    "functions-internal",
+    "server",
+    "server.mjs",
+  );
+  if (!fs.existsSync(serverEntryPath)) return;
+
+  let serverEntry = fs.readFileSync(serverEntryPath, "utf-8");
+  if (/\bpreferStatic:\s*false\b/.test(serverEntry)) {
+    return;
+  }
+
+  if (/\bpreferStatic:\s*true\b/.test(serverEntry)) {
+    serverEntry = serverEntry.replace(
+      /\bpreferStatic:\s*true\b/,
+      "preferStatic: false",
+    );
+  } else {
+    console.warn(
+      "[deploy] Netlify server patch skipped: server.mjs has no preferStatic flag.",
+    );
+    return;
+  }
+
+  fs.writeFileSync(serverEntryPath, serverEntry);
+  console.log(
+    "[deploy] Patched Netlify server function to preferStatic: false for SSR routing.",
+  );
+}
+
 export function assertSingleTemplateNetlifyBuildOutput(
   projectCwd: string,
 ): void {
@@ -2490,6 +2531,11 @@ export function assertSingleTemplateNetlifyBuildOutput(
     if (!serverEntry.includes("./main.mjs")) {
       failures.push(
         "Netlify server entry does not reference the generated main.mjs bundle",
+      );
+    }
+    if (!/\bpreferStatic:\s*false\b/.test(serverEntry)) {
+      failures.push(
+        "Netlify server entry must set preferStatic: false (SSR apps publish no index.html)",
       );
     }
   }
@@ -3128,6 +3174,7 @@ export default bundle;
   }
 
   if (preset === "netlify") {
+    patchSingleTemplateNetlifyServerFunction(cwd);
     writeSingleTemplateNetlifyRedirects(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }

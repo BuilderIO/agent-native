@@ -25,6 +25,7 @@ import {
   getNodeBuiltinNames,
   isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
+  patchSingleTemplateNetlifyServerFunction,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -1498,9 +1499,24 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
   });
 
+  function prepareSingleTemplateNetlifyOutput(cwd: string): void {
+    patchSingleTemplateNetlifyServerFunction(cwd);
+    writeSingleTemplateNetlifyRedirects(cwd);
+  }
+
+  it("patches Nitro server output from preferStatic true to false", () => {
+    const cwd = setupNetlifyOutput();
+
+    patchSingleTemplateNetlifyServerFunction(cwd);
+
+    const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
+    expect(serverEntry).toContain("preferStatic: false");
+    expect(serverEntry).not.toContain("preferStatic: true");
+  });
+
   it("passes a valid single-template Netlify deploy output", () => {
     const cwd = setupNetlifyOutput();
-    writeSingleTemplateNetlifyRedirects(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
@@ -1530,12 +1546,22 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
-  it("fails deploy output that would publish without the server catch-all", () => {
+  it("fails deploy output that would publish without preferStatic false", () => {
     const cwd = setupNetlifyOutput();
     writeSingleTemplateNetlifyRedirects(cwd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /preferStatic: false/,
+    );
+  });
+
+  it("fails deploy output that would publish without the server catch-all", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const entry = fs.readFileSync(serverEntryPath(cwd), "utf8");
     fs.writeFileSync(
       serverEntryPath(cwd),
-      SERVER_ENTRY.replace('  path: "/*",\n', ""),
+      entry.replace('  path: "/*",\n', ""),
     );
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
@@ -1546,7 +1572,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   it("fails when durable background is enabled but the Netlify background function is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
-    writeSingleTemplateNetlifyRedirects(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /durable background is enabled/,
@@ -1558,7 +1584,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
-    writeSingleTemplateNetlifyRedirects(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
