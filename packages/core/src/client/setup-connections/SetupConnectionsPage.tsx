@@ -50,9 +50,7 @@ export function SetupConnectionsPage({
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <main className="flex min-w-0 flex-col gap-4">
             {showOnboarding ? (
-              <section className="rounded-lg border border-border bg-background p-4 shadow-sm">
-                <OnboardingPanel title={onboardingTitle} />
-              </section>
+              <OnboardingPanel title={onboardingTitle} />
             ) : null}
             {workspaceConnections ? (
               <section className="rounded-lg border border-border bg-background p-4 shadow-sm">
