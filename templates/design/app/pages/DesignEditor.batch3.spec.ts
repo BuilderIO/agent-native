@@ -23,6 +23,7 @@ import { describe, expect, it, afterEach } from "vitest";
 
 import {
   isDesignEditorDarkTheme,
+  defaultCanvasTextColor,
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   shouldReplacePreviewAfterVisualStyleCommit,
 } from "./DesignEditor";
@@ -40,6 +41,30 @@ describe("isDesignEditorDarkTheme (item 2 — canvas-drawn text defaults)", () =
   it("returns true when next-themes has applied the dark class", () => {
     document.documentElement.classList.add("dark");
     expect(isDesignEditorDarkTheme()).toBe(true);
+  });
+});
+
+describe("defaultCanvasTextColor (board text readability)", () => {
+  afterEach(() => {
+    document.documentElement.classList.remove("dark");
+  });
+
+  it("defaults BOARD text to white regardless of the editor chrome theme", () => {
+    // The board surface is always dark (BOARD_SURFACE_BACKGROUND), so the
+    // white-text default must NOT be gated on isDesignEditorDarkTheme() —
+    // with the editor in light mode (no `dark` class), board text used to
+    // fall back to `currentColor` → black-on-dark, i.e. invisible.
+    document.documentElement.classList.remove("dark");
+    expect(defaultCanvasTextColor(true)).toBe("#ffffff");
+    document.documentElement.classList.add("dark");
+    expect(defaultCanvasTextColor(true)).toBe("#ffffff");
+  });
+
+  it("keeps SCREEN text on currentColor so it inherits the screen's own theme", () => {
+    document.documentElement.classList.remove("dark");
+    expect(defaultCanvasTextColor(false)).toBe("currentColor");
+    document.documentElement.classList.add("dark");
+    expect(defaultCanvasTextColor(false)).toBe("currentColor");
   });
 });
 

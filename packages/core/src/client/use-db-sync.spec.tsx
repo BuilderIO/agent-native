@@ -82,6 +82,14 @@ async function renderWithEvent(event: Record<string, unknown>) {
     await Promise.resolve();
     await Promise.resolve();
   });
+  // useDbSync coalesces invalidation into a single flush per
+  // INVALIDATE_COALESCE_MS (250ms) — wait past that window (outside `act`,
+  // since a raw application `setTimeout` nested inside `act(async () => …)`
+  // is not reliably awaited by React's act() batching) so the batch has
+  // landed before assertions run.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 260));
+  });
 
   return { container, fetchMock, queryClient, root };
 }
@@ -155,6 +163,12 @@ describe("useDbSync", () => {
       );
       await Promise.resolve();
       await Promise.resolve();
+    });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
     const broadCall = queryClient.calls.find((call) => call?.predicate);
@@ -455,6 +469,12 @@ describe("useDbSync", () => {
       root.render(<BothHooks />);
       await Promise.resolve();
       await Promise.resolve();
+    });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
     // useDbSync received the action event.

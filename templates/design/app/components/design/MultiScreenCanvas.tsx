@@ -239,6 +239,10 @@ import {
   getChromeLabelTransition,
   getSelectionBoxTransition,
 } from "./multi-screen/chrome-transitions";
+import {
+  getCornerHandleGeometry,
+  getEdgeHandleHitGeometry,
+} from "./multi-screen/handle-hit-zones";
 
 export function isDirectScreenHoverTarget(
   target: EventTarget | null,
@@ -274,6 +278,27 @@ export function isOsFileDrag(event: {
   return false;
 }
 
+// PERF9-WHEEL: module-scoped "a wheel/pinch camera gesture is in flight"
+// flag, set by markWheelGestureActive on the first applied flush and cleared
+// by commitView once the gesture settles (or on canvas unmount). Lives at
+// module scope (not React state) because its consumers are event handlers —
+// DesignEditor's hover callbacks — that must read the CURRENT value without
+// any render round-trip: flipping React state for this at gesture start
+// re-rendered every Screen and measurably stalled the first wheel ticks.
+let wheelCameraGestureActive = false;
+
+/** True while a MultiScreenCanvas wheel/pinch camera gesture is in flight
+ *  (first applied wheel flush → settled debounced commit). DesignEditor's
+ *  hover handlers consult this to skip hover setState mid-gesture: muting
+ *  the content layers at gesture start flips the element under the cursor,
+ *  firing a hover-clear that would otherwise cost a full-tree React render
+ *  exactly when the pan needs the main thread most. Hover state simply goes
+ *  stale for the gesture's duration (same contract as a space-drag pan) and
+ *  recomputes from the next real pointer event after settle. */
+export function isWheelCameraGestureActive(): boolean {
+  return wheelCameraGestureActive;
+}
+
 export function shouldBoardSurfaceCapturePointerEvents(args: {
   tool: MultiScreenCanvasTool | string;
   gestureActive?: boolean;
@@ -294,6 +319,80 @@ export function shouldShowFrameFullViewButton(args: {
   childHoverActive?: boolean;
 }) {
   return args.emphasized || !!args.showFullView || !!args.childHoverActive;
+}
+
+/** How long an armed duplicate-commit suppression stays valid while the
+ *  created file(s) round-trip through the server before appearing in
+ *  `screens`. Generous vs. the usual create-file latency, but short enough
+ *  that an armed flag left behind by a failed mutation can't swallow a much
+ *  later, unrelated screen-count recenter. */
+export const LINEUP_RECENTER_SUPPRESS_MAX_AGE_MS = 10_000;
+
+/** Armed by a duplicate commit (alt-drag drop or Cmd+D) so the
+ *  lineup-recenter effect can recognise — and skip — exactly the screen-count
+ *  transition(s) that duplicate is about to produce. */
+export interface LineupRecenterDuplicateArm {
+  atMs: number;
+  /** `screens.length` at the moment the duplicate was dispatched. */
+  fromCount: number;
+  /** How many duplicates were dispatched (alt-drag: 1; Cmd+D: one per
+   *  selected frame — they land one server round-trip at a time). */
+  addedCount: number;
+}
+
+/**
+ * Whether the "center the lineup when the screen footprint changes" effect
+ * must SKIP its camera move for this run. A duplicate (alt-drag drop OR
+ * Cmd+D) places the clone deliberately relative to content the user is
+ * already looking at — Figma keeps the camera still on that commit, but the
+ * recenter effect (keyed on `screens.length`) would otherwise pan/zoom the
+ * whole board the moment each new screen lands, making every untouched
+ * sibling visibly shift. The duplicate commit arms `armed` with a timestamp,
+ * the pre-duplicate screen count, and how many clones were dispatched; the
+ * effect suppresses only transitions inside `(fromCount, fromCount +
+ * addedCount]`, only while fresh, and never for device-frame-preview-driven
+ * runs — so initial-load fit, explicit Zoom-to-fit (cameraCommand, a
+ * different path entirely), toolbar add-screen recenters, and device-frame
+ * changes all keep their behavior. Pure/exported for unit tests.
+ */
+export function shouldSuppressLineupRecenter(args: {
+  armed: LineupRecenterDuplicateArm | null;
+  nowMs: number;
+  screenCount: number;
+  deviceFrameChanged: boolean;
+  maxAgeMs?: number;
+}): boolean {
+  if (!args.armed) return false;
+  if (args.deviceFrameChanged) return false;
+  const age = args.nowMs - args.armed.atMs;
+  if (age < 0 || age > (args.maxAgeMs ?? LINEUP_RECENTER_SUPPRESS_MAX_AGE_MS)) {
+    return false;
+  }
+  return (
+    args.screenCount > args.armed.fromCount &&
+    args.screenCount <= args.armed.fromCount + args.armed.addedCount
+  );
+}
+
+/**
+ * True when this lineup-recenter run was caused purely by the screen count
+ * SHRINKING (delete, or undo of a duplicate/add). Nothing new needs to
+ * become reachable when screens disappear, and Figma keeps the camera still
+ * on delete/undo — so the recenter effect skips these runs entirely (undo
+ * after a duplicate previously yanked the camera a second time).
+ * Device-frame-preview changes still recenter regardless of count direction.
+ * Pure/exported for unit tests.
+ */
+export function isLineupShrinkOnlyChange(args: {
+  previousCount: number | null;
+  screenCount: number;
+  deviceFrameChanged: boolean;
+}): boolean {
+  return (
+    !args.deviceFrameChanged &&
+    args.previousCount !== null &&
+    args.screenCount < args.previousCount
+  );
 }
 
 /**
@@ -569,10 +668,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const dragState = useRef<DragState | null>(null);
   const dragCleanup = useRef<(() => void) | null>(null);
   const duplicateCleanup = useRef<(() => void) | null>(null);
+  // Armed by a duplicate commit (alt-drag drop or Cmd+D) so the
+  // lineup-recenter effect keeps the camera still when the
+  // deliberately-placed clone(s) land in `screens` — see
+  // shouldSuppressLineupRecenter.
+  const lineupRecenterSuppressRef = useRef<LineupRecenterDuplicateArm | null>(
+    null,
+  );
+  const lineupRecenterDeviceFrameRef = useRef(previewDeviceFrame);
+  const lineupRecenterPrevCountRef = useRef<number | null>(null);
   const handledSelectAllRequestRef = useRef(selectAllRequest);
   const handledClearSelectionRequestRef = useRef(clearSelectionRequest);
   const [isDragging, setIsDragging] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  // PERF9-WHEEL: an in-flight wheel/pinch gesture imperatively mutes pointer
+  // events on every live preview iframe (screens + board surface), restoring
+  // each element's prior inline value once the gesture settles (commitView).
+  // Without this, every wheel-pan tick moves live iframes under a stationary
+  // cursor, the browser re-hit-tests into them, and their hover/hit-test
+  // bridges post pointermove/element-hover messages (thousands per 240-tick
+  // pan) that can setState in DesignEditor — ~20ms full-tree React renders
+  // mid-gesture, which is what capped wheel-pan well under 60fps while drags
+  // ran at ~98fps on the same board. Done with direct style writes on cached
+  // nodes (NOT React state): flipping a canvasGestureActive-style flag at
+  // gesture start re-rendered every Screen + mounted interaction shields,
+  // costing a measured ~75ms first-tick stall — the exact class of jank
+  // PERF9 exists to avoid. Same "imperative now, reconcile once at settle"
+  // contract as applyViewToDom/scheduleViewCommit.
+  const wheelGestureActiveRef = useRef(false);
+  const wheelGestureMutedElementsRef = useRef<Map<HTMLElement, string> | null>(
+    null,
+  );
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null);
   const marqueeRef = useRef<MarqueeRect | null>(marquee);
   const [alignmentGuides, setAlignmentGuidesRaw] = useState<AlignmentGuide[]>(
@@ -1202,6 +1328,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   // Center the lineup when the screen footprint changes so new frames stay reachable.
   useEffect(() => {
+    const deviceFrameChanged =
+      lineupRecenterDeviceFrameRef.current !== previewDeviceFrame;
+    lineupRecenterDeviceFrameRef.current = previewDeviceFrame;
+    const previousCount = lineupRecenterPrevCountRef.current;
+    lineupRecenterPrevCountRef.current = screens.length;
+    // Screen-count decreases (delete, undo of a duplicate) never recenter —
+    // see isLineupShrinkOnlyChange.
+    if (
+      isLineupShrinkOnlyChange({
+        previousCount,
+        screenCount: screens.length,
+        deviceFrameChanged,
+      })
+    ) {
+      return;
+    }
+    // A duplicate (alt-drag drop or Cmd+D) placed the new screen(s)
+    // deliberately: keep the camera still for exactly those screen-count
+    // transitions (see shouldSuppressLineupRecenter's doc for what this must
+    // NOT affect).
+    const armed = lineupRecenterSuppressRef.current;
+    if (
+      shouldSuppressLineupRecenter({
+        armed,
+        nowMs: Date.now(),
+        screenCount: screens.length,
+        deviceFrameChanged,
+      })
+    ) {
+      // Disarm only once every dispatched clone has landed — a multi-frame
+      // Cmd+D's duplicates arrive one create-file round-trip at a time.
+      if (armed && screens.length >= armed.fromCount + armed.addedCount) {
+        lineupRecenterSuppressRef.current = null;
+      }
+      return;
+    }
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
@@ -1278,6 +1440,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (chromeSettleTimerRef.current !== null) {
         window.clearTimeout(chromeSettleTimerRef.current);
       }
+      // PERF9-WHEEL: unmounting mid-gesture means the settled commitView
+      // never runs — don't leave the module-scoped gesture flag stuck (the
+      // muted elements unmount with the canvas, so no style restore needed).
+      wheelGestureActiveRef.current = false;
+      wheelCameraGestureActive = false;
+      wheelGestureMutedElementsRef.current = null;
     };
   }, []);
 
@@ -1592,6 +1760,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               typeof ev.data.anchorNodeId === "string"
                 ? ev.data.anchorNodeId
                 : undefined,
+            // Id-on-demand handshake passthrough (see the fields' doc
+            // comments on CrossScreenHitTestResult): without these, drops
+            // into id-less AI-generated screens can never flow-insert.
+            pendingNodeId:
+              typeof ev.data.pendingNodeId === "string" && ev.data.pendingNodeId
+                ? ev.data.pendingNodeId
+                : undefined,
+            anchorSelector:
+              typeof ev.data.anchorSelector === "string" &&
+              ev.data.anchorSelector
+                ? ev.data.anchorSelector
+                : undefined,
             placement: isCrossScreenDropPlacement(ev.data.placement)
               ? ev.data.placement
               : undefined,
@@ -1765,7 +1945,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       void runHitTest(targetCandidate, lastBoardPoint).then(
-        ({ anchorNodeId, placement, dropMode, anchorRect }) => {
+        ({
+          anchorNodeId,
+          pendingNodeId,
+          anchorSelector,
+          placement,
+          dropMode,
+          anchorRect,
+        }) => {
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -1779,6 +1966,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceScreenId,
             targetScreenId: targetCandidate.id,
             targetAnchorNodeId: anchorNodeId,
+            // Id-on-demand handshake (CrossScreenHitTestResult doc): lets
+            // the drop handler persist the minted pending id into the
+            // stored dest document and flow-insert instead of silently
+            // degrading to absolute placement on id-less screens.
+            targetAnchorPendingNodeId: pendingNodeId,
+            targetAnchorSelector: anchorSelector,
             targetAnchorPlacement,
             targetDropMode: dropMode,
             targetAnchorRect: anchorRect,
@@ -5044,6 +5237,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             x: dropCanvasPosition.x - pointerOffset.x,
             y: dropCanvasPosition.y - pointerOffset.y,
           };
+          // The user placed this clone deliberately — suppress the
+          // lineup-recenter camera move when the created screen lands in
+          // `screens` (Figma keeps the camera still on alt-drag duplicate).
+          lineupRecenterSuppressRef.current = {
+            atMs: Date.now(),
+            fromCount: screensRef.current.length,
+            addedCount: 1,
+          };
           onDuplicate(screen.id, {
             mode,
             screen,
@@ -5308,6 +5509,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const shouldSettleChrome = pendingChromeSettleRef.current;
     pendingChromeSettleRef.current = false;
     if (shouldSettleChrome) startChromeSettle();
+    // PERF9-WHEEL: the gesture has settled — restore every muted content
+    // layer's own prior inline pointer-events value (imperative, mirroring
+    // how markWheelGestureActive muted them; restoring the recorded value,
+    // not "", keeps React's inline-style bookkeeping consistent since React
+    // only rewrites style properties it believes changed).
+    if (wheelGestureActiveRef.current) {
+      wheelGestureActiveRef.current = false;
+      wheelCameraGestureActive = false;
+      const muted = wheelGestureMutedElementsRef.current;
+      wheelGestureMutedElementsRef.current = null;
+      if (muted) {
+        muted.forEach((previousPointerEvents, element) => {
+          if (element.isConnected) {
+            element.style.pointerEvents = previousPointerEvents;
+          }
+        });
+      }
+    }
     setCanvasZoom(zoomRef.current);
     setPan(panRef.current);
     onZoomChange?.(zoomRef.current);
@@ -5366,6 +5585,36 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     scheduleViewCommit();
   }, [cameraCommand, applyViewToDom, scheduleViewCommit]);
 
+  // PERF9-WHEEL: the first flush that actually moves the camera mutes
+  // pointer events on every live preview iframe with direct style writes on
+  // a snapshot NodeList (ref-guarded — runs ONCE per gesture, zero React
+  // commits). commitView restores the recorded per-element values once the
+  // gesture has been idle for the debounce beat. A mid-gesture React render
+  // from unrelated state could rewrite an iframe's style and re-enable it
+  // early; that only reverts to pre-fix behavior for the gesture's tail, so
+  // it's an acceptable trade for keeping gesture start/end render-free.
+  const markWheelGestureActive = useCallback(() => {
+    if (wheelGestureActiveRef.current) return;
+    wheelGestureActiveRef.current = true;
+    wheelCameraGestureActive = true;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    // Mute the same layers a drag's canvasGestureActive gates via props:
+    // every screen's content wrapper and the board-surface layer — this
+    // covers the live iframes AND DesignCanvas's parent-side hover/hit-test
+    // overlays beneath them.
+    const muted = new Map<HTMLElement, string>();
+    surface
+      .querySelectorAll<HTMLElement>(
+        "[data-screen-content], [data-board-surface-layer]",
+      )
+      .forEach((element) => {
+        muted.set(element, element.style.pointerEvents);
+        element.style.pointerEvents = "none";
+      });
+    wheelGestureMutedElementsRef.current = muted;
+  }, []);
+
   const flushPendingWheelGesture = useCallback(() => {
     wheelGestureFrameRef.current = null;
     const gesture = pendingWheelGestureRef.current;
@@ -5394,6 +5643,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       });
       zoomRef.current = nextZoom;
       panRef.current = nextPan;
+      markWheelGestureActive();
       applyViewToDom();
       scheduleViewCommit({ settleChrome: true });
       return;
@@ -5404,9 +5654,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       y: panRef.current.y - gesture.deltaY,
     };
     panRef.current = nextPan;
+    markWheelGestureActive();
     applyViewToDom();
     scheduleViewCommit();
-  }, [applyViewToDom, scheduleViewCommit]);
+  }, [applyViewToDom, markWheelGestureActive, scheduleViewCommit]);
 
   const enqueueWheelGesture = useCallback(
     (gesture: PendingWheelGesture) => {
@@ -5448,8 +5699,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       metaKey: boolean;
       shiftKey: boolean;
     }) => {
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      if (!rect) return;
       const delta = getWheelDeltaFromValues(
         args.deltaX,
         args.deltaY,
@@ -5457,6 +5706,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
 
       if (args.ctrlKey || args.metaKey) {
+        // PERF9-WHEEL: only the zoom branch needs the surface rect (cursor
+        // anchoring). Pan ticks skip the per-event getBoundingClientRect —
+        // no forced style/layout read on the hot pan path.
+        const rect = surfaceRef.current?.getBoundingClientRect();
+        if (!rect) return;
         const zoomDeltaY = clamp(
           delta.y,
           -MAX_WHEEL_ZOOM_DELTA,
@@ -5805,6 +6059,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // is offset relative to its OWN source geometry (not chained off the
       // previous duplicate), mirroring how a multi-select alt-drag would
       // offset each frame independently.
+      let dispatched = 0;
       for (const targetId of frameIds) {
         const screen = screens.find((s) => s.id === targetId);
         if (!screen) continue;
@@ -5822,6 +6077,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasPosition,
           dropCanvasPosition: canvasPosition,
         });
+        dispatched += 1;
+      }
+      if (dispatched > 0) {
+        // Cmd+D places each clone right beside its source — like the
+        // alt-drag drop, the camera must stay still while the clones land
+        // (see shouldSuppressLineupRecenter).
+        lineupRecenterSuppressRef.current = {
+          atMs: Date.now(),
+          fromCount: screensRef.current.length,
+          addedCount: dispatched,
+        };
       }
     };
 
@@ -5855,6 +6121,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [effectiveTool]);
   const penActive = effectiveTool === "pen";
   const creationToolActive = Boolean(getDraftCreationTool(effectiveTool));
+  // PERF9-WHEEL: an in-flight wheel pan/zoom also mutes iframe pointer
+  // events, but imperatively (see markWheelGestureActive) rather than via
+  // this flag — flipping React state here at gesture start re-rendered every
+  // Screen and stalled the first wheel tick.
   const canvasGestureActive = isDragging || isPanning;
   const boardSurfaceInteractive = shouldBoardSurfaceCapturePointerEvents({
     tool: effectiveTool,
@@ -6200,6 +6470,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               // iframes (which have their own stacking context above this).
               <div
                 className="[&_.design-canvas-iframe-wrapper]:shadow-none [&_.design-canvas-iframe-wrapper]:ring-0"
+                // PERF9-WHEEL: stable hook so markWheelGestureActive can mute
+                // this layer's pointer events imperatively during a wheel
+                // gesture, exactly like the [data-screen-content] wrappers.
+                data-board-surface-layer
                 style={getBoardSurfaceLayerStyle({
                   geometry: boardGeo,
                   interactive: boardSurfaceInteractive,
@@ -6812,6 +7086,8 @@ function DraftPrimitiveLayer({
         chromeScale={chromeScale}
         chromeSettling={chromeSettling}
         rotationDeg={draft.geometry.rotation ?? 0}
+        frameWidth={draft.geometry.width}
+        frameHeight={draft.geometry.height}
         onStartResize={(handle, event) =>
           onStartResize(draft.id, handle, event)
         }
@@ -8073,6 +8349,8 @@ const Screen = memo(function Screen({
           chromeScale={chromeScale}
           chromeSettling={chromeSettling}
           rotationDeg={geometry.rotation ?? 0}
+          frameWidth={geometry.width}
+          frameHeight={geometry.height}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
           onStartRotate={(e) => onStartRotate(screen.id, e)}
         />
@@ -8795,6 +9073,8 @@ function PassiveSelectionBox({
             config.cursor,
             chromeScale,
             chromeSettling,
+            geometry.width,
+            geometry.height,
           )}
         />
       ))}
@@ -8849,6 +9129,8 @@ function SelectionBox({
         chromeScale={chromeScale}
         chromeSettling={chromeSettling}
         rotationDeg={geometry.rotation ?? 0}
+        frameWidth={geometry.width}
+        frameHeight={geometry.height}
         onStartResize={onStartResize}
         onStartRotate={onStartRotate}
       />
@@ -8864,6 +9146,8 @@ function ResizeHandles({
   chromeScale = 1,
   chromeSettling = false,
   rotationDeg = 0,
+  frameWidth = Number.POSITIVE_INFINITY,
+  frameHeight = Number.POSITIVE_INFINITY,
   onStartResize,
   onStartRotate,
 }: {
@@ -8877,6 +9161,11 @@ function ResizeHandles({
    *  visual direction instead of a static unrotated cursor (CSS `cursor` is
    *  never itself rotated by a transform on the element). */
   rotationDeg?: number;
+  /** Frame dimensions in local (board) px, used to clamp how far handle hit
+   *  zones may reach into the frame body (handle-hit-zones.ts). Omit for the
+   *  unclamped historical behavior. */
+  frameWidth?: number;
+  frameHeight?: number;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
 }) {
@@ -8907,6 +9196,8 @@ function ResizeHandles({
             getResizeCursorForHandle(config.handle, rotationDeg),
             chromeScale,
             chromeSettling,
+            frameWidth,
+            frameHeight,
           )}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
@@ -8921,6 +9212,8 @@ function ResizeHandles({
             getResizeCursorForHandle(config.handle, rotationDeg),
             chromeScale,
             chromeSettling,
+            frameWidth,
+            frameHeight,
           )}
           onMouseDown={(e) => onStartResize(config.handle, e)}
         />
@@ -8983,31 +9276,38 @@ const ROTATE_HANDLE_CONFIGS: Array<{
   corner: string;
 }> = [{ corner: "nw" }, { corner: "ne" }, { corner: "se" }, { corner: "sw" }];
 
+// Edge/corner handle hit zones are clamped against the frame's own dimensions
+// (handle-hit-zones.ts) so that at low zoom the chromeScale-compensated hit
+// slop can never cover the whole frame body and steal every press as a
+// resize — the frame's central 50% band stays grabbable for a move drag at
+// any zoom. On large frames these produce the historical geometry exactly.
 function edgeHandleStyle(
   handle: ResizeHandle,
   cursor: string,
   chromeScale: number,
   chromeSettling: boolean,
+  frameWidth: number,
+  frameHeight: number,
 ): CSSProperties {
-  const size = 14 * chromeScale;
-  const offset = -size / 2;
   if (handle === "n" || handle === "s") {
+    const geometry = getEdgeHandleHitGeometry(chromeScale, frameHeight);
     return {
       cursor,
       transition: getChromeHandleTransition(chromeSettling),
       left: 0,
       right: 0,
-      height: size,
-      [handle === "n" ? "top" : "bottom"]: offset,
+      height: geometry.thickness,
+      [handle === "n" ? "top" : "bottom"]: geometry.outwardOffset,
     };
   }
+  const geometry = getEdgeHandleHitGeometry(chromeScale, frameWidth);
   return {
     cursor,
     transition: getChromeHandleTransition(chromeSettling),
     top: 0,
     bottom: 0,
-    width: size,
-    [handle === "w" ? "left" : "right"]: offset,
+    width: geometry.thickness,
+    [handle === "w" ? "left" : "right"]: geometry.outwardOffset,
   };
 }
 
@@ -9016,17 +9316,22 @@ function cornerHandleStyle(
   cursor: string,
   chromeScale: number,
   chromeSettling: boolean,
+  frameWidth: number,
+  frameHeight: number,
 ): CSSProperties {
-  const size = 10 * chromeScale;
-  const offset = -size / 2;
+  const { size, offsetX, offsetY } = getCornerHandleGeometry(
+    chromeScale,
+    frameWidth,
+    frameHeight,
+  );
   return {
     cursor,
     transition: getChromeHandleTransition(chromeSettling),
     width: size,
     height: size,
     borderWidth: Math.max(1, 1.25 * chromeScale),
-    ...(handle.includes("n") ? { top: offset } : { bottom: offset }),
-    ...(handle.includes("w") ? { left: offset } : { right: offset }),
+    ...(handle.includes("n") ? { top: offsetY } : { bottom: offsetY }),
+    ...(handle.includes("w") ? { left: offsetX } : { right: offsetX }),
   };
 }
 

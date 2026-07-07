@@ -1043,6 +1043,41 @@ export const editorChromeBridgeScript: string = `"use strict";
     var finishActiveTextEdit = null;
     var pendingRuntimeDocumentUpdate = null;
     var textEditPointerState = null;
+    var pendingBeginTextEdit = null;
+    function cancelPendingBeginTextEdit() {
+      if (!pendingBeginTextEdit) return;
+      if (pendingBeginTextEdit.raf) {
+        window.cancelAnimationFrame(pendingBeginTextEdit.raf);
+      }
+      pendingBeginTextEdit = null;
+    }
+    function postTextEditPending(nodeId, pending) {
+      window.parent.postMessage(
+        { type: "text-edit-pending", nodeId, pending },
+        "*"
+      );
+    }
+    function isTextEditElConnected() {
+      return !!(activeTextEditEl && activeTextEditEl.isConnected && document.documentElement.contains(activeTextEditEl));
+    }
+    function exitStaleTextEditSession() {
+      if (!activeTextEditEl || isTextEditElConnected()) return false;
+      var staleEl = activeTextEditEl;
+      if (finishActiveTextEdit) {
+        finishActiveTextEdit(true);
+      } else {
+        postTextEditingState(staleEl, false);
+        activeTextEditEl = null;
+        setTextEditingPointerPassthrough(false);
+        setSelectionOverlayResizeChromeVisible(true);
+      }
+      if (activeTextEditEl === staleEl) {
+        activeTextEditEl = null;
+        setTextEditingPointerPassthrough(false);
+        setSelectionOverlayResizeChromeVisible(true);
+      }
+      return true;
+    }
     var pendingStructureMoves = {};
     var pendingShieldDrag = null;
     var suppressNextShieldClick = false;
@@ -1224,6 +1259,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument) {
       if (typeof html !== "string") return;
+      exitStaleTextEditSession();
       if (activeTextEditEl && !forceFullDocument) {
         pendingRuntimeDocumentUpdate = {
           html,
@@ -2006,6 +2042,65 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return false;
     }
+    var HANDLE_MAX_INWARD_FRACTION = 0.25;
+    function clampHandleInwardReach(nominalInward, elementDimension) {
+      if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
+        return nominalInward;
+      }
+      return Math.min(
+        nominalInward,
+        elementDimension * HANDLE_MAX_INWARD_FRACTION
+      );
+    }
+    function applySelectionHandleHitGeometry(el) {
+      var sx = chromeScaleX();
+      var sy = chromeScaleY();
+      var line = chromeLineScale();
+      var elWidth = NaN;
+      var elHeight = NaN;
+      if (el && document.documentElement.contains(el)) {
+        var elRect = el.getBoundingClientRect();
+        elWidth = elRect.width;
+        elHeight = elRect.height;
+      }
+      selectionOverlay.querySelectorAll("[data-agent-native-edge-handle]").forEach(function(edge) {
+        var pos = edge.getAttribute("data-agent-native-edge-handle");
+        if (pos === "n" || pos === "s") {
+          var outwardY = 5 * sy;
+          var inwardY = clampHandleInwardReach(5 * sy, elHeight);
+          edge.style.height = outwardY + inwardY + "px";
+          edge.style[pos === "n" ? "top" : "bottom"] = -outwardY + "px";
+        }
+        if (pos === "e" || pos === "w") {
+          var outwardX = 5 * sx;
+          var inwardX = clampHandleInwardReach(5 * sx, elWidth);
+          edge.style.width = outwardX + inwardX + "px";
+          edge.style[pos === "w" ? "left" : "right"] = -outwardX + "px";
+        }
+      });
+      selectionOverlay.querySelectorAll("[data-agent-native-edit-handle]").forEach(function(handle) {
+        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
+        var sizeX = 7 * sx;
+        var sizeY = 7 * sy;
+        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        handle.style.width = sizeX + "px";
+        handle.style.height = sizeY + "px";
+        handle.style.borderWidth = 1 * line + "px";
+        if (pos.indexOf("n") !== -1) {
+          handle.style.top = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("s") !== -1) {
+          handle.style.bottom = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("w") !== -1) {
+          handle.style.left = inwardX - sizeX + "px";
+        }
+        if (pos.indexOf("e") !== -1) {
+          handle.style.right = inwardX - sizeX + "px";
+        }
+      });
+    }
     function applyEditorChromeScale() {
       syncEditorChromeScaleVars();
       var sx = chromeScaleX();
@@ -2017,27 +2112,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
       passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
       if (selectedEl) updateSpacingOverlay(selectedEl);
-      selectionOverlay.querySelectorAll("[data-agent-native-edge-handle]").forEach(function(edge) {
-        var pos = edge.getAttribute("data-agent-native-edge-handle");
-        if (pos === "n" || pos === "s") {
-          edge.style.height = 10 * sy + "px";
-          edge.style[pos === "n" ? "top" : "bottom"] = -5 * sy + "px";
-        }
-        if (pos === "e" || pos === "w") {
-          edge.style.width = 10 * sx + "px";
-          edge.style[pos === "w" ? "left" : "right"] = -5 * sx + "px";
-        }
-      });
-      selectionOverlay.querySelectorAll("[data-agent-native-edit-handle]").forEach(function(handle) {
-        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        handle.style.width = 7 * sx + "px";
-        handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = 1 * line + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
-        if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
-        if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
-        if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
-      });
+      applySelectionHandleHitGeometry(selectedEl);
       selectionOverlay.querySelectorAll("[data-agent-native-rotate-handle]").forEach(function(handle) {
         var pos = handle.getAttribute("data-agent-native-rotate-handle") || "";
         handle.style.width = 18 * sx + "px";
@@ -2085,6 +2160,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (overlay === selectionOverlay) {
         applySelectionChrome(el);
+        applySelectionHandleHitGeometry(el);
         updateSpacingOverlay(el);
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
@@ -2723,7 +2799,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       postElementMarqueeSelect(hitElements, activeMarqueeSelection.additive, e);
     }
     function beginMarqueeSelection(e) {
-      if (e.button !== 0 || activeTextEditEl) return;
+      if (e.button !== 0) return;
+      if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
       var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
@@ -2829,6 +2906,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!target || target === document.body || target === document.documentElement)
         return false;
       if (target.parentElement) target.parentElement.removeChild(target);
+      exitStaleTextEditSession();
       if (selectedEl === target || !document.documentElement.contains(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -4141,10 +4219,44 @@ export const editorChromeBridgeScript: string = `"use strict";
         htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
       }
     }
+    function rebaseAbsoluteMemberForContainerDrop(el, target) {
+      if (!el || !target || target.dropMode !== "absolute-container") return;
+      var container = dropContainerForTarget(target);
+      if (!container || container === document.body || container === el) return;
+      if (el.contains && el.contains(container)) return;
+      var htmlEl = el;
+      var cs = window.getComputedStyle(htmlEl);
+      if (cs.position !== "absolute" && cs.position !== "fixed") return;
+      var containerRect = container.getBoundingClientRect();
+      var containerCS = window.getComputedStyle(container);
+      var newOriginX = containerRect.left + readPx(containerCS.borderLeftWidth) - container.scrollLeft;
+      var newOriginY = containerRect.top + readPx(containerCS.borderTopWidth) - container.scrollTop;
+      var oldOriginX = -(window.scrollX || 0);
+      var oldOriginY = -(window.scrollY || 0);
+      var offsetParent = htmlEl.offsetParent;
+      if (offsetParent && offsetParent !== document.documentElement) {
+        var offsetParentIsRealContainingBlock = true;
+        if (offsetParent === document.body) {
+          var bodyCS = window.getComputedStyle(document.body);
+          offsetParentIsRealContainingBlock = bodyCS.position !== "static" || bodyCS.transform !== "none" || (bodyCS.getPropertyValue("translate") || "none") !== "none";
+        }
+        if (offsetParentIsRealContainingBlock) {
+          var opRect = offsetParent.getBoundingClientRect();
+          var opCS = window.getComputedStyle(offsetParent);
+          oldOriginX = opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+          oldOriginY = opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+        }
+      }
+      var currentLeft = readPx(htmlEl.style.left || cs.left);
+      var currentTop = readPx(htmlEl.style.top || cs.top);
+      htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
+      htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+    }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
         return;
       stripAbsolutePositioningForFlowInsert(el, target);
+      rebaseAbsoluteMemberForContainerDrop(el, target);
       if (target.placement === "inside") {
         target.anchor.appendChild(el);
         return;
@@ -5064,7 +5176,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
-      if (e.button !== 0 || activeTextEditEl) return;
+      if (e.button !== 0) return;
+      if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
@@ -5225,6 +5338,70 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keydown",
       function(e) {
+        if (!activeTextEditEl && pendingBeginTextEdit) {
+          if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
+            var pendingKey = e.key || "";
+            if (pendingKey === "Escape") {
+              var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
+              cancelPendingBeginTextEdit();
+              postTextEditPending(abandonedPendingNodeId, false);
+              stopNativeInteraction(e);
+              return;
+            }
+            if (pendingKey === "Backspace") {
+              pendingBeginTextEdit.buffer = pendingBeginTextEdit.buffer.slice(
+                0,
+                -1
+              );
+              stopNativeInteraction(e);
+              return;
+            }
+            if (pendingKey.length === 1) {
+              pendingBeginTextEdit.buffer += pendingKey;
+              stopNativeInteraction(e);
+              return;
+            }
+            if (pendingKey === "Delete" || pendingKey === "Enter" || pendingKey === "Tab" || pendingKey.indexOf("Arrow") === 0) {
+              stopNativeInteraction(e);
+              return;
+            }
+          }
+        }
+        if (activeTextEditEl) {
+          if (exitStaleTextEditSession()) {
+            stopNativeInteraction(e);
+            return;
+          }
+          if (e.isComposing || e.keyCode === 229) return;
+          var activeNow = document.activeElement;
+          var focusInsideEdit = !!(activeNow && (activeNow === activeTextEditEl || activeTextEditEl.contains(activeNow)));
+          if (e.key === "Escape") {
+            if (!focusInsideEdit) {
+              stopNativeInteraction(e);
+              if (finishActiveTextEdit) finishActiveTextEdit(true);
+              return;
+            }
+            return;
+          }
+          if (!focusInsideEdit) {
+            if (!isEditorTypingTarget(activeNow)) {
+              try {
+                activeTextEditEl.focus();
+                var refocusRange = document.createRange();
+                refocusRange.selectNodeContents(activeTextEditEl);
+                refocusRange.collapse(false);
+                var refocusSelection = window.getSelection();
+                if (refocusSelection) {
+                  refocusSelection.removeAllRanges();
+                  refocusSelection.addRange(refocusRange);
+                }
+              } catch (_err) {
+              }
+              e.stopPropagation();
+            }
+          }
+          return;
+        }
         if (!shouldForwardDesignHotkey(e)) return;
         var key = e.key;
         var normalized = key && key.length === 1 ? key.toLowerCase() : key;
@@ -5267,6 +5444,27 @@ export const editorChromeBridgeScript: string = `"use strict";
           { type: "design-hotkey-up", key: e.key, code: e.code },
           "*"
         );
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerdown",
+      function(e) {
+        if (pendingBeginTextEdit) {
+          var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
+          cancelPendingBeginTextEdit();
+          postTextEditPending(canceledPendingNodeId, false);
+        }
+        if (!activeTextEditEl) return;
+        if (exitStaleTextEditSession()) return;
+        var pointerTarget = e.target && e.target.nodeType === 1 ? e.target : null;
+        if (pointerTarget && (pointerTarget === activeTextEditEl || activeTextEditEl.contains(pointerTarget))) {
+          return;
+        }
+        if (pointerTarget && isOverlayElement(pointerTarget)) return;
+        if (finishActiveTextEdit) {
+          finishActiveTextEdit(true);
+        }
       },
       true
     );
@@ -5348,6 +5546,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       stopNativeInteraction(e);
+      if (pendingBeginTextEdit) {
+        var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
+        cancelPendingBeginTextEdit();
+        postTextEditPending(supersededPendingNodeId, false);
+      }
+      if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
       var eventTarget = e && e.target && e.target.nodeType === 1 ? e.target : null;
       var programmaticFlag = !!e && e.agentNativeProgrammaticTextEdit === true;
       var rawTargetFallback = programmaticFlag && !isRejectedRawTextEditTarget(eventTarget) ? eventTarget : null;
@@ -5455,7 +5659,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var next = target.textContent || "";
         var nextHtml = target.innerHTML || "";
         refreshOverlays();
-        if (next !== originalText || nextHtml !== originalHtml) {
+        if (target.isConnected && (next !== originalText || nextHtml !== originalHtml)) {
           postTextContentChange(target, next, nextHtml);
         }
         if (pendingRuntimeDocumentUpdate) {
@@ -5550,6 +5754,69 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else {
         placeTextCaretFromPoint(target, e.clientX, e.clientY);
       }
+    }
+    function queryBeginTextEditNode(nodeId) {
+      var node = document.querySelector(
+        '[data-agent-native-node-id="' + nodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
+      );
+      return node && node.nodeType === 1 ? node : null;
+    }
+    function activateProgrammaticTextEdit(textTarget, force) {
+      if (activeTextEditEl && activeTextEditEl === textTarget) return;
+      var bteRect = textTarget.getBoundingClientRect();
+      var bteCenterX = bteRect.right - 2;
+      var bteCenterY = bteRect.top + bteRect.height / 2;
+      beginTextEditingFromEvent(
+        {
+          clientX: bteCenterX,
+          clientY: bteCenterY,
+          target: textTarget,
+          agentNativeProgrammaticTextEdit: true,
+          preventDefault: function() {
+          },
+          stopPropagation: function() {
+          },
+          stopImmediatePropagation: function() {
+          }
+        },
+        force
+      );
+    }
+    function pumpPendingBeginTextEdit() {
+      if (!pendingBeginTextEdit) return;
+      var entry = pendingBeginTextEdit;
+      var node = queryBeginTextEditNode(entry.nodeId);
+      if (node) {
+        pendingBeginTextEdit = null;
+        if (!activeTextEditEl) {
+          activateProgrammaticTextEdit(node, entry.force);
+          if (entry.buffer && activeTextEditEl === node) {
+            insertPlainTextAtSelection(entry.buffer);
+          }
+        }
+        return;
+      }
+      if (Date.now() > entry.deadline) {
+        pendingBeginTextEdit = null;
+        postTextEditPending(entry.nodeId, false);
+        return;
+      }
+      entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
+    }
+    function scheduleBeginTextEditRetry(nodeId, force) {
+      if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId) {
+        pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
+        pendingBeginTextEdit.deadline = Date.now() + 2e3;
+        return;
+      }
+      cancelPendingBeginTextEdit();
+      pendingBeginTextEdit = {
+        nodeId,
+        force,
+        deadline: Date.now() + 2e3,
+        raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
+        buffer: ""
+      };
     }
     shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
     selectionOverlay.addEventListener(
@@ -5701,31 +5968,36 @@ export const editorChromeBridgeScript: string = `"use strict";
         if ((readOnly || !textEditingEnabled) && !forceBeginTextEdit) return;
         var nodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         if (!nodeId) return;
-        var nodeTarget = document.querySelector(
-          '[data-agent-native-node-id="' + nodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"') + '"]'
-        );
-        if (!nodeTarget || nodeTarget.nodeType !== 1) return;
-        var textTarget = nodeTarget;
-        if (!textTarget || textTarget.nodeType !== 1) return;
-        if (activeTextEditEl && activeTextEditEl === textTarget) return;
-        var bteRect = textTarget.getBoundingClientRect();
-        var bteCenterX = bteRect.right - 2;
-        var bteCenterY = bteRect.top + bteRect.height / 2;
-        beginTextEditingFromEvent(
-          {
-            clientX: bteCenterX,
-            clientY: bteCenterY,
-            target: textTarget,
-            agentNativeProgrammaticTextEdit: true,
-            preventDefault: function() {
-            },
-            stopPropagation: function() {
-            },
-            stopImmediatePropagation: function() {
+        var textTarget = queryBeginTextEditNode(nodeId);
+        if (!textTarget) {
+          scheduleBeginTextEditRetry(nodeId, forceBeginTextEdit);
+          postTextEditPending(nodeId, true);
+          return;
+        }
+        cancelPendingBeginTextEdit();
+        activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+        return;
+      }
+      if (e.data.type === "text-edit-insert-text") {
+        var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
+        if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+          return;
+        var bufferedActive = document.activeElement;
+        if (!bufferedActive || bufferedActive !== activeTextEditEl && !activeTextEditEl.contains(bufferedActive)) {
+          try {
+            activeTextEditEl.focus();
+            var bufferedRange = document.createRange();
+            bufferedRange.selectNodeContents(activeTextEditEl);
+            bufferedRange.collapse(false);
+            var bufferedSelection = window.getSelection();
+            if (bufferedSelection) {
+              bufferedSelection.removeAllRanges();
+              bufferedSelection.addRange(bufferedRange);
             }
-          },
-          forceBeginTextEdit
-        );
+          } catch (_err) {
+          }
+        }
+        insertPlainTextAtSelection(bufferedText);
         return;
       }
       if (e.data.type === "set-editor-chrome-scale") {

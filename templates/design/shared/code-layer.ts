@@ -785,6 +785,11 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   radius: "border-radius",
   rotation: "rotate",
   shadow: "box-shadow",
+  // Vendor-prefixed longhands need explicit aliases: the generic camel→kebab
+  // pass in normalizeStyleProperty yields "webkit-text-stroke-*" WITHOUT the
+  // required leading dash, which would miss the allow-list entirely.
+  webkitTextStrokeColor: "-webkit-text-stroke-color",
+  webkitTextStrokeWidth: "-webkit-text-stroke-width",
 };
 
 // Matches url(...) in double-quoted, single-quoted, or unquoted form so each

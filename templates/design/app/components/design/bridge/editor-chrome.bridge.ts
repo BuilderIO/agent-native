@@ -1459,6 +1459,89 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     selection: string;
     highlight: string;
   } | null = null;
+  // T22: deferred begin-text-edit command for a node that hasn't landed in
+  // this document yet. The host posts begin-text-edit immediately after
+  // creating a text primitive, but the node itself arrives via the
+  // replace-document-content persist round-trip — when the command wins that
+  // race the old behavior silently dropped it, leaving the user typing into
+  // nothing (worst case: Delete/arrow keystrokes fell through to host layer
+  // shortcuts). Instead, poll briefly (bounded ~2s, rAF cadence) for the
+  // nodeId and activate the edit the moment it appears. Only the newest
+  // command is kept; any user pointerdown or a user-initiated text edit
+  // cancels it (the user has moved on — never yank focus later).
+  var pendingBeginTextEdit: {
+    nodeId: string;
+    force: boolean;
+    deadline: number;
+    raf: number;
+    // Keystrokes typed INTO THIS IFRAME while the command waits for its node
+    // (see the pending-window branch of the document keydown handler) —
+    // replayed into the editable the moment it activates.
+    buffer: string;
+  } | null = null;
+  function cancelPendingBeginTextEdit(): void {
+    if (!pendingBeginTextEdit) return;
+    if (pendingBeginTextEdit.raf) {
+      window.cancelAnimationFrame(pendingBeginTextEdit.raf);
+    }
+    pendingBeginTextEdit = null;
+  }
+  // T25: tell the HOST (DesignCanvas) that a begin-text-edit command is
+  // waiting for its node, so the host arms its own keystroke buffer for keys
+  // that land on the HOST document during the window (the host cannot see
+  // the begin-text-edit post itself — DesignEditor sends it straight to this
+  // iframe). pending:false stands the host down when the wait is abandoned;
+  // successful activation instead flows through text-editing-state(active),
+  // which both flushes the host buffer and clears its pending flag.
+  function postTextEditPending(nodeId: string, pending: boolean): void {
+    (window.parent as Window).postMessage(
+      { type: "text-edit-pending", nodeId: nodeId, pending: pending },
+      "*",
+    );
+  }
+  // T23: is the active text-edit element still part of this document? A
+  // document patch (replaceRuntimeDocument subtree/body swap), a
+  // delete-element command, or in-page reactivity (Alpine x-if) can detach
+  // the edited node while its session is live — its blur/keydown listeners
+  // then never fire again, so nothing ever runs the Escape/blur cleanup
+  // path. The leaked activeTextEditEl blocked ALL drags/marquees
+  // (beginPotentialShieldDrag/beginMarqueeSelection bail on it), kept the
+  // shield pointer-passthrough disabled, swallowed every design hotkey, and
+  // buffered every future runtime content update until a full reload.
+  function isTextEditElConnected(): boolean {
+    return !!(
+      activeTextEditEl &&
+      activeTextEditEl.isConnected &&
+      document.documentElement.contains(activeTextEditEl)
+    );
+  }
+  // T23: exit a stale (detached-element) text edit session through the SAME
+  // cleanup path a user Escape/blur takes. Returns true when a stale session
+  // was cleaned up. Callers that previously hard-bailed on activeTextEditEl
+  // should call this first so a leaked session self-heals on the next
+  // interaction instead of wedging the surface until reload.
+  function exitStaleTextEditSession(): boolean {
+    if (!activeTextEditEl || isTextEditElConnected()) return false;
+    var staleEl = activeTextEditEl;
+    if (finishActiveTextEdit) {
+      finishActiveTextEdit(true);
+    } else {
+      postTextEditingState(staleEl, false);
+      activeTextEditEl = null;
+      setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
+    }
+    // Defensive: finish() only clears activeTextEditEl when it still points
+    // at that session's own target. If overlapping sessions ever left a
+    // different detached element behind, force-clear so the surface can't
+    // stay wedged.
+    if (activeTextEditEl === staleEl) {
+      activeTextEditEl = null;
+      setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
+    }
+    return true;
+  }
   var pendingStructureMoves: Record<
     string,
     {
@@ -1723,6 +1806,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     forceFullDocument?: boolean,
   ): void {
     if (typeof html !== "string") return;
+    // T23: a session whose element was already detached (earlier patch,
+    // delete-element, in-page reactivity) can never end via blur/Escape —
+    // buffering behind it would freeze this surface's content forever. Exit
+    // it through the canonical cleanup first, then treat this update
+    // normally. (The nested pendingRuntimeDocumentUpdate replay inside
+    // finish() runs before we continue; this newer payload then supersedes
+    // its result, preserving ordering.)
+    exitStaleTextEditSession();
     if (activeTextEditEl && !forceFullDocument) {
       // Don't yank a runtime content update out from under an in-progress
       // text edit — but don't silently lose it either (T13). Buffer only the
@@ -2859,6 +2950,116 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return false;
   }
 
+  // ── Selection-handle hit-zone inward clamp ────────────────────────────
+  // Keep in sync with multi-screen/handle-hit-zones.ts (the host-side
+  // selection chrome applies the same clamp rule to its screen-frame/board
+  // handles; nominal sizes differ — bridge edge bars are 10px thick centered
+  // on the edge, corner squares 7px with a 4px outward offset — but the
+  // inward-reach clamp and its 0.25 fraction must stay identical).
+  //
+  // The edge/corner handles multiply by the chrome scale so they keep a
+  // constant on-screen size, which makes their HIT zones grow without bound
+  // in iframe-local px as the host zooms out: at 19% zoom the nominal 10px
+  // edge bar is ~52.6 local px thick, reaching ~26.3 local px into the
+  // element from each edge. Any element smaller than twice that reach has
+  // its ENTIRE body covered by the two opposing bars — every press resolves
+  // to a resize, so the element can never be grabbed for a move drag (or
+  // clicked in its interior) at low zoom. Clamp only the INWARD reach of
+  // each handle hit zone to a fraction of the element's own dimension on
+  // that axis; the outward reach (which can never occlude the body) and the
+  // corner handles' VISUAL size stay untouched. With 0.25, two opposing
+  // handles consume at most half the dimension, so the central 50% band of
+  // each axis always stays body-grabbable.
+  var HANDLE_MAX_INWARD_FRACTION = 0.25;
+
+  // Mirror of clampHandleInwardReach in multi-screen/handle-hit-zones.ts.
+  // Non-finite or non-positive dimensions (no overlaid element, degenerate
+  // zero-size elements mid-creation) return the nominal reach unchanged —
+  // exactly the pre-clamp behavior, and a zero-size element has no body to
+  // protect.
+  function clampHandleInwardReach(nominalInward, elementDimension) {
+    if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
+      return nominalInward;
+    }
+    return Math.min(
+      nominalInward,
+      elementDimension * HANDLE_MAX_INWARD_FRACTION,
+    );
+  }
+
+  // Sizes the selection overlay's edge/corner handles for the current chrome
+  // scale, clamping each handle's inward reach against the overlaid
+  // element's own rect. Called from applyEditorChromeScale (scale changes)
+  // AND from positionOverlay (selection/element changes), because the
+  // clamped geometry depends on the element's dimensions, not just the
+  // scale. On large elements this reproduces the historical geometry
+  // exactly: edge bars 10*scale thick centered on the edge, corner squares
+  // 7*scale offset -4*scale.
+  function applySelectionHandleHitGeometry(el) {
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = chromeLineScale();
+    var elWidth = NaN;
+    var elHeight = NaN;
+    if (el && document.documentElement.contains(el)) {
+      var elRect = el.getBoundingClientRect();
+      elWidth = elRect.width;
+      elHeight = elRect.height;
+    }
+
+    // Invisible edge-resize hit bars: nominal 5*scale outward + 5*scale
+    // inward. Only the inward half is clamped; the bar's outward side stays
+    // anchored at -5*scale from the edge.
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-edge-handle]")
+      .forEach(function (edge) {
+        var pos = edge.getAttribute("data-agent-native-edge-handle");
+        if (pos === "n" || pos === "s") {
+          var outwardY = 5 * sy;
+          var inwardY = clampHandleInwardReach(5 * sy, elHeight);
+          edge.style.height = outwardY + inwardY + "px";
+          edge.style[pos === "n" ? "top" : "bottom"] = -outwardY + "px";
+        }
+        if (pos === "e" || pos === "w") {
+          var outwardX = 5 * sx;
+          var inwardX = clampHandleInwardReach(5 * sx, elWidth);
+          edge.style.width = outwardX + inwardX + "px";
+          edge.style[pos === "w" ? "left" : "right"] = -outwardX + "px";
+        }
+      });
+
+    // Visible corner squares: the square keeps its constant on-screen size
+    // (7*scale); when its nominal 3*scale inward overlap would exceed the
+    // per-axis clamp, the square shifts outward so only the clamped reach
+    // overlaps the body. Corners clamp per-axis independently.
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-edit-handle]")
+      .forEach(function (handle) {
+        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
+        var sizeX = 7 * sx;
+        var sizeY = 7 * sy;
+        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // reproduces the historical -4*scale bit-for-bit.
+        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        handle.style.width = sizeX + "px";
+        handle.style.height = sizeY + "px";
+        handle.style.borderWidth = 1 * line + "px";
+        if (pos.indexOf("n") !== -1) {
+          handle.style.top = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("s") !== -1) {
+          handle.style.bottom = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("w") !== -1) {
+          handle.style.left = inwardX - sizeX + "px";
+        }
+        if (pos.indexOf("e") !== -1) {
+          handle.style.right = inwardX - sizeX + "px";
+        }
+      });
+  }
+
   function applyEditorChromeScale() {
     syncEditorChromeScaleVars();
     var sx = chromeScaleX();
@@ -2875,32 +3076,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
     if (selectedEl) updateSpacingOverlay(selectedEl);
 
-    selectionOverlay
-      .querySelectorAll("[data-agent-native-edge-handle]")
-      .forEach(function (edge) {
-        var pos = edge.getAttribute("data-agent-native-edge-handle");
-        if (pos === "n" || pos === "s") {
-          edge.style.height = 10 * sy + "px";
-          edge.style[pos === "n" ? "top" : "bottom"] = -5 * sy + "px";
-        }
-        if (pos === "e" || pos === "w") {
-          edge.style.width = 10 * sx + "px";
-          edge.style[pos === "w" ? "left" : "right"] = -5 * sx + "px";
-        }
-      });
-
-    selectionOverlay
-      .querySelectorAll("[data-agent-native-edit-handle]")
-      .forEach(function (handle) {
-        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        handle.style.width = 7 * sx + "px";
-        handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = 1 * line + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
-        if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
-        if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
-        if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
-      });
+    applySelectionHandleHitGeometry(selectedEl);
 
     selectionOverlay
       .querySelectorAll("[data-agent-native-rotate-handle]")
@@ -2971,6 +3147,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (overlay === selectionOverlay) {
       applySelectionChrome(el);
+      // Re-clamp handle hit zones for THIS element's dimensions — the
+      // clamped geometry is element-dependent, not just scale-dependent
+      // (see applySelectionHandleHitGeometry).
+      applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
       // `rect` is undefined on the rotated-local-box path; updateComponentTag
       // falls back to its own read in that case.
@@ -3846,7 +4026,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function beginMarqueeSelection(e): void {
-    if (e.button !== 0 || activeTextEditEl) return;
+    if (e.button !== 0) return;
+    // T23: a stale session self-heals and the marquee proceeds; only a LIVE
+    // session (connected element) blocks marquee starts.
+    if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
     var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
@@ -3969,6 +4152,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     )
       return false;
     if (target.parentElement) target.parentElement.removeChild(target);
+    // T23: the removed subtree may contain the active text-edit element —
+    // its blur/keydown listeners are gone with it, so exit the session
+    // through the canonical cleanup instead of leaking it.
+    exitStaleTextEditSession();
     if (
       selectedEl === target ||
       !document.documentElement.contains(selectedEl)
@@ -5935,10 +6122,85 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // Absolute-container nest rebase: an "absolute-container" drop keeps the
+  // member position:absolute BY DESIGN (no flow-insert strip), but the drag
+  // loop wrote its left/top in the member's ORIGINAL containing-block space
+  // (typically the screen root). After reparenting into the drop container —
+  // itself a positioned element — those same numbers re-resolve against the
+  // NEW containing block, displacing the child by exactly the container's
+  // origin: it renders outside the container's (unclipped) box and visually
+  // "vanishes", and that corrupt geometry then persists. Convert left/top
+  // into the new parent's coordinate space BEFORE the DOM move so (a) the
+  // optimistic in-iframe render is correct immediately and (b)
+  // postVisualStructureChange's sourceRect — measured AFTER the move — now
+  // reflects the true on-screen position, which the host's
+  // absoluteContainerOffset persistence math (sourceRect − anchorRect)
+  // depends on. Delta math (old CB origin − new CB origin) keeps the
+  // member's on-screen position identical through the reparent and stays
+  // exact under margins/rotation, unlike re-deriving from the member's own
+  // (transform-inflated) bounding box.
+  function rebaseAbsoluteMemberForContainerDrop(el, target): void {
+    if (!el || !target || target.dropMode !== "absolute-container") return;
+    var container = dropContainerForTarget(target);
+    if (!container || container === document.body || container === el) return;
+    if (el.contains && el.contains(container)) return;
+    var htmlEl = el as HTMLElement;
+    var cs = window.getComputedStyle(htmlEl);
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    // New containing block origin: the container's padding edge, in client
+    // coordinates (border box + border widths − its own scroll offsets).
+    var containerRect = container.getBoundingClientRect();
+    var containerCS = window.getComputedStyle(container);
+    var newOriginX =
+      containerRect.left +
+      readPx(containerCS.borderLeftWidth) -
+      container.scrollLeft;
+    var newOriginY =
+      containerRect.top +
+      readPx(containerCS.borderTopWidth) -
+      container.scrollTop;
+    // Current containing block origin: the member's offsetParent when it is
+    // a real containing block, else the initial containing block (client
+    // 0,0 minus page scroll). offsetParent falls back to <body> even when
+    // body is NOT positioned/transformed — detect that and use the ICB.
+    var oldOriginX = -(window.scrollX || 0);
+    var oldOriginY = -(window.scrollY || 0);
+    var offsetParent = htmlEl.offsetParent as HTMLElement | null;
+    if (offsetParent && offsetParent !== document.documentElement) {
+      var offsetParentIsRealContainingBlock = true;
+      if (offsetParent === document.body) {
+        var bodyCS = window.getComputedStyle(document.body);
+        offsetParentIsRealContainingBlock =
+          bodyCS.position !== "static" ||
+          bodyCS.transform !== "none" ||
+          (bodyCS.getPropertyValue("translate") || "none") !== "none";
+      }
+      if (offsetParentIsRealContainingBlock) {
+        var opRect = offsetParent.getBoundingClientRect();
+        var opCS = window.getComputedStyle(offsetParent);
+        oldOriginX =
+          opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+        oldOriginY =
+          opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+      }
+    }
+    var currentLeft = readPx(htmlEl.style.left || cs.left);
+    var currentTop = readPx(htmlEl.style.top || cs.top);
+    htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
+    htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+  }
+
   function applyRuntimeReorder(el, target) {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return;
     stripAbsolutePositioningForFlowInsert(el, target);
+    // Must run BEFORE the DOM move below: the delta math reads the member's
+    // CURRENT containing block via offsetParent. Called here (the single
+    // choke point for drop reparenting) so the single-drag, group-drag,
+    // flow-reorder, and alt-drag-duplicate paths all rebase consistently.
+    // Idempotent for already-nested members (old CB === new CB → delta 0),
+    // so the visual-structure-ack replay path is safe too.
+    rebaseAbsoluteMemberForContainerDrop(el, target);
     if (target.placement === "inside") {
       target.anchor.appendChild(el);
       return;
@@ -7157,7 +7419,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
-    if (e.button !== 0 || activeTextEditEl) return;
+    if (e.button !== 0) return;
+    // T23: a stale session self-heals and the drag proceeds; only a LIVE
+    // session (connected element) blocks shield drags.
+    if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
@@ -7366,6 +7631,106 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   document.addEventListener(
     "keydown",
     function (e) {
+      // T25: pending-window keydown routing — a begin-text-edit is still
+      // waiting for its node. Keystrokes that land in THIS document during
+      // the wait belong to the upcoming text session: buffer printable
+      // characters (replayed on activation), let Backspace edit the buffer,
+      // and swallow Delete/Enter/Tab/arrows so they can never be forwarded
+      // into host layer-deletion/navigation. IME composition and Cmd/Ctrl
+      // chords pass through untouched.
+      if (!activeTextEditEl && pendingBeginTextEdit) {
+        if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
+          var pendingKey = e.key || "";
+          if (pendingKey === "Escape") {
+            var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
+            cancelPendingBeginTextEdit();
+            postTextEditPending(abandonedPendingNodeId, false);
+            stopNativeInteraction(e);
+            return;
+          }
+          if (pendingKey === "Backspace") {
+            pendingBeginTextEdit.buffer = pendingBeginTextEdit.buffer.slice(
+              0,
+              -1,
+            );
+            stopNativeInteraction(e);
+            return;
+          }
+          if (pendingKey.length === 1) {
+            pendingBeginTextEdit.buffer += pendingKey;
+            stopNativeInteraction(e);
+            return;
+          }
+          if (
+            pendingKey === "Delete" ||
+            pendingKey === "Enter" ||
+            pendingKey === "Tab" ||
+            pendingKey.indexOf("Arrow") === 0
+          ) {
+            stopNativeInteraction(e);
+            return;
+          }
+        }
+      }
+      // T23/T24: text-edit keydown routing runs BEFORE hotkey forwarding so
+      // a nominally-active session can never lose keys to host shortcuts.
+      if (activeTextEditEl) {
+        if (exitStaleTextEditSession()) {
+          // The session was stale (element detached by a patch). Swallow
+          // this keystroke entirely — letting it fall through in the same
+          // event would forward Delete/Backspace straight into host
+          // layer-deletion while the user believes they are typing text.
+          stopNativeInteraction(e);
+          return;
+        }
+        // Respect IME composition exactly like the session's own onKeyDown.
+        if (e.isComposing || e.keyCode === 229) return;
+        var activeNow = document.activeElement;
+        var focusInsideEdit = !!(
+          activeNow &&
+          (activeNow === activeTextEditEl ||
+            activeTextEditEl.contains(activeNow))
+        );
+        // T24: Escape must ALWAYS exit the session deterministically, even
+        // when focus fell outside the editable (where the session's own
+        // target-scoped keydown listener can never fire).
+        if (e.key === "Escape") {
+          if (!focusInsideEdit) {
+            stopNativeInteraction(e);
+            if (finishActiveTextEdit) finishActiveTextEdit(true);
+            return;
+          }
+          // Focus is inside: fall through — the session's own capture
+          // onKeyDown on the target handles Escape (commit + blur) next.
+          return;
+        }
+        if (!focusInsideEdit) {
+          // Race window: the session is active but focus sits elsewhere
+          // (creation focus race, transient focus steal). If the user is
+          // legitimately typing in a real form control, leave it alone;
+          // otherwise pull focus back into the editable so the keystroke
+          // lands as text — and never reaches host shortcuts.
+          if (!isEditorTypingTarget(activeNow)) {
+            try {
+              activeTextEditEl.focus();
+              var refocusRange = document.createRange();
+              refocusRange.selectNodeContents(activeTextEditEl);
+              refocusRange.collapse(false);
+              var refocusSelection = window.getSelection();
+              if (refocusSelection) {
+                refocusSelection.removeAllRanges();
+                refocusSelection.addRange(refocusRange);
+              }
+            } catch (_err) {
+              /* focus/selection APIs unavailable — key is still swallowed */
+            }
+            e.stopPropagation();
+          }
+        }
+        // While a live session exists, never forward hotkeys to the host
+        // (matches shouldForwardDesignHotkey's activeTextEditEl guard).
+        return;
+      }
       if (!shouldForwardDesignHotkey(e)) return;
       var key = e.key;
       var normalized = key && key.length === 1 ? key.toLowerCase() : key;
@@ -7417,6 +7782,53 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         { type: "design-hotkey-up", key: e.key, code: e.code },
         "*",
       );
+    },
+    true,
+  );
+
+  // T23/T24: pointerdown-level text-edit session hygiene. Runs on DOCUMENT
+  // capture (not the shield) because an active session sets the shield to
+  // pointer-events:none — and a LEAKED session leaves it that way, so shield
+  // handlers can never observe the pointerdown that should recover from it.
+  // 1. A pointerdown means the user moved on: drop any deferred
+  //    begin-text-edit command so it can't yank focus later.
+  // 2. A stale (detached-element) session self-heals on the next click.
+  // 3. Click-away must exit the session even when the editable is NOT
+  //    focused (the blur-based commit can never fire in that state).
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (pendingBeginTextEdit) {
+        var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
+        cancelPendingBeginTextEdit();
+        postTextEditPending(canceledPendingNodeId, false);
+      }
+      if (!activeTextEditEl) return;
+      if (exitStaleTextEditSession()) return;
+      var pointerTarget =
+        e.target && (e.target as Element).nodeType === 1
+          ? (e.target as Element)
+          : null;
+      if (
+        pointerTarget &&
+        (pointerTarget === activeTextEditEl ||
+          activeTextEditEl.contains(pointerTarget))
+      ) {
+        return;
+      }
+      // Editor chrome (overlays) never hosts text content — clicking it
+      // shouldn't force-commit here; the session's own blur handling decides.
+      if (pointerTarget && isOverlayElement(pointerTarget)) return;
+      // A real user pointerdown outside the editable is a deterministic
+      // click-away: commit and exit NOW. This covers both broken states the
+      // blur path can't reach — (a) focus already fell outside the editable
+      // (blur will never fire), and (b) the programmatic empty-text session,
+      // whose blur handler deliberately re-focuses on transient focus steals
+      // but must NOT fight a real click elsewhere. For a healthy focused
+      // session this simply commits a few ms before blur would have.
+      if (finishActiveTextEdit) {
+        finishActiveTextEdit(true);
+      }
     },
     true,
   );
@@ -7511,6 +7923,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return;
     }
     stopNativeInteraction(e);
+    // A new edit supersedes any deferred begin-text-edit command. This is a
+    // USER-initiated path (dblclick) whenever pending is still set here —
+    // the programmatic activation paths clear pending BEFORE calling in —
+    // so also stand the host keystroke buffer down: it must never flush
+    // into this unrelated session.
+    if (pendingBeginTextEdit) {
+      var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
+      cancelPendingBeginTextEdit();
+      postTextEditPending(supersededPendingNodeId, false);
+    }
+    // T23: a live session on a DIFFERENT element must end through the
+    // canonical cleanup BEFORE the new one starts. Previously the new
+    // session simply overwrote activeTextEditEl/finishActiveTextEdit, and
+    // the old session's eventual blur-driven finish() then restored the
+    // shield pointer-passthrough state and posted text-editing-state(false)
+    // UNDERNEATH the new session, corrupting both.
+    if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
     // The raw `eventTarget` fallback (no findTextEditTarget resolution at
@@ -7674,7 +8103,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var next = target.textContent || "";
       var nextHtml = target.innerHTML || "";
       refreshOverlays();
-      if (next !== originalText || nextHtml !== originalHtml) {
+      // T23: never post a content change from a DETACHED node — a document
+      // patch already replaced it, so the in-document copy is the source of
+      // truth and a selector computed from the orphan would target the wrong
+      // (or no) element host-side.
+      if (
+        target.isConnected &&
+        (next !== originalText || nextHtml !== originalHtml)
+      ) {
         postTextContentChange(target, next, nextHtml);
       }
       // T13: replay the latest runtime-content update that arrived (and was
@@ -7797,6 +8233,88 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     } else {
       placeTextCaretFromPoint(target, e.clientX, e.clientY);
     }
+  }
+
+  // T22: shared programmatic activation used by the begin-text-edit message
+  // handler — both for an immediately-resolvable node and for one that lands
+  // later via the deferred-retry window below.
+  function queryBeginTextEditNode(nodeId: string): HTMLElement | null {
+    var node: Element | null = document.querySelector(
+      '[data-agent-native-node-id="' +
+        nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+        '"]',
+    );
+    return node && node.nodeType === 1 ? (node as HTMLElement) : null;
+  }
+  function activateProgrammaticTextEdit(
+    textTarget: HTMLElement,
+    force: boolean,
+  ): void {
+    // If we are already editing this element, do nothing.
+    if (activeTextEditEl && activeTextEditEl === textTarget) return;
+    // Synthesise coordinates at the end of the element content so the caret
+    // lands at the insertion point (right after any placeholder text).
+    var bteRect = textTarget.getBoundingClientRect();
+    var bteCenterX = bteRect.right - 2;
+    var bteCenterY = bteRect.top + bteRect.height / 2;
+    // Delegate to the canonical path so all state, events, and postMessages
+    // stay consistent with a normal double-click text edit.
+    beginTextEditingFromEvent(
+      {
+        clientX: bteCenterX,
+        clientY: bteCenterY,
+        target: textTarget,
+        agentNativeProgrammaticTextEdit: true,
+        preventDefault: function () {},
+        stopPropagation: function () {},
+        stopImmediatePropagation: function () {},
+      } as unknown as MouseEvent,
+      force,
+    );
+  }
+  function pumpPendingBeginTextEdit(): void {
+    if (!pendingBeginTextEdit) return;
+    var entry = pendingBeginTextEdit;
+    var node = queryBeginTextEditNode(entry.nodeId);
+    if (node) {
+      pendingBeginTextEdit = null;
+      // The user may have started their own edit meanwhile — never steal it.
+      if (!activeTextEditEl) {
+        activateProgrammaticTextEdit(node, entry.force);
+        // Replay keystrokes typed into this iframe during the wait — the
+        // session is focused with the caret at the content end, so this
+        // lands exactly where the user expects their first characters.
+        if (entry.buffer && activeTextEditEl === node) {
+          insertPlainTextAtSelection(entry.buffer);
+        }
+      }
+      return;
+    }
+    if (Date.now() > entry.deadline) {
+      pendingBeginTextEdit = null;
+      postTextEditPending(entry.nodeId, false);
+      return;
+    }
+    entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
+  }
+  function scheduleBeginTextEditRetry(nodeId: string, force: boolean): void {
+    // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
+    // every few hundred ms until it activates — those re-posts must extend
+    // the wait, not reset it (a reset would drop keystrokes already buffered
+    // for this node).
+    if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId) {
+      pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
+      pendingBeginTextEdit.deadline = Date.now() + 2000;
+      return;
+    }
+    cancelPendingBeginTextEdit();
+    pendingBeginTextEdit = {
+      nodeId: nodeId,
+      force: force,
+      deadline: Date.now() + 2000,
+      raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
+      buffer: "",
+    };
   }
 
   shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -7993,40 +8511,55 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var nodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!nodeId) return;
-      var nodeTarget: Element | null = document.querySelector(
-        '[data-agent-native-node-id="' +
-          nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
-          '"]',
-      );
-      if (!nodeTarget || nodeTarget.nodeType !== 1) return;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
       // screen resolves all the way to <main>, putting the ENTIRE screen into
       // edit mode instead of this node (keystrokes land in the wrong element).
-      var textTarget: HTMLElement | null = nodeTarget as HTMLElement;
-      if (!textTarget || textTarget.nodeType !== 1) return;
-      // If we are already editing this element, do nothing.
-      if (activeTextEditEl && activeTextEditEl === textTarget) return;
-      // Synthesise coordinates at the end of the element content so the caret
-      // lands at the insertion point (right after any placeholder text).
-      var bteRect = textTarget.getBoundingClientRect();
-      var bteCenterX = bteRect.right - 2;
-      var bteCenterY = bteRect.top + bteRect.height / 2;
-      // Delegate to the canonical path so all state, events, and postMessages
-      // stay consistent with a normal double-click text edit.
-      beginTextEditingFromEvent(
-        {
-          clientX: bteCenterX,
-          clientY: bteCenterY,
-          target: textTarget,
-          agentNativeProgrammaticTextEdit: true,
-          preventDefault: function () {},
-          stopPropagation: function () {},
-          stopImmediatePropagation: function () {},
-        } as unknown as MouseEvent,
-        forceBeginTextEdit,
-      );
+      var textTarget = queryBeginTextEditNode(nodeId);
+      if (!textTarget) {
+        // T22: the node hasn't landed in this document yet — the command won
+        // the race against the replace-document-content round trip that
+        // carries the freshly-created element. Defer instead of dropping,
+        // so the caret is live the moment the node appears. Tell the host so
+        // it buffers HOST-focused keystrokes for the same window (T25).
+        scheduleBeginTextEditRetry(nodeId, forceBeginTextEdit);
+        postTextEditPending(nodeId, true);
+        return;
+      }
+      cancelPendingBeginTextEdit();
+      activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+      return;
+    }
+    // T25: replay keystrokes the HOST buffered during the creation→activation
+    // race window (DesignCanvas suppresses host shortcuts and stashes
+    // printable keys while its begin-text-edit is pending, then flushes them
+    // here once the session reports active). Inserted at the caret through
+    // the same execCommand path paste uses, so the session's own input
+    // listener updates chrome/state naturally.
+    if (e.data.type === "text-edit-insert-text") {
+      var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
+      if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+        return;
+      var bufferedActive = document.activeElement;
+      if (
+        !bufferedActive ||
+        (bufferedActive !== activeTextEditEl &&
+          !activeTextEditEl.contains(bufferedActive))
+      ) {
+        try {
+          activeTextEditEl.focus();
+          var bufferedRange = document.createRange();
+          bufferedRange.selectNodeContents(activeTextEditEl);
+          bufferedRange.collapse(false);
+          var bufferedSelection = window.getSelection();
+          if (bufferedSelection) {
+            bufferedSelection.removeAllRanges();
+            bufferedSelection.addRange(bufferedRange);
+          }
+        } catch (_err) {}
+      }
+      insertPlainTextAtSelection(bufferedText);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {

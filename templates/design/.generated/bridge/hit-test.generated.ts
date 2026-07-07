@@ -223,6 +223,65 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return minted;
     }
+    function alpineGeneratedChildrenOf(parent) {
+      var generated = [];
+      var children = parent.children;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+          continue;
+        }
+        try {
+          if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+          var lookup = child._x_lookup;
+          if (lookup) {
+            for (var key in lookup) {
+              if (Object.prototype.hasOwnProperty.call(lookup, key)) {
+                var item = lookup[key];
+                if (item) generated.push(item);
+              }
+            }
+          }
+        } catch (_err) {
+        }
+      }
+      return generated;
+    }
+    function isEditorInjectedElement(el) {
+      return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+    }
+    function buildSourceEquivalentSelector(el) {
+      if (!el || el === document.documentElement || el === document.body) {
+        return "";
+      }
+      var parts = [];
+      var node = el;
+      while (node && node !== document.body) {
+        var parent = node.parentElement;
+        if (!parent) return "";
+        var generated = alpineGeneratedChildrenOf(parent);
+        if (generated.indexOf(node) !== -1) return "";
+        if (isEditorInjectedElement(node)) return "";
+        var tag = node.tagName ? node.tagName.toLowerCase() : "";
+        if (!tag || tag === "template") return "";
+        var nth = 0;
+        var siblings = parent.children;
+        for (var i = 0; i < siblings.length; i += 1) {
+          var sib = siblings[i];
+          if (!sib.tagName || sib.tagName.toLowerCase() !== tag) continue;
+          if (generated.indexOf(sib) !== -1) continue;
+          if (isEditorInjectedElement(sib)) continue;
+          nth += 1;
+          if (sib === node) break;
+        }
+        if (nth === 0) return "";
+        parts.unshift(tag + ":nth-of-type(" + nth + ")");
+        node = parent;
+      }
+      if (!node) return "";
+      parts.unshift("body");
+      return parts.join(" > ");
+    }
     function resolveHitTarget(clientX, clientY) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
@@ -331,6 +390,7 @@ export const hitTestBridgeScript: string = `"use strict";
       if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var pendingNodeId = result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
+      var anchorSelector = pendingNodeId ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
@@ -342,6 +402,7 @@ export const hitTestBridgeScript: string = `"use strict";
             correlationId,
             anchorNodeId,
             pendingNodeId: pendingNodeId || void 0,
+            anchorSelector: anchorSelector || void 0,
             placement,
             axis,
             dropMode,

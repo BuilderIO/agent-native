@@ -462,6 +462,50 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("left: 32px");
   });
 
+  it("aliases camelCase webkit text-stroke longhands to their -webkit- kebab forms", () => {
+    // Regression: the edit panel's "Add layer" (text stroke) once emitted
+    // camelCase webkitTextStrokeWidth/-Color. normalizeStyleProperty's generic
+    // camel→kebab pass turns those into "webkit-text-stroke-*" (missing the
+    // leading dash), which is NOT in the allow-list → status "unsupported" and
+    // nothing persisted. STYLE_PROPERTY_ALIASES must map them explicitly.
+    const html = `<h1 data-layer-name="Title">Hello</h1>`;
+
+    const widthPatch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeWidth",
+      value: "1px",
+    });
+    expect(widthPatch.result.status).toBe("applied");
+    expect(widthPatch.result.capability).toEqual(
+      expect.objectContaining({
+        kind: "style",
+        properties: ["-webkit-text-stroke-width"],
+      }),
+    );
+    expect(widthPatch.content).toContain("-webkit-text-stroke-width: 1px");
+
+    const colorPatch = applyVisualEdit(widthPatch.content, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeColor",
+      value: "#0f172a",
+    });
+    expect(colorPatch.result.status).toBe("applied");
+    expect(colorPatch.content).toContain("-webkit-text-stroke-color: #0f172a");
+  });
+
+  it("applies the kebab -webkit-text-stroke-width longhand directly (allow-list pin)", () => {
+    const patch = applyVisualEdit(`<h1 data-layer-name="Title">Hello</h1>`, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "-webkit-text-stroke-width",
+      value: "1px",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("-webkit-text-stroke-width: 1px");
+  });
+
   it("applies class edits without duplicating class tokens", () => {
     const html = `<button id="cta" class="px-4">Buy</button>`;
     const patch = applyVisualEdit(html, {
@@ -1717,7 +1761,12 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain('[data-agent-native-node-id="hero"]');
+    // Doubled attribute selector — specificity (0,2,0) so the managed
+    // override beats runtime-injected Tailwind CDN utilities (0,1,0). A
+    // regression back to the single-attribute form must fail this test.
+    expect(patch.content).toContain(
+      '[data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {',
+    );
     expect(patch.content).toContain("left: 137px;");
     // The element's inline style is NOT touched — base keeps cascading.
     expect(patch.content).not.toContain('style="left');
@@ -1740,8 +1789,10 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     const stamped = /data-agent-native-node-id="([^"]+)"/.exec(patch.content);
     expect(stamped).toBeTruthy();
+    // Doubled selector, same as above — single-attribute form is a
+    // specificity regression against the Tailwind CDN runtime sheet.
     expect(patch.content).toContain(
-      `[data-agent-native-node-id="${stamped![1]}"]`,
+      `[data-agent-native-node-id="${stamped![1]}"][data-agent-native-node-id="${stamped![1]}"] {`,
     );
     expect(patch.content).toContain("top: 24px;");
   });

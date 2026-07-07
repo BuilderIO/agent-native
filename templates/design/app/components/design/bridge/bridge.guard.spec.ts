@@ -1894,6 +1894,234 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge clamps selection-handle inward hit reach on small elements at low zoom while keeping large-element handle geometry bit-identical",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: #0b0b0f; }
+      #row {
+        position: absolute; left: 100px; top: 100px;
+        display: flex; gap: 16px;
+      }
+      #chip, .sib { width: 64.8px; height: 36px; background: #2a6df4; }
+      #frame {
+        position: absolute; left: 100px; top: 320px;
+        width: 600px; height: 300px; background: #1d1e24;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="row" data-agent-native-node-id="row">
+      <div id="chip" data-agent-native-node-id="chip"></div>
+      <div class="sib" data-agent-native-node-id="sib1"></div>
+    </div>
+    <div id="frame" data-agent-native-node-id="frame"></div>
+  </body>
+</html>`);
+      // Scale 0.19 reproduces the dnd finding's 19% overview zoom: the
+      // bridge's chrome scale is 1/0.19 ≈ 5.26, so a nominal 10px edge bar
+      // becomes ~52.6 local px thick with ~26.3px of inward reach per side.
+      // Pre-clamp, the opposing N/S bars of the selected 64.8x36px chip
+      // overlapped and jointly covered its ENTIRE 36px height (probe showed
+      // elementsFromPoint at the chip center hitting the S then N handle
+      // spans, never the body), so the chip could never be grabbed for a
+      // move drag — every center press resolved to a resize.
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithScale(0.19),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const chipRect = await page.evaluate(() => {
+        const r = document.getElementById("chip")!.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const chipCenterX = chipRect.left + chipRect.width / 2;
+      const chipCenterY = chipRect.top + chipRect.height / 2;
+      await page.mouse.click(chipCenterX, chipCenterY);
+      await page.waitForFunction(() => {
+        const sel = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        return (
+          !!sel &&
+          sel.style.display === "block" &&
+          parseFloat(sel.style.width || "0") < 100
+        );
+      });
+      // Handle spans carry 150ms width/height/offset transitions — let them
+      // settle before measuring rendered hit-zone rects.
+      await page.waitForTimeout(250);
+
+      const chipZoneState = await page.evaluate(
+        ({ cx, cy }) => {
+          const covering: string[] = [];
+          document
+            .querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle]",
+            )
+            .forEach((handle) => {
+              const r = handle.getBoundingClientRect();
+              const inside =
+                cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+              if (!inside) return;
+              covering.push(
+                handle.getAttribute("data-agent-native-edge-handle") ||
+                  "corner:" +
+                    handle.getAttribute("data-agent-native-edit-handle"),
+              );
+            });
+          const topmost = document.elementsFromPoint(cx, cy)[0] as
+            | Element
+            | undefined;
+          return {
+            covering,
+            topmostIsHandle:
+              !!topmost &&
+              (topmost.hasAttribute("data-agent-native-edge-handle") ||
+                topmost.hasAttribute("data-agent-native-edit-handle")),
+          };
+        },
+        { cx: chipCenterX, cy: chipCenterY },
+      );
+      // The chip's center must be pressable as a BODY point: no edge/corner
+      // handle hit zone may cover it (inward reach is clamped to 25% of the
+      // chip's own dimension per axis), and the topmost element under the
+      // point must not be a handle span.
+      expect(chipZoneState.covering).toEqual([]);
+      expect(chipZoneState.topmostIsHandle).toBe(false);
+
+      // Large frame (600x300 at the same zoom): the nominal inward reach
+      // (~26.3px) is far below 25% of either dimension, so the clamp must
+      // not engage — the handle geometry must be bit-identical to the
+      // historical unclamped formulas (edge bars 10*scale thick centered on
+      // the edge via a -5*scale offset; corner squares 7*scale with a
+      // -4*scale offset).
+      const frameRect = await page.evaluate(() => {
+        const r = document.getElementById("frame")!.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      await page.mouse.click(
+        frameRect.left + frameRect.width / 2,
+        frameRect.top + frameRect.height / 2,
+      );
+      await page.waitForFunction(() => {
+        const sel = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        return (
+          !!sel &&
+          sel.style.display === "block" &&
+          parseFloat(sel.style.width || "0") > 500
+        );
+      });
+
+      const largeGeometry = await page.evaluate(() => {
+        // Serialize the historical formulas through the same CSSOM path the
+        // bridge writes through, so any browser rounding in style-value
+        // serialization applies identically to expected and actual.
+        const s = 1 / Math.max(0.05, 0.19); // chromeScaleX()/chromeScaleY()
+        const probe = document.createElement("span");
+        // Serialize through `left` (not width/height) so NEGATIVE offsets
+        // round-trip too — CSS rejects negative lengths for width/height.
+        const ser = (value: number): string => {
+          probe.style.left = "";
+          probe.style.left = value + "px";
+          return probe.style.left;
+        };
+        const expected = {
+          edgeThickness: ser(10 * s),
+          edgeOffset: ser(-5 * s),
+          cornerSize: ser(7 * s),
+          cornerOffset: ser(-4 * s),
+        };
+        const edges: { pos: string; thickness: string; offset: string }[] = [];
+        document
+          .querySelectorAll("[data-agent-native-edge-handle]")
+          .forEach((edge) => {
+            const el = edge as HTMLElement;
+            const pos = el.getAttribute("data-agent-native-edge-handle") || "";
+            edges.push({
+              pos,
+              thickness:
+                pos === "n" || pos === "s" ? el.style.height : el.style.width,
+              offset:
+                pos === "n"
+                  ? el.style.top
+                  : pos === "s"
+                    ? el.style.bottom
+                    : pos === "w"
+                      ? el.style.left
+                      : el.style.right,
+            });
+          });
+        const corners: {
+          pos: string;
+          width: string;
+          height: string;
+          offsetX: string;
+          offsetY: string;
+        }[] = [];
+        document
+          .querySelectorAll("[data-agent-native-edit-handle]")
+          .forEach((handle) => {
+            const el = handle as HTMLElement;
+            const pos = el.getAttribute("data-agent-native-edit-handle") || "";
+            corners.push({
+              pos,
+              width: el.style.width,
+              height: el.style.height,
+              offsetX: pos.indexOf("w") !== -1 ? el.style.left : el.style.right,
+              offsetY: pos.indexOf("n") !== -1 ? el.style.top : el.style.bottom,
+            });
+          });
+        return { expected, edges, corners };
+      });
+      expect(largeGeometry.edges).toHaveLength(4);
+      expect(largeGeometry.corners).toHaveLength(4);
+      for (const edge of largeGeometry.edges) {
+        expect(edge.thickness, `edge ${edge.pos} thickness`).toBe(
+          largeGeometry.expected.edgeThickness,
+        );
+        expect(edge.offset, `edge ${edge.pos} offset`).toBe(
+          largeGeometry.expected.edgeOffset,
+        );
+      }
+      for (const corner of largeGeometry.corners) {
+        expect(corner.width, `corner ${corner.pos} width`).toBe(
+          largeGeometry.expected.cornerSize,
+        );
+        expect(corner.height, `corner ${corner.pos} height`).toBe(
+          largeGeometry.expected.cornerSize,
+        );
+        expect(corner.offsetX, `corner ${corner.pos} x offset`).toBe(
+          largeGeometry.expected.cornerOffset,
+        );
+        expect(corner.offsetY, `corner ${corner.pos} y offset`).toBe(
+          largeGeometry.expected.cornerOffset,
+        );
+      }
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── text editing session behavior (T2/T3/T5/T11/T12/T19/T20/T21) ──────────
 
 describe("editor chrome bridge — text editing session", () => {
@@ -2535,6 +2763,366 @@ describe("editor chrome bridge — text editing session", () => {
       }
     },
   );
+
+  it(
+    "T22: begin-text-edit for a node that lands in the DOM later still activates (bounded retry window)",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+
+        // Post the command BEFORE the node exists — the creation race.
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "late-node", force: true },
+            "*",
+          );
+        });
+        await page.waitForTimeout(250);
+        const editingBeforeNodeExists = await page.evaluate(
+          () => !!document.querySelector("[data-agent-native-text-editing]"),
+        );
+        expect(editingBeforeNodeExists).toBe(false);
+
+        // The node arrives via the (simulated) persist round trip.
+        await page.evaluate(() => {
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<div id="late" data-agent-native-node-id="late-node" style="position:absolute;left:500px;top:400px;min-width:8px;min-height:20px"></div>',
+          );
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]");
+
+        const activation = await page.evaluate(() => {
+          const editing = document.querySelector<HTMLElement>(
+            "[data-agent-native-text-editing]",
+          );
+          return {
+            id: editing?.id,
+            focused: document.activeElement === editing,
+            contenteditable: editing?.getAttribute("contenteditable"),
+          };
+        });
+        expect(activation.id).toBe("late");
+        expect(activation.focused).toBe(true);
+        expect(activation.contenteditable).toBe("true");
+
+        // Keystrokes land in the new node, not anywhere else.
+        await page.keyboard.type("hey");
+        const typed = await page.evaluate(
+          () => document.querySelector("#late")?.textContent,
+        );
+        expect(typed).toBe("hey");
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T23: Escape exits a STALE session (edited node detached by a patch) and restores the shield",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        // Chromium fires blur when the FOCUSED node is removed, which would
+        // end the session cleanly — but the real leak happens when the node
+        // is patched away while focus sits elsewhere (the overnight repro).
+        // Suppress the session's blur commit to force that exact state.
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLElement>("#target")!
+            .addEventListener(
+              "blur",
+              (ev) => ev.stopImmediatePropagation(),
+              true,
+            );
+        });
+        await beginTextEditOnTarget(page);
+
+        // Simulate a document patch replacing the edited node: its blur and
+        // keydown listeners die with it, so only document-level recovery can
+        // end the session.
+        await page.evaluate(() => {
+          document.querySelector("#target")!.remove();
+        });
+        const shieldDisabledDuringLeak = await page.evaluate(
+          () =>
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!.style.pointerEvents,
+        );
+        expect(shieldDisabledDuringLeak).toBe("none");
+
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(30);
+
+        const afterEscape = await page.evaluate(() => ({
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+          shieldPointerEvents: document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="shield"]',
+          )!.style.pointerEvents,
+        }));
+        expect(afterEscape.editing).toBe(false);
+        expect(afterEscape.shieldPointerEvents).not.toBe("none");
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T23: a pointerdown self-heals a stale session and the very next gesture can drag again",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const pageErrors: string[] = [];
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        page.on("pageerror", (err) => pageErrors.push(err.message));
+        await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 120px; top: 140px; width: 240px; height: 60px; background: #e9eef8; }
+      #other { position: absolute; left: 500px; top: 400px; width: 100px; height: 80px; background: #ddd; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target">Hello world</div>
+    <div id="other" data-agent-native-node-id="other">Other</div>
+  </body>
+</html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        // Force the true leak state: suppress the session's blur commit so
+        // removing the node cannot end the session via Chromium's
+        // blur-on-remove behavior (see the Escape-variant test above).
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLElement>("#target")!
+            .addEventListener(
+              "blur",
+              (ev) => ev.stopImmediatePropagation(),
+              true,
+            );
+        });
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "target", force: true },
+            "*",
+          );
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]");
+
+        // Detach the edited node — the pre-fix behavior left activeTextEditEl
+        // pointing at the orphan forever, blocking every drag until reload.
+        await page.evaluate(() => {
+          document.querySelector("#target")!.remove();
+        });
+        const shieldDuringLeak = await page.evaluate(
+          () =>
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!.style.pointerEvents,
+        );
+        expect(shieldDuringLeak).toBe("none");
+
+        // First click recovers the session (document-level pointerdown).
+        await page.mouse.click(50, 50);
+        await page.waitForTimeout(30);
+        const shieldRestored = await page.evaluate(
+          () =>
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-edit-overlay="shield"]',
+            )!.style.pointerEvents,
+        );
+        expect(shieldRestored).not.toBe("none");
+
+        // The next gesture is a working drag again.
+        await page.mouse.click(550, 440);
+        await page.waitForFunction(() => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return (
+            overlay && window.getComputedStyle(overlay).display === "block"
+          );
+        });
+        await page.mouse.move(550, 440);
+        await page.mouse.down();
+        await page.mouse.move(560, 450);
+        await page.mouse.move(590, 480);
+        await page.mouse.up();
+        const draggedPosition = await page.evaluate(() => {
+          const other = document.querySelector<HTMLElement>("#other")!;
+          return { left: other.style.left, top: other.style.top };
+        });
+        expect(draggedPosition).toEqual({ left: "530px", top: "430px" });
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T23: a runtime content update is not buffered forever behind a stale session",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        // Same leak-state setup as the Escape-variant test above.
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLElement>("#target")!
+            .addEventListener(
+              "blur",
+              (ev) => ev.stopImmediatePropagation(),
+              true,
+            );
+        });
+        await beginTextEditOnTarget(page);
+        await page.evaluate(() => {
+          document.querySelector("#target")!.remove();
+        });
+
+        // A NON-force update while a session is nominally active used to be
+        // buffered until the session ended — which a detached session never
+        // does, freezing this surface's content until a full reload.
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "replace-document-content",
+              content:
+                "<!doctype html><html><head></head><body><div id='fresh' data-agent-native-node-id='fresh'>Fresh content</div></body></html>",
+              selectedSelector: "",
+              selectorCandidates: [],
+              forceFullDocument: false,
+            },
+            "*",
+          );
+        });
+        await page.waitForTimeout(50);
+
+        const applied = await page.evaluate(() => ({
+          fresh: !!document.querySelector("#fresh"),
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+          shieldPointerEvents: document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="shield"]',
+          )!.style.pointerEvents,
+        }));
+        expect(applied.fresh).toBe(true);
+        expect(applied.editing).toBe(false);
+        expect(applied.shieldPointerEvents).not.toBe("none");
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T24: while a session is active but unfocused, the next keydown refocuses the editable instead of falling through",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const pageErrors: string[] = [];
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        page.on("pageerror", (err) => pageErrors.push(err.message));
+        await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 120px; top: 140px; width: 240px; height: 60px; background: #e9eef8; }
+      #steal { position: absolute; left: 600px; top: 500px; width: 60px; height: 30px; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target">Hello world</div>
+    <div id="steal" tabindex="-1"></div>
+  </body>
+</html>`);
+        // Suppress the bridge's blur commit BEFORE the session starts so we
+        // can force the exact race state: session active, focus elsewhere.
+        // (Registration order matters: this capture listener runs before the
+        // session's own, so stopImmediatePropagation starves it.)
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLElement>("#target")!
+            .addEventListener(
+              "blur",
+              (ev) => ev.stopImmediatePropagation(),
+              true,
+            );
+        });
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScriptWithTextEditing(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "target", force: true },
+            "*",
+          );
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]");
+
+        await page.evaluate(() => {
+          document.querySelector<HTMLElement>("#steal")!.focus();
+        });
+        const raceState = await page.evaluate(() => ({
+          activeId: document.activeElement?.id,
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+        }));
+        expect(raceState.activeId).toBe("steal");
+        expect(raceState.editing).toBe(true);
+
+        // The race window: a keystroke while the editable is unfocused must
+        // pull focus back into the editable, never fall through to hotkeys.
+        await page.keyboard.press("a");
+        await page.waitForTimeout(30);
+        const afterKey = await page.evaluate(() => ({
+          activeId: document.activeElement?.id,
+          text: document.querySelector("#target")?.textContent,
+        }));
+        expect(afterKey.activeId).toBe("target");
+        expect(afterKey.text).toBe("Hello worlda");
+
+        // Escape must exit deterministically from the same unfocused state.
+        await page.evaluate(() => {
+          document.querySelector<HTMLElement>("#steal")!.focus();
+        });
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(30);
+        const afterEscape = await page.evaluate(() => ({
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+          shieldPointerEvents: document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="shield"]',
+          )!.style.pointerEvents,
+        }));
+        expect(afterEscape.editing).toBe(false);
+        expect(afterEscape.shieldPointerEvents).not.toBe("none");
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });
 
 // ── Nest-on-drop into plain rectangles (Figma "drop into a frame" parity) ───
@@ -2763,6 +3351,135 @@ it(
       ) as any;
       expect(structureMessage).toBeTruthy();
       expect(structureMessage.dropMode).toBe("flow-insert");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge rebases left/top into the new parent's space on an absolute-container nest drop",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // #container is a canvas rectangle primitive (data-an-primitive):
+      // dropping onto it resolves to dropMode "absolute-container", which
+      // keeps the member position:absolute — the member's inline left/top
+      // must therefore be converted from its OLD containing-block space
+      // (screen root) into the container's padding-edge space, or it renders
+      // displaced by exactly the container's origin after the reparent.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #container {
+        position: absolute; left: 400px; top: 200px;
+        width: 220px; height: 160px; background: #f4f4f8;
+        border: 2px solid #cccccc;
+      }
+      #note {
+        position: absolute; left: 60px; top: 400px;
+        width: 100px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container" data-an-primitive="rectangle" data-agent-native-node-id="container"></div>
+    <div id="note" data-agent-native-node-id="note">Note</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Select #note (center 110, 420) and drag it into #container.
+      await page.mouse.click(110, 420);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+      await page.mouse.move(110, 420);
+      await page.mouse.down();
+      await page.mouse.move(120, 430); // crosses the 3px threshold → reference
+      await page.mouse.move(510, 280); // container interior
+
+      // Capture the member's on-screen position at the drop instant.
+      const preDropRect = await page.evaluate(() => {
+        const rect = document.querySelector("#note")!.getBoundingClientRect();
+        return { left: rect.left, top: rect.top };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const note = document.querySelector<HTMLElement>("#note")!;
+        const container = document.querySelector<HTMLElement>("#container")!;
+        const noteRect = note.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        return {
+          parentId: note.parentElement?.id,
+          position: window.getComputedStyle(note).position,
+          styleLeft: parseFloat(note.style.left),
+          styleTop: parseFloat(note.style.top),
+          rectLeft: noteRect.left,
+          rectTop: noteRect.top,
+          // Container padding-edge origin (border box + 2px border).
+          containerPaddingLeft: containerRect.left + 2,
+          containerPaddingTop: containerRect.top + 2,
+        };
+      });
+
+      expect(result.parentId).toBe("container");
+      // Absolute-container drops keep free positioning (no flow strip)...
+      expect(result.position).toBe("absolute");
+      // ...the on-screen position survives the reparent bit-for-bit...
+      expect(Math.abs(result.rectLeft - preDropRect.left)).toBeLessThan(1);
+      expect(Math.abs(result.rectTop - preDropRect.top)).toBeLessThan(1);
+      // ...because left/top were rebased to the container's padding edge —
+      // small parent-relative numbers, not screen-root coordinates.
+      expect(
+        Math.abs(
+          result.styleLeft - (result.rectLeft - result.containerPaddingLeft),
+        ),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(
+          result.styleTop - (result.rectTop - result.containerPaddingTop),
+        ),
+      ).toBeLessThan(1);
+      expect(result.styleLeft).toBeGreaterThanOrEqual(0);
+      expect(result.styleLeft).toBeLessThan(220);
+      expect(result.styleTop).toBeGreaterThanOrEqual(0);
+      expect(result.styleTop).toBeLessThan(160);
+
+      // The structure message reports the drop and the TRUE on-screen rect —
+      // the host's persistence math (sourceRect − anchorRect) depends on it.
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as any;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage.dropMode).toBe("absolute-container");
+      expect(structureMessage.placement).toBe("inside");
+      expect(
+        Math.abs(structureMessage.sourceRect.x - preDropRect.left),
+      ).toBeLessThan(1);
+      expect(
+        Math.abs(structureMessage.sourceRect.y - preDropRect.top),
+      ).toBeLessThan(1);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

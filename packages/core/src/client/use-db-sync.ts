@@ -22,6 +22,13 @@ interface QueryClient {
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 15_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
+/**
+ * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
+ * that arrive within this window of the first one in a burst are merged into
+ * a single `invalidateForEvents` call instead of one call per event — see the
+ * `queueInvalidateBatch` comment at the call site.
+ */
+const INVALIDATE_COALESCE_MS = 250;
 
 class HttpStatusError extends Error {
   status: number;
@@ -606,6 +613,35 @@ export function useDbSync(
     // processed by THIS subscriber so stale poll re-deliveries are ignored.
     let subscriberVersion = 0;
 
+    // Coalesce bursts of SSE-driven invalidation into at most one flush per
+    // INVALIDATE_COALESCE_MS. A chatty doc (many small agent edits, several
+    // peers editing at once) can otherwise deliver a handful of `action`/
+    // `collab` events within a few hundred ms, each independently calling
+    // `queryClient.invalidateQueries` and firing `onEvent` — every one of
+    // those touches whatever query subscribers are mounted (e.g. a
+    // full-page editor) even though the end state only needs to be
+    // refreshed once. Version bookkeeping stays synchronous (below) so
+    // freshness filtering for the NEXT batch is unaffected by the delay.
+    let pendingInvalidateEvents: SyncEvent[] = [];
+    let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function flushInvalidateBatch() {
+      invalidateTimer = null;
+      if (pendingInvalidateEvents.length === 0) return;
+      const batch = pendingInvalidateEvents;
+      pendingInvalidateEvents = [];
+      invalidateForEvents(batch);
+    }
+
+    function queueInvalidateBatch(events: SyncEvent[]) {
+      pendingInvalidateEvents.push(...events);
+      if (invalidateTimer) return;
+      invalidateTimer = setTimeout(
+        flushInvalidateBatch,
+        INVALIDATE_COALESCE_MS,
+      );
+    }
+
     function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
       return events.some(
         (event) =>
@@ -696,7 +732,7 @@ export function useDbSync(
       });
 
       if (freshEvents.length > 0) {
-        invalidateForEvents(freshEvents);
+        queueInvalidateBatch(freshEvents);
       }
 
       const maxEventVersion = freshEvents.reduce(
@@ -720,6 +756,12 @@ export function useDbSync(
     });
 
     return () => {
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        // Flush synchronously on unmount so a pending batch isn't silently
+        // dropped (e.g. a route change right after an agent edit lands).
+        flushInvalidateBatch();
+      }
       transport.remove(id);
       // If the registry still holds this transport, and the transport is now
       // empty, evict it so the next mount gets a fresh instance rather than a
