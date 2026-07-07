@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./_database-utils.js", () => ({
-  deleteDatabaseDataForDocument: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("drizzle-orm")>();
   return {
     ...actual,
     and: (...conds: unknown[]) => ({ __and: conds }),
     eq: (col: unknown, value: unknown) => ({ __eq: [col, value] }),
+    inArray: (col: unknown, values: unknown[]) => ({
+      __inArray: [col, values],
+    }),
   };
 });
 
@@ -21,6 +20,52 @@ const { schema } = vi.hoisted(() => ({
       id: "documents.id",
       parentId: "documents.parentId",
       ownerEmail: "documents.ownerEmail",
+    },
+    contentDatabases: {
+      id: "contentDatabases.id",
+      documentId: "contentDatabases.documentId",
+      ownerEmail: "contentDatabases.ownerEmail",
+    },
+    contentDatabaseItems: {
+      databaseId: "contentDatabaseItems.databaseId",
+      documentId: "contentDatabaseItems.documentId",
+      ownerEmail: "contentDatabaseItems.ownerEmail",
+    },
+    documentPropertyDefinitions: {
+      id: "documentPropertyDefinitions.id",
+      databaseId: "documentPropertyDefinitions.databaseId",
+    },
+    contentDatabaseSources: {
+      id: "contentDatabaseSources.id",
+      databaseId: "contentDatabaseSources.databaseId",
+    },
+    contentDatabaseBodyHydrationQueue: {
+      sourceId: "contentDatabaseBodyHydrationQueue.sourceId",
+      documentId: "contentDatabaseBodyHydrationQueue.documentId",
+    },
+    contentDatabaseSourceExecutions: {
+      sourceId: "contentDatabaseSourceExecutions.sourceId",
+    },
+    contentDatabaseSourceChangeReviews: {
+      sourceId: "contentDatabaseSourceChangeReviews.sourceId",
+    },
+    contentDatabaseSourceChangeSets: {
+      sourceId: "contentDatabaseSourceChangeSets.sourceId",
+    },
+    contentDatabaseSourceRows: {
+      sourceId: "contentDatabaseSourceRows.sourceId",
+    },
+    contentDatabaseSourceFields: {
+      sourceId: "contentDatabaseSourceFields.sourceId",
+    },
+    documentPropertyValues: {
+      propertyId: "documentPropertyValues.propertyId",
+      documentId: "documentPropertyValues.documentId",
+      ownerEmail: "documentPropertyValues.ownerEmail",
+    },
+    documentBlockFieldContents: {
+      propertyId: "documentBlockFieldContents.propertyId",
+      documentId: "documentBlockFieldContents.documentId",
     },
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
@@ -61,6 +106,11 @@ function matches(row: Record<string, unknown>, cond: any): boolean {
     const [col, value] = cond.__eq;
     const key = String(col).split(".").pop() as string;
     return row[key] === value;
+  }
+  if (cond.__inArray) {
+    const [col, values] = cond.__inArray;
+    const key = String(col).split(".").pop() as string;
+    return values.includes(row[key]);
   }
   return true;
 }
@@ -104,7 +154,7 @@ describe("deleteDocumentRecursive", () => {
     expect(commentDeletes).toHaveLength(1);
     expect(commentDeletes[0].cond).toEqual({
       __and: [
-        { __eq: [schema.documentComments.documentId, "doc-1"] },
+        { __inArray: [schema.documentComments.documentId, ["doc-1"]] },
         { __eq: [schema.documentComments.ownerEmail, "owner-a@example.com"] },
       ],
     });
@@ -125,9 +175,111 @@ describe("deleteDocumentRecursive", () => {
     expect(deleted.sort()).toEqual(["child-1", "child-2", "doc-1"].sort());
     const commentDeleteDocIds = deleteCalls
       .filter((c) => c.table === "documentComments")
-      .map((c: any) => c.cond.__and[0].__eq[1]);
+      .flatMap((c: any) => c.cond.__and[0].__inArray[1]);
     expect(commentDeleteDocIds.sort()).toEqual(
       ["child-1", "child-2", "doc-1"].sort(),
     );
+  });
+
+  it("includes database item pages in one recursive delete pass", async () => {
+    selectRows.contentDatabases = [
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabaseItems = [
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-2",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+      { id: "row-doc-2", ownerEmail: "owner-a@example.com" },
+    ];
+
+    const deleted = await deleteDocumentRecursive(
+      db,
+      "database-doc",
+      "owner-a@example.com",
+    );
+
+    expect(deleted.sort()).toEqual(
+      ["database-doc", "row-doc-1", "row-doc-2"].sort(),
+    );
+
+    const membershipDeletes = deleteCalls.filter(
+      (c) =>
+        c.table === "contentDatabaseItems" &&
+        c.cond.__inArray?.[0] === schema.contentDatabaseItems.databaseId,
+    );
+    expect(membershipDeletes).toHaveLength(1);
+    expect(membershipDeletes[0].cond).toEqual({
+      __inArray: [schema.contentDatabaseItems.databaseId, ["database-1"]],
+    });
+  });
+
+  it("does not collect foreign-owned database item documents", async () => {
+    selectRows.contentDatabases = [
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabaseItems = [
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "foreign-row-doc",
+        ownerEmail: "owner-b@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "mismatched-row-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+      { id: "foreign-row-doc", ownerEmail: "owner-b@example.com" },
+      { id: "mismatched-row-doc", ownerEmail: "owner-b@example.com" },
+    ];
+
+    const deleted = await deleteDocumentRecursive(
+      db,
+      "database-doc",
+      "owner-a@example.com",
+    );
+
+    expect(deleted.sort()).toEqual(["database-doc", "row-doc-1"].sort());
+  });
+
+  it("chunks the final documents delete", async () => {
+    selectRows.documents = Array.from({ length: 95 }, (_, index) => ({
+      id: `child-${index}`,
+      parentId: "doc-1",
+      ownerEmail: "owner-a@example.com",
+    }));
+
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    const documentDeletes = deleteCalls.filter((c) => c.table === "documents");
+    expect(documentDeletes).toHaveLength(2);
+    expect(
+      documentDeletes.map((c: any) => c.cond.__and[0].__inArray[1].length),
+    ).toEqual([90, 6]);
   });
 });

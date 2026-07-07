@@ -18,6 +18,8 @@ export interface FileUploadInput {
   ownerEmail?: string;
   /** Builder.io upload hint: return after asset registration instead of waiting for server-side compression. */
   skipCompressionWait?: boolean;
+  /** Builder.io upload hint: set false for internal artifacts that should not appear in the asset library. */
+  recordAsset?: boolean;
 }
 
 export interface FileUploadResult {
@@ -79,7 +81,7 @@ export interface FileUploadProvider {
     completeSession(
       session: ResumableUploadSession,
       filename: string,
-      options?: { skipCompressionWait?: boolean },
+      options?: { skipCompressionWait?: boolean; recordAsset?: boolean },
     ): Promise<string>;
   };
 }

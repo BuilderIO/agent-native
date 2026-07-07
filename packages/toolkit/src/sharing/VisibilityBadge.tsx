@@ -1,4 +1,4 @@
-import { IconLock, IconBuilding, IconWorld } from "@tabler/icons-react";
+import { IconLock, IconUsersGroup, IconWorld } from "@tabler/icons-react";
 
 export interface VisibilityBadgeProps {
   visibility: "private" | "org" | "public" | null | undefined;
@@ -17,7 +17,7 @@ export function VisibilityBadge({
 }: VisibilityBadgeProps) {
   const v = visibility ?? "private";
   const Icon =
-    v === "public" ? IconWorld : v === "org" ? IconBuilding : IconLock;
+    v === "public" ? IconWorld : v === "org" ? IconUsersGroup : IconLock;
   const label = v === "public" ? "Public" : v === "org" ? "Org" : "Private";
   return (
     <span

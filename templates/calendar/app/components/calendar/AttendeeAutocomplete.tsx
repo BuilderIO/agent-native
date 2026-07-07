@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client";
 import {
   IconAddressBook,
-  IconBuilding,
   IconLoader2,
   IconUserCircle,
+  IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -25,7 +25,9 @@ import {
 } from "@/components/ui/popover";
 import {
   filterPeopleResults,
+  mergePeopleResults,
   usePeopleContacts,
+  usePeopleSearch,
   type PeopleSearchResult,
 } from "@/hooks/use-people";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
@@ -87,7 +89,7 @@ function sourceLabel(
 
 function SourceIcon({ source }: { source?: PeopleSearchResult["source"] }) {
   if (source === "directory") {
-    return <IconBuilding className="h-3 w-3" />;
+    return <IconUsersGroup className="h-3 w-3" />;
   }
   return <IconAddressBook className="h-3 w-3" />;
 }
@@ -129,10 +131,15 @@ export const AttendeeAutocomplete = forwardRef<
 ) {
   const t = useT();
   const [inputValue, setInputValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const contacts = usePeopleContacts();
+  const peopleSearch = usePeopleSearch(
+    searchQuery,
+    inputValue.trim().length > 0,
+  );
 
   const selectedEmailSet = useMemo(
     () =>
@@ -144,19 +151,38 @@ export const AttendeeAutocomplete = forwardRef<
     [attendees, selectedEmails],
   );
 
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSearchQuery(inputValue),
+      inputValue.trim() ? 300 : 0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [inputValue]);
+
   const visibleResults = useMemo(
     () =>
       filterPeopleResults(
-        contacts.data?.results ?? [],
+        mergePeopleResults(contacts.data?.results, peopleSearch.data?.results),
         inputValue,
         selectedEmailSet,
       ),
-    [contacts.data?.results, inputValue, selectedEmailSet],
+    [
+      contacts.data?.results,
+      inputValue,
+      peopleSearch.data?.results,
+      selectedEmailSet,
+    ],
   );
 
   const canAddManual = parseEmails(inputValue).length > 0;
-  const searching = contacts.isLoading || contacts.isFetching;
-  const scopeRequired = Boolean(contacts.data?.scopeRequired);
+  const searching =
+    contacts.isLoading ||
+    contacts.isFetching ||
+    peopleSearch.isLoading ||
+    peopleSearch.isFetching;
+  const scopeRequired = Boolean(
+    contacts.data?.scopeRequired || peopleSearch.data?.scopeRequired,
+  );
   const shouldShowPopover =
     open &&
     inputValue.trim().length > 0 &&

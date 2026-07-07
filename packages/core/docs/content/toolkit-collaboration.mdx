@@ -1,0 +1,74 @@
+---
+title: "Collaboration Kit"
+description: "Realtime editing, presence, live cursors, recent edit highlights, and undo primitives."
+---
+
+# Collaboration Kit
+
+The Collaboration Kit gives humans and agents the same live workspace:
+collaborative documents, awareness, presence avatars, live cursors, recent edit
+highlights, and undo that respects both CRDT-backed edits and app-local
+operations.
+
+<WireframeBlock id="doc-block-toolkit-collaboration">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 260px;gap:16px'><main class='wf-card' style='position:relative;display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><h2 style='margin:0'>Launch plan</h2><div style='flex:1'></div><span class='wf-pill'>Sam</span><span class='wf-pill'>Agent</span></div><div class='wf-box' style='height:84px'>Paragraph edited by Agent</div><div class='wf-box' style='height:84px;border-color:hsl(var(--primary))'>Live selection highlight</div><div class='wf-box' style='height:210px'>Editor canvas</div><span class='wf-pill' style='position:absolute;right:42px;top:190px'>Maya cursor</span></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:12px'><strong>Collaboration</strong><div class='wf-box'>PresenceBar</div><div class='wf-box'>RecentEditHighlights</div><div class='wf-box'>Undo: 3 grouped edits</div><button>Follow Maya</button><button class='primary'>Restore local op</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                    | Purpose                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `createCollabPlugin()`   | Server plugin that persists and syncs a collaborative resource.                     |
+| `useCollaborativeDoc()`  | Client hook for Yjs document, awareness, sync state, and agent presence.            |
+| `usePresence()`          | Reads and publishes awareness fields such as cursor, selection, viewport, and mode. |
+| `<PresenceBar>`          | Shared avatar and agent-presence strip.                                             |
+| `<LiveCursorOverlay>`    | Cursor labels over canvas or editor coordinates.                                    |
+| `<RecentEditHighlights>` | Fading highlights for human or agent edits.                                         |
+| `useCollabUndo()`        | Yjs undo manager lifecycle for CRDT-backed surfaces.                                |
+| `useLocalOpUndo()`       | Inverse-operation undo for non-Yjs local operations.                                |
+
+## Server And Client Shape {#server-and-client-shape}
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  resourceType: "document",
+  table: "documents",
+  contentColumn: "content",
+});
+```
+
+```tsx
+import {
+  useCollaborativeDoc,
+  usePresence,
+  useCollabUndo,
+} from "@agent-native/core/client/collab";
+import {
+  LiveCursorOverlay,
+  PresenceBar,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
+
+const collab = useCollaborativeDoc({ docId, user });
+const presence = usePresence(collab.awareness, collab.localClientId);
+const undo = useCollabUndo(collab.ydoc, { trackedOrigins: [user.email] });
+```
+
+## UX Standard {#ux-standard}
+
+- Show collaborators in the page header, not buried in a debug panel.
+- Render the agent as a first-class participant when it edits.
+- Highlight recent remote or agent edits long enough for users to orient.
+- Keep undo local and predictable: CRDT undo for document operations, local-op
+  undo for app-specific commands.
+
+Related docs: [Realtime Collaboration](/docs/real-time-collaboration),
+[Component API](/docs/components#collab-presence).

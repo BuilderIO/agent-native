@@ -361,7 +361,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             <>
               <div className="px-3 py-3">
                 <Button
-                  className="w-full gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                  className="w-full gap-1.5"
+                  variant="outline"
                   size="sm"
                   asChild
                 >
@@ -563,7 +564,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   {t("navigation.desktopBody")}
                 </span>
               </div>
-              <CaptureInstallButton size="sm" className="shrink-0">
+              <CaptureInstallButton
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+              >
                 Download
               </CaptureInstallButton>
               <Tooltip>

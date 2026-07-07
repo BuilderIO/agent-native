@@ -293,6 +293,51 @@ describe("Builder CMS read client", () => {
     ).toEqual(["0", "100"]);
   });
 
+  it("can return an initial partial Builder Content API page for fast refresh", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const entries = Array.from({ length: 250 }, (_, index) => ({
+      id: `builder-entry-${index + 1}`,
+      lastUpdated: "2026-06-08T12:00:00.000Z",
+      data: {
+        title: `Builder title ${index + 1}`,
+        url: `/blog/builder-title-${index + 1}`,
+      },
+    }));
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const limit = Number(input.searchParams.get("limit"));
+      const offset = Number(input.searchParams.get("offset"));
+      return new Response(
+        JSON.stringify({
+          results: entries.slice(offset, offset + limit),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 250,
+      maxPages: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.state).toBe("live");
+    expect(result.entries).toHaveLength(100);
+    expect(result.progress).toMatchObject({
+      requestedLimit: 250,
+      startOffset: 0,
+      nextOffset: 100,
+      fetchedEntryCount: 100,
+      hasMore: true,
+      partial: true,
+      readMode: "builder-api",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("retries transient Content API failures", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,

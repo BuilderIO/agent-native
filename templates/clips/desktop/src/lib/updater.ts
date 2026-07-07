@@ -45,9 +45,15 @@ async function runCheck() {
     const notes = update.body ?? undefined;
     setStatus({ state: "available", version, notes });
 
+    // Download ONLY — do not install here. On macOS `install` swaps the .app
+    // bundle on disk while this process keeps running, which invalidates the
+    // running process's Screen Recording (TCC) grant and breaks capture until
+    // relaunch. We defer the swap to `installAndRestart()` so a downloaded-but-
+    // not-yet-installed update leaves the running app fully functional; the
+    // user records normally until they choose to restart.
     let total = 0;
     let downloaded = 0;
-    await update.downloadAndInstall((event) => {
+    await update.download((event) => {
       if (event.event === "Started") {
         total = event.data.contentLength ?? 0;
         downloaded = 0;
@@ -98,8 +104,25 @@ export function useUpdateStatus(): UpdateStatus {
 }
 
 export async function installAndRestart(): Promise<void> {
-  // downloadAndInstall already applied the bundle; relaunch completes it.
+  // Perform the deferred bundle swap now, then relaunch onto the new binary.
+  // Installing immediately before relaunch keeps the window where the on-disk
+  // bundle no longer matches the running process as short as possible — the
+  // process is torn down by `relaunch()` right after, so capture never runs
+  // against a swapped-out bundle.
+  if (pendingUpdate) {
+    await pendingUpdate.install();
+  }
   await relaunch();
+}
+
+/**
+ * True once an update has been downloaded and is waiting for the user to
+ * restart. The recording flow uses this to explain a post-download capture
+ * failure as "restart to finish updating" instead of a misleading "grant
+ * permissions" message — see `app.tsx` recError routing.
+ */
+export function isUpdatePendingRestart(): boolean {
+  return cachedStatus.state === "downloaded";
 }
 
 /**

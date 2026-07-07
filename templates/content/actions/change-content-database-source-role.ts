@@ -343,8 +343,12 @@ export default defineAction({
         .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
       await clearSourceFederation(source.id, now);
 
+      let importedEntriesByDocumentId = new Map<
+        string,
+        BuilderCmsSourceEntry
+      >();
       if (read.state === "live") {
-        await importBuilderCmsEntriesAsDatabaseItems({
+        const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
           entries,
           now,
@@ -352,6 +356,7 @@ export default defineAction({
           existingSourceRows: [],
           skipTitleDedup: true,
         });
+        importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
       }
       const refreshedSetup = await sourceSetupPayload(database.id);
       const builderEntriesByDocumentId =
@@ -364,6 +369,9 @@ export default defineAction({
               existingRows: [],
             })
           : new Map<string, BuilderCmsSourceEntry>();
+      for (const [documentId, entry] of importedEntriesByDocumentId) {
+        builderEntriesByDocumentId.set(documentId, entry);
+      }
       await seedMockSourceFields({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,

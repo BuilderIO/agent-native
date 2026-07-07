@@ -91,6 +91,22 @@ describe("document property layout", () => {
     expect(source).toContain("void add(firstFilteredPropertyType)");
   });
 
+  it("keeps Add Property pending and error states visible in the popover", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("const [pendingPropertyType");
+    expect(source).toContain("const [pendingSourceFieldId");
+    expect(source).toContain("const [addPropertyError");
+    expect(source).toContain(
+      "configure.isPending ||\n    addSourceFieldProperty.isPending ||\n    pendingPropertyType !== null ||\n    pendingSourceFieldId !== null",
+    );
+    expect(source).toContain("disabled={isAddingProperty}");
+    expect(source).toContain("aria-busy={pendingSourceFieldId === field.id}");
+    expect(source).toContain("aria-busy={pendingPropertyType === type}");
+    expect(source).toContain('t("editor.properties.addPropertyFailed")');
+    expect(source).toContain('role="alert"');
+  });
+
   it("makes editable property value triggers fill the database cell", () => {
     const source = readPropertiesSource();
 

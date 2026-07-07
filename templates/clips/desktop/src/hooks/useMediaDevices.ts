@@ -10,7 +10,6 @@ import {
 
 import {
   chooseFallbackAudioInput,
-  findAudioInputBySavedLabel,
   isPseudoMediaDeviceId,
   isSelectableAudioInputDevice,
   normalizedMediaDeviceId,
@@ -272,17 +271,30 @@ export function useMediaDevices({
   useEffect(() => {
     if (isPseudoMediaDeviceId(micId) || !micId || mics.length === 0) return;
     if (mics.some((d) => d.deviceId === micId)) return;
-    const rematch = findAudioInputBySavedLabel(mics, {
+    // The selected mic (e.g. Bluetooth headset unplugged mid-session) is gone.
+    // Prefer rematching by saved label, then fall back to the best available
+    // input so we don't stay pinned to a device that no longer exists.
+    const fallback = chooseFallbackAudioInput(mics, {
       savedLabel: micLabel,
       avoidDeviceIds: [micId],
     });
-    if (!rematch) return;
+    if (!fallback) {
+      // Nothing concrete left; drop to the OS default rather than keeping the
+      // disconnected device selected.
+      setMicId("");
+      setMicLabel("");
+      return;
+    }
     console.warn(
-      "[clips-recorder] saved mic id was missing; rematched by label",
-      { previousDeviceId: micId, nextDeviceId: rematch.deviceId },
+      "[clips-recorder] saved mic id was missing; fell back to available input",
+      {
+        previousDeviceId: micId,
+        nextDeviceId: fallback.deviceId,
+        reason: fallback.reason,
+      },
     );
-    setMicId(rematch.deviceId);
-    setMicLabel(rematch.label);
+    setMicId(fallback.deviceId);
+    setMicLabel(fallback.label);
   }, [micId, micLabel, mics]);
 
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);

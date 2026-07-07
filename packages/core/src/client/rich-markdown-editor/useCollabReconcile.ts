@@ -307,15 +307,17 @@ export function useCollabReconcile({
     // Seed only when the shared doc is genuinely empty — either the fragment has
     // no nodes yet, or it holds no semantic markdown (an empty paragraph, or an
     // app's sentinel-empty filler via a custom `shouldSeed`).
-    seededRef.current = true;
     if (
       !shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
     ) {
+      seededRef.current = true;
       return;
     }
 
     let cancelled = false;
-    queueMicrotask(() => {
+    // Defer via a timer task (NOT a microtask — microtasks can still run
+    // inside React's commit and trigger flushSync-from-lifecycle warnings).
+    const seedTimer = setTimeout(() => {
       if (cancelled || editor.isDestroyed) return;
       isSettingContentRef.current = true;
       try {
@@ -329,9 +331,11 @@ export function useCollabReconcile({
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-    });
+      seededRef.current = true;
+    }, 0);
     return () => {
       cancelled = true;
+      clearTimeout(seedTimer);
     };
   }, [
     collab,
@@ -466,10 +470,10 @@ export function useCollabReconcile({
         return;
       }
 
-      queueMicrotask(() => {
+      const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         // Re-check doc-equivalence at apply time. Between the decision above and
-        // this microtask a peer/Yjs edit (or our own prior apply) may have made
+        // this task a peer/Yjs edit (or our own prior apply) may have made
         // the editor already represent this value — re-applying would be a
         // wasted setContent that, for non-idempotent input, re-triggers the
         // loop. Skip when the editor's current serialization already matches the
@@ -521,7 +525,8 @@ export function useCollabReconcile({
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
-      });
+      }, 0);
+      retry = applyTimer;
     };
 
     apply();

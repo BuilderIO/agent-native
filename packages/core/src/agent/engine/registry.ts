@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 
 import {
   canUseDeployCredentialFallbackForRequest,
+  getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentials,
   resolveSecret,
@@ -260,7 +261,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     }
     for (const key of entry.requiredEnvVars) {
       try {
-        if (!(await resolveSecret(key))) return false;
+        if (!(await resolveUsableProviderSecret(key))) return false;
       } catch {
         return false;
       }
@@ -366,6 +367,15 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
 }
 
+async function resolveUsableProviderSecret(
+  key: string,
+): Promise<string | null> {
+  const value = await resolveSecret(key);
+  if (!value) return null;
+  const authFailure = await getProviderCredentialAuthFailure({ key, value });
+  return authFailure ? null : value;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
@@ -425,16 +435,11 @@ export async function isStoredEngineUsableForRequest(
   }
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to the deployment-level check below.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest(key) ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }
@@ -461,20 +466,22 @@ export async function isResolvedEngineUsableForRequest(
     return Boolean(creds.privateKey && creds.publicKey);
   }
 
-  if (options.apiKey?.trim()) return true;
+  if (options.apiKey?.trim()) {
+    const key = entry.requiredEnvVars[0];
+    if (!key) return true;
+    return !(await getProviderCredentialAuthFailure({
+      key,
+      value: options.apiKey,
+    }));
+  }
 
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to deployment-level fallback when allowed.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest(key) ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }

@@ -75,6 +75,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useCreateContentDatabase,
+  useDeleteContentDatabase,
   useRestoreContentDatabase,
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
@@ -201,6 +202,7 @@ export function DocumentSidebar({
   const { data: documents = [], isLoading } = useDocuments();
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
+  const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -462,6 +464,7 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
+      const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
       const deletedIds = collectDocumentSubtreeIds(documents, id);
       const activeDeleted = activeDocumentId
         ? deletedIds.has(activeDocumentId)
@@ -500,7 +503,13 @@ export function DocumentSidebar({
       }
 
       try {
-        await deleteDocument.mutateAsync({ id });
+        if (deletedDocument?.database) {
+          await deleteContentDatabase.mutateAsync({
+            databaseId: deletedDocument.database.id,
+          });
+        } else {
+          await deleteDocument.mutateAsync({ id });
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -522,6 +531,7 @@ export function DocumentSidebar({
     },
     [
       activeDocumentId,
+      deleteContentDatabase,
       deleteDocument,
       documents,
       localFileMode,

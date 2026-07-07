@@ -375,7 +375,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
+    // Check for abort/failure before writing so parallel in-flight requests
+    // don't recreate scratch chunk rows after /abort already cleared them.
     if (bytes.byteLength > 0) {
+      const failedBeforeWrite = await stopIfUploadFailed();
+      if (failedBeforeWrite) return failedBeforeWrite;
       // Pad index to 6 digits so string-sort order matches numeric order if the
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
@@ -409,15 +413,25 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Update upload progress (best-effort). If total is unknown we treat it as
     // indeterminate and keep progress at its last known value.
+    // Chunks may arrive out of order when uploaded in parallel, so take the
+    // max of the current persisted value and the incoming index to keep
+    // progress monotonically non-decreasing.
     if (total > 0) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
-      const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
+      const chunksReceived = Math.max(
+        stateNumber(uploadState, "chunksReceived") ?? 0,
+        index + 1,
+      );
+      const progress = Math.max(
+        stateNumber(uploadState, "progress") ?? 0,
+        Math.min(100, Math.round((chunksReceived / total) * 100)),
+      );
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
         progress,
-        chunksReceived: index + 1,
+        chunksReceived,
         totalChunks: total,
         ...(expectedDataChunks !== undefined
           ? {
@@ -449,7 +463,10 @@ export default defineEventHandler(async (event: H3Event) => {
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
-        chunksReceived: index + 1,
+        chunksReceived: Math.max(
+          stateNumber(uploadState, "chunksReceived") ?? 0,
+          index + 1,
+        ),
         ...(expectedDataChunks !== undefined
           ? {
               expectedDataChunks,
@@ -579,7 +596,15 @@ export default defineEventHandler(async (event: H3Event) => {
             updatedAt: new Date().toISOString(),
           })
           .where(eq(schema.recordings.id, recordingId));
+        const failedUploadStateRaw = await readAppState(
+          `recording-upload-${recordingId}`,
+        ).catch(() => null);
+        const failedUploadState =
+          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+            ? (failedUploadStateRaw as Record<string, unknown>)
+            : {};
         await writeAppState(`recording-upload-${recordingId}`, {
+          ...failedUploadState,
           recordingId,
           status: "failed",
           failureReason: err instanceof Error ? err.message : "Finalize failed",

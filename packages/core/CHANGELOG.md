@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.90.3
+
+### Patch Changes
+
+- ec523c4: Allow Builder transcription callers to override the request timeout so long-running media workflows can avoid premature aborts.
+- ec523c4: Skip saved model provider keys after auth failures so chats can fall back to Builder credentials instead of repeatedly retrying rejected BYO keys.
+- ec523c4: Add a Builder upload option for internal recording artifacts to skip asset-library registration.
+- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
+- ec523c4: Add first-class Toolkit docs plus reusable History, Comments/Review, Org/Team, Setup/Connections, and Command/Navigation kit primitives.
+- Updated dependencies [ec523c4]
+  - @agent-native/toolkit@0.4.2
+
+## 0.90.2
+
+### Patch Changes
+
+- 74d3e5a: Prevent client fetch storms during high-volume background mutations: `useActionMutation` accepts `skipActionQueryInvalidation` so background mutations can perform narrow invalidation instead of refetching every action query, `useDbSync` accepts `suppressActionInvalidationFor` to skip whole-action-cache invalidation for named high-volume action sync events, and action-query retries are bounded to one attempt for network-level failures (Chrome reports connection-pool exhaustion as a generic fetch failure, so unbounded retries sustained the storm).
+- 16f7429: Defer collaborative rich-markdown seed writes to a timer task so initial Y.Doc seeding does not call `setContent` from React lifecycle.
+- 254f061: Defer agent-authored URL navigation out of React effects to avoid lifecycle flushSync warnings.
+- 69e1e38: Defer collaborative awareness presence updates so editor creation does not trigger React render-time state warnings.
+- 8976a28: Log framework route failures with route, status, message, and development stacks before returning JSON errors.
+- d61ca0c: The collaborative reconcile applies external content on a timer task instead of a microtask, so `setContent` can no longer run inside a React lifecycle flush ("flushSync was called from inside a lifecycle method" console errors during collab reconciliation).
+- 66ffcd9: Treat client-aborted framework route requests as disconnects instead of logging and returning 500 errors.
+- a74a885: `useDbSync` batches consisting entirely of suppressed action events (via `suppressActionInvalidationFor`) now skip the fixed framework invalidation list (extension, slot, tool, and app-state keys) as well as the whole-action-cache invalidation — high-volume background mutations no longer refetch framework queries on every poll tick. Events are still forwarded to `onEvent` and per-source change versions still bump.
+- d44ad4e: Concurrent top-level async transactions on the better-sqlite3 driver are serialized per connection. Previously a transaction starting while another was open saw `inTransaction` and opened a savepoint inside the other task's transaction, which then committed out from under it ("no such savepoint" 500s under concurrent reads/writes). Same-task nesting is detected via AsyncLocalStorage and keeps the direct savepoint path.
+
 ## 0.90.1
 
 ### Patch Changes

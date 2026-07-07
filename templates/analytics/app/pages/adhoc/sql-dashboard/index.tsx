@@ -27,7 +27,6 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
-  IconBuilding,
   IconClock,
   IconDotsVertical,
   IconEye,
@@ -40,6 +39,7 @@ import {
   IconPlus,
   IconTrash,
   IconUser,
+  IconUsersGroup,
   IconWorld,
   IconX,
 } from "@tabler/icons-react";
@@ -1429,7 +1429,7 @@ export default function SqlDashboardPage() {
                     {dashboardVisibility === "public" ? (
                       <IconWorld className="h-3 w-3" />
                     ) : dashboardVisibility === "org" ? (
-                      <IconBuilding className="h-3 w-3" />
+                      <IconUsersGroup className="h-3 w-3" />
                     ) : (
                       <IconLock className="h-3 w-3" />
                     )}

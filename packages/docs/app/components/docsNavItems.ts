@@ -50,43 +50,92 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
-        id: "toolkit-group",
-        labelKey: "agentNativeToolkit",
-        children: [
-          {
-            id: "agent-native-toolkit",
-            labelKey: "toolkitOverview",
-            slug: "agent-native-toolkit",
-          },
-          {
-            id: "toolkit-ui",
-            labelKey: "toolkitUiPrimitives",
-            slug: "toolkit-ui",
-          },
-          {
-            id: "toolkit-app-adapters",
-            labelKey: "toolkitAppAdapters",
-            slug: "toolkit-app-adapters",
-          },
-          {
-            id: "toolkit-collaboration-ui",
-            labelKey: "toolkitCollaborationUi",
-            slug: "toolkit-collaboration-ui",
-          },
-          {
-            id: "toolkit-sharing-ui",
-            labelKey: "toolkitSharingUi",
-            slug: "toolkit-sharing-ui",
-          },
-          {
-            id: "toolkit-shell-hooks",
-            labelKey: "toolkitShellHooks",
-            slug: "toolkit-shell-hooks",
-          },
-        ],
+        id: "cloneable-saas",
+        labelKey: "templates",
+        slug: "cloneable-saas",
       },
-      { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
       { id: "faq", labelKey: "faq", slug: "faq" },
+    ],
+  },
+  {
+    id: "toolkits",
+    titleKey: "agentNativeToolkit",
+    items: [
+      {
+        id: "agent-native-toolkit",
+        labelKey: "toolkitOverview",
+        slug: "agent-native-toolkit",
+      },
+      {
+        id: "toolkit-sharing",
+        labelKey: "toolkitSharing",
+        slug: "toolkit-sharing",
+      },
+      {
+        id: "toolkit-collaboration",
+        labelKey: "toolkitCollaboration",
+        slug: "toolkit-collaboration",
+      },
+      {
+        id: "toolkit-settings",
+        labelKey: "toolkitSettings",
+        slug: "toolkit-settings",
+      },
+      {
+        id: "toolkit-org-team",
+        labelKey: "toolkitOrgTeam",
+        slug: "toolkit-org-team",
+      },
+      {
+        id: "toolkit-setup-connections",
+        labelKey: "toolkitSetupConnections",
+        slug: "toolkit-setup-connections",
+      },
+      {
+        id: "toolkit-command-navigation",
+        labelKey: "toolkitCommandNavigation",
+        slug: "toolkit-command-navigation",
+      },
+      {
+        id: "toolkit-resources",
+        labelKey: "toolkitResources",
+        slug: "toolkit-resources",
+      },
+      {
+        id: "toolkit-agent-ux",
+        labelKey: "toolkitAgentUx",
+        slug: "toolkit-agent-ux",
+      },
+      {
+        id: "toolkit-history",
+        labelKey: "toolkitHistory",
+        slug: "toolkit-history",
+      },
+      {
+        id: "toolkit-comments-review",
+        labelKey: "toolkitCommentsReview",
+        slug: "toolkit-comments-review",
+      },
+      {
+        id: "toolkit-observability",
+        labelKey: "toolkitObservability",
+        slug: "toolkit-observability",
+      },
+      {
+        id: "toolkit-ui",
+        labelKey: "toolkitUiPrimitives",
+        slug: "toolkit-ui",
+      },
+      {
+        id: "toolkit-app-adapters",
+        labelKey: "toolkitAppAdapters",
+        slug: "toolkit-app-adapters",
+      },
+      {
+        id: "toolkit-shell-hooks",
+        labelKey: "toolkitShellHooks",
+        slug: "toolkit-shell-hooks",
+      },
     ],
   },
   {

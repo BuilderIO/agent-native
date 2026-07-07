@@ -28,6 +28,8 @@ import {
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
+export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
+
 function riskRank(level: ContentDatabaseSourceRiskLevel) {
   if (level === "high") return 3;
   if (level === "medium") return 2;
@@ -39,6 +41,12 @@ function maxRisk(
   next: ContentDatabaseSourceRiskLevel,
 ) {
   return riskRank(next) > riskRank(current) ? next : current;
+}
+
+function reviewPreparePriority(changeSet: ContentDatabaseSourceChangeSet) {
+  if (changeSet.state === "pending_push") return 0;
+  if (changeSet.state === "staged_revision") return 1;
+  return 2;
 }
 
 function parsePayload(value: string) {
@@ -146,6 +154,8 @@ export function buildBuilderSourceReviewPayload(args: {
     summary,
     sourceName: args.source.sourceName,
     sourceTable: args.source.sourceTable,
+    totalRowCount: args.changeSets.length,
+    preparedRowLimit: args.changeSets.length,
     pushMode,
     dryRunOnly: !args.source.capabilities.liveWritesEnabled,
     liveWritesEnabled: args.source.capabilities.liveWritesEnabled,
@@ -399,16 +409,19 @@ export default defineAction({
     if (!snapshot || snapshot.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
-    const reviewableChanges = snapshot.changeSets.filter(
+    const allReviewableChanges = snapshot.changeSets.filter(
       (changeSet) =>
         changeSet.direction === "outbound" &&
         (changeSet.state === "pending_push" ||
           changeSet.state === "staged_revision" ||
           changeSet.state === "approved"),
     );
-    if (reviewableChanges.length === 0) {
+    if (allReviewableChanges.length === 0) {
       throw new Error("No pending local Builder changes to review.");
     }
+    const reviewableChanges = [...allReviewableChanges]
+      .sort((a, b) => reviewPreparePriority(a) - reviewPreparePriority(b))
+      .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
 
     const now = new Date().toISOString();
     const reviewerEmail =
@@ -466,12 +479,16 @@ export default defineAction({
     );
     const response = await getContentDatabaseResponse(database.id);
 
+    const review = buildBuilderSourceReviewPayload({
+      source: reviewedSnapshot,
+      changeSets: reviewedChangeSets,
+    });
+    review.totalRowCount = allReviewableChanges.length;
+    review.preparedRowLimit = BUILDER_SOURCE_REVIEW_PREPARE_LIMIT;
+
     return {
       ...response,
-      review: buildBuilderSourceReviewPayload({
-        source: reviewedSnapshot,
-        changeSets: reviewedChangeSets,
-      }),
+      review,
     };
   },
 });

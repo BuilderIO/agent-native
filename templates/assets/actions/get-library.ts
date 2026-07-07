@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
-  requireLibrary,
+  requireLibraryAccess,
   serializeAssets,
   serializeGenerationRun,
   serializeLibrary,
@@ -19,7 +19,8 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ id }, ctx) => {
-    const library = await requireLibrary(id, ctx);
+    const access = await requireLibraryAccess(id, ctx);
+    const library = access.resource;
     const db = getDb();
     const [collections, folders, assets, runs] = await Promise.all([
       db
@@ -42,7 +43,7 @@ export default defineAction({
         .orderBy(desc(schema.assetGenerationRuns.createdAt)),
     ]);
     return {
-      library: serializeLibrary(library),
+      library: serializeLibrary({ ...library, accessRole: access.role }),
       collections,
       folders,
       assets: serializeAssets(assets),

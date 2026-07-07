@@ -364,6 +364,48 @@ function installPluginReadyPlaceholders(
   }
 }
 
+function logFrameworkRouteError(args: {
+  method: string | undefined;
+  route: string;
+  status: number;
+  error: unknown;
+}): void {
+  const error = args.error as any;
+  const message = error?.message || String(args.error);
+  const prefix = `[agent-native] ${args.method ?? ""} ${args.route} failed (${args.status})`;
+  if (process.env.NODE_ENV === "production") {
+    console.error(`${prefix}: ${message}`);
+    return;
+  }
+  console.error(`${prefix}: ${message}`, error?.stack || args.error);
+}
+
+function isClientAbortError(error: unknown, event: H3Event): boolean {
+  const err = error as any;
+  const message = typeof err?.message === "string" ? err.message : "";
+  const code = typeof err?.code === "string" ? err.code : "";
+  const node = (event as any).node;
+  return (
+    message === "aborted" ||
+    code === "ECONNRESET" ||
+    node?.req?.destroyed === true ||
+    node?.res?.destroyed === true
+  );
+}
+
+function debugClientAbort(args: {
+  method: string | undefined;
+  route: string;
+  error: unknown;
+}): void {
+  if (process.env.NODE_ENV === "production") return;
+  const err = args.error as any;
+  const message = err?.message || String(args.error);
+  console.debug?.(
+    `[agent-native] ${args.method ?? ""} ${args.route} aborted by client: ${message}`,
+  );
+}
+
 /**
  * Await all tracked plugin initializations. Called by the readiness gate
  * middleware before dispatching framework routes.
@@ -500,10 +542,16 @@ function registerMiddleware(
           : typeof e?.status === "number"
             ? e.status
             : 500;
-      console.error(
-        `[agent-native] ${event.method ?? ""} ${reqPath} failed (${status}):`,
-        e?.stack || e?.message || e,
-      );
+      if (isClientAbortError(err, event)) {
+        debugClientAbort({ method: event.method, route: reqPath, error: err });
+        return undefined;
+      }
+      logFrameworkRouteError({
+        method: event.method,
+        route: reqPath,
+        status,
+        error: err,
+      });
       // Forward 5xx to server-side Sentry — Nitro's own `error` hook may not
       // fire here because we convert the throw into a normal JSON response,
       // and a console.error alone is invisible in deployed environments.

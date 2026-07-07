@@ -36,11 +36,15 @@ class QueryClientProbe {
 function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
+  suppressActionInvalidationFor,
+  onEvent,
 }: {
   queryClient: QueryClientProbe;
   actionInvalidatePredicate?: (query: {
     queryKey: readonly unknown[];
   }) => boolean;
+  suppressActionInvalidationFor?: string[];
+  onEvent?: (data: any) => void;
 }) {
   useDbSync({
     queryClient,
@@ -48,6 +52,8 @@ function SyncProbe({
     interval: 50,
     pauseWhenHidden: false,
     actionInvalidatePredicate,
+    suppressActionInvalidationFor,
+    onEvent,
   });
   return null;
 }
@@ -92,6 +98,14 @@ async function renderWithEvent(event: Record<string, unknown>) {
   });
 
   return { container, fetchMock, queryClient, root };
+}
+
+function resultlessActionInvalidations(
+  calls: QueryClientProbe["calls"],
+): QueryClientProbe["calls"] {
+  return calls.filter(
+    (call) => call === undefined || call?.queryKey?.[0] === "action",
+  );
 }
 
 describe("useDbSync", () => {
@@ -175,6 +189,106 @@ describe("useDbSync", () => {
     expect(broadCall?.predicate?.(queryClient.queries[0])).toBe(false);
     expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
     expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("can suppress action-query invalidation for high-volume background actions", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "process-builder-body-hydration",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const forwardedEvents: any[] = [];
+    await act(async () => {
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          suppressActionInvalidationFor={["process-builder-body-hydration"]}
+          onEvent={(evt) => forwardedEvents.push(evt)}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(resultlessActionInvalidations(queryClient.calls)).toHaveLength(0);
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extension"] });
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extensions"] });
+    expect(queryClient.calls).not.toContainEqual({
+      queryKey: ["slot-installs"],
+    });
+    // Suppression must not swallow the events themselves — templates layer
+    // surgical logic on onEvent and must still see suppressed-action batches.
+    expect(forwardedEvents).toContainEqual(
+      expect.objectContaining({ key: "process-builder-body-hydration" }),
+    );
+  });
+
+  it("keeps framework invalidations for mixed suppressed and unsuppressed batches", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "process-builder-body-hydration",
+              },
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "update-document",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          suppressActionInvalidationFor={["process-builder-body-hydration"]}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.calls).toContainEqual(undefined);
+    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toContainEqual({ queryKey: ["extension"] });
   });
 
   it("keeps non-action events on targeted framework invalidations", async () => {

@@ -121,11 +121,11 @@ describe("localized docs fallback", () => {
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
       "/fr-FR/docs/internationalization",
     );
-    const toolkitGroup = getDocsNavSections("fr-FR")
-      .find((section) => section.id === "overview")
-      ?.items.find((item) => item.id === "toolkit-group");
+    const toolkitSection = getDocsNavSections("fr-FR").find(
+      (section) => section.id === "toolkits",
+    );
     expect(
-      toolkitGroup?.children?.find((item) => item.id === "toolkit-ui")?.to,
+      toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
     ).toBe("/fr-FR/docs/toolkit-ui");
   });
 

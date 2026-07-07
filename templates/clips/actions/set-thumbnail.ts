@@ -116,6 +116,7 @@ export default defineAction({
           args.filename ??
           `thumb-${args.recordingId}.${mime.split("/")[1] ?? "png"}`,
         ownerEmail,
+        recordAsset: false,
       });
       const url = uploaded?.url ?? args.dataUrl; // fall back to inline storage
       basePatch.thumbnailUrl = url;
@@ -134,6 +135,7 @@ export default defineAction({
         mimeType: mime || "image/gif",
         filename: args.filename ?? `thumb-${args.recordingId}.gif`,
         ownerEmail,
+        recordAsset: false,
       });
       const url = uploaded?.url ?? args.dataUrl;
       basePatch.animatedThumbnailUrl = url;
