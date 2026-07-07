@@ -1,0 +1,329 @@
+---
+title: "データプログラム"
+description: "エージェントが作成し保存された JS スクリプトで、サーバーサイドでデータを取得・結合・集計し、SQL にキャッシュされ、dashboard パネルによってレンダリングされます——単発の run-code クエリとハードコードされた provider action の中間にあたる、ライブデータの折衷案です。"
+search: "data program emit rows schema providerFetch dashboard panel program source refresh TTL viewer-scoped cache save-data-program run-data-program"
+---
+
+# データプログラム
+
+**データプログラム（data program）**とは、名前付きで保存された、エージェントが作成した JS スクリプトのことです。データを取得・結合・フィルタ・集計し——`providerFetch` / `providerFetchAll` / `providerSearchAll` 経由の provider API、`appAction` 経由の app データ、または Resources に基づく workspace ファイルを使い——結果に対してちょうど一度だけ `emit(rows, schema)` を呼び出します。結果は SQL にキャッシュされ、どのチャート/テーブルコンポーネントでもレンダリングでき、ページビューのたびにではなく、選択したポリシーに従って更新されます。
+
+[`run-code`](/docs/actions) が利用可能な場所ではどこでも自動的に利用可能になります——app ごとにマウントや設定を行う必要はありません。あなたの app ですでに run-code が有効になっていれば、`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program`、`delete-data-program` はすでに登録済みの actions です。
+
+<Diagram id="doc-block-dp-overview" title={"アドホッククエリからライブパネルへ"} summary={"run-code スクリプトは emit() を呼び出した時点で保存されたプログラムになります。どの dashboard パネルもそれにバインドでき、以降はキャッシュ/更新ポリシーが引き継ぎます。"}>
+
+```html
+<div class="dp-flow">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">run-code script</span
+    ><small class="diagram-muted">providerFetch, joins, aggregation</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">emit(rows, schema)</span
+    ><small class="diagram-muted"
+      >save-data-program dry-runs, then persists</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    data_program_runs<br /><small class="diagram-muted"
+      >cached per (program, params, viewer)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">ダッシュボードパネル</span
+    ><small class="diagram-muted"><code>source: "program"</code></small>
+  </div>
+</div>
+```
+
+```css
+.dp-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dp-flow .diagram-card,
+.dp-flow .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.dp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## これが存在する理由 {#why}
+
+保存されたデータプログラムがない場合、「X のライブビューを構築する」は、次の 2 つの悪い結末のいずれかに至りがちです。
+
+- **vendor/クエリ形状ごとのハードコードされた action。** 脆弱で、すべての顧客のカスタムプロパティ、provider をまたぐ join、あるいは想定していなかった任意のフィルタを予測できません。
+- **ページビューのたびに同じ取得/join ロジックをゼロから再実行する。** 遅く、誰かがチャートを見るたびに同じ provider API クォータを再び消費します。
+
+データプログラムはその中間案です。取得/join/集計ロジックを通常の `run-code` として一度書き、保存し、実際にどのくらいの頻度で再実行が必要かをキャッシュと更新ポリシーに決めさせます。
+
+## いつ使うべきか {#when-to-use-one}
+
+| 状況                                                                                                                                                              | 選ぶべきもの                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 標準的なロールアップにすでに一級の action がある（定番の `hubspot-deals` フィルタ、組み込みメトリクスなど）                                                       | 既存の action——プログラムでラップしない                                         |
+| 二度と見返すことのない一度限りのチャット上の質問                                                                                                                  | シンプルな `run-code` または `provider-api-request`——直接答え、何も永続化しない |
+| 拡張機能が、専用 UI を持つ小さなユーザーごとのインタラクティブなウィジェットを必要としている                                                                      | [拡張機能（Extensions）](/docs/extensions)——データプログラムには専用 UI はない  |
+| コホートに任意のプロパティフィルタ、カスタム値に対する IN 検索、または 2 つの provider をまたぐ join が必要で、**かつ**誰かが新しいデータで再度それを見たいと思う | データプログラム                                                                |
+| dashboard パネルがその結合/集計された結果を表示し、キャッシュポリシーに従って更新すべきである                                                                     | `"program"` パネルにバインドされたデータプログラム                              |
+
+他の run-code 形式の選択肢との比較：
+
+|                                      | 単発の `run-code`    | ハードコードされた provider action             | データプログラム                                       |
+| ------------------------------------ | -------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| **呼び出し間で永続化されるか**       | いいえ               | 該当なし（ソースコードそのもの）               | はい——保存された行 + 結果キャッシュ                    |
+| **結果がキャッシュ/更新されるか**    | いいえ、毎回再実行   | 組み込みのキャッシュなし                       | はい——`refreshMode`/`refreshTtlMs`                     |
+| **任意のフィルタ/join を扱えるか**   | はい、ただし後で破棄 | いいえ——action の schema が公開するものに限定  | はい——通常のコードのまま                               |
+| **dashboard パネルにバインド可能か** | いいえ               | そのためのパネルソースが構築されている場合のみ | はい——汎用の `"program"` ソース                        |
+| **デプロイが必要か**                 | いいえ               | はい（新しい action = コード変更）             | いいえ——エージェントが実行時に作成                     |
+| **読み取り時に使われる認証情報**     | 呼び出し元のもの     | 呼び出し元のもの                               | **閲覧者のもの**、読み取りごとに解決される（下記参照） |
+
+## 作成ワークフロー {#authoring-workflow}
+
+1. **まずチャットでプロトタイプを作る。** 取得/join/集計ロジックを通常の `run-code` スクリプトとして書き、期待する行を返すことを確認します。
+2. **結果を返す/出力する代わりに、最後に `emit(rows, schema?)` をちょうど一度だけ呼ぶように変更する。**
+3. **`save-data-program` で保存する。** これは永続化する前に**`defaultParams` を使ってコードの dry-run を実行**し、失敗した場合は構造化されたエラーで保存を拒否するため、壊れたプログラムが保存されることはありません。成功すると `{ programId, rowCount, columns, sampleRows }` が返されます——ユーザーに「準備できた」と伝える前に、これをプログラムが期待通りの行を生成する証拠として扱ってください。
+4. **dashboard パネルをそれにバインドする**、または自分自身の読み取りパスから直接 `run-data-program` を呼び出します。プリミティブ自体に dashboard 固有の配線が組み込まれているわけではありません——analytics テンプレートの `"program"` パネルソース（下記）は一つの採用例であり、必須のパターンではありません。
+5. **永続化せずに反復する**には `preview-data-program({ code, params? })` を使います——同じ dry-run パスで、保存される行はありません。
+
+### 現実的な例
+
+あるアプリが、サポート系 provider から取得した「最近の高額サポートチケット」のライブテーブルを、どの組み込み action も公開していない閾値でフィルタして表示したいとします。
+
+```ts
+// The program's stored `code` — ordinary run-code, with one emit() call.
+const minValue = Number(params.minValue || 5000);
+
+const tickets = await providerFetchAll("acme-support", "/v1/tickets", {
+  query: { status: "open" },
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "next_cursor",
+    maxPages: 10,
+  },
+});
+
+const rows = (tickets.items || [])
+  .filter((t) => Number(t.contract_value || 0) >= minValue)
+  .map((t) => ({
+    ticket_id: t.id,
+    subject: t.subject,
+    account: t.account_name,
+    contract_value: Number(t.contract_value || 0),
+    opened_at: t.created_at,
+  }));
+
+emit(rows, [
+  { name: "ticket_id", type: "string" },
+  { name: "subject", type: "string" },
+  { name: "account", type: "string" },
+  { name: "contract_value", type: "number" },
+  { name: "opened_at", type: "string" },
+]);
+```
+
+保存：
+
+```ts
+await appAction("save-data-program", {
+  name: "high-value-open-tickets",
+  title: "High-Value Open Tickets",
+  description:
+    "Open support tickets above a configurable contract-value threshold.",
+  code: "/* the script above */",
+  defaultParams: { minValue: 5000 },
+  refreshMode: "ttl",
+  refreshTtlMs: 300_000,
+});
+```
+
+レスポンスには `{ programId, rowCount, columns, sampleRows }` が含まれます——これは dry-run の完了証明です。そこから、`run-data-program({ programId, params: { minValue: 10000 } })` は異なる閾値でそれを再実行し（またはキャッシュを提供し）、dashboard パネルも同じ方法で `programId` にバインドできます。
+
+## サンドボックスの表面 {#sandbox-surface}
+
+データプログラムは `run-code` とまったく同じ `executeSandboxCode` サンドボックス内で実行されます——このプリミティブのために新しいサンドボックス、認証情報、SSRF、クォータ関連のコードは存在しません。同じグローバル（`providerFetch`、`providerFetchAll`、`providerSearchAll`、`appAction`、`webFetch`、`workspace*` Resources ヘルパー）に加え、フレームワークが注入する小さな前文からの 2 つの追加を受け取ります。
+
+- **`params`** ——この実行のパラメータを保持する**フリーズされた**グローバルオブジェクト（`defaultParams` と `run-data-program` またはパネルのディスクリプタに渡されたものがマージされたもの）。読み取りは問題ありません。変更しようとすると例外が発生します。
+- **`emit(rows, schema?)`** ——最後に**ちょうど一度だけ**呼び出します。2 回目の呼び出しは例外を発生させます。`rows` はプレーンオブジェクトの配列でなければなりません。`schema` は指定する場合 `{ name: string, type: string }[]` で、省略された場合は最初の 50 行から推論されます（サンプル内で行がプリミティブ型について一致しない場合、その列は `"json"` になり、それ以外は `"number"` / `"string"` / `"boolean"` になります）。`console.log` はデバッグのために完全に自由に使えます——ランナーは stdout/stderr を結合してキャプチャし、結果を解析する際に `emit()` が書き込んだセンチネル行のみを取り除きます。
+
+すべての実行で強制される上限（プログラムごとに設定不可）：
+
+| 上限                                                   | 値                                                                                                                                                |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 最大出力行数                                           | 10,000——これを超える行は破棄され、`truncated: true` になる                                                                                        |
+| 最大出力結果サイズ                                     | 4 MiB——収まるように末尾から行が破棄される。単一行が上限を超える場合は、安全に切り詰められるものがないため、ハードな `result_too_large` 失敗になる |
+| app ごとの最大アクティブ（未アーカイブ）プログラム数   | 200——スペースを空けるために未使用のものをアーカイブする                                                                                           |
+| 最小更新 TTL                                           | 60,000 ms                                                                                                                                         |
+| （プログラム、params、閲覧者）ごとに保持される実行行数 | 直近 5 件——古いものは書き込みのたびに自動的にプルーニングされる                                                                                   |
+
+切り詰めは常に明示的です（結果内の `truncated: true`）——サイレントな欠落は決してありません。
+
+## Params と dashboard パネルのバインディング {#params-and-panel-binding}
+
+プログラムは任意の `paramsSchema`（受け付ける params を記述する JSON Schema）と `defaultParams` を宣言できます。dashboard は、パネルのクエリフィールドにクエリ文字列の代わりに小さな JSON ディスクリプタを配置することで `"program"` パネルソースを採用します。
+
+```json
+{ "programId": "dp_a1b2c3d4e5f6", "params": { "minValue": 10000 } }
+```
+
+パネルは他のどのパネルソースともまったく同じチャート/テーブルコンポーネントを通じてレンダリングされます——受け取るのは常に `{ rows, schema }` だけです。パネルをプログラムにバインドするというのは、単に「どの保存されたプログラムに、どの params の上書きで」ということであり、他のどこにも重複した dashboard 固有の実行パスは存在しません。
+
+## 更新、TTL、キャッシュのセマンティクス {#refresh-and-caching}
+
+`(programId, paramsHash)` の各ペアは `data_program_runs` に独自の実行履歴を持ち、`paramsHash` は params だけでなく**閲覧者**も組み込みます（理由はセキュリティのセクションを参照）。各読み取りで起こること：
+
+| 状況                                                                                               | 動作                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 新鮮なキャッシュ（`refreshTtlMs` より新しい、または `refreshMode: "manual"` で以前に成功している） | キャッシュされた行を即座に返す、`cacheHit: true`                                                                                                                         |
+| キャッシュが TTL より古い                                                                          | 同期的に再実行される——パネルビューによって発生した読み取りには 25 秒、エージェント/手動呼び出しには 120 秒の予算があり、成功時にキャッシュを置き換える                   |
+| `refreshMode: "manual"`                                                                            | 自動更新は決して行われない。明示的な `forceRefresh: true`（または UI 上の手動更新 action）のみが再実行する                                                               |
+| まだキャッシュがない                                                                               | 通常の最初の取得と同様に同期的に実行される                                                                                                                               |
+| `background: true` のプログラムで、新鮮なキャッシュがない                                          | 直近の成功した実行結果を `stale: true` で即座に提供し、耐久性のあるバックグラウンド実行をキューに入れる（10 分の予算）。後の呼び出しは実行が完了した時点で結果を確定する |
+| バックグラウンドプログラムがまだ実行中で、以前の成功がない                                         | `background_pending` 失敗——「まだ計算中」という明示的な状態を表示すべきで、決して空の結果ではない                                                                        |
+| 実行が失敗する（タイムアウト、サンドボックスエラー、不正な `emit()` の形状）                       | 構造化された `{ code, message }` の失敗。以前の成功があれば、`lastGoodRun` として添付され、パネルが空になる代わりに古いデータを提供できるようにする                      |
+| プログラムがアーカイブされた（`delete-data-program` によるソフトデリート）                         | 明示的な `archived` 失敗——サイレントな空白パネルは決してない                                                                                                             |
+
+`background: true` は、フォアグラウンドのタイムアウトを日常的に超えるプログラム（大規模なマルチプロバイダ join、深いページネーションなど）にのみ使用してください。それ以外はすべてフォアグラウンドのままにすべきです——推論がシンプルで、新鮮なデータをより速く提供できます。
+
+### なぜキャッシュは閲覧者ごとにスコープされるのか {#per-viewer-cache}
+
+プログラム内の `providerFetch` は、**呼び出し中の閲覧者自身のリクエストコンテキスト**を使って認証を解決します——プログラムの作者のものでは決してありません。これは、呼び出しがエージェントから来た場合でも、`run-data-program` の呼び出しから来た場合でも、チームメイトが閲覧している dashboard パネルから来た場合でも当てはまります。同じプログラムを同じ params で実行する 2 人の異なる閲覧者は、正当に 2 つの異なる結果を得ることがあります。一方は HubSpot キーを設定していて、もう一方はしていない、あるいは行レベルの provider 権限が人によって異なる、といった具合です。
+
+そのため、`hashDataProgramParams` は正規化された params に加えて、呼び出し元の身元をキャッシュキーに組み込みます。これは**共有 dashboard** において最も重要です。もしキャッシュが params だけでキー付けされていたら、パネルを最初に見た人が、そのキャッシュされた結果を生成した認証情報を持たない閲覧者を含む、他のすべての閲覧者が見るものを暗黙のうちに決定してしまいます。閲覧者ごとのスコープ設定により、認証情報が不足しているチームメイトは、他人のデータではなく、そのパネル上で自分自身の認証エラーを見ることになります。
+
+## セキュリティモデル {#security}
+
+<Callout id="doc-block-dp-security" tone="success">
+
+**生の provider トークンがモデルやブラウザに届くことは決してありません。** サンドボックスから出るのは、`emit()` の呼び出しが生成する `{ rows, schema }` だけです——他のどの run-code 実行、他のどの dashboard パネルソースとも同じ信頼境界です。
+
+</Callout>
+
+- **サーバーサイドのみ。** データプログラムのコードは、サーバー上の `executeSandboxCode` の内部でのみ実行されます。保存されたソースも、それが触れる認証情報も、ブラウザやモデルに送信されることはありません——送信されるのは、出力された行/schema とコンパクトな実行メタデータ（行数、列、サンプル行）だけです。
+- **認証情報は常に呼び出し中の閲覧者のものであり、プログラムの元の作者のものでは決してありません。** これがキャッシュキーも決定する理由については、上記の[更新、TTL、キャッシュのセマンティクス](#per-viewer-cache)を参照してください。
+- **`allowPublic: false` はハードな不変条件であり、デフォルトではありません。** データプログラムは、[拡張機能](/docs/extensions#security)と同じ方法で共有レジストリに登録され、公開共有は無効化されています。公開されたプログラムは、認証済みのユーザーなら誰でも自分自身のトークンで任意の保存されたコードを実行できてしまいます——プログラムを共有するということは組織内に限定され、常に「チームメイトはそのキャッシュされた結果を見て再実行をトリガーできる」ことだけを意味し、「一般のインターネットがこれを実行できる」ことは決して意味しません。
+- **変更・実行系の actions は、サンドボックス化された拡張機能/iframe ブリッジからツールとして呼び出すことはできません。** `save-data-program`、`preview-data-program`、`run-data-program`、`delete-data-program` はすべて `toolCallable: false` です——エージェントまたはサーバーサイドの読み取りパスのみがそれらを呼び出せ、開いた側のセッションの下にある拡張機能の iframe からは決して呼び出せません。`list-data-programs` と `get-data-program` は読み取り専用であり、他のどの ownable リソースとも同じ共有ヘルパーによってアクセスがスコープされます。
+- **プログラムはそれを作成した app にスコープされます。** 検索に `appId` を渡すことは、あるアプリで作成されたプログラムが、共有データベースのデプロイにおいて、たとえ呼び出し元がそれに対して行レベル（owner/org/share）のアクセス権を別の形で持っていたとしても、別のアプリのエージェントチャットから実行できないことを意味します。
+- **信頼するプログラムにのみバインドまたは閲覧してください。** 実行は常に閲覧者自身の認証情報を使うため、共有されたプログラムの結果を閲覧することは、他人の拡張機能を開くのとまったく同じです——信頼すべきはコードそのものであり、単なるアクセス許可ではありません。
+
+## Risk Meeting の実例 {#risk-meeting-example}
+
+analytics テンプレートには、具体的で実行可能なケーススタディが同梱されています。`ensure-risk-meeting-dashboard` action は、2 つのデータプログラムと 2 パネルの「Risk Meeting」dashboard を冪等にインストールし、ハードコードされた action がすべての顧客に対して予測できない 3 つのことを示します。
+
+<FileTree
+  id="doc-block-dp-risk-meeting-files"
+  title={"Risk Meeting インストーラー"}
+  entries={[
+    {
+      path: "templates/analytics/actions/ensure-risk-meeting-dashboard.ts",
+      note: "冪等な action：両方のプログラムを安定した名前で更新し、その後 dashboard を id で更新する",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-cohort.js",
+      note: "保存されたプログラムのペイロード——ビルドのソースファイルではなく、単なる JS テキスト",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-pylon-early-warning.js",
+      note: "補完的な早期警告プログラム",
+    },
+  ]}
+/>
+
+**`risk-meeting-cohort.js`** ——任意の `risk_status` プロパティ（定番の action が予測できない、カスタム値に対する IN 検索）によって設定可能な CRM のディールのコホートを検索し、バッチ処理された関連付けの検索を通じて各ディールの会社を解決し、各会社のドメインを解決し、無関係な 2 番目の provider のアカウントセンチメントを取得し、ドメインで両者を結合します。
+
+```js
+// params: { riskStatuses?: string[], enterpriseOnly?: boolean }
+const riskStatuses = params.riskStatuses?.length
+  ? params.riskStatuses
+  : ["On the Radar", "Churn Risk", "Confirmed Churn", "No Save Attempted"];
+
+// 1. Arbitrary property IN-search — not expressible through a canned filter.
+const dealSearch = await providerFetchAll("crm-provider", "/deals/search", {
+  method: "POST",
+  body: {
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: "risk_status", operator: "IN", values: riskStatuses },
+        ],
+      },
+    ],
+  },
+  itemsPath: "results",
+  pagination: {
+    cursorBodyPath: "after",
+    nextCursorPath: "paging.next.after",
+    maxPages: 20,
+  },
+});
+
+// 2-3. Batched deal -> company -> domain resolution (elided here; see the
+// real seed file for the full batching helper).
+
+// 4. A second, unrelated provider — zero bespoke glue action required.
+const accounts = await providerFetchAll("support-provider", "/accounts", {
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "pagination.cursor",
+    maxPages: 20,
+  },
+});
+
+// 5. Join + emit.
+const rows = dealSearch.items.map((deal) => ({
+  deal_id: deal.id,
+  risk_status: deal.properties.risk_status,
+  arr: Number(deal.properties.total_contract_value || 0),
+  // ...domain lookup + sentiment join...
+}));
+
+emit(rows, [
+  { name: "deal_id", type: "string" },
+  { name: "risk_status", type: "string" },
+  { name: "arr", type: "number" },
+]);
+```
+
+**`risk-meeting-pylon-early-warning.js`** ——補完的なビュー：サポートセンチメントによってすでにリスクありとフラグ付けされているが、上記の CRM コホートに**まだ**現れていないアカウント。このギャップ——CRM シグナルより先行するサポートシグナル——は、あるプロバイダのコホートを別のプロバイダのコホートから除外する必要があり、単一ベンダーの action では表現できない種類の provider をまたぐ集合ロジックです。
+
+両方のプログラムは `ensure-risk-meeting-dashboard` によってインストールされ、最新に保たれます。それは以下を行います。
+
+- 各プログラムを安定した `name` で更新するため、インストーラーの再実行は同じ行を重複させるのではなく更新します。
+- インストール時に CRM/サポートの認証情報を必要としません——provider の認証は、パネルが実際にレンダリングされるか `run-data-program` が呼び出されたときにのみ、閲覧者ごとに解決されます。これは上記の閲覧者ごとのキャッシュスコープと一致しています。
+- `source: "program"` を使用するパネルを持つ 2 パネルの dashboard を構築し、それぞれのプログラムの id にバインドします。
+
+完全に注釈が付けられたソースについては、`data-programs` skill を参照してください。
+
+## 他の app がパネルソースをどのように採用するか {#adopting-the-panel-source}
+
+`"program"` dashboard パネルソースは、このプリミティブの一つの採用例であり、ホスト app 自身のパネルクエリレイヤーに完全に実装されています——dashboard 固有のものは `@agent-native/core/data-programs` 自体には何も組み込まれていません。analytics テンプレートの実装は、自分のものを配線する際の有用な参考になります。
+
+- パネルの `sql` カラムは、クエリ文字列の代わりに小さな JSON ディスクリプタ——`{ programId, params? }`——を運びます。
+- パネルをレンダリングすると、`triggeredBy: "panel_view"` と現在の閲覧者の身元とともに `runDataProgram` が呼び出されるため、閲覧者ごとのキャッシュと認証情報の解決が自動的に適用されます。
+- 成功すると、パネルは `{ rows, schema }` を取得します——これは他のどのパネルソースが返すものとも同じ形状であるため、既存のチャート/テーブルコンポーネントを変更せずに流れます。
+- 失敗した場合、`lastGoodRun` が存在する限り、壊れたパネルよりもそれが優先されます。以前の成功がない場合にのみ、パネルは構造化されたエラーを表示します（`access_denied`、`archived`、`background_pending` のような一般的なコードについては、より親しみやすい文言が用意されています）。
+
+どの app も、自分自身の dashboard/テーブルのために同じ採用を実装できます。自分自身の読み取りパスから `run-data-program`（同じサーバープロセス内であれば `runDataProgram` を直接）を呼び出し、返された `rows`/`schema` を自分自身のレンダリングコンポーネントに渡します。
+
+## 関連ドキュメント {#related}
+
+- [拡張機能](/docs/extensions) ——データプログラムがセキュリティ姿勢と共有モデルを共有する、サンドボックス化された mini-app プリミティブ。ただし独自の UI を持ちます。
+- [Actions](/docs/actions) ——データプログラムが構築される基盤となる `run-code` の規約とサンドボックスのグローバル（`providerFetch`、`appAction` など）。
+- [共有とプライバシー](/docs/sharing) ——データプログラムが使用する、組織内限定で決して公開されない共有モデル。
+- [セキュリティ](/docs/security) ——フレームワークの認証情報の取り扱いとアクセスのスコープに関する不変条件。

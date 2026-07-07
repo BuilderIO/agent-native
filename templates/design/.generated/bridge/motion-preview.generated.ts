@@ -8,6 +8,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
   (function() {
     var loadedTracks = [];
     var loadedDefaultEase = "ease";
+    var loadedTimelineDurationMs = null;
     var touchedProps = {};
     var originalInlineValues = {};
     function camelizeProp(prop) {
@@ -252,9 +253,109 @@ export const motionPreviewBridgeScript: string = `"use strict";
         }
       }
       if (raw.indexOf("spring") === 0) {
-        return cubicBezierY(0.34, 1.56, 0.64, 1, clamped);
+        var spr = parseSpringEase(raw);
+        if (spr) return sampleSpringAt(spr[0], spr[1], clamped);
+        return clamped;
+      }
+      if (raw.indexOf("linear(") === 0) {
+        var lin = evalCssLinear(raw, clamped);
+        if (lin !== null) return lin;
       }
       return clamped;
+    }
+    function parseSpringEase(raw) {
+      if (/^spring$/.test(raw)) return [0.25, 1];
+      var m = /^spring\\(\\s*([+-]?[\\d.]+)\\s*(?:,\\s*([+-]?[\\d.]+)\\s*)?\\)$/.exec(
+        raw
+      );
+      if (!m) return null;
+      var bounce = parseFloat(m[1]);
+      if (!Number.isFinite(bounce)) return null;
+      var settle = m[2] === void 0 ? 1 : parseFloat(m[2]);
+      if (!Number.isFinite(settle)) return null;
+      if (settle < 0.05) settle = 0.05;
+      if (settle > 1) settle = 1;
+      return [clamp01(bounce), settle];
+    }
+    function sampleSpringAt(bounce, settle, x) {
+      if (x <= 0) return 0;
+      var u = x / settle;
+      if (u >= 1) return 1;
+      var zeta = 1 - clamp01(bounce);
+      if (zeta < 0.02) zeta = 0.02;
+      if (zeta > 1) zeta = 1;
+      var omega = Math.log(1 / 1e-3) / zeta;
+      if (zeta >= 1) {
+        return 1 - Math.exp(-omega * u) * (1 + omega * u);
+      }
+      var omegaD = omega * Math.sqrt(1 - zeta * zeta);
+      var decay = Math.exp(-zeta * omega * u);
+      return 1 - decay * (Math.cos(omegaD * u) + zeta * omega / omegaD * Math.sin(omegaD * u));
+    }
+    function evalCssLinear(raw, x) {
+      var m = /^linear\\(([^)]*)\\)$/.exec(raw);
+      if (!m) return null;
+      var entries = m[1].split(",");
+      var values = [];
+      var positions = [];
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i].trim();
+        if (!entry) continue;
+        var parts = entry.split(/\\s+/);
+        var value = parseFloat(parts[0]);
+        if (!Number.isFinite(value)) return null;
+        var found = 0;
+        for (var j = 1; j < parts.length && j <= 2; j++) {
+          if (!/%$/.test(parts[j])) return null;
+          var pct = parseFloat(parts[j]);
+          if (!Number.isFinite(pct)) return null;
+          values.push(value);
+          positions.push(pct / 100);
+          found++;
+        }
+        if (found === 0) {
+          values.push(value);
+          positions.push(null);
+        }
+      }
+      if (values.length < 2) return null;
+      if (positions[0] === null) positions[0] = 0;
+      if (positions[positions.length - 1] === null) {
+        positions[positions.length - 1] = 1;
+      }
+      var runningMax = positions[0];
+      for (var k = 0; k < positions.length; k++) {
+        var pos = positions[k];
+        if (pos !== null) {
+          var clampedPos = pos < runningMax ? runningMax : pos;
+          positions[k] = clampedPos;
+          runningMax = clampedPos;
+          continue;
+        }
+        var nextIdx = k + 1;
+        while (nextIdx < positions.length && positions[nextIdx] === null) {
+          nextIdx++;
+        }
+        var prevPos = runningMax;
+        var nextPosRaw = positions[nextIdx];
+        var nextPos = nextPosRaw < prevPos ? prevPos : nextPosRaw;
+        var span = nextIdx - (k - 1);
+        for (var q = k; q < nextIdx; q++) {
+          positions[q] = prevPos + (q - (k - 1)) / span * (nextPos - prevPos);
+        }
+        k = nextIdx - 1;
+        runningMax = nextPos;
+      }
+      var cx = clamp01(x);
+      if (cx <= positions[0]) return values[0];
+      for (var p = 0; p < values.length - 1; p++) {
+        var aPos = positions[p];
+        var bPos = positions[p + 1];
+        if (cx > bPos) continue;
+        if (bPos === aPos) return values[p + 1];
+        return values[p] + (values[p + 1] - values[p]) * (cx - aPos) / (bPos - aPos);
+      }
+      return values[values.length - 1];
     }
     function identityForFunctions(value) {
       var fnRe = /([a-zA-Z][a-zA-Z0-9]*)\\(([^)]*)\\)/g;
@@ -361,6 +462,18 @@ export const motionPreviewBridgeScript: string = `"use strict";
       var eased = evalEase(kfEase, ratio);
       return lerp(prev.value, next.value, eased);
     }
+    function trackLocalT(track, t) {
+      var delay = typeof track.delayMs === "number" && track.delayMs > 0 ? track.delayMs : 0;
+      var dur = typeof track.durationMs === "number" && track.durationMs > 0 ? track.durationMs : null;
+      if (loadedTimelineDurationMs === null || delay === 0 && dur === null) {
+        return t;
+      }
+      var timeMs = t * loadedTimelineDurationMs;
+      var span = dur === null ? loadedTimelineDurationMs : dur;
+      if (span <= 0) return 0;
+      var local = (timeMs - delay) / span;
+      return local < 0 ? 0 : local > 1 ? 1 : local;
+    }
     function applyPreview(t) {
       for (var i = 0; i < loadedTracks.length; i++) {
         var track = loadedTracks[i];
@@ -368,7 +481,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
           '[data-agent-native-node-id="' + track.targetNodeId + '"]'
         );
         if (!el) continue;
-        var value = interpolate(track.keyframes, t);
+        var value = interpolate(track.keyframes, trackLocalT(track, t));
         if (value === "") continue;
         var prop = camelizeProp(track.property);
         if (!originalInlineValues[track.targetNodeId])
@@ -401,6 +514,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       originalInlineValues = {};
       loadedTracks = [];
       loadedDefaultEase = "ease";
+      loadedTimelineDurationMs = null;
     }
     var lastPreviewT = null;
     window.addEventListener("message", function(e) {
@@ -410,6 +524,10 @@ export const motionPreviewBridgeScript: string = `"use strict";
         clearPreview();
         loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
         loadedDefaultEase = typeof e.data.defaultEase === "string" && e.data.defaultEase ? e.data.defaultEase : "ease";
+        var loadDur = Number(e.data.durationMs);
+        if (Number.isFinite(loadDur) && loadDur > 0) {
+          loadedTimelineDurationMs = loadDur;
+        }
         for (var i = 0; i < loadedTracks.length; i++) {
           var kfs = loadedTracks[i] && loadedTracks[i].keyframes;
           if (Array.isArray(kfs)) {
@@ -427,6 +545,10 @@ export const motionPreviewBridgeScript: string = `"use strict";
         var t = Number(e.data.t);
         if (!Number.isFinite(t)) return;
         t = Math.max(0, Math.min(1, t));
+        var tickDur = Number(e.data.durationMs);
+        if (Number.isFinite(tickDur) && tickDur > 0) {
+          loadedTimelineDurationMs = tickDur;
+        }
         lastPreviewT = t;
         applyPreview(t);
         return;

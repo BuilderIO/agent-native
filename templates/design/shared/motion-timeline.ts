@@ -7,6 +7,12 @@
  * both atomically.
  */
 
+import {
+  evaluateCssLinear,
+  parseSpringToken,
+  sampleSpring,
+} from "./motion-easing";
+
 export type MotionEase =
   | "linear"
   | "ease"
@@ -15,27 +21,64 @@ export type MotionEase =
   | "ease-in-out"
   | "step-start"
   | "step-end"
-  | string; // cubic-bezier(...) or steps(...)
+  | string; // cubic-bezier(...), steps(...), linear(...), or spring(...)
+
+/**
+ * Timeline playback mode (Figma Motion parity):
+ * - "loop": repeats continuously.
+ * - "once": plays a single time and stops on the final frame.
+ * - "ping-pong": plays forward then backward, repeating.
+ */
+export type MotionPlaybackMode = "loop" | "once" | "ping-pong";
+
+/** Playback mode applied when a timeline predates the playbackMode field. */
+export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
 
 export interface MotionKeyframe {
-  /** Normalised time in [0, 1] where 0 = 0% and 1 = 100% of `durationMs`. */
+  /**
+   * Normalised time in [0, 1] within the TRACK's own span (which is the whole
+   * timeline unless the track sets `delayMs`/`durationMs`). 0 = span start,
+   * 1 = span end. Matches Figma's normalized `timelinePosition`.
+   */
   t: number;
   /** CSS property value at this keyframe (e.g. "0px", "1", "#ff0000"). */
   value: string;
-  /** Per-keyframe easing applied between this keyframe and the next. */
+  /**
+   * Easing of the SEGMENT that leaves this keyframe toward the next one
+   * (standard CSS keyframe semantics; equivalently, Figma's "easing into the
+   * following keyframe"). The last keyframe's ease has no effect.
+   */
   ease?: MotionEase;
 }
 
 /**
  * One property track for a single target node.
- * A node may have multiple tracks (e.g. opacity + transform).
+ * A node may have multiple tracks (e.g. opacity + translate + rotate).
  */
 export interface MotionTrack {
   /** Matches `data-agent-native-node-id` stamped on the target DOM element. */
   targetNodeId: string;
-  /** CSS property name being animated (e.g. "opacity", "transform", "color"). */
+  /** CSS property name being animated (e.g. "opacity", "translate", "rotate"). */
   property: string;
   keyframes: MotionKeyframe[];
+  /**
+   * Start-time offset of this track within the timeline, in milliseconds
+   * (compiled to `animation-delay`). Omitted / 0 = starts with the timeline.
+   */
+  delayMs?: number;
+  /**
+   * Duration of this track's own animation span in milliseconds (compiled to
+   * a per-track `animation-duration`). Omitted = the timeline's `durationMs`.
+   */
+  durationMs?: number;
+  /**
+   * Timeline-level playback mode, persisted on the FIRST track only so the
+   * stored `tracks` JSON column stays a plain array (additive, backward
+   * compatible — older readers simply ignore the extra field). Use
+   * `readTimelinePlaybackMode` / `withTimelinePlaybackMode`; do not read this
+   * field directly.
+   */
+  timelinePlaybackMode?: MotionPlaybackMode;
 }
 
 /**
@@ -59,6 +102,11 @@ export interface MotionTimeline {
   tracks: MotionTrack[];
   /** Total animation duration in milliseconds. */
   durationMs: number;
+  /**
+   * Timeline playback mode. Omitted on rows written before this field existed
+   * — treat as {@link MOTION_DEFAULT_PLAYBACK_MODE}.
+   */
+  playbackMode?: MotionPlaybackMode;
   /** Default easing applied to keyframe intervals that omit a per-keyframe ease. */
   defaultEase: MotionEase;
   /**
@@ -86,52 +134,100 @@ export interface MotionTimeline {
  * `apply-motion-edit`).
  */
 export interface MotionPropertyPreset {
-  /** CSS property animated by the track (e.g. "opacity", "transform"). */
+  /** CSS property animated by the track (e.g. "opacity", "translate"). */
   property: string;
-  /** Human-readable label for the picker (e.g. "Opacity", "Slide up"). */
+  /** Human-readable label for the picker, verbatim from Figma's Add-motion menu. */
   label: string;
   /** Value at t = 0. */
   from: string;
   /** Value at t = 1. */
   to: string;
+  /**
+   * Menu placement, matching Figma Motion's "Add motion" submenu: "primary"
+   * items are listed directly; "more" items live under the "More" submenu.
+   */
+  group: "primary" | "more";
 }
 
 /**
- * Built-in property presets for the "add a track" picker. Ordered most-common
- * first. Every preset is a valid CSS identifier accepted by
- * `assertSafeCssProperty` and yields two safe keyframe values.
+ * Built-in property presets for the "Add motion" picker, matching Figma
+ * Motion's submenu verbatim: Position / Scale / Rotation / Opacity, then
+ * More ▸ Corner radius / Fill / Stroke paint / Stroke weight / Drop shadow.
+ *
+ * CSS mapping uses the modern individual transform properties (`translate`,
+ * `scale`, `rotate`) instead of one shared `transform` string, so position,
+ * scale, and rotation tracks compose freely on the same node without
+ * colliding on a single (targetNodeId, property) pair.
+ *
+ * Every preset is a valid CSS identifier accepted by
+ * `assertSafeMotionCssProperty` and yields two safe keyframe values. Presets
+ * whose motion would be invisible with identical endpoints seed a small
+ * visible change; color-like presets seed equal endpoints (edit values via
+ * auto-keyframe or the inspector, as in Figma).
  */
 export const MOTION_PROPERTY_PRESETS: MotionPropertyPreset[] = [
-  { property: "opacity", label: "Fade (opacity)", from: "0", to: "1" },
   {
-    property: "transform",
-    label: "Slide up (translateY)",
-    from: "translateY(16px)",
-    to: "translateY(0px)",
+    property: "translate",
+    label: "Position",
+    from: "0px 16px",
+    to: "0px 0px",
+    group: "primary",
   },
   {
-    property: "transform",
-    label: "Scale (zoom in)",
-    from: "scale(0.8)",
-    to: "scale(1)",
+    property: "scale",
+    label: "Scale",
+    from: "0.8",
+    to: "1",
+    group: "primary",
   },
   {
-    property: "filter",
-    label: "Blur in",
-    from: "blur(8px)",
-    to: "blur(0px)",
+    property: "rotate",
+    label: "Rotation",
+    from: "0deg",
+    to: "360deg",
+    group: "primary",
   },
   {
-    property: "color",
-    label: "Color",
-    from: "#000000",
-    to: "#000000",
+    property: "opacity",
+    label: "Opacity",
+    from: "0",
+    to: "1",
+    group: "primary",
+  },
+  {
+    property: "border-radius",
+    label: "Corner radius",
+    from: "0px",
+    to: "16px",
+    group: "more",
   },
   {
     property: "background-color",
-    label: "Background color",
+    label: "Fill",
     from: "#ffffff",
     to: "#ffffff",
+    group: "more",
+  },
+  {
+    property: "border-color",
+    label: "Stroke paint",
+    from: "#000000",
+    to: "#000000",
+    group: "more",
+  },
+  {
+    property: "border-width",
+    label: "Stroke weight",
+    from: "0px",
+    to: "2px",
+    group: "more",
+  },
+  {
+    property: "box-shadow",
+    label: "Drop shadow",
+    from: "0px 0px 0px 0px rgba(0, 0, 0, 0)",
+    to: "0px 8px 24px 0px rgba(0, 0, 0, 0.25)",
+    group: "more",
   },
 ];
 
@@ -281,10 +377,11 @@ function cubicBezierY(
  * Evaluate a {@link MotionEase} timing function at linear progress `x ∈ [0, 1]`.
  *
  * Supports the CSS keywords (`linear`, `ease*`, `step-start`, `step-end`),
- * `cubic-bezier(...)` (including overshoot control points, which is how the
- * dock's "Spring" preset is expressed), `steps(n, position)`, and a `spring`
- * keyword approximated by an overshoot bezier. Unknown values fall back to
- * linear. The result may leave [0, 1] for overshoot beziers by design.
+ * `cubic-bezier(...)` (including overshoot control points, used by the "back"
+ * curve presets), `steps(n, position)`, CSS `linear(...)` stop lists, and
+ * `spring(bounce[, settle])` tokens evaluated with the real damped-oscillator
+ * sampler from `motion-easing.ts`. Unknown values fall back to linear. The
+ * result may leave [0, 1] for overshoot beziers and bouncy springs by design.
  */
 export function evaluateMotionEase(
   ease: MotionEase | undefined,
@@ -334,9 +431,18 @@ export function evaluateMotionEase(
     }
   }
 
-  // Spring approximation: a gentle overshoot bezier.
+  // Real spring physics: `spring(bounce[, settle])` tokens (and the bare
+  // `spring` keyword) sample the shared damped-oscillator solution.
   if (raw.startsWith("spring")) {
-    return cubicBezierY(0.34, 1.56, 0.64, 1, clamped);
+    const spring = parseSpringToken(raw);
+    if (spring) return sampleSpring(spring, clamped);
+    return clamped;
+  }
+
+  // CSS linear(...) stop lists (compiled springs / recovered timelines).
+  if (raw.startsWith("linear(")) {
+    const evaluated = evaluateCssLinear(raw, clamped);
+    if (evaluated !== null) return evaluated;
   }
 
   return clamped;
@@ -525,4 +631,264 @@ export function sampleMotionKeyframesAt(
     return lerpMotionValues(prev.value, next.value, eased);
   }
   return last.value;
+}
+
+// ─── Track timing (per-track offset + duration) ──────────────────────────────
+
+export interface MotionTrackTiming {
+  /** Track start offset within the timeline, ms. */
+  startMs: number;
+  /** Track animation span, ms. */
+  durationMs: number;
+  /** Track end (startMs + durationMs), ms. */
+  endMs: number;
+}
+
+/**
+ * Resolve a track's absolute timing within its timeline. Tracks without
+ * explicit `delayMs`/`durationMs` span the whole timeline (legacy behavior).
+ */
+export function getMotionTrackTiming(
+  track: Pick<MotionTrack, "delayMs" | "durationMs">,
+  timelineDurationMs: number,
+): MotionTrackTiming {
+  const startMs = Math.max(0, track.delayMs ?? 0);
+  const durationMs = Math.max(
+    1,
+    track.durationMs !== undefined && Number.isFinite(track.durationMs)
+      ? track.durationMs
+      : timelineDurationMs,
+  );
+  return { startMs, durationMs, endMs: startMs + durationMs };
+}
+
+/**
+ * Map an absolute timeline time (ms) to a track-local normalised time in
+ * [0, 1], clamping outside the track's span (matching the compiled CSS's
+ * `animation-fill-mode: both`: the first keyframe value holds before the
+ * span, the last keyframe value holds after it).
+ */
+export function timelineTimeToTrackTime(
+  track: Pick<MotionTrack, "delayMs" | "durationMs">,
+  timelineTimeMs: number,
+  timelineDurationMs: number,
+): number {
+  const timing = getMotionTrackTiming(track, timelineDurationMs);
+  return Math.min(
+    1,
+    Math.max(0, (timelineTimeMs - timing.startMs) / timing.durationMs),
+  );
+}
+
+/**
+ * Sample a track's value at an absolute timeline time (ms), honouring the
+ * track's own offset/duration and per-segment easing.
+ */
+export function sampleMotionTrackAtTimelineTime(
+  track: MotionTrack,
+  timelineTimeMs: number,
+  timelineDurationMs: number,
+  defaultEase?: MotionEase,
+): string {
+  return sampleMotionKeyframesAt(
+    track.keyframes,
+    timelineTimeToTrackTime(track, timelineTimeMs, timelineDurationMs),
+    defaultEase,
+  );
+}
+
+// ─── Timeline playback mode (persisted on the first track) ──────────────────
+
+const MOTION_PLAYBACK_MODES: MotionPlaybackMode[] = [
+  "loop",
+  "once",
+  "ping-pong",
+];
+
+/** Narrow an unknown value to a {@link MotionPlaybackMode}, or null. */
+export function parseMotionPlaybackMode(
+  value: unknown,
+): MotionPlaybackMode | null {
+  return MOTION_PLAYBACK_MODES.includes(value as MotionPlaybackMode)
+    ? (value as MotionPlaybackMode)
+    : null;
+}
+
+/**
+ * Read the timeline-level playback mode persisted in a `tracks` array
+ * (stamped on the first track — see {@link MotionTrack.timelinePlaybackMode}).
+ * Returns null when no track carries the field (pre-playbackMode timelines).
+ */
+export function readTimelinePlaybackMode(
+  tracks: MotionTrack[],
+): MotionPlaybackMode | null {
+  for (const track of tracks) {
+    const mode = parseMotionPlaybackMode(track.timelinePlaybackMode);
+    if (mode) return mode;
+  }
+  return null;
+}
+
+/**
+ * Return a copy of `tracks` with the timeline-level playback mode stamped on
+ * the first track only (and removed from every other track), keeping the
+ * persisted JSON canonical. An empty `tracks` array is returned unchanged.
+ */
+export function withTimelinePlaybackMode<T extends MotionTrack>(
+  tracks: T[],
+  mode: MotionPlaybackMode,
+): T[] {
+  return tracks.map((track, index) => {
+    if (index === 0) return { ...track, timelinePlaybackMode: mode };
+    if (track.timelinePlaybackMode === undefined) return track;
+    const { timelinePlaybackMode: _drop, ...rest } = track;
+    return rest as T;
+  });
+}
+
+// ─── Auto-keyframe (pure part) ───────────────────────────────────────────────
+
+export interface MotionAutoKeyframeEdit {
+  /** `data-agent-native-node-id` of the element whose property was edited. */
+  targetNodeId: string;
+  /** CSS property that was edited (e.g. "opacity", "translate"). */
+  property: string;
+  /** The new CSS value entered by the user. */
+  value: string;
+  /** Playhead position at edit time, normalised to the TIMELINE in [0, 1]. */
+  playheadT: number;
+  /** Timeline duration in ms (needed to map onto offset tracks). */
+  timelineDurationMs: number;
+}
+
+/**
+ * Auto-keyframe core logic (Figma Motion parity): when a keyframeable
+ * property value is edited while auto-keyframe is armed, upsert a keyframe at
+ * the playhead on the matching track — creating one at the playhead when the
+ * playhead is not already on an existing keyframe, or replacing the keyframe
+ * value when it is (within {@link MOTION_KEYFRAME_TIME_EPSILON}).
+ *
+ * Pure and UI-free: returns the updated tracks array, or `null` when no track
+ * animates `(targetNodeId, property)` — in that case the caller should apply
+ * the edit as a plain style change (Figma only auto-keys properties that
+ * already have motion; new properties are added via "Add motion").
+ */
+export function applyMotionAutoKeyframe(
+  tracks: MotionTrack[],
+  edit: MotionAutoKeyframeEdit,
+  defaultEase?: MotionEase,
+): MotionTrack[] | null {
+  const index = tracks.findIndex(
+    (track) =>
+      track.targetNodeId === edit.targetNodeId &&
+      track.property === edit.property,
+  );
+  if (index === -1) return null;
+  const track = tracks[index];
+  const playheadMs =
+    Math.min(1, Math.max(0, edit.playheadT)) * edit.timelineDurationMs;
+  const localT = timelineTimeToTrackTime(
+    track,
+    playheadMs,
+    edit.timelineDurationMs,
+  );
+  const existing = track.keyframes.find(
+    (kf) => Math.abs(kf.t - localT) <= MOTION_KEYFRAME_TIME_EPSILON,
+  );
+  const keyframe: MotionKeyframe = {
+    t: existing ? existing.t : localT,
+    value: edit.value,
+    ...(existing?.ease !== undefined
+      ? { ease: existing.ease }
+      : defaultEase !== undefined
+        ? { ease: defaultEase }
+        : {}),
+  };
+  const next = [...tracks];
+  next[index] = {
+    ...track,
+    keyframes: upsertMotionKeyframeAtTime(track.keyframes, keyframe),
+  };
+  return next;
+}
+
+// ─── Copy / paste animation + stagger (pure helpers) ─────────────────────────
+
+/**
+ * A layer's animation, detached from its node id — the payload behind
+ * "Copy animation" / "Paste animation".
+ */
+export interface MotionAnimationClip {
+  tracks: Array<Omit<MotionTrack, "targetNodeId" | "timelinePlaybackMode">>;
+}
+
+/**
+ * Extract a node's tracks as a reusable {@link MotionAnimationClip}.
+ * Returns null when the node has no tracks.
+ */
+export function copyLayerAnimation(
+  tracks: MotionTrack[],
+  targetNodeId: string,
+): MotionAnimationClip | null {
+  const layerTracks = tracks.filter(
+    (track) => track.targetNodeId === targetNodeId,
+  );
+  if (layerTracks.length === 0) return null;
+  return {
+    tracks: layerTracks.map(
+      ({ targetNodeId: _node, timelinePlaybackMode: _mode, ...rest }) => ({
+        ...rest,
+        keyframes: rest.keyframes.map((kf) => ({ ...kf })),
+      }),
+    ),
+  };
+}
+
+/**
+ * Apply a {@link MotionAnimationClip} to a target node, replacing any tracks
+ * the node already has for the clip's properties (other properties are kept).
+ * The timeline-level playback mode stamp is re-normalised afterwards.
+ */
+export function pasteLayerAnimation(
+  tracks: MotionTrack[],
+  clip: MotionAnimationClip,
+  targetNodeId: string,
+): MotionTrack[] {
+  const mode = readTimelinePlaybackMode(tracks);
+  const clipProperties = new Set(clip.tracks.map((track) => track.property));
+  const kept = tracks.filter(
+    (track) =>
+      !(
+        track.targetNodeId === targetNodeId &&
+        clipProperties.has(track.property)
+      ),
+  );
+  const pasted: MotionTrack[] = clip.tracks.map((track) => ({
+    ...track,
+    keyframes: track.keyframes.map((kf) => ({ ...kf })),
+    targetNodeId,
+  }));
+  const merged = [...kept, ...pasted];
+  return mode ? withTimelinePlaybackMode(merged, mode) : merged;
+}
+
+/**
+ * Stagger helper: offset each listed node's tracks by `index * stepMs`
+ * (Figma recommends 40–80ms between instances). Nodes keep their relative
+ * internal offsets; nodes not listed are untouched.
+ */
+export function staggerLayerTracks(
+  tracks: MotionTrack[],
+  orderedNodeIds: string[],
+  stepMs: number,
+): MotionTrack[] {
+  const offsetByNode = new Map<string, number>();
+  orderedNodeIds.forEach((nodeId, index) => {
+    offsetByNode.set(nodeId, index * stepMs);
+  });
+  return tracks.map((track) => {
+    const offset = offsetByNode.get(track.targetNodeId);
+    if (offset === undefined || offset === 0) return track;
+    return { ...track, delayMs: Math.max(0, (track.delayMs ?? 0) + offset) };
+  });
 }

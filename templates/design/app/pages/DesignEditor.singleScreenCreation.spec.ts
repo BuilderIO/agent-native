@@ -66,7 +66,7 @@ describe("getSingleScreenCreationTool", () => {
     ).toBe("rectangle");
   });
 
-  it.each(["ellipse", "line", "arrow", "text", "pen"] as const)(
+  it.each(["ellipse", "line", "arrow", "text", "pen", "frame"] as const)(
     "maps %s to itself",
     (tool) => {
       expect(
@@ -81,7 +81,6 @@ describe("getSingleScreenCreationTool", () => {
 
   it.each([
     "move",
-    "frame",
     "polygon",
     "star",
     "hand",
@@ -103,6 +102,23 @@ describe("getSingleScreenCreationTool", () => {
 });
 
 describe("createPrimitiveInsertFromSpec", () => {
+  it("builds a bare frame insert from a frame-tool gesture (F/A in a focused screen)", () => {
+    const result = createPrimitiveInsertFromSpec(
+      {
+        tool: "frame",
+        rect: { x: 10, y: 20, width: 200, height: 150 },
+        fromClick: false,
+      },
+      "node-frame-1",
+    );
+    expect(result).toEqual({
+      kind: "frame",
+      nodeId: "node-frame-1",
+      geometry: { x: 10, y: 20, width: 200, height: 150 },
+      autoSize: undefined,
+    });
+  });
+
   it("builds rectangle geometry from a click (default size)", () => {
     const result = createPrimitiveInsertFromSpec(
       {

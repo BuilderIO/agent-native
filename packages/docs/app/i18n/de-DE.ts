@@ -1467,6 +1467,7 @@ const deDE = {
     recurringJobs: "Wiederkehrende Jobs",
     automations: "Automatisierungen",
     extensions: "Erweiterungen",
+    dataPrograms: "Datenprogramme",
     multiAppWorkspaces: "Multi-App-Workspaces",
     onboardingApiKeys: "Onboarding und API-Schlüssel",
     messaging: "Messaging (Slack, Email...)",

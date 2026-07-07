@@ -1466,6 +1466,7 @@ const esES = {
     recurringJobs: "Tareas recurrentes",
     automations: "Automatizaciones",
     extensions: "Extensiones",
+    dataPrograms: "Programas de datos",
     multiAppWorkspaces: "Workspaces multi-app",
     onboardingApiKeys: "Onboarding y claves API",
     messaging: "Mensajería (Slack, Email...)",

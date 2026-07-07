@@ -28,6 +28,67 @@ export interface SourceWorkspaceFile {
   updatedAt: string | null;
 }
 
+// Per-file in-process write serialization for writeInlineSourceFile's full
+// read-check-write critical section.
+//
+// @agent-native/core/collab's applyText/seedFromText each serialize their OWN
+// Y.Doc mutation via an internal per-docId lock, but that only protects the
+// CRDT mutation itself — not the read-then-decide-then-write sequence around
+// it. Two concurrent writers to a file that has NO collab doc yet (a real
+// case: doc creation is lazy, so nothing has opened this file in a live
+// session) can each observe hasCollabState()===false, so BOTH take the
+// seedFromText branch — which only takes effect for the first caller to
+// reach it — and, without this lock, both then proceed to persist their own
+// content, silently discarding whichever writer didn't "win" the seed (a
+// lost update, not a CRDT merge — reproduced in
+// insert-design-native-asset.interleave.spec.ts). Serializing the whole
+// critical section per file id closes this: the second writer's read
+// (hasCollabState / getText / expectedVersionHash check) now happens AFTER
+// the first writer's collab mutation has landed, so it observes the true
+// current state and either converges its own diff cleanly or is rejected by
+// the expectedVersionHash guard — never silently clobbered.
+const _writeLocks = new Map<string, Promise<void>>();
+
+// Exported so other write paths touching the same per-file critical section
+// (content read -> optimistic-concurrency hash check -> collab/SQL write) can
+// serialize under the SAME lock instead of each guarding independently. Two
+// callers can each pass their own hash check against a live read that's still
+// valid at check time, then both proceed to write — the check alone doesn't
+// prevent the interleave, only serializing the whole read-check-write section
+// per file id does. See actions/update-file.ts's content-write path.
+//
+// IN-PROCESS ONLY: `_writeLocks` is a plain JS `Map`, so this only serializes
+// writes within a single Node.js process/worker. Multi-instance / horizontally
+// scaled hosted deployments (several server processes/pods behind a load
+// balancer) do NOT share this lock — two requests routed to DIFFERENT
+// processes can still race past each other, since each process has its own
+// independent `_writeLocks` Map. A real cross-process guard would need
+// something like a Postgres/SQL advisory lock (e.g. `pg_advisory_lock`) or a
+// distributed lock service, keyed by file id, shared across all instances.
+// This is a known, tracked follow-up — not implemented here.
+export async function withSourceFileWriteLock<T>(
+  fileId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = _writeLocks.get(fileId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = previous.catch(() => {}).then(() => current);
+  _writeLocks.set(fileId, chained);
+
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (_writeLocks.get(fileId) === chained) {
+      _writeLocks.delete(fileId);
+    }
+  }
+}
+
 export interface SourceWorkspaceContext {
   designId: string;
   sourceType: DesignSourceType;
@@ -142,74 +203,93 @@ export async function writeInlineSourceFile(args: {
   content: string;
   expectedVersionHash?: string;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
-  await assertAccess("design", args.designId, "editor");
-  const db = getDb();
-  const [currentFile] = await db
-    .select({
-      id: schema.designFiles.id,
-      designId: schema.designFiles.designId,
-      filename: schema.designFiles.filename,
-      fileType: schema.designFiles.fileType,
-      content: schema.designFiles.content,
-      createdAt: schema.designFiles.createdAt,
-      updatedAt: schema.designFiles.updatedAt,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.id, args.file.id))
-    .limit(1);
-  if (!currentFile || currentFile.designId !== args.designId) {
-    throw new Error("Source file not found.");
-  }
-  const current = await readLiveSourceFile(currentFile);
-  if (
-    args.expectedVersionHash &&
-    args.expectedVersionHash !== current.versionHash
-  ) {
-    throw new Error(
-      "Source file changed since it was read. Re-read the file and retry.",
-    );
-  }
-
-  const changed = args.content !== current.content;
-  const updatedAt = new Date().toISOString();
-  if (!changed) {
-    return {
-      versionHash: current.versionHash,
-      changed: false,
-      updatedAt: currentFile.updatedAt ?? updatedAt,
-    };
-  }
-
-  if (await hasCollabState(args.file.id)) {
-    const liveBeforeApply = await getText(args.file.id, "content");
+  return withSourceFileWriteLock(args.file.id, async () => {
+    await assertAccess("design", args.designId, "editor");
+    const db = getDb();
+    const [currentFile] = await db
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: schema.designFiles.content,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
+      })
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.id, args.file.id))
+      .limit(1);
+    if (!currentFile || currentFile.designId !== args.designId) {
+      throw new Error("Source file not found.");
+    }
+    const current = await readLiveSourceFile(currentFile);
     if (
       args.expectedVersionHash &&
-      args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
+      args.expectedVersionHash !== current.versionHash
     ) {
       throw new Error(
         "Source file changed since it was read. Re-read the file and retry.",
       );
     }
-    if (liveBeforeApply !== args.content) {
-      await applyText(args.file.id, args.content, "content", "agent");
+
+    const changed = args.content !== current.content;
+    const updatedAt = new Date().toISOString();
+    if (!changed) {
+      return {
+        versionHash: current.versionHash,
+        changed: false,
+        updatedAt: currentFile.updatedAt ?? updatedAt,
+      };
     }
-  } else {
-    await seedFromText(args.file.id, args.content);
-  }
 
-  await db
-    .update(schema.designFiles)
-    .set({ content: args.content, updatedAt })
-    .where(eq(schema.designFiles.id, args.file.id));
+    if (await hasCollabState(args.file.id)) {
+      const liveBeforeApply = await getText(args.file.id, "content");
+      if (
+        args.expectedVersionHash &&
+        args.expectedVersionHash !== sourceContentHash(liveBeforeApply)
+      ) {
+        throw new Error(
+          "Source file changed since it was read. Re-read the file and retry.",
+        );
+      }
+      if (liveBeforeApply !== args.content) {
+        await applyText(args.file.id, args.content, "content", "agent");
+      }
+    } else {
+      // No collab doc exists for this file yet. Without the write-lock this
+      // function is now wrapped in, two concurrent callers could both
+      // observe hasCollabState()===false (doc creation is lazy) and both
+      // reach seedFromText — which only takes effect for the first caller —
+      // so a naive unconditional SQL write after this branch could clobber
+      // whichever writer "won" the seed with a loser's stale content (a lost
+      // update, not merely a no-op: exactly the "assets disappear/reappear"
+      // bug this fix closes). The lock serializes this whole critical
+      // section per file id, so by the time a second call reaches this
+      // branch it already observes hasCollabState()===true from the first
+      // call's seed and takes the applyText branch instead.
+      await seedFromText(args.file.id, args.content);
+    }
 
-  await db
-    .update(schema.designs)
-    .set({ updatedAt })
-    .where(eq(schema.designs.id, args.designId));
+    // Persist whatever the collab layer actually holds now, not the caller's
+    // args.content blindly — normally the same string, but this keeps SQL a
+    // true mirror of the converged live document under the lock rather than
+    // trusting args.content directly.
+    const authoritativeContent = await getText(args.file.id, "content");
 
-  return {
-    versionHash: sourceContentHash(args.content),
-    changed: true,
-    updatedAt,
-  };
+    await db
+      .update(schema.designFiles)
+      .set({ content: authoritativeContent, updatedAt })
+      .where(eq(schema.designFiles.id, args.file.id));
+
+    await db
+      .update(schema.designs)
+      .set({ updatedAt })
+      .where(eq(schema.designs.id, args.designId));
+
+    return {
+      versionHash: sourceContentHash(authoritativeContent),
+      changed: authoritativeContent !== current.content,
+      updatedAt,
+    };
+  });
 }

@@ -53,11 +53,12 @@ details live in `.agents/skills/`.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
-- For HubSpot deal cohorts, use structured `hubspot-deals` filters for the
-  cohort definition: `product` for the `products` field, `pipeline` for deal
-  pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
-  `closedDateTo` for close-date windows. `query` is full-text search across
-  deals and is not valid proof that a specific property matched.
+- For HubSpot deal cohorts, prefer structured `hubspot-deals` filters
+  (`product`, `pipeline`, `closedStatus`, `closedDateFrom`/`closedDateTo`) for
+  the common case. `query` is full-text search and is not proof a specific
+  property matched. When a cohort needs an arbitrary property filter, an
+  IN-search, or a join against another provider, use the generic
+  provider-access pattern below instead of asking for a new action.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
@@ -301,33 +302,28 @@ For analyses spanning 30+ accounts, deals, or calls:
 
 Do not try to hold 30+ full records in one context pass.
 
-### Corpus-First Provider Analysis
+### Provider Access & Dashboard Data Programs
 
-For broad provider searches, cross-source joins, mention counts, classifications,
-or questions where absence matters:
+One generic pattern covers arbitrary provider access, cross-source joins,
+corpus search, and turning any of that into a live dashboard panel — there is
+no separate per-vendor workflow:
 
-1. Inspect the provider catalog/docs when a canned action cannot express the
-   exact endpoint, filter, body, or pagination needed.
-2. Fetch the full relevant cohort, or an explicit bounded cohort, using
-   `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
-   the payload is large.
-3. Use `run-code` with `providerSearchAll` for broad mention/phrase/term/regex
-   searches across transcripts, messages, tickets, issues, notes, events, or
-   documents; it preserves provider item IDs, snippets, paths, page/item counts,
-   and pagination status. Use `providerFetch`, `appAction`, and
-   Resources-backed workspace helpers to join, classify, count, and aggregate
-   without flooding chat context. Write temporary files under `scratch/`; write
-   durable, user-facing files under a descriptive Resources folder only when
-   they should remain visible after the analysis.
-   Give durable corpus jobs descriptive, source-neutral names and preserve the
-   `jobId`; completed, quota-waiting, and failed jobs are surfaced in the app
-   with their coverage counts so the user can resume or inspect the exact run.
-4. Report coverage: source, filters, time window, row/record counts, joins,
-   failed/aborted pages, truncation, and any remaining gaps.
+1. `provider-api-catalog` / `provider-api-docs` to confirm the endpoint,
+   params, and auth (check `corpusRecipes` for broad body-text searches).
+2. `provider-api-request` for a one-off call, or `run-code`'s `providerFetch` /
+   `providerFetchAll` / `providerSearchAll` to fetch/join/filter/aggregate
+   server-side so big intermediates never enter chat context (`stageAs` +
+   `query-staged-dataset` for a large single-source pull).
+3. `save-data-program` to persist that run-code script as a live dashboard
+   panel feed: it dry-runs before saving, the panel binds with
+   `source: "program"`, and refresh policy (ttl/manual/background) lives on
+   the program — the agent does not re-run it per view.
+4. Report coverage: source, filters, time window, row counts, joins,
+   failed/aborted pages, truncation, and remaining gaps. Never turn sampled or
+   truncated results into a confident "none found" or exhaustive conclusion.
 
-Never turn sampled records, default limits, truncated excerpts, or aborted tool
-calls into a confident "none found", "all records", or exhaustive conclusion.
-Recover coverage first, or answer as explicitly partial.
+See the `provider-api` and `data-programs` skills for the full API surface,
+caching model, and a worked HubSpot x Pylon join example.
 
 ### Learnings Flywheel
 
@@ -361,6 +357,9 @@ Read the relevant skill before deeper work:
 - `prometheus` for metrics queries and incident investigation pattern.
 - `actions` for the shared provider API pattern when a first-class action is too
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
+- `data-programs` for turning a run-code script into a stored, refreshable
+  dashboard data source: the `emit(rows, schema)` contract, caching/refresh
+  model, limits, and the Risk Meeting worked example.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
 - `analysis-workspace` for large-scale multi-source analyses: Resources-backed

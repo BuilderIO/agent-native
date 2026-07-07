@@ -221,6 +221,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "automations", labelKey: "automations", slug: "automations" },
       { id: "extensions", labelKey: "extensions", slug: "extensions" },
       {
+        id: "data-programs",
+        labelKey: "dataPrograms",
+        slug: "data-programs",
+      },
+      {
         id: "multi-app-workspace",
         labelKey: "multiAppWorkspaces",
         slug: "multi-app-workspace",

@@ -1,17 +1,30 @@
 /**
  * Responsive-aware Tailwind class model for the Design Studio (§6.4).
  *
- * The canvas is mobile-first: the base (unprefixed) class is what renders on
- * the narrowest breakpoint; each larger breakpoint layers overrides upward,
- * matching Tailwind's min-width cascade.
+ * Two cascades coexist in one className:
  *
- * Frame widths snap to Tailwind's canonical breakpoint thresholds:
- *   < 640  → base (unprefixed)
- *   640–767 → sm:
- *   768–1023 → md:
- *   1024–1279 → lg:
- *   1280–1535 → xl:
- *   ≥ 1536  → 2xl:
+ * 1. **Mobile-first min-width prefixes** (`sm:`/`md:`/`lg:`/`xl:`/`2xl:`) —
+ *    Tailwind's canonical cascade. The base (unprefixed) class renders on the
+ *    narrowest viewport; each larger breakpoint layers overrides upward.
+ *    Frame widths snap to Tailwind's canonical thresholds:
+ *      < 640  → base (unprefixed)
+ *      640–767 → sm:
+ *      768–1023 → md:
+ *      1024–1279 → lg:
+ *      1280–1535 → xl:
+ *      ≥ 1536  → 2xl:
+ *
+ * 2. **Framer-style desktop-down max-width scopes** (`max-[809px]:` arbitrary
+ *    variants) — the breakpoint-bar editing model. The PRIMARY frame is the
+ *    base: unprefixed classes cascade down to every narrower breakpoint
+ *    unless a narrower frame writes a `max-[<bound>px]:` override, which
+ *    applies at that width range and below. The bound is derived from the
+ *    next-wider frame in the design's breakpoint set (Framer semantics) — see
+ *    `breakpointUpperBoundPx`.
+ *
+ * Max-width-scoped tokens are OPAQUE to the legacy prefix helpers
+ * (`parseClassGroups` / `setPropertyClass` / …) so the two cascades never
+ * clobber each other; use the `*MaxWidth*` helpers for the scoped layer.
  *
  * All helpers are pure (no DB, no DOM, no side-effects).
  */
@@ -75,6 +88,27 @@ const ALL_PREFIXES: ReadonlyArray<TailwindBreakpointPrefix> = [
 /** Regex that matches a responsive prefix at the start of a class token. */
 const PREFIX_RE = /^(2xl|xl|lg|md|sm):/;
 
+/**
+ * Regex that matches a Framer-style max-width arbitrary variant at the start
+ * of a class token (e.g. `"max-[809px]:text-sm"`).
+ */
+const MAX_WIDTH_VARIANT_RE = /^max-\[(\d+)px\]:/;
+
+/**
+ * Tailwind's core max-* variants and the inclusive pixel bound each applies
+ * below (max-md: compiles to `@media not all and (min-width: 768px)`, i.e.
+ * effective at widths ≤ 767).
+ */
+const CORE_MAX_VARIANT_BOUNDS: Readonly<Record<string, number>> = {
+  "max-sm": 639,
+  "max-md": 767,
+  "max-lg": 1023,
+  "max-xl": 1279,
+  "max-2xl": 1535,
+};
+
+const CORE_MAX_VARIANT_RE = /^max-(2xl|xl|lg|md|sm):/;
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -114,6 +148,11 @@ export function parseClassGroups(className: string): BreakpointClassGroups {
 
   const tokens = className.trim().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
+    // Max-width-scoped tokens belong to the desktop-down cascade — they are
+    // NOT base values and must not pollute the min-width groups (a
+    // `max-[809px]:text-sm` token is an override below 810px, not the base
+    // font size). They are handled by the `*MaxWidth*` helpers instead.
+    if (parseMaxWidthClassToken(token)) continue;
     const { prefix } = parseClassToken(token);
     groups[prefix].push(token);
   }
@@ -337,6 +376,11 @@ export function setPropertyClass(
   const next: string[] = [];
 
   for (const token of tokens) {
+    // Max-width-scoped tokens are opaque to the min-width prefix cascade.
+    if (parseMaxWidthClassToken(token)) {
+      next.push(token);
+      continue;
+    }
     const parsed = parseClassToken(token);
     if (parsed.prefix === prefix && utilityStem(parsed.utility) === stem) {
       if (!replaced) {
@@ -372,6 +416,8 @@ export function removePropertyClass(
   const tokens = className.trim().split(/\s+/).filter(Boolean);
   return tokens
     .filter((token) => {
+      // Max-width-scoped tokens are opaque to the min-width prefix cascade.
+      if (parseMaxWidthClassToken(token)) return true;
       const parsed = parseClassToken(token);
       return !(
         parsed.prefix === prefix && utilityStem(parsed.utility) === stem
@@ -449,4 +495,396 @@ export function resetToBase(
 ): string {
   if (prefix === "base") return className;
   return removePropertyClass(className, prefix, stem);
+}
+
+// ---------------------------------------------------------------------------
+// Framer-style desktop-down max-width scopes (§6.4 breakpoint bar)
+// ---------------------------------------------------------------------------
+
+/** A parsed max-width-scoped class token (e.g. `"max-[809px]:text-sm"`). */
+export interface ParsedMaxWidthClassToken {
+  /** Original token string. */
+  raw: string;
+  /** Inclusive upper viewport-width bound in pixels the utility applies at. */
+  boundPx: number;
+  /** The utility after the variant (e.g. `"text-sm"`). */
+  utility: string;
+}
+
+/**
+ * Parse a max-width-scoped token. Accepts arbitrary `max-[NNNpx]:` variants
+ * (the form this module writes) and Tailwind's core `max-sm:`…`max-2xl:`
+ * variants (mapped to their canonical bounds) so hand-authored documents are
+ * still recognised. Returns `null` for every other token, including plain
+ * `max-w-*` sizing utilities.
+ */
+export function parseMaxWidthClassToken(
+  token: string,
+): ParsedMaxWidthClassToken | null {
+  const arbitrary = MAX_WIDTH_VARIANT_RE.exec(token);
+  if (arbitrary) {
+    const boundPx = Number.parseInt(arbitrary[1], 10);
+    if (!Number.isFinite(boundPx) || boundPx <= 0) return null;
+    return { raw: token, boundPx, utility: token.slice(arbitrary[0].length) };
+  }
+  const core = CORE_MAX_VARIANT_RE.exec(token);
+  if (core) {
+    const boundPx = CORE_MAX_VARIANT_BOUNDS[`max-${core[1]}`];
+    if (boundPx === undefined) return null;
+    return { raw: token, boundPx, utility: token.slice(core[0].length) };
+  }
+  return null;
+}
+
+/**
+ * Build a max-width-scoped class token: `maxWidthClassToken(809, "text-sm")`
+ * → `"max-[809px]:text-sm"`. Tailwind's arbitrary-variant JIT compiles this
+ * to `@media (max-width: 809px) { … }`.
+ */
+export function maxWidthClassToken(boundPx: number, utility: string): string {
+  return `max-[${Math.round(boundPx)}px]:${utility}`;
+}
+
+/**
+ * Return all max-width-scoped tokens for `stem` at exactly `boundPx`.
+ */
+export function getMaxWidthPropertyClasses(
+  className: string,
+  boundPx: number,
+  stem: string,
+): string[] {
+  return className
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => {
+      const parsed = parseMaxWidthClassToken(token);
+      return (
+        parsed !== null &&
+        parsed.boundPx === boundPx &&
+        utilityStem(parsed.utility) === stem
+      );
+    });
+}
+
+/**
+ * Set the utility for its property stem at the `boundPx` max-width scope,
+ * replacing any existing same-stem token at the SAME bound and leaving every
+ * other token (base, min-width prefixed, other bounds) untouched.
+ */
+export function setMaxWidthPropertyClass(
+  className: string,
+  boundPx: number,
+  utility: string,
+): string {
+  const stem = utilityStem(utility);
+  const newToken = maxWidthClassToken(boundPx, utility);
+  const tokens = className.trim().split(/\s+/).filter(Boolean);
+  let replaced = false;
+  const next: string[] = [];
+
+  for (const token of tokens) {
+    const parsed = parseMaxWidthClassToken(token);
+    if (
+      parsed !== null &&
+      parsed.boundPx === boundPx &&
+      utilityStem(parsed.utility) === stem
+    ) {
+      if (!replaced) {
+        next.push(newToken);
+        replaced = true;
+      }
+      // drop duplicate same-stem tokens at the same bound
+    } else {
+      next.push(token);
+    }
+  }
+
+  if (!replaced) next.push(newToken);
+  return next.join(" ");
+}
+
+/**
+ * Remove all max-width-scoped tokens for `stem` at exactly `boundPx`,
+ * falling back to the base value (desktop-down cascade).
+ */
+export function removeMaxWidthPropertyClass(
+  className: string,
+  boundPx: number,
+  stem: string,
+): string {
+  return className
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => {
+      const parsed = parseMaxWidthClassToken(token);
+      return !(
+        parsed !== null &&
+        parsed.boundPx === boundPx &&
+        utilityStem(parsed.utility) === stem
+      );
+    })
+    .join(" ");
+}
+
+/**
+ * All max-width-scoped overrides for `stem` in `className`, sorted widest
+ * bound first (the CSS emission / cascade order).
+ */
+export function maxWidthOverridesForStem(
+  className: string,
+  stem: string,
+): Array<{ boundPx: number; utility: string; token: string }> {
+  const overrides: Array<{ boundPx: number; utility: string; token: string }> =
+    [];
+  for (const token of className.trim().split(/\s+/).filter(Boolean)) {
+    const parsed = parseMaxWidthClassToken(token);
+    if (parsed && utilityStem(parsed.utility) === stem) {
+      overrides.push({
+        boundPx: parsed.boundPx,
+        utility: parsed.utility,
+        token,
+      });
+    }
+  }
+  return overrides.sort((a, b) => b.boundPx - a.boundPx);
+}
+
+/**
+ * Framer-style scope bound for editing at `activeWidthPx`.
+ *
+ * A breakpoint's overrides apply from just below the NEXT-WIDER frame down
+ * to zero (narrower breakpoints layer their own overrides on top). The bound
+ * is therefore `min(width of every wider frame, base width) - 1`.
+ *
+ * Returns `null` when there is no wider frame — the active frame IS the
+ * widest context, so edits belong to the base (unscoped) layer.
+ *
+ * @example
+ * // breakpoints 390 / 810, primary frame 1280
+ * breakpointUpperBoundPx([390, 810], 810, 1280) // → 1279
+ * breakpointUpperBoundPx([390, 810], 390, 1280) // → 809
+ * breakpointUpperBoundPx([390, 810], 1280, 1280) // → null (base)
+ */
+export function breakpointUpperBoundPx(
+  breakpointWidths: readonly number[],
+  activeWidthPx: number,
+  baseWidthPx?: number | null,
+): number | null {
+  const candidates = breakpointWidths.filter(
+    (width) => Number.isFinite(width) && width > activeWidthPx,
+  );
+  if (
+    baseWidthPx != null &&
+    Number.isFinite(baseWidthPx) &&
+    baseWidthPx > activeWidthPx
+  ) {
+    candidates.push(baseWidthPx);
+  }
+  if (candidates.length === 0) return null;
+  return Math.round(Math.min(...candidates)) - 1;
+}
+
+// ---------------------------------------------------------------------------
+// Class-vs-media write decision (single write path)
+// ---------------------------------------------------------------------------
+
+/**
+ * CSS property → the Tailwind utility stems that may express it. Shared by
+ * the inspector and the apply-visual-edit action so both derive the SAME
+ * class-vs-media decision for a given (property, value) pair.
+ */
+const CSS_PROPERTY_UTILITY_STEMS: Readonly<Record<string, string[]>> = {
+  color: ["text-color"],
+  "background-color": ["background-color"],
+  background: ["background-color", "background-image"],
+  "font-size": ["font-size"],
+  "font-weight": ["font-weight"],
+  "font-family": ["font-family"],
+  "text-align": ["text-align"],
+  display: ["display"],
+  position: ["position"],
+  width: ["w"],
+  height: ["h"],
+  opacity: ["opacity"],
+  "border-radius": ["rounded"],
+  padding: ["p"],
+  "padding-left": ["px", "pl"],
+  "padding-right": ["px", "pr"],
+  "padding-top": ["py", "pt"],
+  "padding-bottom": ["py", "pb"],
+  margin: ["m"],
+  "margin-left": ["mx", "ml"],
+  "margin-right": ["mx", "mr"],
+  "margin-top": ["my", "mt"],
+  "margin-bottom": ["my", "mb"],
+  gap: ["gap"],
+  "column-gap": ["gap-x"],
+  "row-gap": ["gap-y"],
+};
+
+/** Convert a camelCase CSS property name to kebab-case. */
+export function normalizeCssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+/** Utility stems that may express the given CSS property (kebab or camel). */
+export function utilityStemsForCssProperty(property: string): string[] {
+  const normalized = normalizeCssPropertyName(property);
+  return CSS_PROPERTY_UTILITY_STEMS[normalized] ?? [normalized];
+}
+
+/**
+ * Heuristic: does `value` look like a single Tailwind utility token rather
+ * than a raw CSS value? Rejects whitespace, declarations, and obvious CSS
+ * function/color syntax.
+ */
+export function looksLikeTailwindUtility(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (/[;{}]/.test(trimmed) || /\/\*/.test(trimmed)) return false;
+  if (/^(?:#|rgb\(|rgba\(|hsl\(|hsla\(|var\(|calc\()/i.test(trimmed)) {
+    return false;
+  }
+  if (trimmed.includes(":")) return false;
+  return /^[!-]?[a-z0-9][a-z0-9[\]()./%_-]*$/i.test(trimmed);
+}
+
+/**
+ * True when `value` is a Tailwind utility whose stem actually expresses the
+ * given CSS property — the gate for writing a breakpoint override as a
+ * responsive class instead of a managed `@media` rule.
+ */
+export function responsiveUtilityMatchesStyleProperty(
+  property: string,
+  value: string,
+): boolean {
+  if (!looksLikeTailwindUtility(value)) return false;
+  const normalizedProperty = normalizeCssPropertyName(property);
+  const stem = utilityStem(value.trim());
+  const allowed = CSS_PROPERTY_UTILITY_STEMS[normalizedProperty];
+  return allowed ? allowed.includes(stem) : stem === normalizedProperty;
+}
+
+/** How a single (property, value) edit should be persisted for a scope. */
+export type BreakpointStyleWritePlan =
+  | {
+      /** No wider frame exists — write to the base (unscoped) layer. */
+      mode: "base";
+    }
+  | {
+      /** The value is a Tailwind utility — write a max-width-scoped class. */
+      mode: "class";
+      boundPx: number;
+      utility: string;
+      token: string;
+    }
+  | {
+      /**
+       * The value can't be a utility class (raw CSS value, e.g. an exact px
+       * position from a canvas drag) — write a rule into the managed
+       * `<style data-agent-native-breakpoints>` block.
+       */
+      mode: "media";
+      maxWidthPx: number;
+      property: string;
+      value: string;
+    };
+
+/**
+ * THE single write-path decision for breakpoint-scoped style edits: given a
+ * CSS property, its new value, and the active scope's upper bound (from
+ * `breakpointUpperBoundPx`), decide whether the edit is a base write, a
+ * responsive utility class, or a managed `@media` rule.
+ */
+export function planBreakpointStyleWrite(args: {
+  property: string;
+  value: string;
+  upperBoundPx: number | null;
+}): BreakpointStyleWritePlan {
+  const { property, value, upperBoundPx } = args;
+  if (upperBoundPx == null) return { mode: "base" };
+  const trimmed = value.trim();
+  if (responsiveUtilityMatchesStyleProperty(property, trimmed)) {
+    return {
+      mode: "class",
+      boundPx: upperBoundPx,
+      utility: trimmed,
+      token: maxWidthClassToken(upperBoundPx, trimmed),
+    };
+  }
+  return {
+    mode: "media",
+    maxWidthPx: upperBoundPx,
+    property: normalizeCssPropertyName(property),
+    value: trimmed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cascade resolution (inspector / indicator support)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve which utility for `stem` is effective at `viewportWidthPx`,
+ * following both cascades the way the rendered CSS does:
+ *
+ * 1. Among max-width scopes whose bound ≥ width, the NARROWEST bound wins
+ *    (managed emission order puts narrower ranges later in the sheet).
+ * 2. Otherwise the largest satisfied min-width prefix wins (Tailwind
+ *    mobile-first).
+ * 3. Otherwise the base token.
+ *
+ * Heuristic for indicators and agent inspection — the browser's real cascade
+ * also involves stylesheet order for hand-authored documents.
+ */
+export function effectiveUtilityAtWidth(
+  className: string,
+  stem: string,
+  viewportWidthPx: number,
+): {
+  utility: string;
+  source: "max-width" | "prefix" | "base";
+  boundPx?: number;
+  prefix?: TailwindBreakpointPrefix;
+} | null {
+  const maxMatches = maxWidthOverridesForStem(className, stem).filter(
+    (override) => override.boundPx >= viewportWidthPx,
+  );
+  if (maxMatches.length > 0) {
+    // Narrowest applicable bound wins.
+    const winner = maxMatches[maxMatches.length - 1];
+    return {
+      utility: winner.utility,
+      source: "max-width",
+      boundPx: winner.boundPx,
+    };
+  }
+
+  const groups = parseClassGroups(className);
+  const satisfied = BREAKPOINT_MIN_WIDTHS.filter(
+    ({ minPx }) => viewportWidthPx >= minPx,
+  );
+  for (const { prefix } of satisfied) {
+    const tokens = groups[prefix].filter((token) => {
+      const { utility } = parseClassToken(token);
+      return utilityStem(utility) === stem;
+    });
+    if (tokens.length > 0) {
+      const { utility } = parseClassToken(tokens[tokens.length - 1]);
+      return { utility, source: "prefix", prefix };
+    }
+  }
+
+  const baseTokens = groups.base.filter(
+    (token) => utilityStem(parseClassToken(token).utility) === stem,
+  );
+  if (baseTokens.length > 0) {
+    return {
+      utility: baseTokens[baseTokens.length - 1],
+      source: "base",
+    };
+  }
+  return null;
 }

@@ -26,9 +26,14 @@ function accessContext(ctx?: AccessCtx) {
 }
 
 export async function requireLibrary(id: string, ctx?: AccessCtx) {
+  const access = await requireLibraryAccess(id, ctx);
+  return access.resource;
+}
+
+export async function requireLibraryAccess(id: string, ctx?: AccessCtx) {
   const access = await resolveAccess("asset-library", id, accessContext(ctx));
   if (!access) throw new Error("Asset library not found or not accessible.");
-  return access.resource;
+  return access;
 }
 
 export async function requireGenerationSessionInLibrary(
@@ -103,6 +108,7 @@ export function serializeLibrary(row: any) {
     canonicalLogoAssetId: row.canonicalLogoAssetId,
     coverAssetId: row.coverAssetId,
     visibility: row.visibility,
+    accessRole: typeof row.accessRole === "string" ? row.accessRole : undefined,
     archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -362,6 +368,7 @@ export function serializeAsset(
       row.mediaType ?? (row.mimeType?.startsWith("video/") ? "video" : "image"),
     role: row.role,
     status: row.status,
+    category: metadata.category ?? null,
     title: row.title,
     description: row.description ?? metadata.description ?? null,
     altText: row.altText,

@@ -1443,6 +1443,7 @@ const zhCN = {
     recurringJobs: "定期任务",
     automations: "自动化",
     extensions: "扩展",
+    dataPrograms: "数据程序",
     multiAppWorkspaces: "多应用工作区",
     onboardingApiKeys: "入门与 API 密钥",
     messaging: "消息（Slack、Email...）",

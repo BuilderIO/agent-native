@@ -26,9 +26,6 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import {
   accessFilter,
@@ -40,6 +37,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import {
   applyVisualEdit,
@@ -57,6 +58,7 @@ import {
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,34 +124,46 @@ export function applyRootAttributeEdit(
 async function persistEdit(file: {
   id: string;
   designId: string;
+  filename: string;
   content: string;
+  expectedVersionHash: string;
 }): Promise<string> {
   await assertAccess("design", file.designId, "editor");
-  const db = getDb();
-  const now = new Date().toISOString();
 
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+    // Pass through the versionHash of the ACTUAL base the transform used
+    // (captured by the caller in run() at the same read as `html`, BEFORE
+    // applyRootAttributeEdit/applyVisualEdit computed `patchedContent` from
+    // it) — not a fresh re-read of the (already-transformed) content here.
+    // Re-reading the live/SQL state at persist time and hashing THAT would
+    // always match itself trivially, proving nothing about whether a sibling
+    // write landed between the transform's base read and this persist call.
+    // writeInlineSourceFile re-reads the live text immediately before its own
+    // applyText/DB write and rejects it if it no longer matches this hash —
+    // closing the race window (the same stale-diff-base bug fixed for
+    // insert-design-native-asset.ts / insert-asset.ts / apply-visual-edit.ts).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
+    const result = await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: file.expectedVersionHash,
+    });
 
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    return result.updatedAt;
   } finally {
     agentLeaveDocument(file.id);
   }
-
-  return now;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -316,6 +330,11 @@ export default defineAction({
       typeof source?.currentContent === "string"
         ? source.currentContent
         : (file.content ?? "");
+    // Capture the hash of this EXACT base — the same string the transform
+    // below reads from — so persistEdit can pass it through as
+    // expectedVersionHash. A re-read at persist time would hash whatever is
+    // live "then" instead of proving this base is still current.
+    const baseVersionHash = sourceContentHash(html);
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -388,7 +407,9 @@ export default defineAction({
       const updatedAt = await persistEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
         content: patchedContent,
+        expectedVersionHash: baseVersionHash,
       });
 
       agentUpdateSelection(file.id, {

@@ -24,8 +24,8 @@ function requestContentLength(event: Parameters<typeof getRequestHeader>[0]) {
 
 /**
  * Builder-indexing endpoint: accepts a `.fig` upload (multipart field `file`)
- * and starts Builder's design-system indexing pipeline. The app does not decode
- * Figma files locally; Builder owns extraction, generated docs, and the
+ * and starts Builder's design-system indexing pipeline. The app does not
+ * process `.fig` files locally; Builder owns the generated docs and the
  * asynchronous indexing job.
  */
 export const indexDesignSystemWithBuilder = defineEventHandler(

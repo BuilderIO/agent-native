@@ -72,6 +72,14 @@ export interface ResizeSnapOptions extends CanvasSnapOptions {
    *  sibling edges. Pass the frame's aspect ratio (width / height) *before*
    *  this resize's own aspect-preserving delta was applied. */
   preserveAspectRatio?: boolean;
+  /** Minimum width/height the snapped result is clamped to, matching the
+   *  same per-call minimum passed to the non-snap resize path (e.g.
+   *  `resizeFrameFromDelta`'s `minWidth`/`minHeight`). Defaults to the
+   *  120px screen-frame minimum so existing callers that don't pass these
+   *  are unaffected — pass the small per-primitive minimum (e.g. 1-8px) so
+   *  a snap near a sibling edge doesn't force-inflate a small shape. */
+  minWidth?: number;
+  minHeight?: number;
 }
 
 export interface ResizeFrameOptions {
@@ -240,7 +248,7 @@ export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
  * for this fix.
  */
 export const DEFAULT_CANVAS_MIN_ZOOM = 2;
-export const DEFAULT_CANVAS_MAX_ZOOM = 800;
+export const DEFAULT_CANVAS_MAX_ZOOM = 25600;
 
 export function screenToCanvasPoint(
   point: CanvasPoint,
@@ -871,19 +879,60 @@ export function resizeFrameFromDelta(
     }
   }
 
-  const preClampWidth = width;
-  const preClampHeight = height;
-  width = Math.max(options.minWidth ?? MIN_CANVAS_FRAME_WIDTH, width);
-  height = Math.max(options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT, height);
+  const minWidth = options.minWidth ?? MIN_CANVAS_FRAME_WIDTH;
+  const minHeight = options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT;
+  // Real Figma flips a shape when a resize handle is dragged past its
+  // opposite edge instead of pinning the size at the minimum: the handle's
+  // role effectively swaps (e.g. dragging "e" left past the frame's own west
+  // edge starts growing the frame leftward-of-that-point, i.e. what visually
+  // reads as the west edge). This only makes sense for objects whose minimum
+  // is a small "never fully collapse" floor (draft shapes/text/frames — the
+  // 1-8px minimums the primitive-resize call sites pass); callers relying on
+  // the 120px screen-frame default keep today's pin-at-minimum clamp exactly,
+  // since that default represents a true hard floor a frame shouldn't shrink
+  // below OR flip past.
+  const allowFlipWidth = minWidth < MIN_CANVAS_FRAME_WIDTH;
+  const allowFlipHeight = minHeight < MIN_CANVAS_FRAME_HEIGHT;
+
+  // Raw signed sizes (post aspect-ratio derivation, pre min-clamp) — negative
+  // means the drag crossed past the opposite edge/anchor (for a directly
+  // dragged axis), or that a directly dragged axis on the OTHER axis flipped
+  // and this axis's aspect-derived magnitude inherited its sign. Only a
+  // directly dragged axis ("affects*") uses the anchor-swap position formula
+  // below; an axis the handle doesn't touch (derived purely via
+  // preserveAspectRatio) and a `resizeFromCenter` drag (which keeps the
+  // CENTER fixed rather than an opposite edge — mirroring around the anchor
+  // point, matching Figma's alt-resize) both always resolve through the
+  // existing centered-growth formula in getResizedAxisStart — but that
+  // formula (and the min-clamp below) still need the axis's MAGNITUDE, not
+  // its possibly-negative derived value, whenever this axis's own minimum is
+  // small enough to allow a flip at all.
+  const rawWidth = width;
+  const rawHeight = height;
+  const widthMagnitude = allowFlipWidth ? Math.abs(rawWidth) : rawWidth;
+  const heightMagnitude = allowFlipHeight ? Math.abs(rawHeight) : rawHeight;
+  const widthFlipped =
+    allowFlipWidth &&
+    affectsHorizontal &&
+    !options.resizeFromCenter &&
+    rawWidth < 0;
+  const heightFlipped =
+    allowFlipHeight &&
+    affectsVertical &&
+    !options.resizeFromCenter &&
+    rawHeight < 0;
+
+  width = Math.max(minWidth, widthMagnitude);
+  height = Math.max(minHeight, heightMagnitude);
 
   if (options.preserveAspectRatio) {
-    const widthClamped = width > preClampWidth;
-    const heightClamped = height > preClampHeight;
-    if (widthClamped && !heightClamped) {
+    const widthAtMin = width > widthMagnitude;
+    const heightAtMin = height > heightMagnitude;
+    if (widthAtMin && !heightAtMin) {
       height = width / ratio;
-    } else if (heightClamped && !widthClamped) {
+    } else if (heightAtMin && !widthAtMin) {
       width = height * ratio;
-    } else if (widthClamped && heightClamped) {
+    } else if (widthAtMin && heightAtMin) {
       // Both axes hit their minimum; width wins as the primary authority
       height = width / ratio;
     }
@@ -891,24 +940,40 @@ export function resizeFrameFromDelta(
 
   return {
     ...origin,
-    x: getResizedAxisStart(
-      origin.x,
-      origin.width,
-      width,
-      handleAffectsWest(handle),
-      handleAffectsEast(handle),
-      options.resizeFromCenter ||
-        (!affectsHorizontal && width !== origin.width),
-    ),
-    y: getResizedAxisStart(
-      origin.y,
-      origin.height,
-      height,
-      handleAffectsNorth(handle),
-      handleAffectsSouth(handle),
-      options.resizeFromCenter ||
-        (!affectsVertical && height !== origin.height),
-    ),
+    x: widthFlipped
+      ? getFlippedAxisStart(
+          origin.x,
+          origin.width,
+          rawWidth,
+          width,
+          handleAffectsWest(handle),
+        )
+      : getResizedAxisStart(
+          origin.x,
+          origin.width,
+          width,
+          handleAffectsWest(handle),
+          handleAffectsEast(handle),
+          options.resizeFromCenter ||
+            (!affectsHorizontal && width !== origin.width),
+        ),
+    y: heightFlipped
+      ? getFlippedAxisStart(
+          origin.y,
+          origin.height,
+          rawHeight,
+          height,
+          handleAffectsNorth(handle),
+        )
+      : getResizedAxisStart(
+          origin.y,
+          origin.height,
+          height,
+          handleAffectsNorth(handle),
+          handleAffectsSouth(handle),
+          options.resizeFromCenter ||
+            (!affectsVertical && height !== origin.height),
+        ),
     width,
     height,
   };
@@ -1307,6 +1372,10 @@ export function computeResizeSnap(
   }
 
   const threshold = getCanvasSnapThreshold(options);
+  const minSize: MinFrameSize = {
+    minWidth: options.minWidth ?? MIN_CANVAS_FRAME_WIDTH,
+    minHeight: options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT,
+  };
 
   if (options.preserveAspectRatio) {
     return computeAspectPreservingResizeSnap(
@@ -1314,6 +1383,7 @@ export function computeResizeSnap(
       stationary,
       handle,
       threshold,
+      minSize,
     );
   }
 
@@ -1334,6 +1404,7 @@ export function computeResizeSnap(
         handle,
         "x",
         candidate.offset,
+        minSize,
       );
       guides.push(candidate.guide);
     }
@@ -1353,12 +1424,198 @@ export function computeResizeSnap(
         handle,
         "y",
         candidate.offset,
+        minSize,
       );
       guides.push(candidate.guide);
     }
   }
 
   return { frame: nextFrame, guides };
+}
+
+// ---------------------------------------------------------------------------
+// 3D transform (rotateX/rotateY/rotateZ/perspective) parse + compose
+// ---------------------------------------------------------------------------
+//
+// These helpers operate on an element's authored CSS `transform` string (the
+// inspector's inline-style domain), not the frame-gesture rotation math
+// above — kept in this file per the inspector's convention of pushing pure
+// transform math out of EditPanel.tsx for testability.
+//
+// Sign convention: unlike Figma's plugin-API `rotation` (counterclockwise-
+// positive), our canonical model is real CSS, so these helpers keep the
+// standard CSS convention as-is (positive `rotateZ(deg)`/`rotateX(deg)`/
+// `rotateY(deg)` exactly as the browser interprets them) — no sign flip is
+// applied here. See EditPanel.tsx's `mergeRotationValue`/`ROTATE_FN_PATTERN`
+// for the existing (unflipped) 2D rotate() convention this extends.
+
+/** The 3D rotation + perspective parts of a composed `transform` value. All
+ *  angles are plain CSS degrees (browser convention, not Figma's). */
+export interface Transform3DParts {
+  rotateX: number;
+  rotateY: number;
+  rotateZ: number;
+  /** `perspective(Npx)` distance in px. 0 means "no perspective" (omitted
+   *  from the composed string). */
+  perspective: number;
+}
+
+const TRANSFORM_3D_ALL_ZERO: Transform3DParts = {
+  rotateX: 0,
+  rotateY: 0,
+  rotateZ: 0,
+  perspective: 0,
+};
+
+/** Matches a single `fn(value<unit>)` token, e.g. `rotateX(30deg)` or
+ *  `perspective(800px)`. Case-insensitive to tolerate authored CSS. */
+function matchTransformFn(
+  transform: string,
+  fnName: string,
+): { value: number; unit: string } | null {
+  const pattern = new RegExp(
+    `${fnName}\\(\\s*([+-]?[\\d.]+(?:e[+-]?\\d+)?)([a-z%]*)\\s*\\)`,
+    "i",
+  );
+  const match = transform.match(pattern);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  return { value, unit: (match[2] || "").toLowerCase() };
+}
+
+function angleFnToDegrees(transform: string, fnName: string): number | null {
+  const found = matchTransformFn(transform, fnName);
+  if (!found) return null;
+  const { value, unit } = found;
+  if (unit === "" || unit === "deg") return value;
+  if (unit === "rad") return value * (180 / Math.PI);
+  if (unit === "turn") return value * 360;
+  if (unit === "grad") return value * 0.9;
+  return null;
+}
+
+/**
+ * Parses the 3D rotation + perspective portion of a CSS `transform` string
+ * into plain degree/px numbers, ignoring any translate()/scale()/skew()
+ * parts that may also be present (those are preserved separately by the
+ * caller — see `composeTransform3D`).
+ *
+ * Returns `null` — rather than a best-effort guess — when the transform
+ * contains a `matrix()`/`matrix3d()`/`rotate3d()` composite or any other
+ * token this parser doesn't recognize, so callers can show a "custom
+ * transform" state instead of silently misreporting angles (matches how
+ * the 2D rotation field's `parseRotationValue` falls back to reading the
+ * resolved matrix for *display*, but 3D composition from an arbitrary
+ * matrix is not safely invertible into independent X/Y/Z/perspective
+ * fields, so this parser intentionally does not attempt it).
+ */
+export function parseTransform3DParts(
+  transform: string | undefined,
+): Transform3DParts | null {
+  const value = transform?.trim();
+  if (!value || value === "none") return { ...TRANSFORM_3D_ALL_ZERO };
+
+  if (/matrix3d\(|matrix\(|rotate3d\(/i.test(value)) return null;
+
+  const rotateX = angleFnToDegrees(value, "rotateX") ?? 0;
+  const rotateY = angleFnToDegrees(value, "rotateY") ?? 0;
+  // A bare rotate()/rotateZ() are equivalent for a 2D Z-axis rotation.
+  const rotateZ =
+    angleFnToDegrees(value, "rotateZ") ??
+    angleFnToDegrees(value, "rotate") ??
+    0;
+
+  const perspectiveMatch = matchTransformFn(value, "perspective");
+  let perspective = 0;
+  if (perspectiveMatch) {
+    if (perspectiveMatch.unit !== "" && perspectiveMatch.unit !== "px") {
+      // Unrecognized perspective unit — bail to "custom" rather than guess.
+      return null;
+    }
+    perspective = perspectiveMatch.value;
+  }
+
+  return { rotateX, rotateY, rotateZ, perspective };
+}
+
+/**
+ * Composes a `transform` string from 3D rotation/perspective parts,
+ * preserving every non-rotation, non-perspective function already present
+ * (translate/scale/skew/etc.) in its original relative order, with the 3D
+ * chain appended in the fixed, documented order:
+ *
+ *   perspective(Npx) rotateX(Xdeg) rotateY(Ydeg) rotateZ(Zdeg) <rest>
+ *
+ * Order matters in CSS transforms (each function is applied to the
+ * coordinate space produced by the ones before it, reading left to right).
+ * `perspective()` must come first so it establishes the viewing distance
+ * before any rotation is applied; X then Y then Z is the common 3D-engine
+ * convention (e.g. Three.js's default Euler order) and is fixed here so
+ * round-tripping is stable — there is no Figma precedent to match since 3D
+ * transforms are unshipped there (see research-transforms3d.md).
+ *
+ * When `perspective` and both `rotateX`/`rotateY` are zero, this emits the
+ * plain 2D form (`rotateZ(Zdeg)` merged via the existing `rotate()` slot)
+ * with no `perspective()`/`rotateX()`/`rotateY()` tokens at all, so existing
+ * 2D-only designs round-trip through this helper with zero output churn.
+ * Callers that already have a 2D-only mergeRotationValue-style helper (see
+ * EditPanel.tsx) may prefer that path for the pure-2D case; this function
+ * supports it too so a single code path can serve both.
+ */
+export function composeTransform3D(
+  transform: string | undefined,
+  parts: Transform3DParts,
+): string {
+  const base = !transform || transform === "none" ? "" : transform;
+  // Strip any existing rotateX/rotateY/rotateZ/rotate/perspective/matrix3d
+  // tokens so we don't compound with stale ones; everything else (translate,
+  // scale, skew) is preserved as-is, in place.
+  const stripped = base
+    .replace(/perspective\([^)]*\)/gi, "")
+    .replace(/rotate[XYZxyz]?\([^)]*\)/gi, "")
+    .replace(/rotate3d\([^)]*\)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const rotateX = Number.isFinite(parts.rotateX) ? parts.rotateX : 0;
+  const rotateY = Number.isFinite(parts.rotateY) ? parts.rotateY : 0;
+  const rotateZ = Number.isFinite(parts.rotateZ) ? parts.rotateZ : 0;
+  const perspective =
+    Number.isFinite(parts.perspective) && parts.perspective > 0
+      ? parts.perspective
+      : 0;
+
+  const is3DActive = perspective > 0 || rotateX !== 0 || rotateY !== 0;
+
+  const chainTokens: string[] = [];
+  if (is3DActive) {
+    if (perspective > 0) chainTokens.push(`perspective(${perspective}px)`);
+    if (rotateX !== 0) chainTokens.push(`rotateX(${rotateX}deg)`);
+    if (rotateY !== 0) chainTokens.push(`rotateY(${rotateY}deg)`);
+    // Always include rotateZ once 3D is active (even at 0deg) so the fixed
+    // X/Y/Z order is unambiguous and stable to re-parse.
+    chainTokens.push(`rotateZ(${rotateZ}deg)`);
+  } else if (rotateZ !== 0) {
+    // Zero-churn 2D form: plain rotate(), matching the existing 2D field's
+    // `mergeRotationValue` output exactly.
+    chainTokens.push(`rotate(${rotateZ}deg)`);
+  }
+
+  if (chainTokens.length === 0) return stripped || "none";
+  const chain = chainTokens.join(" ");
+  return stripped ? `${chain} ${stripped}` : chain;
+}
+
+/**
+ * True when `transform` is 3D-active per `composeTransform3D`'s own
+ * definition (non-zero perspective, rotateX, or rotateY) — i.e. whether
+ * `transform-style: preserve-3d` / 3D inspector fields should be considered
+ * "on" for this element. Exported so EditPanel doesn't need to re-derive the
+ * same threshold independently.
+ */
+export function isTransform3DActive(parts: Transform3DParts): boolean {
+  return parts.perspective > 0 || parts.rotateX !== 0 || parts.rotateY !== 0;
 }
 
 /**
@@ -1374,6 +1631,7 @@ function computeAspectPreservingResizeSnap(
   stationary: FrameEntry[],
   handle: ResizeHandle,
   threshold: number,
+  minSize: MinFrameSize,
 ) {
   const ratio = frame.width / Math.max(1, frame.height);
   const xCandidate =
@@ -1403,6 +1661,7 @@ function computeAspectPreservingResizeSnap(
       handle,
       "x",
       xCandidate.offset,
+      minSize,
     );
     const nextHeight = snappedX.width / ratio;
     // Matches resizeFrameFromDelta's own convention: when a handle that
@@ -1430,6 +1689,7 @@ function computeAspectPreservingResizeSnap(
       handle,
       "y",
       yCandidate.offset,
+      minSize,
     );
     const nextWidth = snappedY.height * ratio;
     const rescaled = {
@@ -1464,6 +1724,44 @@ function getResizedAxisStart(
   if (fromCenter) return originStart + (originSize - nextSize) / 2;
   if (affectsStart) return originStart + originSize - nextSize;
   return originStart;
+}
+
+/**
+ * Flip-aware counterpart to `getResizedAxisStart` for a directly-dragged
+ * axis whose raw (pre-clamp, pre-abs) size went negative — i.e. the handle
+ * was dragged past its opposite edge/anchor. `rawSize` is the SIGNED size
+ * before the `Math.abs`/minimum clamp was applied; `nextSize` is the final
+ * (always positive) clamped size actually being used.
+ *
+ * The anchor is the edge the handle does NOT move: `affectsStart` (west/
+ * north) handles anchor the end edge (`originStart + originSize`);
+ * `affectsEnd` (east/south) handles anchor the start edge (`originStart`).
+ * The dragged edge's raw (possibly past-anchor) position is derived from the
+ * anchor and the raw signed size; the frame's new start is whichever of the
+ * two edges (anchor vs. dragged) is smaller, and `nextSize` (already
+ * `abs`+min-clamped) is used for the final width/height so a tiny overshoot
+ * still respects the caller's own minimum floor.
+ */
+function getFlippedAxisStart(
+  originStart: number,
+  originSize: number,
+  rawSize: number,
+  nextSize: number,
+  affectsStart: boolean,
+): number {
+  const anchor = affectsStart ? originStart + originSize : originStart;
+  const draggedEdge = affectsStart ? anchor - rawSize : anchor + rawSize;
+  const start = Math.min(anchor, draggedEdge);
+  // If the min-clamp floor pushed nextSize above the raw overshoot distance
+  // (e.g. rawSize is only slightly negative but nextSize floors up to the
+  // caller's minimum), keep the anchor fixed and extend the frame outward
+  // from it by the floored size instead of trusting the (too-small) raw
+  // dragged-edge position.
+  const rawSpan = Math.abs(draggedEdge - anchor);
+  if (nextSize > rawSpan) {
+    return anchor < draggedEdge ? anchor - nextSize : anchor;
+  }
+  return start;
 }
 
 function getGroupMinimumBounds(
@@ -1620,11 +1918,20 @@ function getResizeSnapCandidate(
   }, null);
 }
 
+interface MinFrameSize {
+  minWidth: number;
+  minHeight: number;
+}
+
 function applyResizeSnapOffset(
   frame: FrameGeometry,
   handle: ResizeHandle,
   axis: "x" | "y",
   offset: number,
+  minSize: MinFrameSize = {
+    minWidth: MIN_CANVAS_FRAME_WIDTH,
+    minHeight: MIN_CANVAS_FRAME_HEIGHT,
+  },
 ) {
   if (axis === "x") {
     return clampFrameSize(
@@ -1632,6 +1939,7 @@ function applyResizeSnapOffset(
         ? { ...frame, x: frame.x + offset, width: frame.width - offset }
         : { ...frame, width: frame.width + offset },
       handle,
+      minSize,
     );
   }
 
@@ -1640,22 +1948,33 @@ function applyResizeSnapOffset(
       ? { ...frame, y: frame.y + offset, height: frame.height - offset }
       : { ...frame, height: frame.height + offset },
     handle,
+    minSize,
   );
 }
 
-function clampFrameSize(frame: FrameGeometry, handle: ResizeHandle) {
+function clampFrameSize(
+  frame: FrameGeometry,
+  handle: ResizeHandle,
+  {
+    minWidth = MIN_CANVAS_FRAME_WIDTH,
+    minHeight = MIN_CANVAS_FRAME_HEIGHT,
+  }: {
+    minWidth?: number;
+    minHeight?: number;
+  } = {},
+) {
   let next = { ...frame };
-  if (next.width < MIN_CANVAS_FRAME_WIDTH) {
+  if (next.width < minWidth) {
     if (handleAffectsWest(handle)) {
-      next.x = next.x + next.width - MIN_CANVAS_FRAME_WIDTH;
+      next.x = next.x + next.width - minWidth;
     }
-    next.width = MIN_CANVAS_FRAME_WIDTH;
+    next.width = minWidth;
   }
-  if (next.height < MIN_CANVAS_FRAME_HEIGHT) {
+  if (next.height < minHeight) {
     if (handleAffectsNorth(handle)) {
-      next.y = next.y + next.height - MIN_CANVAS_FRAME_HEIGHT;
+      next.y = next.y + next.height - minHeight;
     }
-    next.height = MIN_CANVAS_FRAME_HEIGHT;
+    next.height = minHeight;
   }
   return next;
 }

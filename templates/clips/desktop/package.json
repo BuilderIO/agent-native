@@ -9,7 +9,7 @@
     "kill:installed": "pkill -x Clips 2>/dev/null; exit 0",
     "dev": "pnpm run check:prereqs && pnpm run kill:installed && tauri dev",
     "build": "vite build",
-    "build:tauri": "pnpm run check:prereqs && tauri build",
+    "build:tauri": "CLIPS_DESKTOP_LOCAL_BUILD=1 pnpm run check:prereqs && CLIPS_DESKTOP_LOCAL_BUILD=1 tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":false},\"plugins\":{\"updater\":{\"active\":false}}}' && node ./scripts/sign-macos-local.ts",
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build"

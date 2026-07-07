@@ -56,7 +56,7 @@ export default defineAction({
         getLibrary.run({ id: nav.libraryId }, ctx),
       );
       if (library) {
-        await Promise.all([
+        const [generationPresets] = await Promise.all([
           readPart("generationPresets", () =>
             listGenerationPresets.run(
               {
@@ -75,6 +75,13 @@ export default defineAction({
             ),
           ),
         ]);
+        if (nav?.presetId && generationPresets) {
+          const presets = Array.isArray((generationPresets as any).presets)
+            ? (generationPresets as any).presets
+            : [];
+          screen.generationPreset =
+            presets.find((preset: any) => preset.id === nav.presetId) ?? null;
+        }
       }
     }
     if (nav?.assetId) {

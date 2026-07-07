@@ -29,6 +29,7 @@ describe("DesignImportPanel", () => {
     );
     expect(source).not.toContain("paste here");
     expect(source).not.toContain("Paste Figma content here");
+    expect(source).not.toContain('id="fig-file-import"');
   });
 
   it("supports canvas-level Figma paste through the editor paste handler", () => {

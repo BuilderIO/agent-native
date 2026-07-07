@@ -17,6 +17,7 @@ import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -493,12 +494,16 @@ export default defineAction({
       const fileId = nanoid();
       const providedContent = variant.content?.trim();
       const initialSize = inferVariantSize(variant, prompt);
-      const content =
+      const rawContent =
         providedContent ||
         fallbackVariantContent(variant, index, prompt, initialSize);
       const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content })
+        ? inferVariantSize({ ...variant, content: rawContent })
         : initialSize;
+      // Stamp missing data-agent-native-node-id attributes before persisting
+      // so each variant screen is fully addressable by id-keyed editor
+      // operations as soon as it lands on the overview board.
+      const content = annotateScreenHtmlForPersist(rawContent, "html");
 
       await db.insert(schema.designFiles).values({
         id: fileId,

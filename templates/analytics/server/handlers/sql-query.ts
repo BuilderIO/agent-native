@@ -19,7 +19,7 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       setResponseStatus(event, 400);
       return {
         error:
-          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus'",
+          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program'",
       };
     }
 

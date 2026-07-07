@@ -1441,6 +1441,7 @@ const messages = {
     recurringJobs: "定期工作",
     automations: "自動化",
     extensions: "擴充功能",
+    dataPrograms: "資料程式",
     multiAppWorkspaces: "多應用工作區",
     onboardingApiKeys: "入門與 API 金鑰",
     messaging: "訊息（Slack、Email...）",

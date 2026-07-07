@@ -9,20 +9,34 @@
  *   { type: 'motion-load-tracks', tracks: Array<{
  *       targetNodeId: string,
  *       property: string,
- *       keyframes: Array<{ t: number, value: string, ease?: string }>
- *     }>, defaultEase?: string }
- *     Load (or replace) the track list. t ∈ [0, 1]. defaultEase is the
- *     timeline-level fallback easing applied to any keyframe that omits its
- *     own `ease` (mirrors the compiled stylesheet); defaults to "ease".
+ *       keyframes: Array<{ t: number, value: string, ease?: string }>,
+ *       delayMs?: number,      // track start offset within the timeline
+ *       durationMs?: number    // per-track span; omitted = whole timeline
+ *     }>, defaultEase?: string, durationMs?: number }
+ *     Load (or replace) the track list. Keyframe t ∈ [0, 1] is normalised to
+ *     the TRACK's own span. defaultEase is the timeline-level fallback easing
+ *     applied to any keyframe that omits its own `ease` (mirrors the compiled
+ *     stylesheet); defaults to "ease". durationMs is the timeline duration,
+ *     needed to map offset tracks; also refreshed by each motion-preview tick.
  *
  *   { type: 'motion-preview', t, durationMs }
- *     Seek all loaded tracks to normalised position t ∈ [0, 1] and apply
- *     interpolated CSS property values as inline styles on the matching
- *     [data-agent-native-node-id="…"] elements. Never writes to storage.
+ *     Seek all loaded tracks to normalised TIMELINE position t ∈ [0, 1] and
+ *     apply interpolated CSS property values as inline styles on the matching
+ *     [data-agent-native-node-id="…"] elements. Tracks with delayMs /
+ *     durationMs map the timeline time into their own span, clamping outside
+ *     it (animation-fill-mode: both semantics). Never writes to storage.
  *
  *   { type: 'motion-preview-clear' }
  *     Remove all motion-preview inline-style overrides and the in-memory
  *     track list. Called when the dock is closed or the timeline is discarded.
+ *
+ * Easing parity: per-segment easing reads the ease of the keyframe LEAVING
+ * each interval (CSS keyframe semantics — equivalently, Figma's easing INTO
+ * the next keyframe). Supported forms: CSS keywords, cubic-bezier(...),
+ * steps(...), CSS linear(...) stop lists, and real spring physics via
+ * spring(bounce[, settle]) tokens — keep the samplers in sync with
+ * shared/motion-easing.ts. Playback modes (loop/once/ping-pong) live in the
+ * MotionDock's rAF driver, which shapes the `t` values it sends here.
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -35,12 +49,19 @@
     targetNodeId: string;
     property: string;
     keyframes: Array<{ t: number; value: string; ease?: string }>;
+    delayMs?: number;
+    durationMs?: number;
   }> = [];
   // Timeline-level default easing sent alongside the tracks. Applied to any
   // keyframe that omits its own `ease`, matching the compiled stylesheet's
   // defaultEase fallback so scrub/playback preview equals the persisted CSS.
   // Falls back to "ease" when the loader doesn't provide one.
   var loadedDefaultEase = "ease";
+  // Timeline duration in ms, needed to map timeline time into the local span
+  // of tracks that carry delayMs / durationMs offsets. Provided by
+  // 'motion-load-tracks' and refreshed by every 'motion-preview' tick; when
+  // unknown, offset-free tracks still preview correctly (local t = t).
+  var loadedTimelineDurationMs: number | null = null;
   // Map of nodeId -> [property, ...] we have touched, for cleanup.
   var touchedProps: Record<string, string[]> = {};
   // Map of nodeId -> property -> original inline style value.
@@ -348,11 +369,129 @@
         );
       }
     }
-    // Spring approximation: gentle overshoot bezier.
+    // Real spring physics: spring(bounce[, settle]) tokens sampled from a
+    // damped oscillator. Keep in sync with shared/motion-easing.ts.
     if (raw.indexOf("spring") === 0) {
-      return cubicBezierY(0.34, 1.56, 0.64, 1, clamped);
+      var spr = parseSpringEase(raw);
+      if (spr) return sampleSpringAt(spr[0], spr[1], clamped);
+      return clamped;
+    }
+    // CSS linear(...) stop lists (compiled springs / recovered timelines).
+    if (raw.indexOf("linear(") === 0) {
+      var lin = evalCssLinear(raw, clamped);
+      if (lin !== null) return lin;
     }
     return clamped;
+  }
+
+  // Parse spring(bounce[, settle]) or the bare `spring` keyword into
+  // [bounce, settle], or null. Mirror of shared/motion-easing.ts.
+  function parseSpringEase(raw: string): [number, number] | null {
+    if (/^spring$/.test(raw)) return [0.25, 1];
+    var m = /^spring\(\s*([+-]?[\d.]+)\s*(?:,\s*([+-]?[\d.]+)\s*)?\)$/.exec(
+      raw,
+    );
+    if (!m) return null;
+    var bounce = parseFloat(m[1]);
+    if (!Number.isFinite(bounce)) return null;
+    var settle = m[2] === undefined ? 1 : parseFloat(m[2]);
+    if (!Number.isFinite(settle)) return null;
+    if (settle < 0.05) settle = 0.05;
+    if (settle > 1) settle = 1;
+    return [clamp01(bounce), settle];
+  }
+
+  // Damped-oscillator sampler. Mirror of sampleSpring in
+  // shared/motion-easing.ts — keep the two in sync.
+  function sampleSpringAt(bounce: number, settle: number, x: number): number {
+    if (x <= 0) return 0;
+    var u = x / settle;
+    if (u >= 1) return 1;
+    var zeta = 1 - clamp01(bounce);
+    if (zeta < 0.02) zeta = 0.02;
+    if (zeta > 1) zeta = 1;
+    var omega = Math.log(1 / 0.001) / zeta;
+    if (zeta >= 1) {
+      return 1 - Math.exp(-omega * u) * (1 + omega * u);
+    }
+    var omegaD = omega * Math.sqrt(1 - zeta * zeta);
+    var decay = Math.exp(-zeta * omega * u);
+    return (
+      1 -
+      decay *
+        (Math.cos(omegaD * u) +
+          ((zeta * omega) / omegaD) * Math.sin(omegaD * u))
+    );
+  }
+
+  // Evaluate a CSS linear(value <percent>{0,2}, ...) timing function at
+  // progress x. Mirror of evaluateCssLinear in shared/motion-easing.ts.
+  function evalCssLinear(raw: string, x: number): number | null {
+    var m = /^linear\(([^)]*)\)$/.exec(raw);
+    if (!m) return null;
+    var entries = m[1].split(",");
+    var values: number[] = [];
+    var positions: Array<number | null> = [];
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i].trim();
+      if (!entry) continue;
+      var parts = entry.split(/\s+/);
+      var value = parseFloat(parts[0]);
+      if (!Number.isFinite(value)) return null;
+      var found = 0;
+      for (var j = 1; j < parts.length && j <= 2; j++) {
+        if (!/%$/.test(parts[j])) return null;
+        var pct = parseFloat(parts[j]);
+        if (!Number.isFinite(pct)) return null;
+        values.push(value);
+        positions.push(pct / 100);
+        found++;
+      }
+      if (found === 0) {
+        values.push(value);
+        positions.push(null);
+      }
+    }
+    if (values.length < 2) return null;
+    if (positions[0] === null) positions[0] = 0;
+    if (positions[positions.length - 1] === null) {
+      positions[positions.length - 1] = 1;
+    }
+    var runningMax = positions[0] as number;
+    for (var k = 0; k < positions.length; k++) {
+      var pos = positions[k];
+      if (pos !== null) {
+        var clampedPos = pos < runningMax ? runningMax : pos;
+        positions[k] = clampedPos;
+        runningMax = clampedPos;
+        continue;
+      }
+      var nextIdx = k + 1;
+      while (nextIdx < positions.length && positions[nextIdx] === null) {
+        nextIdx++;
+      }
+      var prevPos = runningMax;
+      var nextPosRaw = positions[nextIdx] as number;
+      var nextPos = nextPosRaw < prevPos ? prevPos : nextPosRaw;
+      var span = nextIdx - (k - 1);
+      for (var q = k; q < nextIdx; q++) {
+        positions[q] = prevPos + ((q - (k - 1)) / span) * (nextPos - prevPos);
+      }
+      k = nextIdx - 1;
+      runningMax = nextPos;
+    }
+    var cx = clamp01(x);
+    if (cx <= (positions[0] as number)) return values[0];
+    for (var p = 0; p < values.length - 1; p++) {
+      var aPos = positions[p] as number;
+      var bPos = positions[p + 1] as number;
+      if (cx > bPos) continue;
+      if (bPos === aPos) return values[p + 1];
+      return (
+        values[p] + ((values[p + 1] - values[p]) * (cx - aPos)) / (bPos - aPos)
+      );
+    }
+    return values[values.length - 1];
   }
 
   // Build the identity counterpart of a transform/filter list so a
@@ -505,6 +644,32 @@
     return lerp(prev.value, next.value, eased);
   }
 
+  // Map a normalised TIMELINE time to a track-local normalised time,
+  // honouring the track's delayMs / durationMs span. Clamped outside the
+  // span (animation-fill-mode: both semantics). Without a known timeline
+  // duration, offset-free tracks behave as before (local t = t).
+  function trackLocalT(
+    track: { delayMs?: number; durationMs?: number },
+    t: number,
+  ): number {
+    var delay =
+      typeof track.delayMs === "number" && track.delayMs > 0
+        ? track.delayMs
+        : 0;
+    var dur =
+      typeof track.durationMs === "number" && track.durationMs > 0
+        ? track.durationMs
+        : null;
+    if (loadedTimelineDurationMs === null || (delay === 0 && dur === null)) {
+      return t;
+    }
+    var timeMs = t * loadedTimelineDurationMs;
+    var span = dur === null ? loadedTimelineDurationMs : dur;
+    if (span <= 0) return 0;
+    var local = (timeMs - delay) / span;
+    return local < 0 ? 0 : local > 1 ? 1 : local;
+  }
+
   function applyPreview(t: number): void {
     for (var i = 0; i < loadedTracks.length; i++) {
       var track = loadedTracks[i];
@@ -512,7 +677,7 @@
         '[data-agent-native-node-id="' + track.targetNodeId + '"]',
       ) as HTMLElement | null;
       if (!el) continue;
-      var value = interpolate(track.keyframes, t);
+      var value = interpolate(track.keyframes, trackLocalT(track, t));
       if (value === "") continue;
       // Normalize kebab properties (e.g. background-color) to the camelCase
       // CSSOM accessor; el.style['background-color'] = … is unreliable.
@@ -552,6 +717,7 @@
     originalInlineValues = {};
     loadedTracks = [];
     loadedDefaultEase = "ease";
+    loadedTimelineDurationMs = null;
   }
 
   // Last previewed playhead position, so reloading the track list (which
@@ -573,6 +739,12 @@
         typeof e.data.defaultEase === "string" && e.data.defaultEase
           ? e.data.defaultEase
           : "ease";
+      // Timeline duration (read AFTER clearPreview, which resets it): needed
+      // to map offset tracks before the first motion-preview tick arrives.
+      var loadDur = Number(e.data.durationMs);
+      if (Number.isFinite(loadDur) && loadDur > 0) {
+        loadedTimelineDurationMs = loadDur;
+      }
       // Defensive: interpolate() scans keyframe pairs in array order, so an
       // unsorted track (e.g. mid-drag ordering) would fail the window test.
       for (var i = 0; i < loadedTracks.length; i++) {
@@ -592,6 +764,10 @@
       var t = Number(e.data.t);
       if (!Number.isFinite(t)) return;
       t = Math.max(0, Math.min(1, t));
+      var tickDur = Number(e.data.durationMs);
+      if (Number.isFinite(tickDur) && tickDur > 0) {
+        loadedTimelineDurationMs = tickDur;
+      }
       lastPreviewT = t;
       applyPreview(t);
       return;

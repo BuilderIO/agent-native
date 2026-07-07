@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.4.1
+
+### Patch Changes
+
+- e1ad535: Portal dropdown submenu content so nested menus are not clipped by parent menu overflow.
+
 ## 0.4.0
 
 ### Minor Changes

@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -26,7 +26,7 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -45,6 +45,8 @@ const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
+const AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB: f64 = -60.0;
+const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -30.0;
 // When the mic is captured alongside system audio, ScreenCaptureKit lays the
 // two sources out as the left/right channels of a single stereo track, which
 // plays back stuck on one speaker. Force the input to stereo (mono sources
@@ -54,25 +56,36 @@ const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
 // stereo content that must not be flattened.
 const AUDIO_DOWNMIX_FILTER: &str =
     "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
+// Mild FFT denoise for native mic captures. Browser recordings already request
+// WebRTC noise suppression; ScreenCaptureKit/screencapture mic capture does
+// not, so reduce steady broadband room/mic hiss during the existing optimize
+// step. Keep this conservative to avoid watery speech artifacts.
+const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
 // loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
 
 // Loudness normalization, optionally preceded by the centered-stereo downmix
-// that repairs the mic+system L/R split. Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE`
-// so loudnorm's 192 kHz output is resampled back.
-fn audio_filter_chain(downmix: bool) -> String {
+// that repairs the mic+system L/R split and denoise for native mic captures.
+// Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
+// resampled back.
+fn audio_filter_chain(downmix: bool, denoise: bool) -> String {
+    let mut filters = Vec::new();
     if downmix {
-        format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_LOUDNESS_FILTER}")
-    } else {
-        AUDIO_LOUDNESS_FILTER.to_string()
+        filters.push(AUDIO_DOWNMIX_FILTER);
     }
+    if denoise {
+        filters.push(AUDIO_DENOISE_FILTER);
+    }
+    filters.push(AUDIO_LOUDNESS_FILTER);
+    filters.join(",")
 }
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+const FFMPEG_AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
 const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "ffmpeg",
     "/opt/homebrew/bin/ffmpeg",
@@ -94,6 +107,28 @@ const DISK_MONITOR_WARN_BYTES: u64 = 1024 * 1024 * 1024;
 const DISK_MONITOR_CRITICAL_BYTES: u64 = 250 * 1024 * 1024;
 // How often the background monitor checks free space.
 const DISK_MONITOR_INTERVAL_SECS: u64 = 30;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeUploadMode {
+    Buffered,
+    Streaming,
+}
+
+impl NativeUploadMode {
+    fn from_option(value: Option<String>) -> Self {
+        match value.as_deref() {
+            Some("streaming") => Self::Streaming,
+            _ => Self::Buffered,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Buffered => "buffered",
+            Self::Streaming => "streaming",
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
@@ -187,6 +222,10 @@ pub(crate) enum NativeFullscreenBackend {
         /// silent second while ScreenCaptureKit's mic pipeline spins up.
         /// `None` when the recording has no microphone input.
         mic_ready: Option<Arc<AtomicBool>>,
+        /// Number of microphone sample buffers observed before/after attach.
+        /// This is diagnostic only; it lets the tray log distinguish "SCK
+        /// never saw mic samples" from "samples existed but encoded silent".
+        mic_sample_count: Option<Arc<AtomicU64>>,
     },
 }
 
@@ -276,11 +315,13 @@ impl SCRecordingOutputDelegate for FinishDelegate {
     }
 }
 
+#[derive(Clone)]
 struct PreparedRecordingFile {
     path: PathBuf,
     mime_type: String,
     bytes: u64,
     temporary: bool,
+    locally_transcoded: bool,
 }
 
 pub(crate) fn format_mb(bytes: u64) -> String {
@@ -388,12 +429,93 @@ fn emit_native_upload_progress(
     );
 }
 
+fn clear_recording_active(app: &AppHandle) {
+    let mut changed = false;
+    if let Some(state) = app.try_state::<crate::state::RecordingActive>() {
+        if let Ok(mut active) = state.0.lock() {
+            if *active {
+                *active = false;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        crate::tray::rebuild_tray_menu(app);
+    }
+}
+
+static LAST_NATIVE_UPLOAD_FINISHED: OnceLock<Mutex<Option<NativeUploadFinishedPayload>>> =
+    OnceLock::new();
+static CLAIMED_NATIVE_UPLOAD_OPEN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn last_native_upload_finished() -> &'static Mutex<Option<NativeUploadFinishedPayload>> {
+    LAST_NATIVE_UPLOAD_FINISHED.get_or_init(|| Mutex::new(None))
+}
+
+fn claimed_native_upload_open() -> &'static Mutex<Option<String>> {
+    CLAIMED_NATIVE_UPLOAD_OPEN.get_or_init(|| Mutex::new(None))
+}
+
+fn reset_native_upload_completion_state() {
+    if let Ok(mut last) = last_native_upload_finished().lock() {
+        *last = None;
+    }
+    if let Ok(mut claimed) = claimed_native_upload_open().lock() {
+        *claimed = None;
+    }
+}
+
+#[tauri::command]
+pub fn native_fullscreen_take_upload_finished() -> Option<NativeUploadFinishedPayload> {
+    last_native_upload_finished()
+        .lock()
+        .ok()
+        .and_then(|mut last| last.take())
+}
+
+#[tauri::command]
+pub fn native_fullscreen_claim_upload_open(recording_id: String) -> bool {
+    let Ok(mut claimed) = claimed_native_upload_open().lock() else {
+        return true;
+    };
+    if claimed.as_deref() == Some(recording_id.as_str()) {
+        return false;
+    }
+    *claimed = Some(recording_id);
+    true
+}
+
+fn emit_native_upload_finished(
+    app: &AppHandle,
+    server_url: &str,
+    recording_id: &str,
+    ok: bool,
+    error: Option<String>,
+    local_file_path: Option<&Path>,
+) {
+    clear_recording_active(app);
+    let base = server_url.trim_end_matches('/');
+    let payload = NativeUploadFinishedPayload {
+        recording_id: recording_id.to_string(),
+        ok,
+        view_url: format!("{base}/r/{recording_id}"),
+        error,
+        local_file_path: local_file_path.map(|path| path.to_string_lossy().to_string()),
+    };
+    if let Ok(mut last) = last_native_upload_finished().lock() {
+        *last = Some(payload.clone());
+    }
+    let _ = app.emit("clips:native-upload-finished", payload);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SavedNativeRecording {
     recording_id: String,
     server_url: String,
     file_path: PathBuf,
+    #[serde(default)]
+    segment_paths: Vec<PathBuf>,
     mime_type: String,
     duration_ms: u128,
     width: Option<u32>,
@@ -451,6 +573,16 @@ pub struct NativeFullscreenUploadResult {
     width: Option<u32>,
     height: Option<u32>,
     bytes: u64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeUploadFinishedPayload {
+    recording_id: String,
+    ok: bool,
+    view_url: String,
+    error: Option<String>,
+    local_file_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -539,72 +671,53 @@ fn start_native_session_locked(
     defer_recording_output: bool,
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
+    reset_native_upload_completion_state();
     let has_specific_mic = mic_device_id
         .as_deref()
         .is_some_and(|v| !v.trim().is_empty())
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = if include_audio && !capture_system_audio {
-        if defer_recording_output {
-            return Err(
-                "Skipping microphone-only ScreenCaptureKit warmup; begin will use screencapture."
-                    .to_string(),
-            );
-        }
-        if has_specific_mic {
-            eprintln!(
-                "[clips-tray] using screencapture for microphone-only recording; selected mic cannot be pinned by this backend"
-            );
-        } else {
-            eprintln!(
-                "[clips-tray] using screencapture for microphone-only recording to avoid ScreenCaptureKit microphone finalization failures"
-            );
-        }
-        start_screencapture_recording(
-            app,
-            &safe_id,
-            include_audio,
-            capture_system_audio,
-            capture_region,
-        )?
-    } else {
-        match start_screencapturekit_recording(
-            app,
-            &safe_id,
-            include_audio,
-            capture_system_audio,
-            mic_device_id.as_deref(),
-            mic_device_label.as_deref(),
-            capture_region,
-            defer_recording_output,
-        ) {
-            Ok(session) => session,
-            Err(sck_err) => {
-                if defer_recording_output {
-                    return Err(sck_err);
-                }
-                if include_audio && !capture_system_audio && has_specific_mic {
-                    return Err(format!(
-                        "ScreenCaptureKit recording failed before it could use the selected microphone ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore your selected input."
-                    ));
-                }
-                eprintln!(
-                    "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
-                );
-                start_screencapture_recording(
-                    app,
-                    &safe_id,
-                    include_audio,
-                    capture_system_audio,
-                    capture_region,
-                )
-                .map_err(|fallback_err| {
-                    format!(
-                        "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
-                    )
-                })?
+    let session = match start_screencapturekit_recording(
+        app,
+        &safe_id,
+        include_audio,
+        capture_system_audio,
+        mic_device_id.as_deref(),
+        mic_device_label.as_deref(),
+        capture_region,
+        defer_recording_output,
+    ) {
+        Ok(session) => session,
+        Err(sck_err) => {
+            if defer_recording_output {
+                return Err(sck_err);
             }
+            if include_audio {
+                let mic_description = if has_specific_mic {
+                    "the selected microphone"
+                } else {
+                    "the resolved default microphone"
+                };
+                return Err(format!(
+                    "ScreenCaptureKit recording failed before it could use {mic_description} ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore the requested input."
+                ));
+            }
+            eprintln!(
+                "[clips-tray] ScreenCaptureKit recording unavailable; falling back to screencapture: {sck_err}"
+            );
+            start_screencapture_recording(
+                app,
+                &safe_id,
+                include_audio,
+                capture_system_audio,
+                capture_region,
+            )
+            .map_err(|fallback_err| {
+                format!(
+                    "ScreenCaptureKit recording failed ({sck_err}); screencapture fallback failed ({fallback_err})"
+                )
+            })?
         }
     };
     let width = session.width;
@@ -744,21 +857,34 @@ pub async fn native_fullscreen_recording_begin(
             );
         }
 
-        // Grab the mic-ready flag without holding the lock during the wait.
-        let mic_ready = {
+        // Grab the mic-ready diagnostics without holding the lock during the wait.
+        let mic_state = {
             let guard = state.inner.lock().map_err(|e| e.to_string())?;
             guard.as_ref().and_then(|s| match s.backend.as_ref() {
-                Some(NativeFullscreenBackend::ScreenCaptureKit { mic_ready, .. }) => {
-                    mic_ready.clone()
-                }
+                Some(NativeFullscreenBackend::ScreenCaptureKit {
+                    mic_ready,
+                    mic_sample_count,
+                    ..
+                }) => mic_ready
+                    .as_ref()
+                    .map(|ready| (Arc::clone(ready), mic_sample_count.clone())),
                 _ => None,
             })
         };
-        if let Some(ready) = mic_ready {
+        let mut mic_ready_before_attach: Option<bool> = None;
+        let mut mic_samples_before_attach: Option<u64> = None;
+        let mut mic_warm_wait_ms: Option<u128> = None;
+        if let Some((ready, sample_count)) = mic_state {
+            let wait_started = Instant::now();
             let deadline = Instant::now() + Duration::from_millis(MIC_WARM_TIMEOUT_MS);
             while !ready.load(Ordering::Relaxed) && Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(15)).await;
             }
+            mic_ready_before_attach = Some(ready.load(Ordering::Relaxed));
+            mic_samples_before_attach = sample_count
+                .as_ref()
+                .map(|samples| samples.load(Ordering::Relaxed));
+            mic_warm_wait_ms = Some(wait_started.elapsed().as_millis());
         }
 
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -774,6 +900,20 @@ pub async fn native_fullscreen_recording_begin(
             stream
                 .add_recording_output(recording)
                 .map_err(|e| format!("add recording output failed: {e:?}"))?;
+        }
+        if mic_ready_before_attach.is_some() || mic_samples_before_attach.is_some() {
+            eprintln!(
+                "[clips-tray] ScreenCaptureKit recording output attached: mic_ready_before_attach={} mic_samples_before_attach={} mic_warm_wait_ms={}",
+                mic_ready_before_attach
+                    .map(|ready| ready.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                mic_samples_before_attach
+                    .map(|samples| samples.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                mic_warm_wait_ms
+                    .map(|ms| ms.to_string())
+                    .unwrap_or_else(|| "n/a".to_string())
+            );
         }
         // Rebaseline the duration clock: the warm phase ran during the
         // countdown, so `started_at` (set at warm time) is several seconds
@@ -799,9 +939,11 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     recording_id: String,
     auth_token: Option<String>,
     cookie: Option<String>,
+    upload_mode: Option<String>,
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    let upload_mode = NativeUploadMode::from_option(upload_mode);
     emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
     // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
     // atom is written (or has definitively failed). Signal the UI so it can tear
@@ -830,6 +972,40 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     // corner through the (multi-second) finalize + upload phase, reading
     // as "still recording" while the bottom-left card says "processing".
     let _ = crate::clips::close_bubble(app.clone()).await;
+    clear_recording_active(&app);
+
+    if multi_segment {
+        if let Err(merge_err) = &consolidate_outcome {
+            let mut saved = saved_recording_from_segments(
+                &session,
+                &server_url,
+                &recording_id,
+                duration_ms,
+                has_audio,
+                has_camera,
+            )?;
+            saved.last_error = Some(match &stop_outcome {
+                Err(stop_err) => {
+                    format!("{stop_err}. Segment consolidation failed: {merge_err}")
+                }
+                Ok(()) => merge_err.clone(),
+            });
+            write_saved_recording_metadata(&app, &saved)?;
+            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            let error = format!(
+                "{merge_err}. The raw clip segments were saved locally and can be retried from the Clips menu."
+            );
+            emit_native_upload_finished(
+                &app,
+                &server_url,
+                &recording_id,
+                false,
+                Some(error.clone()),
+                Some(&saved.file_path),
+            );
+            return Err(error);
+        }
+    }
 
     let mut saved = saved_recording_from_session(
         &session,
@@ -868,7 +1044,16 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 } else {
                     "The clip was saved locally and can be retried from the Clips menu."
                 };
-                return Err(format!("{stop_err}. {suffix}"));
+                let error = format!("{stop_err}. {suffix}");
+                emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&saved.file_path),
+                );
+                return Err(error);
             }
             Some(true) => {
                 eprintln!(
@@ -892,29 +1077,29 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — saving as retryable, skipping upload");
         write_saved_recording_metadata(&app, &saved)?;
         emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
-        return Err(
-            "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string(),
+        let error =
+            "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string();
+        emit_native_upload_finished(
+            &app,
+            &server_url,
+            &recording_id,
+            false,
+            Some(error.clone()),
+            Some(&saved.file_path),
         );
-    } else if let Err(merge_err) = &consolidate_outcome {
-        saved.last_error = Some(merge_err.clone());
+        return Err(error);
     }
     write_saved_recording_metadata(&app, &saved)?;
     emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
-    if multi_segment {
-        if let Err(merge_err) = consolidate_outcome {
-            return Err(format!(
-                "{merge_err}. The clip segments were saved locally and can be retried from the Clips menu."
-            ));
-        }
-    }
 
     let result = upload_recording_file(
         &app,
         &session,
-        server_url,
-        recording_id,
+        server_url.clone(),
+        recording_id.clone(),
         auth_token.unwrap_or_default(),
         cookie.unwrap_or_default(),
+        upload_mode,
         duration_ms,
         has_audio,
         has_camera,
@@ -924,6 +1109,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     match result {
         Ok(result) => {
             clear_saved_recording_after_success(&app, &saved);
+            emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
             Ok(result)
         }
         Err(err) => {
@@ -935,9 +1121,18 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             }
             let _ = write_saved_recording_metadata(&app, &saved);
             emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
-            Err(format!(
+            let error = format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
-            ))
+            );
+            emit_native_upload_finished(
+                &app,
+                &server_url,
+                &recording_id,
+                false,
+                Some(error.clone()),
+                Some(&saved.file_path),
+            );
+            Err(error)
         }
     }
 }
@@ -1087,7 +1282,11 @@ pub async fn native_fullscreen_recording_pause(
         session.paused_at = Some(Instant::now());
         return Ok(());
     }
-    finalize_active_backend(session, true)?;
+    let stop_outcome = finalize_active_backend(session, true);
+    if let Err(err) = &stop_outcome {
+        eprintln!("[clips-tray] pause finalize reported an error: {err}");
+    }
+    recover_from_unusable_current_segment(session, "pause", true);
     session.paused_at = Some(Instant::now());
     Ok(())
 }
@@ -1473,6 +1672,19 @@ fn start_segment_backend(
         ) {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
+                if include_audio {
+                    let mic_description = if mic_device_id
+                        .is_some_and(|value| !value.trim().is_empty())
+                        || mic_device_label.is_some_and(|value| !value.trim().is_empty())
+                    {
+                        "the selected microphone"
+                    } else {
+                        "the resolved default microphone"
+                    };
+                    return Err(format!(
+                        "ScreenCaptureKit resume failed before it could use {mic_description} ({sck_err}). Clips did not fall back to macOS screencapture because that would ignore the requested input."
+                    ));
+                }
                 eprintln!(
                     "[clips-tray] ScreenCaptureKit resume failed; falling back to screencapture: {sck_err}"
                 );
@@ -1552,12 +1764,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     } else {
         filter_builder.build()
     };
-    let capture_microphone_in_recording = false;
-    if include_audio {
-        eprintln!(
-            "[clips-tray] ScreenCaptureKit microphone recording disabled; microphone audio stays out of SCRecordingOutput to avoid macOS 15 finalize timeouts"
-        );
-    }
+    let capture_microphone_in_recording = include_audio;
     let selected_mic = if capture_microphone_in_recording {
         resolve_microphone_capture_device(mic_device_id, mic_device_label)?
     } else {
@@ -1571,8 +1778,8 @@ pub(crate) fn start_screencapturekit_backend_at(
         .with_queue_depth(8)
         .with_shows_cursor(true)
         // Mic and system audio are independent toggles. SCK delivers them as
-        // separate inputs. We intentionally do not hand microphone buffers to
-        // SCRecordingOutput because macOS 15 can fail to finalize those MP4s.
+        // separate inputs so recordings can include both the user's mic and
+        // system audio.
         .with_captures_audio(capture_system_audio)
         .with_captures_microphone(capture_microphone_in_recording)
         .with_excludes_current_process_audio(true)
@@ -1607,20 +1814,23 @@ pub(crate) fn start_screencapturekit_backend_at(
     let mut stream = SCStream::new(&filter, &config);
     // Observe the microphone stream so `begin` can wait for the first sample
     // before attaching the recording output (avoids the silent-mic head).
-    let mic_ready = if capture_microphone_in_recording {
+    let (mic_ready, mic_sample_count) = if capture_microphone_in_recording {
         let flag = Arc::new(AtomicBool::new(false));
+        let sample_count = Arc::new(AtomicU64::new(0));
         let flag_cb = Arc::clone(&flag);
+        let sample_count_cb = Arc::clone(&sample_count);
         stream.add_output_handler(
             move |_sample, of_type| {
                 if matches!(of_type, SCStreamOutputType::Microphone) {
+                    sample_count_cb.fetch_add(1, Ordering::Relaxed);
                     flag_cb.store(true, Ordering::Relaxed);
                 }
             },
             SCStreamOutputType::Microphone,
         );
-        Some(flag)
+        (Some(flag), Some(sample_count))
     } else {
-        None
+        (None, None)
     };
     if !defer_recording_output {
         stream
@@ -1641,6 +1851,7 @@ pub(crate) fn start_screencapturekit_backend_at(
             recording,
             finish,
             mic_ready,
+            mic_sample_count,
         },
         Some(width),
         Some(height),
@@ -1794,7 +2005,7 @@ pub async fn native_fullscreen_pending_uploads(
         let Ok(saved) = read_saved_recording_metadata_path(&path) else {
             continue;
         };
-        if saved.file_path.exists() {
+        if saved_recording_has_local_artifact(&saved) {
             pending.push(PendingNativeRecording::from(&saved));
         } else {
             let _ = std::fs::remove_file(path);
@@ -1895,6 +2106,10 @@ fn describe_recording_path(path: &Path) -> String {
     )
 }
 
+fn saved_recording_has_local_artifact(saved: &SavedNativeRecording) -> bool {
+    saved.file_path.exists() || saved.segment_paths.iter().any(|path| path.exists())
+}
+
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -1977,6 +2192,37 @@ fn names_match(a: &str, b: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+fn is_built_in_input_name(value: &str) -> bool {
+    let value = normalize_audio_device_name(value);
+    value.contains("macbook")
+        || value.contains("built in")
+        || value.contains("builtin")
+        || value.contains("internal microphone")
+}
+
+#[cfg(target_os = "macos")]
+fn is_phone_input_name(value: &str) -> bool {
+    let value = normalize_audio_device_name(value);
+    value.contains("iphone")
+        || value.contains("ipad")
+        || value.contains("continuity")
+        || value.contains("phone microphone")
+}
+
+#[cfg(target_os = "macos")]
+fn preferred_default_microphone_device(devices: &[AudioInputDevice]) -> Option<AudioInputDevice> {
+    devices
+        .iter()
+        .find(|device| is_built_in_input_name(&device.name))
+        .or_else(|| {
+            devices
+                .iter()
+                .find(|device| !is_phone_input_name(&device.name))
+        })
+        .cloned()
+}
+
+#[cfg(target_os = "macos")]
 fn resolve_microphone_capture_device(
     device_id: Option<&str>,
     device_label: Option<&str>,
@@ -1986,11 +2232,6 @@ fn resolve_microphone_capture_device(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    if device_id.is_none() && device_label.is_none() {
-        eprintln!("[clips-tray] audio input devices not provided");
-        return Ok(None);
-    }
-
     let devices = AudioInputDevice::list();
     devices.iter().for_each(|device| {
         eprintln!(
@@ -1998,6 +2239,18 @@ fn resolve_microphone_capture_device(
             device.id, device.name
         );
     });
+
+    if device_id.is_none() && device_label.is_none() {
+        let resolved = preferred_default_microphone_device(&devices);
+        eprintln!(
+            "[clips-tray] mic resolve: no explicit input provided -> {}",
+            match &resolved {
+                Some(device) => format!("using {} ({})", device.name, device.id),
+                None => "using macOS default input".to_string(),
+            }
+        );
+        return Ok(resolved);
+    }
 
     let resolved = device_id
         .and_then(|id| devices.iter().find(|device| device.id == id))
@@ -2225,9 +2478,70 @@ fn saved_recording_from_session(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<SavedNativeRecording, String> {
-    let bytes = std::fs::metadata(&session.path)
+    saved_recording_from_path(
+        session,
+        &session.path,
+        Vec::new(),
+        server_url,
+        recording_id,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )
+}
+
+fn saved_recording_from_segments(
+    session: &NativeFullscreenSession,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<SavedNativeRecording, String> {
+    let segment_paths: Vec<PathBuf> = session
+        .segments
+        .iter()
+        .filter(|path| path.exists())
+        .cloned()
+        .collect();
+    let fallback_path = segment_paths
+        .iter()
+        .find(|path| playable_recording_file(path, session.mime_type))
+        .or_else(|| {
+            segment_paths.iter().find(|path| {
+                std::fs::metadata(path)
+                    .map(|meta| meta.len() > 0)
+                    .unwrap_or(false)
+            })
+        })
+        .cloned()
+        .ok_or_else(|| "No local recording segment survived consolidation failure.".to_string())?;
+
+    saved_recording_from_path(
+        session,
+        &fallback_path,
+        segment_paths,
+        server_url,
+        recording_id,
+        duration_ms,
+        has_audio,
+        has_camera,
+    )
+}
+
+fn saved_recording_from_path(
+    session: &NativeFullscreenSession,
+    file_path: &Path,
+    segment_paths: Vec<PathBuf>,
+    server_url: &str,
+    recording_id: &str,
+    duration_ms: u128,
+    has_audio: bool,
+    has_camera: bool,
+) -> Result<SavedNativeRecording, String> {
+    let bytes = std::fs::metadata(file_path)
         .map_err(|e| {
-            let diag = describe_recording_path(&session.path);
+            let diag = describe_recording_path(file_path);
             eprintln!(
                 "[clips-tray] native recording file missing at save: {e}; backend={}, segments={}, {diag}",
                 session.mime_type,
@@ -2239,7 +2553,7 @@ fn saved_recording_from_session(
     if bytes == 0 {
         eprintln!(
             "[clips-tray] native recording empty at save: {}",
-            describe_recording_path(&session.path)
+            describe_recording_path(file_path)
         );
         return Err("Native recording produced an empty file.".into());
     }
@@ -2247,7 +2561,8 @@ fn saved_recording_from_session(
     Ok(SavedNativeRecording {
         recording_id: recording_id.to_string(),
         server_url: server_url.trim_end_matches('/').to_string(),
-        file_path: session.path.clone(),
+        file_path: file_path.to_path_buf(),
+        segment_paths,
         mime_type: session.mime_type.to_string(),
         duration_ms,
         width: session.width,
@@ -2299,6 +2614,11 @@ fn remove_saved_file(path: &Path, label: &str) -> Result<(), String> {
 
 fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Result<(), String> {
     remove_saved_file(&saved.file_path, "pending recording file")?;
+    for segment_path in &saved.segment_paths {
+        if segment_path != &saved.file_path {
+            remove_saved_file(segment_path, "pending recording segment")?;
+        }
+    }
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     remove_saved_file(&path, "pending recording metadata")
 }
@@ -2429,7 +2749,7 @@ fn start_screencapturekit_recording(
             safe_id: safe_id.to_string(),
             include_audio,
             capture_system_audio,
-            mic_captured_in_file: false,
+            mic_captured_in_file: include_audio,
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
@@ -2627,44 +2947,23 @@ pub(crate) fn stop_native_recording(
     match backend {
         NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
         #[cfg(target_os = "macos")]
-        NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
-            recording,
-            finish,
-            ..
-        } => {
-            // Removing the recording output is the clean "stop recording" path.
-            // It lets SCRecordingOutput finish while the stream is still alive;
-            // stopping the stream first can make ReplayKit report -5814 while
-            // writing the MP4's final metadata.
-            let remove_result = stream
-                .remove_recording_output(recording)
-                .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
-            let remove_result = match remove_result {
-                Ok(v) => Ok(v),
-                Err(first_err) => {
-                    eprintln!("[clips-tray] waiting 200ms for SCK frame buffer to drain before remove_recording_output retry");
-                    std::thread::sleep(Duration::from_millis(200));
-                    stream.remove_recording_output(recording).map_err(|e| {
-                        format!(
-                            "ScreenCaptureKit recording finalize failed (retry): {e:?}; first attempt: {first_err}"
-                        )
-                    })
-                }
-            };
-            // remove_recording_output()/stop_capture() only *trigger* the
-            // async finalize; the MP4 isn't complete until the delegate's
-            // recording_did_finish fires. Prefer waiting after removal while
-            // the stream is alive, then stop the stream after the output has
-            // had a chance to flush.
-            let remove_ok = remove_result.is_ok();
+        NativeFullscreenBackend::ScreenCaptureKit { stream, finish, .. } => {
+            // `remove_recording_output()` looks like the clean stop path, but
+            // on real machines it can block synchronously forever when the
+            // underlying SCStream connection is interrupted. `stop_capture()`
+            // returns control to us, then the delegate callback is bounded by
+            // `SCK_FINALIZE_TIMEOUT`; the moov/audio guards below decide
+            // whether the resulting file is uploadable or recoverable.
+            let stop_result = stream
+                .stop_capture()
+                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
             let mut waited_for_finalize = false;
-            let mut finalize_outcome = if wait_for_finalize && remove_ok {
+            let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
                 let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
                 if outcome.is_none() {
                     eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after remove_recording_output; saving file as-is",
+                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
                         SCK_FINALIZE_TIMEOUT.as_secs()
                     );
                 }
@@ -2672,21 +2971,6 @@ pub(crate) fn stop_native_recording(
             } else {
                 None
             };
-
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
-
-            if wait_for_finalize && !waited_for_finalize && stop_result.is_ok() {
-                waited_for_finalize = true;
-                finalize_outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
-                if finalize_outcome.is_none() {
-                    eprintln!(
-                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
-                        SCK_FINALIZE_TIMEOUT.as_secs()
-                    );
-                }
-            }
 
             // Check the delegate outcome BEFORE returning on stop_result. When
             // stop_capture() fails AND recording_did_fail fires, callers must see
@@ -2708,25 +2992,10 @@ pub(crate) fn stop_native_recording(
                 );
             }
 
-            let remove_recoverable = matches!(finalize_outcome.as_ref(), Some(Ok(())))
-                || (waited_for_finalize && finalize_outcome.is_none());
-            match remove_result {
-                Ok(()) => {}
-                Err(remove_err) => {
-                    if remove_recoverable {
-                        eprintln!(
-                            "[clips-tray] ScreenCaptureKit recording output removal reported an error after finalize completed or timed out; continuing upload: {remove_err}"
-                        );
-                    } else {
-                        return Err(remove_err);
-                    }
-                }
-            }
-
             if let Err(stop_err) = stop_result {
-                if remove_ok || matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
+                if matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
                     eprintln!(
-                        "[clips-tray] ScreenCaptureKit stop_capture reported an error after recording output teardown; continuing upload: {stop_err}"
+                        "[clips-tray] ScreenCaptureKit stop_capture reported an error after finalize completed; continuing upload: {stop_err}"
                     );
                 } else {
                     return Err(stop_err);
@@ -2781,6 +3050,7 @@ async fn upload_recording_file(
     recording_id: String,
     auth_token: String,
     cookie: String,
+    upload_mode: NativeUploadMode,
     duration_ms: u128,
     has_audio: bool,
     has_camera: bool,
@@ -2802,6 +3072,7 @@ async fn upload_recording_file(
         recording_id,
         auth_token,
         cookie,
+        upload_mode,
         duration_ms,
         session.width,
         session.height,
@@ -2822,16 +3093,7 @@ async fn upload_saved_recording_file(
     auth_token: String,
     cookie: String,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    let prepared = prepare_recording_file(
-        app,
-        &saved.file_path,
-        &saved.mime_type,
-        saved.width,
-        saved.height,
-        Some(saved.duration_ms),
-        saved.has_audio,
-        saved.mic_captured,
-    )?;
+    let (prepared, retry_combined_path) = prepare_saved_recording_file(app, saved)?;
     let upload_result = upload_prepared_recording_file(
         app,
         &prepared,
@@ -2839,6 +3101,7 @@ async fn upload_saved_recording_file(
         saved.recording_id.clone(),
         auth_token,
         cookie,
+        NativeUploadMode::Buffered,
         saved.duration_ms,
         saved.width,
         saved.height,
@@ -2849,7 +3112,62 @@ async fn upload_saved_recording_file(
     if prepared.temporary {
         let _ = std::fs::remove_file(&prepared.path);
     }
+    if let Some(path) = retry_combined_path {
+        if path != prepared.path || !prepared.temporary {
+            let _ = std::fs::remove_file(path);
+        }
+    }
     upload_result
+}
+
+fn prepare_saved_recording_file(
+    app: &AppHandle,
+    saved: &SavedNativeRecording,
+) -> Result<(PreparedRecordingFile, Option<PathBuf>), String> {
+    let retry_combined_path = if saved.segment_paths.len() > 1 {
+        let output = retry_combined_recording_path(saved);
+        let _ = std::fs::remove_file(&output);
+        concat_saved_recording_segments(&saved.segment_paths, &output)?;
+        Some(output)
+    } else {
+        None
+    };
+    let source_path = retry_combined_path
+        .as_ref()
+        .unwrap_or(&saved.file_path)
+        .to_path_buf();
+    let prepared = prepare_recording_file(
+        app,
+        &source_path,
+        &saved.mime_type,
+        saved.width,
+        saved.height,
+        Some(saved.duration_ms),
+        saved.has_audio,
+        saved.mic_captured,
+    )?;
+    Ok((prepared, retry_combined_path))
+}
+
+fn retry_combined_recording_path(saved: &SavedNativeRecording) -> PathBuf {
+    let stem = saved
+        .file_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    saved
+        .file_path
+        .with_file_name(format!("{stem}-retry-combined.mp4"))
+}
+
+#[cfg(target_os = "macos")]
+fn concat_saved_recording_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
+    concat_mp4_segments(segments, output)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn concat_saved_recording_segments(_segments: &[PathBuf], _output: &Path) -> Result<(), String> {
+    Err("Segment concat is only available on macOS.".into())
 }
 
 async fn upload_prepared_recording_file(
@@ -2859,6 +3177,7 @@ async fn upload_prepared_recording_file(
     recording_id: String,
     auth_token: String,
     cookie: String,
+    upload_mode: NativeUploadMode,
     duration_ms: u128,
     width: Option<u32>,
     height: Option<u32>,
@@ -2866,9 +3185,21 @@ async fn upload_prepared_recording_file(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let total_bytes = prepared.bytes;
-    let total_chunks = ((total_bytes as usize) + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
-    let total_posts = total_chunks + 1;
+    let total_bytes_usize = usize::try_from(total_bytes)
+        .map_err(|_| "Native recording is too large to upload on this system.".to_string())?;
+    let total_chunks = (total_bytes_usize + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
+    let streaming_full_chunks = total_bytes_usize / UPLOAD_CHUNK_BYTES;
+    let streaming_remainder = total_bytes_usize % UPLOAD_CHUNK_BYTES;
+    let total_posts = if upload_mode == NativeUploadMode::Streaming {
+        streaming_full_chunks + 1
+    } else {
+        total_chunks + 1
+    };
     emit_native_upload_progress(app, "uploading", "Uploading clip", None, Some(0.0));
+    eprintln!(
+        "[clips-tray] native upload starting recording={recording_id} mode={} bytes={total_bytes} posts={total_posts}",
+        upload_mode.label()
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
         .build()
@@ -2876,67 +3207,143 @@ async fn upload_prepared_recording_file(
     let mut file =
         File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
 
-    for index in 0..total_chunks {
-        let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
-        let read = file
-            .read(&mut buffer)
-            .map_err(|e| format!("native recording read failed: {e}"))?;
-        if read == 0 {
-            return Err("Native recording ended before all chunks were read.".into());
+    if upload_mode == NativeUploadMode::Streaming {
+        // Resumable providers require every non-final body to be aligned. The
+        // final body may be the unaligned tail; if the file is exactly aligned,
+        // an empty final request closes the session.
+        for index in 0..streaming_full_chunks {
+            let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
+            file.read_exact(&mut buffer)
+                .map_err(|e| format!("native recording read failed: {e}"))?;
+            send_upload_post(
+                &client,
+                &server_url,
+                &recording_id,
+                &auth_token,
+                &cookie,
+                index,
+                total_posts,
+                false,
+                None,
+                &prepared.mime_type,
+                width,
+                height,
+                has_audio,
+                has_camera,
+                upload_mode,
+                false,
+                buffer,
+            )
+            .await?;
+            emit_native_upload_progress(
+                app,
+                "uploading",
+                "Uploading clip",
+                None,
+                Some((index + 1) as f32 / total_posts as f32),
+            );
         }
-        buffer.truncate(read);
+
+        let mut final_body = vec![0_u8; streaming_remainder];
+        if streaming_remainder > 0 {
+            file.read_exact(&mut final_body)
+                .map_err(|e| format!("native recording read failed: {e}"))?;
+        }
+
+        emit_native_upload_progress(
+            app,
+            "processing",
+            "Uploading clip",
+            None,
+            Some(streaming_full_chunks as f32 / total_posts as f32),
+        );
         send_upload_post(
             &client,
             &server_url,
             &recording_id,
             &auth_token,
             &cookie,
-            index,
+            streaming_full_chunks,
             total_posts,
-            false,
-            None,
+            true,
+            Some(duration_ms),
             &prepared.mime_type,
             width,
             height,
             has_audio,
             has_camera,
-            buffer,
+            upload_mode,
+            prepared.locally_transcoded,
+            final_body,
         )
         .await?;
+    } else {
+        for index in 0..total_chunks {
+            let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
+            let read = file
+                .read(&mut buffer)
+                .map_err(|e| format!("native recording read failed: {e}"))?;
+            if read == 0 {
+                return Err("Native recording ended before all chunks were read.".into());
+            }
+            buffer.truncate(read);
+            send_upload_post(
+                &client,
+                &server_url,
+                &recording_id,
+                &auth_token,
+                &cookie,
+                index,
+                total_posts,
+                false,
+                None,
+                &prepared.mime_type,
+                width,
+                height,
+                has_audio,
+                has_camera,
+                upload_mode,
+                false,
+                buffer,
+            )
+            .await?;
+            emit_native_upload_progress(
+                app,
+                "uploading",
+                "Uploading clip",
+                None,
+                Some((index + 1) as f32 / total_posts as f32),
+            );
+        }
+
         emit_native_upload_progress(
             app,
-            "uploading",
+            "processing",
             "Uploading clip",
             None,
-            Some((index + 1) as f32 / total_posts as f32),
+            Some(total_chunks as f32 / total_posts as f32),
         );
+        send_upload_post(
+            &client,
+            &server_url,
+            &recording_id,
+            &auth_token,
+            &cookie,
+            total_chunks,
+            total_posts,
+            true,
+            Some(duration_ms),
+            &prepared.mime_type,
+            width,
+            height,
+            has_audio,
+            has_camera,
+            upload_mode,
+            prepared.locally_transcoded,
+            Vec::new(),
+        )
+        .await?;
     }
-
-    emit_native_upload_progress(
-        app,
-        "processing",
-        "Uploading clip",
-        None,
-        Some(total_chunks as f32 / total_posts as f32),
-    );
-    send_upload_post(
-        &client,
-        &server_url,
-        &recording_id,
-        &auth_token,
-        &cookie,
-        total_chunks,
-        total_posts,
-        true,
-        Some(duration_ms),
-        &prepared.mime_type,
-        width,
-        height,
-        has_audio,
-        has_camera,
-        Vec::new(),
-    )
-    .await?;
 
     emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
     Ok(NativeFullscreenUploadResult {
@@ -3054,8 +3461,11 @@ async fn send_upload_post(
     height: Option<u32>,
     has_audio: bool,
     has_camera: bool,
+    upload_mode: NativeUploadMode,
+    locally_transcoded: bool,
     body: Vec<u8>,
 ) -> Result<(), String> {
+    let body_len = body.len();
     let url = upload_url(
         server_url,
         recording_id,
@@ -3068,7 +3478,12 @@ async fn send_upload_post(
         height,
         has_audio,
         has_camera,
+        locally_transcoded,
     )?;
+    eprintln!(
+        "[clips-tray] native upload post start recording={recording_id} mode={} index={index}/{total} final={is_final} bytes={body_len}",
+        upload_mode.label()
+    );
     let mut request = client
         .post(url)
         .header("Content-Type", mime_type)
@@ -3095,6 +3510,10 @@ async fn send_upload_post(
             body.chars().take(400).collect::<String>()
         ));
     }
+    eprintln!(
+        "[clips-tray] native upload post ok recording={recording_id} mode={} index={index}/{total} final={is_final}",
+        upload_mode.label()
+    );
     Ok(())
 }
 
@@ -3110,6 +3529,7 @@ fn upload_url(
     height: Option<u32>,
     has_audio: bool,
     has_camera: bool,
+    locally_transcoded: bool,
 ) -> Result<String, String> {
     let base = server_url.trim_end_matches('/');
     let mut url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/chunk"))
@@ -3131,6 +3551,9 @@ fn upload_url(
         }
         if let Some(height) = height {
             query.append_pair("height", &height.to_string());
+        }
+        if is_final && locally_transcoded {
+            query.append_pair("locallyTranscoded", "1");
         }
     }
     Ok(url.to_string())
@@ -3300,6 +3723,145 @@ pub(crate) fn mp4_has_audio_track(path: &Path) -> Option<bool> {
     Some(false)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct AudioSignalProbe {
+    mean_volume_db: Option<f64>,
+    max_volume_db: Option<f64>,
+}
+
+impl AudioSignalProbe {
+    fn has_audible_signal(self) -> bool {
+        let peak_ok = self
+            .max_volume_db
+            .map(|value| value.is_finite() && value >= AUDIO_SIGNAL_MIN_MAX_VOLUME_DB)
+            .unwrap_or(false);
+        let mean_ok = self
+            .mean_volume_db
+            .map(|value| value.is_finite() && value >= AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB)
+            .unwrap_or(true);
+        peak_ok && mean_ok
+    }
+
+    fn summary(self) -> String {
+        fn fmt(value: Option<f64>) -> String {
+            match value {
+                Some(value) if value.is_finite() => format!("{value:.1} dB"),
+                Some(value) if value.is_infinite() && value.is_sign_negative() => "-inf dB".into(),
+                Some(_) => "non-finite".into(),
+                None => "unknown".into(),
+            }
+        }
+        format!(
+            "mean_volume={} max_volume={} mean_floor={:.1} dB peak_floor={:.1} dB",
+            fmt(self.mean_volume_db),
+            fmt(self.max_volume_db),
+            AUDIO_SIGNAL_MIN_MEAN_VOLUME_DB,
+            AUDIO_SIGNAL_MIN_MAX_VOLUME_DB
+        )
+    }
+}
+
+fn parse_ffmpeg_volume_db(stderr: &str, label: &str) -> Option<f64> {
+    stderr.lines().rev().find_map(|line| {
+        let (_, value) = line.split_once(label)?;
+        let value = value.trim().strip_suffix(" dB").unwrap_or(value.trim());
+        if value == "-inf" {
+            Some(f64::NEG_INFINITY)
+        } else {
+            value.parse::<f64>().ok()
+        }
+    })
+}
+
+fn audio_signal_probe_with_ffmpeg(
+    ffmpeg_path: &str,
+    source: &Path,
+) -> Result<AudioSignalProbe, String> {
+    let child = Command::new(ffmpeg_path)
+        .arg("-hide_banner")
+        .arg("-nostdin")
+        .arg("-i")
+        .arg(source)
+        .arg("-map")
+        .arg("0:a:0")
+        .arg("-af")
+        .arg("volumedetect")
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("ffmpeg audio probe spawn failed: {e}"))?;
+    let stderr = wait_for_child_collect_stderr(
+        child,
+        FFMPEG_AUDIO_PROBE_TIMEOUT,
+        "ffmpeg",
+        "checking recording audio",
+    )?;
+    Ok(AudioSignalProbe {
+        mean_volume_db: parse_ffmpeg_volume_db(&stderr, "mean_volume:"),
+        max_volume_db: parse_ffmpeg_volume_db(&stderr, "max_volume:"),
+    })
+}
+
+fn describe_audio_signal_probe(probe: Result<AudioSignalProbe, String>) -> String {
+    match probe {
+        Ok(probe) => probe.summary(),
+        Err(err) => format!("probe failed: {err}"),
+    }
+}
+
+fn verify_prepared_audio_signal(
+    ffmpeg_path: &str,
+    candidate: &Path,
+    original: &PreparedRecordingFile,
+    source_path: &Path,
+    label: &str,
+) -> Result<Option<PreparedRecordingFile>, String> {
+    let candidate_probe = match audio_signal_probe_with_ffmpeg(ffmpeg_path, candidate) {
+        Ok(probe) => probe,
+        Err(err) => {
+            eprintln!(
+                "[clips-tray] audio signal probe failed for {label}; accepting candidate: {err}"
+            );
+            return Ok(None);
+        }
+    };
+    if candidate_probe.has_audible_signal() {
+        eprintln!(
+            "[clips-tray] audio signal probe ok for {label}: {}",
+            candidate_probe.summary()
+        );
+        return Ok(None);
+    }
+
+    let source_probe = audio_signal_probe_with_ffmpeg(ffmpeg_path, source_path);
+    let source_has_signal = source_probe
+        .as_ref()
+        .ok()
+        .copied()
+        .map(AudioSignalProbe::has_audible_signal)
+        .unwrap_or(false);
+    let source_summary = describe_audio_signal_probe(source_probe);
+    if source_has_signal {
+        eprintln!(
+            "[clips-tray] AUDIO QUIET AFTER PREPARE: {label} is effectively silent ({}) but original has signal ({source_summary}) — uploading original instead",
+            candidate_probe.summary()
+        );
+        return Ok(Some(original.clone()));
+    }
+
+    eprintln!(
+        "[clips-tray] AUDIO CAPTURE TOO QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary})",
+        candidate_probe.summary()
+    );
+    Err(format!(
+        "Recorded file contains an audio track, but the captured audio is too quiet to publish ({})",
+        candidate_probe.summary()
+    ))
+}
+
 fn prepare_recording_file(
     app: &AppHandle,
     path: &Path,
@@ -3308,7 +3870,7 @@ fn prepare_recording_file(
     height: Option<u32>,
     duration_ms: Option<u128>,
     has_audio: bool,
-    downmix_audio: bool,
+    mic_captured_audio: bool,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
@@ -3344,10 +3906,18 @@ fn prepare_recording_file(
         mime_type: mime_type.to_string(),
         bytes: source_bytes,
         temporary: false,
+        locally_transcoded: false,
     };
 
     let mut smallest_attempt_bytes: Option<u64> = None;
     let ffmpeg_path = resolve_ffmpeg_path();
+    if has_audio {
+        if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
+            let raw_summary =
+                describe_audio_signal_probe(audio_signal_probe_with_ffmpeg(ffmpeg_path, path));
+            eprintln!("[clips-tray] raw recording audio signal before prepare: {raw_summary}");
+        }
+    }
 
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         if has_audio {
@@ -3358,7 +3928,8 @@ fn prepare_recording_file(
                     ffmpeg_path,
                     path,
                     &normalized_path,
-                    downmix_audio,
+                    mic_captured_audio,
+                    mic_captured_audio,
                 ) {
                     Ok(()) => {
                         let normalized_bytes = std::fs::metadata(&normalized_path)
@@ -3374,8 +3945,25 @@ fn prepare_recording_file(
                                 );
                                 return Ok(original);
                             }
+                            match verify_prepared_audio_signal(
+                                ffmpeg_path,
+                                &normalized_path,
+                                &original,
+                                path,
+                                "audio-normalized recording",
+                            ) {
+                                Ok(Some(fallback)) => {
+                                    let _ = std::fs::remove_file(&normalized_path);
+                                    return Ok(fallback);
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    let _ = std::fs::remove_file(&normalized_path);
+                                    return Err(err);
+                                }
+                            }
                             eprintln!(
-                                "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
+                                "[clips-tray] native recording audio optimized with ffmpeg: {} -> {} bytes",
                                 source_bytes, normalized_bytes
                             );
                             return Ok(PreparedRecordingFile {
@@ -3383,6 +3971,7 @@ fn prepare_recording_file(
                                 mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
                                 bytes: normalized_bytes,
                                 temporary: true,
+                                locally_transcoded: false,
                             });
                         }
                         let _ = std::fs::remove_file(&normalized_path);
@@ -3405,7 +3994,7 @@ fn prepare_recording_file(
         return Ok(original);
     }
 
-    if let Some(ffmpeg_path) = ffmpeg_path {
+    if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
         let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
@@ -3418,7 +4007,7 @@ fn prepare_recording_file(
             let compressed_path = compressed_recording_path(path);
             let _ = std::fs::remove_file(&compressed_path);
             match transcode_with_ffmpeg(
-                &ffmpeg_path,
+                ffmpeg_path,
                 path,
                 &compressed_path,
                 preset,
@@ -3426,7 +4015,8 @@ fn prepare_recording_file(
                 height,
                 duration_ms,
                 has_audio,
-                downmix_audio,
+                mic_captured_audio,
+                mic_captured_audio,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -3449,6 +4039,33 @@ fn prepare_recording_file(
                             preset.label
                         );
                         continue;
+                    }
+                    if has_audio {
+                        match verify_prepared_audio_signal(
+                            ffmpeg_path,
+                            &compressed_path,
+                            &original,
+                            path,
+                            preset.label,
+                        ) {
+                            Ok(Some(fallback)) => {
+                                let _ = std::fs::remove_file(&compressed_path);
+                                if fallback.bytes <= max_upload_bytes() {
+                                    return Ok(fallback);
+                                }
+                                eprintln!(
+                                    "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent compressed preset {}",
+                                    format_mb(fallback.bytes),
+                                    preset.label
+                                );
+                                continue;
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                let _ = std::fs::remove_file(&compressed_path);
+                                return Err(err);
+                            }
+                        }
                     }
                     smallest_attempt_bytes = Some(
                         smallest_attempt_bytes
@@ -3495,6 +4112,7 @@ fn prepare_recording_file(
                         mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
                         bytes: compressed_bytes,
                         temporary: true,
+                        locally_transcoded: true,
                     });
                 }
                 Err(err) => {
@@ -3541,6 +4159,35 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
+                    if has_audio {
+                        if let Some(ffmpeg_probe_path) = ffmpeg_path.as_deref() {
+                            match verify_prepared_audio_signal(
+                                ffmpeg_probe_path,
+                                &compressed_path,
+                                &original,
+                                path,
+                                preset,
+                            ) {
+                                Ok(Some(fallback)) => {
+                                    let _ = std::fs::remove_file(&compressed_path);
+                                    if fallback.bytes <= max_upload_bytes() {
+                                        return Ok(fallback);
+                                    }
+                                    eprintln!(
+                                        "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent avconvert preset {}",
+                                        format_mb(fallback.bytes),
+                                        preset
+                                    );
+                                    continue;
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    let _ = std::fs::remove_file(&compressed_path);
+                                    return Err(err);
+                                }
+                            }
+                        }
+                    }
                     smallest_attempt_bytes = Some(
                         smallest_attempt_bytes
                             .map(|smallest| smallest.min(compressed_bytes))
@@ -3586,6 +4233,7 @@ fn prepare_recording_file(
                         mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
                         bytes: compressed_bytes,
                         temporary: true,
+                        locally_transcoded: true,
                     });
                 }
                 Err(err) => {
@@ -3765,6 +4413,7 @@ fn normalize_audio_with_ffmpeg(
     source: &Path,
     output: &Path,
     downmix_audio: bool,
+    denoise_audio: bool,
 ) -> Result<(), String> {
     let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
     let mut command = Command::new(ffmpeg_path);
@@ -3786,7 +4435,7 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(audio_filter_chain(downmix_audio))
+        .arg(audio_filter_chain(downmix_audio, denoise_audio))
         .arg("-ac")
         .arg("2")
         .arg("-ar")
@@ -3850,6 +4499,7 @@ fn transcode_with_ffmpeg(
     duration_ms: Option<u128>,
     normalize_audio: bool,
     downmix_audio: bool,
+    denoise_audio: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -3873,7 +4523,9 @@ fn transcode_with_ffmpeg(
     }
 
     if normalize_audio {
-        command.arg("-af").arg(audio_filter_chain(downmix_audio));
+        command
+            .arg("-af")
+            .arg(audio_filter_chain(downmix_audio, denoise_audio));
     }
 
     let duration_rate_limit =
@@ -3946,19 +4598,25 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
 }
 
 fn wait_for_transcode_child(
-    mut child: Child,
+    child: Child,
     timeout: Duration,
     tool_name: &str,
 ) -> Result<(), String> {
+    wait_for_child_collect_stderr(child, timeout, tool_name, "compressing recording").map(|_| ())
+}
+
+fn wait_for_child_collect_stderr(
+    mut child: Child,
+    timeout: Duration,
+    tool_name: &str,
+    action: &str,
+) -> Result<String, String> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child
             .try_wait()
             .map_err(|e| format!("{tool_name} wait failed: {e}"))?
         {
-            if status.success() {
-                return Ok(());
-            }
             let mut stderr = String::new();
             if let Some(mut pipe) = child.stderr.take() {
                 let _ = pipe.read_to_string(&mut stderr);
@@ -3972,12 +4630,16 @@ fn wait_for_transcode_child(
                 .rev()
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Err(format!("{tool_name} exited with {status}: {}", tail.trim()));
+            return if status.success() {
+                Ok(stderr)
+            } else {
+                Err(format!("{tool_name} exited with {status}: {}", tail.trim()))
+            };
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("{tool_name} timed out while compressing recording"));
+            return Err(format!("{tool_name} timed out while {action}"));
         }
         std::thread::sleep(Duration::from_millis(250));
     }
@@ -3990,6 +4652,26 @@ fn wait_for_transcode_child(
 /// re-encoding, so concat is roughly disk-IO bound. Called from
 /// `consolidate_segments_into_path` after every segment has been
 /// finalized by `stop_native_recording(_, wait_for_finalize=true)`.
+fn validate_recording_segment_file(path: &Path) -> Result<(), String> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > 0 => {}
+        Ok(_) => return Err(format!("recording segment is empty: {}", path.display())),
+        Err(err) => {
+            return Err(format!(
+                "recording segment is missing or unreadable: {} ({err})",
+                path.display()
+            ));
+        }
+    }
+    if mp4_has_moov(path) == Some(false) {
+        return Err(format!(
+            "recording segment is missing playback metadata: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String> {
     use std::ffi::CString;
@@ -4151,18 +4833,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         let mut appended_any = false;
 
         for path in segments {
-            // Skip segments that vanished or are empty (e.g. a pause
-            // that fired before the segment captured a single sample).
-            match std::fs::metadata(path) {
-                Ok(meta) if meta.len() > 0 => {}
-                _ => {
-                    eprintln!(
-                        "[clips-tray] concat: skipping empty/missing segment {}",
-                        path.display()
-                    );
-                    continue;
-                }
-            }
+            validate_recording_segment_file(path)?;
             let url = file_url(path)
                 .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
             let asset: *mut AnyObject = msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
@@ -4174,11 +4845,10 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
             }
             let duration: CMTime = msg_send![asset, duration];
             if duration.flags & 1 == 0 || duration.timescale == 0 || duration.value <= 0 {
-                eprintln!(
-                    "[clips-tray] concat: skipping segment with invalid duration: {}",
+                return Err(format!(
+                    "recording segment has invalid duration: {}",
                     path.display()
-                );
-                continue;
+                ));
             }
             let range = CMTimeRange {
                 start: CM_TIME_ZERO,
@@ -4286,7 +4956,10 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 
 #[cfg(test)]
 mod audio_track_probe_tests {
-    use super::mp4_has_audio_track;
+    use super::{
+        audio_filter_chain, mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe,
+        AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_LOUDNESS_FILTER,
+    };
     use std::io::Write;
 
     /// Append an ISO BMFF box: 4-byte big-endian size (header + body) then
@@ -4322,6 +4995,19 @@ mod audio_track_probe_tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         path
+    }
+
+    #[test]
+    fn builds_native_audio_filter_chain_for_mic_noise_reduction() {
+        assert_eq!(audio_filter_chain(false, false), AUDIO_LOUDNESS_FILTER);
+        assert_eq!(
+            audio_filter_chain(false, true),
+            format!("{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
+        );
+        assert_eq!(
+            audio_filter_chain(true, true),
+            format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
+        );
     }
 
     #[test]
@@ -4407,5 +5093,195 @@ mod audio_track_probe_tests {
         let path = write_temp_mp4(&file);
         assert_eq!(mp4_has_audio_track(&path), Some(false));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_ffmpeg_volumedetect_output() {
+        let stderr = "\
+[Parsed_volumedetect_0 @ 0x123] mean_volume: -74.0 dB
+[Parsed_volumedetect_0 @ 0x123] max_volume: -57.6 dB
+";
+        assert_eq!(parse_ffmpeg_volume_db(stderr, "mean_volume:"), Some(-74.0));
+        assert_eq!(parse_ffmpeg_volume_db(stderr, "max_volume:"), Some(-57.6));
+    }
+
+    #[test]
+    fn rejects_effectively_silent_prepared_audio() {
+        let silent = AudioSignalProbe {
+            mean_volume_db: Some(-74.0),
+            max_volume_db: Some(-57.6),
+        };
+        let quiet_noise_peak = AudioSignalProbe {
+            mean_volume_db: Some(-71.1),
+            max_volume_db: Some(-47.4),
+        };
+        let audible = AudioSignalProbe {
+            mean_volume_db: Some(-21.5),
+            max_volume_db: Some(-1.4),
+        };
+        assert!(!silent.has_audible_signal());
+        assert!(!quiet_noise_peak.has_audible_signal());
+        assert!(audible.has_audible_signal());
+    }
+}
+
+#[cfg(test)]
+mod segment_recovery_tests {
+    use super::{
+        recover_from_unusable_current_segment, validate_recording_segment_file,
+        NativeFullscreenSession, RestartInfo, MP4_RECORDING_MIME_TYPE,
+    };
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    fn push_box(buf: &mut Vec<u8>, box_type: &[u8; 4], body: &[u8]) {
+        let size = (8 + body.len()) as u32;
+        buf.extend_from_slice(&size.to_be_bytes());
+        buf.extend_from_slice(box_type);
+        buf.extend_from_slice(body);
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "clips-segment-recovery-{name}-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        path
+    }
+
+    fn write_mp4(path: &PathBuf, has_moov: bool) {
+        let mut file = Vec::new();
+        push_box(&mut file, b"ftyp", b"isommp42");
+        if has_moov {
+            push_box(&mut file, b"moov", &[]);
+        }
+        file.extend_from_slice(b"mdatSOMEFAKEVIDEODATA");
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(&file).unwrap();
+    }
+
+    fn test_session(segments: Vec<PathBuf>) -> NativeFullscreenSession {
+        let now = Instant::now();
+        NativeFullscreenSession {
+            backend: None,
+            path: segments
+                .first()
+                .cloned()
+                .unwrap_or_else(|| temp_path("final")),
+            mime_type: MP4_RECORDING_MIME_TYPE,
+            started_at: now,
+            width: Some(1280),
+            height: Some(720),
+            segments,
+            paused_total: Duration::ZERO,
+            current_segment_started_at: now.checked_sub(Duration::from_millis(250)).unwrap_or(now),
+            lost_segment_duration: Duration::ZERO,
+            lost_segment_count: 0,
+            paused_at: None,
+            restart: RestartInfo {
+                safe_id: "test".to_string(),
+                include_audio: true,
+                capture_system_audio: false,
+                mic_captured_in_file: false,
+                mic_device_id: None,
+                mic_device_label: None,
+                segment_counter: 0,
+                target_display_id: None,
+                capture_region: None,
+            },
+            pending_recording_output: false,
+            disk_monitor_stop: None,
+        }
+    }
+
+    #[test]
+    fn drops_unusable_last_segment_when_empty_recovery_allowed() {
+        let good = temp_path("good");
+        let bad = temp_path("bad");
+        write_mp4(&good, true);
+        write_mp4(&bad, false);
+
+        let mut session = test_session(vec![good.clone(), bad.clone()]);
+        assert!(recover_from_unusable_current_segment(
+            &mut session,
+            "test pause",
+            true,
+        ));
+        assert_eq!(session.segments, vec![good.clone()]);
+        assert_eq!(session.lost_segment_count, 1);
+        assert!(session.lost_segment_duration > Duration::ZERO);
+        assert!(!bad.exists());
+
+        let _ = std::fs::remove_file(good);
+    }
+
+    #[test]
+    fn keeps_only_bad_segment_when_empty_recovery_disallowed() {
+        let bad = temp_path("only-bad");
+        write_mp4(&bad, false);
+
+        let mut session = test_session(vec![bad.clone()]);
+        assert!(!recover_from_unusable_current_segment(
+            &mut session,
+            "final stop",
+            false,
+        ));
+        assert_eq!(session.segments, vec![bad.clone()]);
+        assert_eq!(session.lost_segment_count, 0);
+        assert!(bad.exists());
+
+        let _ = std::fs::remove_file(bad);
+    }
+
+    #[test]
+    fn keeps_playable_last_segment() {
+        let first = temp_path("first");
+        let second = temp_path("second");
+        write_mp4(&first, true);
+        write_mp4(&second, true);
+
+        let mut session = test_session(vec![first.clone(), second.clone()]);
+        assert!(!recover_from_unusable_current_segment(
+            &mut session,
+            "test pause",
+            true,
+        ));
+        assert_eq!(session.segments, vec![first.clone(), second.clone()]);
+        assert_eq!(session.lost_segment_count, 0);
+
+        let _ = std::fs::remove_file(first);
+        let _ = std::fs::remove_file(second);
+    }
+
+    #[test]
+    fn concat_validation_rejects_bad_middle_segment() {
+        let first = temp_path("middle-first");
+        let bad = temp_path("middle-bad");
+        let last = temp_path("middle-last");
+        write_mp4(&first, true);
+        write_mp4(&bad, false);
+        write_mp4(&last, true);
+
+        let mut error = None;
+        for path in [&first, &bad, &last] {
+            if let Err(err) = validate_recording_segment_file(path) {
+                error = Some(err);
+                break;
+            }
+        }
+
+        let err = error.expect("bad middle segment should fail concat validation");
+        assert!(err.contains("missing playback metadata"));
+        assert!(err.contains(bad.to_string_lossy().as_ref()));
+
+        let _ = std::fs::remove_file(first);
+        let _ = std::fs::remove_file(bad);
+        let _ = std::fs::remove_file(last);
     }
 }

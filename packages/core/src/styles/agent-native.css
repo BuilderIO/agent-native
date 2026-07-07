@@ -102,16 +102,6 @@
       hsl(var(--sidebar-background, var(--background))) 94%,
       black
     );
-    --agent-native-raised-surface: color-mix(
-      in srgb,
-      hsl(var(--background)) 78%,
-      hsl(var(--muted)) 22%
-    );
-    --agent-native-card-surface: color-mix(
-      in srgb,
-      var(--agent-native-raised-surface) 88%,
-      hsl(var(--muted)) 12%
-    );
   }
 }
 

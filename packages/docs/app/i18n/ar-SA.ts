@@ -1456,6 +1456,7 @@ const arSA = {
     recurringJobs: "وظائف متكررة",
     automations: "الأتمتة",
     extensions: "ملحقات",
+    dataPrograms: "برامج البيانات",
     multiAppWorkspaces: "مساحات عمل متعددة التطبيقات",
     onboardingApiKeys: "Onboarding ومفاتيح API",
     messaging: "Messaging (Slack, Email...)",

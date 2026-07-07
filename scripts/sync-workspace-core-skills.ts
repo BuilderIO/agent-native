@@ -64,6 +64,7 @@ const workspaceSkillIncludes = [
   "context-awareness",
   "context-xray",
   "create-skill",
+  "data-programs",
   "delegate-to-agent",
   "extension-points",
   "extensions",

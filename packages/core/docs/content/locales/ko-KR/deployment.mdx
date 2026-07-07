@@ -384,24 +384,23 @@ openssl rand -hex 32
 ## 제작 에이전트 도구 {#production-agent-tools}
 
 프로덕션 에이전트는 다음에서 앱에 등록된 actions와 프레임워크 도구를 얻습니다.
-상담원 채팅 플러그인. 데이터베이스 쓰기는 원시 DB이므로 기본적으로 활성화됩니다.
-도구의 범위는 인증된 사용자/조직으로 지정되지만 앱 소유자는 범위를 좁힐 수 있습니다
-배포가 더욱 독선적이어야 하는 경우:
+상담원 채팅 플러그인. SQL 검사는 기본적으로 활성화되며, 데이터베이스 쓰기는
+앱이 raw write tools를 명시적으로 켜지 않는 한 typed app actions를 통해 수행됩니다.
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — 기본값. `db-schema`, `db-query`,
-  `db-exec` 및 `db-patch`. 쓰기 범위는 현재 사용자/조직으로 지정되며
-  스키마 변경이 차단되었습니다.
-- `databaseTools: "read"` — `db-schema` 및 `db-query`만 등록합니다. 요원
-  SQL로 데이터를 검사하지만 쓰기에는 입력된 앱 actions를 사용해야 합니다.
+- `databaseTools: "read"` — 기본값. `db-schema`와 `db-query`만 등록합니다.
+  에이전트는 SQL로 데이터를 검사하지만 쓰기에는 typed app actions를 사용해야 합니다.
+- `databaseTools: "write"` 또는 `true` — 의도적인 raw SQL 유지보수를 위해
+  `db-exec`와 `db-patch`도 등록합니다. 쓰기는 현재 사용자/조직으로 scoped되고
+  스키마 변경은 차단됩니다.
 - `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
   에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
 - `extensionTools: false` — 프레임워크 확장 관리 actions를 제거하고

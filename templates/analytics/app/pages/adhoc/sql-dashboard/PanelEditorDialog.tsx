@@ -1,10 +1,17 @@
 import {
   PromptComposer,
+  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { SqlEditor } from "@/components/SqlEditor";
@@ -30,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
@@ -59,7 +67,52 @@ const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "first-party", label: "First-party Analytics" }, // i18n-ignore stable source label
   { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
+  { value: "program", label: "Data program" }, // i18n-ignore stable source label
 ];
+
+interface DataProgramSummary {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  archivedAt: string | null;
+}
+
+/** Parsed shape of a `program` panel's `sql` field: {programId, params?}. */
+function parseProgramDescriptor(sql: string): {
+  programId: string;
+  paramsText: string;
+} {
+  if (!sql.trim()) return { programId: "", paramsText: "" };
+  try {
+    const parsed = JSON.parse(sql) as { programId?: unknown; params?: unknown };
+    const programId =
+      typeof parsed.programId === "string" ? parsed.programId : "";
+    const paramsText = parsed.params
+      ? JSON.stringify(parsed.params, null, 2)
+      : "";
+    return { programId, paramsText };
+  } catch {
+    return { programId: "", paramsText: "" };
+  }
+}
+
+function serializeProgramDescriptor(
+  programId: string,
+  paramsText: string,
+): string {
+  const trimmedParams = paramsText.trim();
+  if (!trimmedParams) return JSON.stringify({ programId });
+  let params: unknown;
+  try {
+    params = JSON.parse(trimmedParams);
+  } catch {
+    // Preserve the raw text so the user's edits aren't discarded; the save
+    // attempt will surface the same JSON error from the server.
+    throw new Error("Params must be valid JSON.");
+  }
+  return JSON.stringify({ programId, params });
+}
 
 function generatePanelId(title: string): string {
   const slug =
@@ -196,7 +249,37 @@ function PanelEditorContent({
   }, [open, panel]);
 
   const isEdit = !!panel;
-  const canSave = form.title.trim().length > 0 && form.sql.trim().length > 0;
+  const isProgramSource = form.source === "program";
+  const { programId, paramsText: initialParamsText } = useMemo(
+    () =>
+      isProgramSource
+        ? parseProgramDescriptor(form.sql)
+        : { programId: "", paramsText: "" },
+    // Only re-derive when switching into program mode or loading a new panel;
+    // subsequent edits are tracked in local state below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [open, panel],
+  );
+  const [selectedProgramId, setSelectedProgramId] = useState(programId);
+  const [programParamsText, setProgramParamsText] = useState(initialParamsText);
+  useEffect(() => {
+    if (open) {
+      setSelectedProgramId(programId);
+      setProgramParamsText(initialParamsText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, panel]);
+
+  const { data: programsData, isLoading: programsLoading } = useActionQuery<{
+    programs: DataProgramSummary[];
+  }>("list-data-programs", undefined, { enabled: isProgramSource });
+  const availablePrograms = (programsData?.programs ?? []).filter(
+    (p) => !p.archivedAt,
+  );
+
+  const canSave = isProgramSource
+    ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
+    : form.title.trim().length > 0 && form.sql.trim().length > 0;
   const canFormat = canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
@@ -204,7 +287,26 @@ function PanelEditorContent({
     setSaving(true);
     setError(null);
     try {
-      await onSave(formToPanel(form, panel, t("panelEditor.untitledPanel")));
+      let sqlForSave = form.sql;
+      if (isProgramSource) {
+        try {
+          sqlForSave = serializeProgramDescriptor(
+            selectedProgramId,
+            programParamsText,
+          );
+        } catch (err) {
+          throw err instanceof Error
+            ? err
+            : new Error(t("panelEditor.failedToSavePanel"));
+        }
+      }
+      await onSave(
+        formToPanel(
+          { ...form, sql: sqlForSave },
+          panel,
+          t("panelEditor.untitledPanel"),
+        ),
+      );
       onOpenChange(false);
     } catch (err) {
       const message =
@@ -230,12 +332,13 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
         `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
+        `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
@@ -345,36 +448,89 @@ function PanelEditorContent({
         ) : null}
       </div>
 
-      <div className="grid gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="panel-sql">SQL</Label>
-          {canFormat && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={handleFormatSql}
-              disabled={!form.sql.trim()}
-              className="h-7 px-2 text-xs"
+      {isProgramSource ? (
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-program">
+              {t("panelEditor.dataProgram")}
+            </Label>
+            <Select
+              value={selectedProgramId || undefined}
+              onValueChange={(v) => setSelectedProgramId(v)}
             >
-              <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
-              {t("panelEditor.format")}
-            </Button>
-          )}
+              <SelectTrigger id="panel-program" className="h-9 text-sm">
+                <SelectValue
+                  placeholder={
+                    programsLoading
+                      ? t("panelEditor.loadingDataPrograms")
+                      : t("panelEditor.selectDataProgram")
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {availablePrograms.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!programsLoading && availablePrograms.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.noDataPrograms")}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-program-params">
+              {t("panelEditor.programParamsOptionalJson")}
+            </Label>
+            <Textarea
+              id="panel-program-params"
+              value={programParamsText}
+              onChange={(e) => setProgramParamsText(e.target.value)}
+              rows={4}
+              placeholder='{"riskStatuses": ["at_risk"]}'
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("panelEditor.programParamsHelp")}
+            </p>
+          </div>
         </div>
-        <SqlEditor
-          id="panel-sql"
-          value={form.sql}
-          onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
-          rows={10}
-          placeholder="SELECT ..."
-        />
-        <p className="text-xs text-muted-foreground">
-          {t("panelEditor.filterInterpolation", {
-            example: "{{varName}}",
-          })}
-        </p>
-      </div>
+      ) : (
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="panel-sql">SQL</Label>
+            {canFormat && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleFormatSql}
+                disabled={!form.sql.trim()}
+                className="h-7 px-2 text-xs"
+              >
+                <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
+                {t("panelEditor.format")}
+              </Button>
+            )}
+          </div>
+          <SqlEditor
+            id="panel-sql"
+            value={form.sql}
+            onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
+            rows={10}
+            placeholder="SELECT ..."
+          />
+          <p className="text-xs text-muted-foreground">
+            {t("panelEditor.filterInterpolation", {
+              example: "{{varName}}",
+            })}
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-1.5">
         <Label htmlFor="panel-description">
