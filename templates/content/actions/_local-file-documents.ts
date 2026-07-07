@@ -1,8 +1,11 @@
+import fs from "node:fs/promises";
+
 import {
   deleteLocalArtifactFile,
   ensureLocalArtifactRoot,
   getLocalArtifactApp,
   isAgentNativeLocalFileMode,
+  loadAgentNativeManifest,
   listLocalArtifactFiles,
   readLocalArtifactFile,
   writeLocalArtifactFile,
@@ -265,8 +268,94 @@ function cloneLocalDocument(document: Document): Document {
   };
 }
 
-function invalidateLocalFileDocumentsCache() {
+export function invalidateLocalFileDocumentsCache() {
   localFileDocumentsCache = null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeRootPath(rootPath: string) {
+  return rootPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+export async function removeContentLocalFileRoots(
+  sourceRootPath?: string | null,
+) {
+  const app = await getLocalArtifactApp(localOptions());
+  if (app.mode !== "local-files") {
+    return { removed: 0, roots: [] as string[], manifestPath: null };
+  }
+
+  const loaded = await loadAgentNativeManifest({
+    ...localOptions(),
+    optional: false,
+  });
+  if (!loaded) {
+    throw new Error("No agent-native.json file is available to update.");
+  }
+
+  const raw = JSON.parse(await fs.readFile(loaded.path, "utf8")) as unknown;
+  const manifest = isRecord(raw) ? raw : {};
+  const apps = isRecord(manifest.apps) ? manifest.apps : {};
+  const existingContentApp = isRecord(apps[CONTENT_APP_ID])
+    ? apps[CONTENT_APP_ID]
+    : {};
+  const roots = Array.isArray(existingContentApp.roots)
+    ? existingContentApp.roots.filter(
+        (root): root is Record<string, unknown> =>
+          isRecord(root) && typeof root.path === "string",
+      )
+    : [];
+
+  if (roots.length === 0) {
+    throw new Error(
+      "Local file roots are not declared in agent-native.json for Content.",
+    );
+  }
+
+  const targetRootPath = sourceRootPath
+    ? normalizeRootPath(sourceRootPath)
+    : null;
+  const removedRoots = roots.filter((root) => {
+    if (!targetRootPath) return true;
+    return normalizeRootPath(root.path as string) === targetRootPath;
+  });
+
+  if (removedRoots.length === 0) {
+    throw new Error("No matching local file root was found.");
+  }
+
+  const nextRoots = roots.filter((root) => !removedRoots.includes(root));
+  const nextContentApp = {
+    ...existingContentApp,
+    mode: nextRoots.length > 0 ? "local-files" : "database",
+    roots: nextRoots,
+  };
+
+  await fs.writeFile(
+    loaded.path,
+    `${JSON.stringify(
+      {
+        ...manifest,
+        apps: {
+          ...apps,
+          [CONTENT_APP_ID]: nextContentApp,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  invalidateLocalFileDocumentsCache();
+
+  return {
+    removed: removedRoots.length,
+    roots: removedRoots.map((root) => root.path as string),
+    manifestPath: loaded.path,
+  };
 }
 
 export async function listLocalFileDocuments(): Promise<Document[]> {

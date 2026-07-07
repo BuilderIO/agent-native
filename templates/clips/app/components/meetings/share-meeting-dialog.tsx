@@ -1,15 +1,4 @@
 import { appPath, useActionQuery, useT } from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@agent-native/toolkit/ui/tabs";
 import { IconLink, IconMail } from "@tabler/icons-react";
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -26,6 +15,12 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;

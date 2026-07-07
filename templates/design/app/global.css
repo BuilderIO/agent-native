@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -35,11 +36,11 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
-  --design-editor-accent-color: hsl(213 91% 67%);
-  --design-editor-accent-hover-color: hsl(213 72% 56%);
+  --design-editor-accent-color: hsl(205 100% 53%);
+  --design-editor-accent-hover-color: hsl(205 81% 42%);
   --design-editor-selection-color: color-mix(
     in srgb,
-    hsl(213 91% 67%) 14%,
+    hsl(205 100% 53%) 14%,
     transparent
   );
   --design-editor-component-color: hsl(263 84% 64%);
@@ -68,7 +69,7 @@
   );
   --design-editor-selected-subtree-color: color-mix(
     in srgb,
-    hsl(213 91% 67%) 9%,
+    hsl(205 100% 53%) 9%,
     transparent
   );
   --design-editor-panel-divider-color: color-mix(
@@ -121,11 +122,11 @@
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
-  --design-editor-accent-color: hsl(213 91% 67%);
-  --design-editor-accent-hover-color: hsl(213 72% 56%);
+  --design-editor-accent-color: hsl(205 100% 53%);
+  --design-editor-accent-hover-color: hsl(205 81% 42%);
   --design-editor-selection-color: color-mix(
     in srgb,
-    hsl(213 91% 67%) 24%,
+    hsl(205 100% 53%) 24%,
     transparent
   );
   --design-editor-component-color: hsl(263 88% 74%);
@@ -150,7 +151,7 @@
   );
   --design-editor-selected-subtree-color: color-mix(
     in srgb,
-    hsl(213 91% 67%) 18%,
+    hsl(205 100% 53%) 18%,
     transparent
   );
   --design-editor-panel-divider-color: hsl(0 0% 22%);

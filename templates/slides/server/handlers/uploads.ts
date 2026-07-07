@@ -18,6 +18,9 @@ import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 
 export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;
+const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
+  0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
+]);
 
 export interface UploadedReferenceFile {
   path: string;
@@ -64,8 +67,10 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   }
   if (ext === ".fig") {
     const isZip = data[0] === 0x50 && data[1] === 0x4b;
-    const isKiwi = ascii(data, 0, 8) === "fig-kiwi";
-    return isZip || isKiwi;
+    const isLocalCopy = FIG_LOCAL_COPY_SIGNATURE.every(
+      (byte, index) => data[index] === byte,
+    );
+    return isZip || isLocalCopy;
   }
   if (ext === ".png") {
     return (

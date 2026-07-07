@@ -658,15 +658,14 @@ function toolCallFingerprintFromContentPart(part: unknown): string | null {
   const argsText =
     typeof candidate.argsText === "string" ? candidate.argsText : "";
   if (!name || !argsText) return null;
-  return `${name} ${argsText}`;
+  return `${name}\u0000${argsText}`;
 }
 
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
   byId: Map<string, { hasResult: boolean }>;
-  completedFingerprints: Set<string>;
+  latestAssistantByFingerprint: Map<string, { hasResult: boolean }>;
 } {
   const byId = new Map<string, { hasResult: boolean }>();
-  const completedFingerprints = new Set<string>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
@@ -679,13 +678,29 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
       byId.set(id, {
         hasResult: Boolean(existing?.hasResult || hasResult),
       });
-      if (hasResult) {
-        const fingerprint = toolCallFingerprintFromContentPart(part);
-        if (fingerprint) completedFingerprints.add(fingerprint);
-      }
     }
   }
-  return { byId, completedFingerprints };
+
+  const latestAssistantByFingerprint = new Map<
+    string,
+    { hasResult: boolean }
+  >();
+  const latestEntry = messages.at(-1);
+  const latestMessage = getRepoMessage(latestEntry as any);
+  const latestContent = latestMessage?.content;
+  if (latestMessage?.role === "assistant" && Array.isArray(latestContent)) {
+    for (const part of latestContent) {
+      const fingerprint = toolCallFingerprintFromContentPart(part);
+      if (!fingerprint) continue;
+      const hasResult = toolCallPartHasResult(part);
+      const existing = latestAssistantByFingerprint.get(fingerprint);
+      latestAssistantByFingerprint.set(fingerprint, {
+        hasResult: Boolean(existing?.hasResult || hasResult),
+      });
+    }
+  }
+
+  return { byId, latestAssistantByFingerprint };
 }
 
 function assistantTextFromContent(content: unknown): string {
@@ -705,6 +720,32 @@ function latestRenderedAssistantText(messages: readonly unknown[]): string {
   const latestMessage = getRepoMessage(latestEntry as any);
   if (latestMessage?.role !== "assistant") return "";
   return assistantTextFromContent(latestMessage.content);
+}
+
+function dedupePendingToolCallReplaysWithinContent(
+  content: ContentPart[],
+): ContentPart[] {
+  const seenLaterFingerprints = new Set<string>();
+  let changed = false;
+  const nextReversed: ContentPart[] = [];
+
+  for (let i = content.length - 1; i >= 0; i -= 1) {
+    const part = content[i];
+    if (!part) continue;
+    const fingerprint = toolCallFingerprintFromContentPart(part);
+    if (
+      fingerprint &&
+      !toolCallPartHasResult(part) &&
+      seenLaterFingerprints.has(fingerprint)
+    ) {
+      changed = true;
+      continue;
+    }
+    if (fingerprint) seenLaterFingerprints.add(fingerprint);
+    nextReversed.push(part);
+  }
+
+  return changed ? nextReversed.reverse() : content;
 }
 
 function trimReconnectTextAlreadyRendered(
@@ -748,40 +789,50 @@ export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],
 ): ContentPart[] {
-  if (content.length === 0 || messages.length === 0) return content;
-  const { byId, completedFingerprints } =
+  if (content.length === 0) return content;
+  const snapshotDeduped = dedupePendingToolCallReplaysWithinContent(content);
+  let changed = snapshotDeduped !== content;
+  if (messages.length === 0) return changed ? snapshotDeduped : content;
+  const { byId, latestAssistantByFingerprint } =
     collectRenderedToolCallStates(messages);
   const renderedAssistantText = latestRenderedAssistantText(messages);
-  if (byId.size === 0 && !renderedAssistantText) return content;
+  if (
+    byId.size === 0 &&
+    latestAssistantByFingerprint.size === 0 &&
+    !renderedAssistantText
+  ) {
+    return changed ? snapshotDeduped : content;
+  }
 
-  let changed = false;
-  const filtered = byId.size
-    ? content.filter((part) => {
-        const id = toolCallIdFromContentPart(part);
-        if (!id) return true;
-        const existing = byId.get(id);
-        if (existing) {
-          if (toolCallPartHasResult(part) && !existing.hasResult) return true;
-          changed = true;
-          return false;
-        }
-        // Fingerprint fallback for the id-convergence window: a reconnect part
-        // that is still PENDING while the rendered messages already show the same
-        // call (same tool + same serialized args) completed is a replay artifact —
-        // dropping it removes the "one spinning, one done" duplicate pair. Only
-        // pending parts are dropped by fingerprint: completed-vs-completed keeps
-        // the strict id match so a legitimately repeated identical call is never
-        // hidden.
-        if (!toolCallPartHasResult(part)) {
-          const fingerprint = toolCallFingerprintFromContentPart(part);
-          if (fingerprint && completedFingerprints.has(fingerprint)) {
+  const filtered =
+    byId.size > 0 || latestAssistantByFingerprint.size > 0
+      ? snapshotDeduped.filter((part) => {
+          const id = toolCallIdFromContentPart(part);
+          const existing = id ? byId.get(id) : undefined;
+          if (existing) {
             changed = true;
             return false;
           }
-        }
-        return true;
-      })
-    : content;
+          // Fingerprint fallback for the id-convergence window: two readers of
+          // the same active run can assign unrelated ids to the same logical tool
+          // call before the server id converges. Suppress the reconnect overlay
+          // whenever it matches the latest rendered assistant tool call and either
+          // side is still pending; completed-vs-completed remains visible so a
+          // legitimately repeated identical call is not hidden.
+          const fingerprint = toolCallFingerprintFromContentPart(part);
+          const latestByFingerprint = fingerprint
+            ? latestAssistantByFingerprint.get(fingerprint)
+            : undefined;
+          if (
+            latestByFingerprint &&
+            (!toolCallPartHasResult(part) || !latestByFingerprint.hasResult)
+          ) {
+            changed = true;
+            return false;
+          }
+          return true;
+        })
+      : snapshotDeduped;
   const textDeduped = trimReconnectTextAlreadyRendered(
     filtered,
     renderedAssistantText,
@@ -4063,10 +4114,7 @@ const AssistantChatInner = forwardRef<
                                   setMissingKeyBouncePulse((p) => p + 1);
                                   return;
                                 }
-                                appendThreadMessage({
-                                  role: "user",
-                                  content: [{ type: "text", text: suggestion }],
-                                });
+                                void addToQueue(suggestion);
                               }}
                               className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
                             >
@@ -4157,6 +4205,7 @@ const AssistantChatInner = forwardRef<
                         )}
                       {(isReconnecting || reconnectFrozen) &&
                         visibleReconnectContent.length === 0 &&
+                        reconnectContent.length === 0 &&
                         reconnectActivityContent.length > 0 && (
                           <ReconnectStreamMessage
                             content={reconnectActivityContent}
@@ -4255,13 +4304,6 @@ const AssistantChatInner = forwardRef<
                     />
                   </div>
                 )}
-                {showPlanModeCallout && (
-                  <PlanModeCallout
-                    canImplementPlan={canImplementPlan}
-                    onImplementPlan={handleImplementPlan}
-                    onSwitchToAct={handleSwitchToAct}
-                  />
-                )}
                 {/* Inline attachment / body-size error */}
                 {composerError && (
                   <div
@@ -4301,6 +4343,13 @@ const AssistantChatInner = forwardRef<
                       />
                     </div>
                   ) : null}
+                  {showPlanModeCallout && (
+                    <PlanModeCallout
+                      canImplementPlan={canImplementPlan}
+                      onImplementPlan={handleImplementPlan}
+                      onSwitchToAct={handleSwitchToAct}
+                    />
+                  )}
                   {/* Input area */}
                   <AgentComposerFrame
                     layoutVariant={composerLayoutVariant}

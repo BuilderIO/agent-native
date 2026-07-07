@@ -35,6 +35,16 @@ const defaultTemplateSkillsDir = join(
   ".agents",
   "skills",
 );
+const headlessTemplateSkillsDir = join(
+  rootDir,
+  "packages",
+  "core",
+  "src",
+  "templates",
+  "headless",
+  ".agents",
+  "skills",
+);
 
 const workspaceSkillIncludes = [
   "a2a-protocol",
@@ -54,6 +64,7 @@ const workspaceSkillIncludes = [
   "context-awareness",
   "context-xray",
   "create-skill",
+  "data-programs",
   "delegate-to-agent",
   "extension-points",
   "extensions",
@@ -115,6 +126,8 @@ const requiredTemplateSharedSkills: Record<string, string[]> = {
 };
 
 const requiredDefaultTemplateSharedSkills = ["internationalization"];
+
+const requiredHeadlessTemplateSharedSkills = ["agent-native-docs"];
 
 const actionFirstInstructionFiles = [
   join(
@@ -377,6 +390,20 @@ function forEachExistingTemplateSharedSkill(fn) {
     ) {
       fn(
         "packages/core/src/templates/default/.agents/skills",
+        skill,
+        targetSkillDir,
+      );
+    }
+  }
+
+  for (const skill of templateSharedSkillIncludes) {
+    const targetSkillDir = join(headlessTemplateSkillsDir, skill);
+    if (
+      existsSync(targetSkillDir) ||
+      requiredHeadlessTemplateSharedSkills.includes(skill)
+    ) {
+      fn(
+        "packages/core/src/templates/headless/.agents/skills",
         skill,
         targetSkillDir,
       );

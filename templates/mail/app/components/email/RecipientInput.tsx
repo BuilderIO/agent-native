@@ -1,17 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import type { Alias } from "@shared/types";
 import {
   IconX,
@@ -26,11 +13,25 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
 import { useContacts, type Contact } from "@/hooks/use-emails";
 import {
@@ -344,43 +345,53 @@ export function RecipientInput({
   const { data: contacts = [] } = useContacts();
   const { data: aliases = [] } = useAliases();
 
-  const recipients = parseRecipients(value);
+  const recipients = useMemo(() => parseRecipients(value), [value]);
 
   const query = inputValue.toLowerCase().trim();
 
-  const filteredAliases = query
-    ? aliases.filter((a) => {
-        const alreadyAdded = recipients.includes(`${ALIAS_PREFIX}${a.id}`);
-        return !alreadyAdded && a.name.toLowerCase().includes(query);
-      })
-    : [];
+  const filteredAliases = useMemo(
+    () =>
+      query
+        ? aliases.filter((a) => {
+            const alreadyAdded = recipients.includes(`${ALIAS_PREFIX}${a.id}`);
+            return !alreadyAdded && a.name.toLowerCase().includes(query);
+          })
+        : [],
+    [query, aliases, value],
+  );
 
   // Contacts come pre-sorted by frequency from the server (SQL-tracked send counts)
-  const filteredContacts = query
-    ? contacts.filter((c) => {
-        const alreadyAdded = recipients.some(
-          (r) => r.toLowerCase() === c.email.toLowerCase(),
-        );
-        return (
-          !alreadyAdded &&
-          (c.name.toLowerCase().includes(query) ||
-            c.email.toLowerCase().includes(query))
-        );
-      })
-    : [];
+  const filteredContacts = useMemo(
+    () =>
+      query
+        ? contacts.filter((c) => {
+            const alreadyAdded = recipients.some(
+              (r) => r.toLowerCase() === c.email.toLowerCase(),
+            );
+            return (
+              !alreadyAdded &&
+              (c.name.toLowerCase().includes(query) ||
+                c.email.toLowerCase().includes(query))
+            );
+          })
+        : [],
+    [query, contacts, value],
+  );
 
   // Combined for keyboard nav — aliases first (sliced to match dropdown rendering)
-  const aliasSlice = filteredAliases.slice(0, 4);
-  const contactSlice = filteredContacts.slice(
-    0,
-    8 - Math.min(filteredAliases.length, 4),
-  );
-  const allSuggestions: Array<
+  const allSuggestions = useMemo((): Array<
     { type: "alias"; item: Alias } | { type: "contact"; item: Contact }
-  > = [
-    ...aliasSlice.map((a) => ({ type: "alias" as const, item: a })),
-    ...contactSlice.map((c) => ({ type: "contact" as const, item: c })),
-  ];
+  > => {
+    const aliasSlice = filteredAliases.slice(0, 4);
+    const contactSlice = filteredContacts.slice(
+      0,
+      8 - Math.min(filteredAliases.length, 4),
+    );
+    return [
+      ...aliasSlice.map((a) => ({ type: "alias" as const, item: a })),
+      ...contactSlice.map((c) => ({ type: "contact" as const, item: c })),
+    ];
+  }, [filteredAliases, filteredContacts]);
 
   const hasSuggestions = allSuggestions.length > 0;
 

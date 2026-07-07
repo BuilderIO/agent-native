@@ -31,6 +31,10 @@ import {
   screenToCanvasPoint,
   shouldShowPixelGrid,
   snapAngleToIncrement,
+  composeTransform3D,
+  isTransform3DActive,
+  parseTransform3DParts,
+  type Transform3DParts,
 } from "./canvas-math";
 
 describe("canvas camera math", () => {
@@ -65,7 +69,7 @@ describe("canvas camera math", () => {
     // MultiScreenCanvas.tsx imports these instead of redeclaring its own
     // MIN_ZOOM/MAX_ZOOM constants, so the two never drift apart silently.
     expect(DEFAULT_CANVAS_MIN_ZOOM).toBe(2);
-    expect(DEFAULT_CANVAS_MAX_ZOOM).toBe(800);
+    expect(DEFAULT_CANVAS_MAX_ZOOM).toBe(25600);
     expect(DEFAULT_CANVAS_MIN_ZOOM).toBeLessThan(DEFAULT_CANVAS_MAX_ZOOM);
   });
 });
@@ -313,6 +317,276 @@ describe("canvas snap and resize math", () => {
       { id: "a", geometry: { x: 0, y: 0, width: 400, height: 240 } },
       { id: "b", geometry: { x: 600, y: 240, width: 240, height: 240 } },
     ]);
+  });
+
+  describe("resize-snap respects a small per-call minimum (CV-snap-min)", () => {
+    // Regression test: computeResizeSnap used to hardcode the 120px
+    // screen-frame minimum (via clampFrameSize -> MIN_CANVAS_FRAME_WIDTH/
+    // HEIGHT) regardless of what minimum the caller's own non-snap resize
+    // used, so a small shape snapping near a sibling edge got force-inflated
+    // to 120x120. minWidth/minHeight on ResizeSnapOptions must be threaded
+    // through to the same clamp so a small object's snap respects its own
+    // minimum instead.
+    it("does not inflate a small shape's snapped width past its own minWidth", () => {
+      // Frame is small (20px) and its right edge sits 2px from a sibling's
+      // left edge at x=200 — well within the snap threshold, so it snaps to
+      // width 200. Without minWidth threaded through, the snap result used
+      // to be clamped up to 120 minimum instead of staying at the (still far
+      // larger than 8) snapped width.
+      const snap = computeResizeSnap(
+        { x: 180, y: 0, width: 18, height: 18 },
+        [{ id: "target", geometry: { x: 200, y: 0, width: 50, height: 50 } }],
+        "e",
+        { thresholdScreenPx: 6, zoom: 100, minWidth: 8, minHeight: 8 },
+      );
+      expect(snap.frame.width).toBe(20);
+    });
+
+    it("clamps a snapped resize to the caller's own small minimum, not the 120 default", () => {
+      // Frame's right edge (source, at x=12) snaps to the sibling's left
+      // edge at x=6 (6px away, within the default 6px threshold) — the snap
+      // offset alone (-6) would shrink the frame to 6px, below its small 8px
+      // minimum, so the small minimum (not 120) must still apply.
+      const snap = computeResizeSnap(
+        { x: 0, y: 0, width: 12, height: 12 },
+        [{ id: "target", geometry: { x: 6, y: 500, width: 50, height: 50 } }],
+        "e",
+        { thresholdScreenPx: 6, zoom: 100, minWidth: 8, minHeight: 8 },
+      );
+      expect(snap.frame.width).toBe(8);
+      expect(snap.frame.width).toBeLessThan(120);
+    });
+
+    it("still clamps to the 120 screen default when no minWidth/minHeight is passed", () => {
+      // Default behavior for callers that don't pass minimums stays exactly
+      // as before this fix — screens are unaffected.
+      const snap = computeResizeSnap(
+        { x: 0, y: 0, width: 12, height: 12 },
+        [{ id: "target", geometry: { x: 6, y: 500, width: 50, height: 50 } }],
+        "e",
+        { thresholdScreenPx: 6, zoom: 100 },
+      );
+      expect(snap.frame.width).toBe(120);
+    });
+
+    it("respects a small minimum in the aspect-preserving snap path too", () => {
+      const frame = { x: 0, y: 0, width: 20, height: 20 };
+      const stationary = [
+        { id: "sibling", geometry: { x: 2, y: 500, width: 50, height: 50 } },
+      ];
+      const snap = computeResizeSnap(frame, stationary, "e", {
+        thresholdScreenPx: 6,
+        zoom: 100,
+        preserveAspectRatio: true,
+        minWidth: 4,
+        minHeight: 4,
+      });
+      expect(snap.frame.width).toBeGreaterThanOrEqual(4);
+      expect(snap.frame.width).toBeLessThan(120);
+    });
+  });
+
+  describe("resizeFrameFromDelta flip-normalization (Figma-parity CV-flip)", () => {
+    // Regression tests: dragging a resize handle past the frame's opposite
+    // edge used to just pin the size at the minimum instead of flipping the
+    // shape (handle roles swap, x/y adjust, size stays positive) the way
+    // real Figma does. Flip only applies when the caller passes a small
+    // effective minimum (below the 120 screen-frame default) — screens that
+    // rely on the 120 default keep clamping exactly as before.
+
+    it("flips horizontally when the 'e' handle is dragged past the west edge", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      // dx = -200 drags the east edge 50px past the fixed west edge (100).
+      const result = resizeFrameFromDelta(origin, "e", -200, 0, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(50);
+      expect(result.x).toBe(50);
+      expect(result.y).toBe(100);
+      expect(result.height).toBe(150);
+    });
+
+    it("flips horizontally when the 'w' handle is dragged past the east edge", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      // dx = 200 drags the west edge 50px past the fixed east edge (250).
+      const result = resizeFrameFromDelta(origin, "w", 200, 0, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(50);
+      expect(result.x).toBe(250);
+      expect(result.y).toBe(100);
+    });
+
+    it("flips vertically when the 's' handle is dragged past the north edge", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      const result = resizeFrameFromDelta(origin, "s", 0, -200, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.height).toBe(50);
+      expect(result.y).toBe(50);
+      expect(result.x).toBe(100);
+    });
+
+    it("flips vertically when the 'n' handle is dragged past the south edge", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      const result = resizeFrameFromDelta(origin, "n", 0, 200, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.height).toBe(50);
+      expect(result.y).toBe(250);
+    });
+
+    it("flips both axes when a corner handle is dragged past the opposite corner", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      // "se" (anchored at the fixed "nw" corner, 100,100) dragged up-and-left
+      // by 180px on each axis: raw width/height = 150 - 180 = -30 (30px past
+      // the nw anchor on each axis).
+      const result = resizeFrameFromDelta(origin, "se", -180, -180, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(30);
+      expect(result.height).toBe(30);
+      expect(result.x).toBe(70);
+      expect(result.y).toBe(70);
+    });
+
+    it("clamps to the small minimum instead of a sub-minimum flip overshoot", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      // dx = 152 only drags 2px past the east anchor (250) — smaller than
+      // the 8px minimum, so the frame should floor to 8 while keeping the
+      // anchor (250) fixed, extending in the flipped direction.
+      const result = resizeFrameFromDelta(origin, "w", 152, 0, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(8);
+      expect(result.x).toBe(242);
+    });
+
+    it("does NOT flip and keeps pinning at the 120 default when no minimum override is passed", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      const result = resizeFrameFromDelta(origin, "e", -200, 0);
+      // Old pin-at-minimum behavior: width floors at 120, x stays at origin.
+      expect(result.width).toBe(120);
+      expect(result.x).toBe(100);
+    });
+
+    it("does NOT flip when minWidth/minHeight equal the 120 screen default explicitly", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      const result = resizeFrameFromDelta(origin, "e", -200, 0, {
+        minWidth: 120,
+        minHeight: 120,
+      });
+      expect(result.width).toBe(120);
+      expect(result.x).toBe(100);
+    });
+
+    it("mirrors around the center for a resizeFromCenter (alt) flip past both edges", () => {
+      const origin = { x: 100, y: 100, width: 150, height: 150 };
+      const centerX = origin.x + origin.width / 2;
+      const centerY = origin.y + origin.height / 2;
+      // resizeFromCenter doubles the delta; a small inward drag easily
+      // crosses to a "negative" raw size, but must stay centered rather than
+      // anchor-flip like the non-center case.
+      const result = resizeFrameFromDelta(origin, "se", -100, -100, {
+        resizeFromCenter: true,
+        minWidth: 8,
+        minHeight: 8,
+      });
+      const resultCenterX = result.x + result.width / 2;
+      const resultCenterY = result.y + result.height / 2;
+      expect(resultCenterX).toBeCloseTo(centerX);
+      expect(resultCenterY).toBeCloseTo(centerY);
+      expect(result.width).toBeGreaterThan(0);
+      expect(result.height).toBeGreaterThan(0);
+    });
+
+    it("preserves aspect ratio through a corner flip (shift+flip)", () => {
+      const origin = { x: 0, y: 0, width: 200, height: 100 }; // 2:1 ratio
+      const result = resizeFrameFromDelta(origin, "se", -260, -140, {
+        preserveAspectRatio: true,
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBeGreaterThan(0);
+      expect(result.height).toBeGreaterThan(0);
+      expect(result.width / result.height).toBeCloseTo(2, 5);
+    });
+
+    it("preserves aspect ratio through an edge-only handle flip (shift+flip)", () => {
+      const origin = { x: 0, y: 100, width: 200, height: 100 }; // 2:1 ratio
+      // "e" only directly drags width; height is aspect-derived. Flip width
+      // past the west edge and confirm height stays derived and positive.
+      const result = resizeFrameFromDelta(origin, "e", -220, 0, {
+        preserveAspectRatio: true,
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(20);
+      expect(result.height).toBeCloseTo(10, 5);
+      expect(result.width / result.height).toBeCloseTo(2, 5);
+    });
+
+    it("keeps the existing rotated-frame minimum-size behavior unaffected by flip changes", () => {
+      // Existing rotation test (kept passing): resizeRotatedFrameFromDelta
+      // composes on top of resizeFrameFromDelta, so this indirectly
+      // exercises the refactored function for the non-flip minimum path.
+      const origin = { x: 0, y: 0, width: 200, height: 100, rotation: 45 };
+      const result = resizeRotatedFrameFromDelta(origin, "se", 100, 0, {
+        preserveAspectRatio: true,
+        minWidth: 10,
+        minHeight: 10,
+      });
+      expect(result.width / result.height).toBeCloseTo(
+        origin.width / origin.height,
+      );
+    });
+
+    it("flips through resizeRotatedFrameFromDelta and re-anchors in world space", () => {
+      // A rotated frame's "e" handle dragged far enough (in local/unrotated
+      // space) to flip past the west edge — the wrapper should still produce
+      // a positive-size, correctly re-anchored world-space result instead of
+      // throwing or returning a negative size.
+      const origin = { x: 100, y: 100, width: 150, height: 150, rotation: 0 };
+      const result = resizeRotatedFrameFromDelta(origin, "e", -200, 0, {
+        minWidth: 8,
+        minHeight: 8,
+      });
+      expect(result.width).toBe(50);
+      expect(result.height).toBe(150);
+    });
+
+    it("flips through resizeFrameGroupFromDelta's single-frame call shape (matches the real drag call site)", () => {
+      // MultiScreenCanvas.tsx always resizes through resizeFrameGroupFromDelta
+      // (even for a single selected object), passing a small explicit
+      // minWidth/minHeight (8 for draft primitives, 1 for real frames/
+      // screens) rather than relying on the 120 default. This exercises that
+      // exact shape end-to-end to confirm getGroupMinimumBounds's per-group
+      // minimum computation doesn't dilute the small minimum back up to 120
+      // for a lone frame, and that the flip still applies.
+      const origin = {
+        id: "solo",
+        geometry: { x: 100, y: 100, width: 150, height: 150 },
+      };
+      const result = resizeFrameGroupFromDelta(
+        [origin],
+        origin.geometry,
+        "e",
+        -200,
+        0,
+        { minWidth: 8, minHeight: 8 },
+      );
+      expect(result.bounds.width).toBe(50);
+      expect(result.bounds.x).toBe(50);
+      expect(result.frames).toEqual([
+        { id: "solo", geometry: { x: 50, y: 100, width: 50, height: 150 } },
+      ]);
+    });
   });
 });
 
@@ -1163,3 +1437,226 @@ function rangesOverlap(
 ) {
   return firstStart < secondEnd && secondStart < firstEnd;
 }
+
+describe("3D transform parse/compose", () => {
+  describe("parseTransform3DParts", () => {
+    it("treats an absent or 'none' transform as all-zero", () => {
+      expect(parseTransform3DParts(undefined)).toEqual({
+        rotateX: 0,
+        rotateY: 0,
+        rotateZ: 0,
+        perspective: 0,
+      });
+      expect(parseTransform3DParts("none")).toEqual({
+        rotateX: 0,
+        rotateY: 0,
+        rotateZ: 0,
+        perspective: 0,
+      });
+    });
+
+    it("parses a full perspective + rotateX/Y/Z chain", () => {
+      expect(
+        parseTransform3DParts(
+          "perspective(800px) rotateX(10deg) rotateY(-20deg) rotateZ(30deg)",
+        ),
+      ).toEqual({ rotateX: 10, rotateY: -20, rotateZ: 30, perspective: 800 });
+    });
+
+    it("reads a plain 2D rotate() as rotateZ, matching back-compat mapping", () => {
+      expect(parseTransform3DParts("rotate(45deg)")).toEqual({
+        rotateX: 0,
+        rotateY: 0,
+        rotateZ: 45,
+        perspective: 0,
+      });
+    });
+
+    it("converts non-degree angle units on rotateX/Y/Z", () => {
+      expect(
+        parseTransform3DParts("rotateX(0.25turn) rotateY(1.5708rad)"),
+      ).toEqual({
+        rotateX: 90,
+        rotateY: expect.closeTo(90, 3),
+        rotateZ: 0,
+        perspective: 0,
+      });
+    });
+
+    it("preserves translate/scale by ignoring them (caller keeps them separately)", () => {
+      expect(
+        parseTransform3DParts(
+          "translateX(10px) rotateX(15deg) scale(1.2) rotateZ(5deg)",
+        ),
+      ).toEqual({ rotateX: 15, rotateY: 0, rotateZ: 5, perspective: 0 });
+    });
+
+    it("returns null for a matrix()/matrix3d()/rotate3d() composite", () => {
+      expect(parseTransform3DParts("matrix(1, 0, 0, 1, 0, 0)")).toBeNull();
+      expect(
+        parseTransform3DParts("matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)"),
+      ).toBeNull();
+      expect(parseTransform3DParts("rotate3d(1, 1, 0, 45deg)")).toBeNull();
+    });
+
+    it("returns null for an unrecognized perspective unit", () => {
+      expect(
+        parseTransform3DParts("perspective(50em) rotateX(10deg)"),
+      ).toBeNull();
+    });
+  });
+
+  describe("composeTransform3D", () => {
+    it("emits the plain 2D form with zero churn when X/Y/perspective are zero", () => {
+      expect(
+        composeTransform3D(undefined, {
+          rotateX: 0,
+          rotateY: 0,
+          rotateZ: 30,
+          perspective: 0,
+        }),
+      ).toBe("rotate(30deg)");
+    });
+
+    it("emits 'none' when every part is zero and there's no base transform", () => {
+      expect(
+        composeTransform3D(undefined, {
+          rotateX: 0,
+          rotateY: 0,
+          rotateZ: 0,
+          perspective: 0,
+        }),
+      ).toBe("none");
+    });
+
+    it("composes perspective(...) rotateX(...) rotateY(...) rotateZ(...) in that fixed order", () => {
+      expect(
+        composeTransform3D(undefined, {
+          rotateX: 10,
+          rotateY: 20,
+          rotateZ: 30,
+          perspective: 800,
+        }),
+      ).toBe("perspective(800px) rotateX(10deg) rotateY(20deg) rotateZ(30deg)");
+    });
+
+    it("includes rotateZ(0deg) once 3D is active, for unambiguous re-parsing", () => {
+      expect(
+        composeTransform3D(undefined, {
+          rotateX: 15,
+          rotateY: 0,
+          rotateZ: 0,
+          perspective: 0,
+        }),
+      ).toBe("rotateX(15deg) rotateZ(0deg)");
+    });
+
+    it("omits perspective() when perspective is 0 but X/Y rotation is active", () => {
+      const composed = composeTransform3D(undefined, {
+        rotateX: 0,
+        rotateY: 25,
+        rotateZ: 0,
+        perspective: 0,
+      });
+      expect(composed).toBe("rotateY(25deg) rotateZ(0deg)");
+    });
+
+    it("preserves existing translate/scale/skew tokens and replaces stale rotation/perspective tokens", () => {
+      const composed = composeTransform3D(
+        "translateX(10px) rotateX(5deg) scale(1.2) perspective(400px)",
+        { rotateX: 40, rotateY: 0, rotateZ: 0, perspective: 900 },
+      );
+      expect(composed).toBe(
+        "perspective(900px) rotateX(40deg) rotateZ(0deg) translateX(10px) scale(1.2)",
+      );
+    });
+
+    it("round-trips through parse -> compose for a 2D-only transform with zero churn", () => {
+      const original = "translateX(10px) rotate(45deg) scale(1.2)";
+      const parsed = parseTransform3DParts(original)!;
+      expect(parsed.rotateX).toBe(0);
+      expect(parsed.rotateY).toBe(0);
+      expect(parsed.perspective).toBe(0);
+      // Recomposing with the parsed (2D-only) parts must reproduce the exact
+      // same rotate() token and preserve the surrounding transform verbatim —
+      // no perspective()/rotateX()/rotateY() churn for existing designs.
+      expect(composeTransform3D(original, parsed)).toBe(
+        "rotate(45deg) translateX(10px) scale(1.2)",
+      );
+    });
+
+    it("round-trips a full 3D chain through parse -> compose", () => {
+      const original =
+        "perspective(600px) rotateX(12deg) rotateY(-8deg) rotateZ(3deg)";
+      const parsed = parseTransform3DParts(original)!;
+      expect(composeTransform3D(undefined, parsed)).toBe(original);
+    });
+
+    it("still parses rotateZ correctly after EditPanel's plain Z-rotation field (mergeRotationValue) edits a 3D-active transform", () => {
+      // EditPanel.tsx's plain rotation field always writes a bare rotate()
+      // (via mergeRotationValue), never rotateZ() — even when the 3D
+      // expander is active alongside it. ROTATE_FN_PATTERN
+      // (`rotate[Zz]?\(...\)`, non-global) only replaces the FIRST rotate
+      // family match, and critically does NOT match rotateX()/rotateY()
+      // (the "X"/"Y" isn't the optional "Z"), so editing the plain Z field
+      // while rotateX/rotateY are present correctly swaps only the
+      // rotateZ() token for a bare rotate() token, leaving rotateX/rotateY
+      // untouched. parseTransform3DParts must still recover the edited Z
+      // value from that bare rotate() via its rotateZ ?? rotate fallback.
+      const threeDActive =
+        "perspective(800px) rotateX(10deg) rotateY(20deg) rotateZ(30deg)";
+      const afterZFieldEdit = threeDActive.replace(
+        /rotate[Zz]?\(\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(deg|rad|turn|grad)?\s*\)/i,
+        "rotate(45deg)",
+      );
+      expect(afterZFieldEdit).toBe(
+        "perspective(800px) rotateX(10deg) rotateY(20deg) rotate(45deg)",
+      );
+      expect(parseTransform3DParts(afterZFieldEdit)).toEqual({
+        rotateX: 10,
+        rotateY: 20,
+        rotateZ: 45,
+        perspective: 800,
+      });
+    });
+  });
+
+  describe("isTransform3DActive", () => {
+    it("is false when rotateZ is non-zero but X/Y/perspective are all zero", () => {
+      const parts: Transform3DParts = {
+        rotateX: 0,
+        rotateY: 0,
+        rotateZ: 45,
+        perspective: 0,
+      };
+      expect(isTransform3DActive(parts)).toBe(false);
+    });
+
+    it("is true when perspective, rotateX, or rotateY is non-zero", () => {
+      expect(
+        isTransform3DActive({
+          rotateX: 1,
+          rotateY: 0,
+          rotateZ: 0,
+          perspective: 0,
+        }),
+      ).toBe(true);
+      expect(
+        isTransform3DActive({
+          rotateX: 0,
+          rotateY: 1,
+          rotateZ: 0,
+          perspective: 0,
+        }),
+      ).toBe(true);
+      expect(
+        isTransform3DActive({
+          rotateX: 0,
+          rotateY: 0,
+          rotateZ: 0,
+          perspective: 100,
+        }),
+      ).toBe(true);
+    });
+  });
+});

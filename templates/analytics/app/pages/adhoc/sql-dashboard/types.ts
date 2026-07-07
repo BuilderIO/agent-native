@@ -4,7 +4,8 @@ export type DataSourceType =
   | "amplitude"
   | "first-party"
   | "demo"
-  | "prometheus";
+  | "prometheus"
+  | "program";
 
 export type ChartType =
   | "line"

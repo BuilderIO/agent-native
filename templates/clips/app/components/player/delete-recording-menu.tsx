@@ -1,4 +1,8 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
+import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,18 +12,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
-import { toast } from "sonner";
+} from "@/components/ui/dropdown-menu";
 
 interface DeleteRecordingMenuProps {
   recordingId: string;

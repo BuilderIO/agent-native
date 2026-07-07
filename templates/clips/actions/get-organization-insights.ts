@@ -13,7 +13,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,6 +28,13 @@ function startOfDay(d: Date): Date {
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+// Hard cap on how many recordings/engagement rows we pull into memory per
+// call so a very large organization can't turn this into an unbounded scan.
+// Insights are inherently approximate at this scale — the response flags
+// `truncated` so the UI can say "showing the most recent N recordings".
+const MAX_RECORDINGS = 2000;
+const MAX_ENGAGEMENT_ROWS = 20000;
 
 export default defineAction({
   description:
@@ -58,10 +65,21 @@ export default defineAction({
     const endIso = now.toISOString();
 
     // All recordings in this organization. Filter engagement down to this set.
+    // Bounded to MAX_RECORDINGS (most recent first) and projected down to the
+    // columns this action actually reads, instead of loading full rows.
     const recordings = await db
-      .select()
+      .select({
+        id: schema.recordings.id,
+        title: schema.recordings.title,
+        ownerEmail: schema.recordings.ownerEmail,
+        createdAt: schema.recordings.createdAt,
+        trashedAt: schema.recordings.trashedAt,
+      })
       .from(schema.recordings)
-      .where(eq(schema.recordings.organizationId, organizationId));
+      .where(eq(schema.recordings.organizationId, organizationId))
+      .orderBy(desc(schema.recordings.createdAt))
+      .limit(MAX_RECORDINGS);
+    const truncatedRecordings = recordings.length >= MAX_RECORDINGS;
     const recordingIds = recordings.map((r) => r.id);
     const titleById = new Map(recordings.map((r) => [r.id, r.title] as const));
     const ownerById = new Map(
@@ -78,10 +96,15 @@ export default defineAction({
       ).length,
     };
 
-    // Views: counted viewers first-viewed within the period.
+    // Views: counted viewers first-viewed within the period. Projected to the
+    // two columns used below, and capped so a very active org can't force an
+    // unbounded row load.
     const viewerRows = recordingIds.length
       ? await db
-          .select()
+          .select({
+            recordingId: schema.recordingViewers.recordingId,
+            firstViewedAt: schema.recordingViewers.firstViewedAt,
+          })
           .from(schema.recordingViewers)
           .where(
             and(
@@ -90,12 +113,17 @@ export default defineAction({
               gte(schema.recordingViewers.firstViewedAt, startIso),
             ),
           )
+          .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.views = viewerRows.length;
+    const truncatedViewers = viewerRows.length >= MAX_ENGAGEMENT_ROWS;
 
     const reactionRows = recordingIds.length
       ? await db
-          .select()
+          .select({
+            recordingId: schema.recordingReactions.recordingId,
+            createdAt: schema.recordingReactions.createdAt,
+          })
           .from(schema.recordingReactions)
           .where(
             and(
@@ -103,12 +131,17 @@ export default defineAction({
               gte(schema.recordingReactions.createdAt, startIso),
             ),
           )
+          .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.reactions = reactionRows.length;
+    const truncatedReactions = reactionRows.length >= MAX_ENGAGEMENT_ROWS;
 
     const commentRows = recordingIds.length
       ? await db
-          .select()
+          .select({
+            recordingId: schema.recordingComments.recordingId,
+            createdAt: schema.recordingComments.createdAt,
+          })
           .from(schema.recordingComments)
           .where(
             and(
@@ -116,8 +149,10 @@ export default defineAction({
               gte(schema.recordingComments.createdAt, startIso),
             ),
           )
+          .limit(MAX_ENGAGEMENT_ROWS)
       : [];
     totals.comments = commentRows.length;
+    const truncatedComments = commentRows.length >= MAX_ENGAGEMENT_ROWS;
 
     // Top videos.
     const viewsByRec: Record<string, number> = {};
@@ -207,6 +242,15 @@ export default defineAction({
       topVideos,
       topCreators,
       trend,
+      // True when the organization has more recordings/engagement rows than
+      // the bounded scan below covers — totals/trend reflect only the most
+      // recent MAX_RECORDINGS recordings and/or the first MAX_ENGAGEMENT_ROWS
+      // matching rows per engagement table in that case.
+      truncated:
+        truncatedRecordings ||
+        truncatedViewers ||
+        truncatedReactions ||
+        truncatedComments,
     };
   },
 });

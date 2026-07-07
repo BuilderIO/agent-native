@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconBold,
   IconItalic,
   IconUnderline,
@@ -17,6 +12,11 @@ import {
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { shortcutLabel } from "@/lib/utils";
 
 interface BlockBubbleMenuProps {

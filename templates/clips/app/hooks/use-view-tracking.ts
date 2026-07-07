@@ -21,6 +21,15 @@ function getSessionId(): string {
   }
 }
 
+function createViewSessionId(recordingId: string): string {
+  return [
+    "v",
+    recordingId,
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2, 8),
+  ].join("-");
+}
+
 export interface UseViewTrackingOpts {
   recordingId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -45,6 +54,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   const openTrackedRecordingRef = useRef<string | null>(null);
   const lastSentProgressRef = useRef(0);
   const maxPctRef = useRef(0);
+  const viewSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (disabled) return;
@@ -58,6 +68,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         return;
       }
       openTrackedRecordingRef.current = recordingId;
+      viewSessionRef.current = createViewSessionId(recordingId);
       fetch(`${appBasePath()}/api/view-event`, {
         method: "POST",
         keepalive: true,
@@ -67,6 +78,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
           kind: "view-start",
           timestampMs: 0,
           sessionId: getSessionId(),
+          viewSessionId: viewSessionRef.current,
           totalWatchMs: 0,
           completedPct: 0,
           scrubbedToEnd: false,
@@ -77,6 +89,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
     }
 
     const sessionId = getSessionId();
+    viewSessionRef.current = createViewSessionId(recordingId);
     let progressTimer: ReturnType<typeof setInterval> | null = null;
 
     function post(
@@ -104,6 +117,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
           kind,
           timestampMs: Math.floor(v.currentTime * 1000),
           sessionId,
+          viewSessionId: viewSessionRef.current,
           totalWatchMs: Math.floor(watchMsRef.current),
           completedPct: Math.floor(maxPctRef.current),
           scrubbedToEnd: v.duration > 0 && v.currentTime >= v.duration - 0.5,

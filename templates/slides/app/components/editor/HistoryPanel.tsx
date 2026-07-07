@@ -1,16 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { toast } from "@agent-native/toolkit/hooks/use-toast";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconArrowLeft,
   IconHistory,
@@ -20,12 +8,24 @@ import {
 import { useMemo, useState, type RefObject } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import {
   useDeckVersion,
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { DeckVersionSummary } from "../../../shared/api";

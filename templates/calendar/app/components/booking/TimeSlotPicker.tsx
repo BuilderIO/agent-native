@@ -1,7 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { format, parseISO } from "date-fns";
+
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TimeSlotPickerProps {
   slots: { start: string; end: string }[];

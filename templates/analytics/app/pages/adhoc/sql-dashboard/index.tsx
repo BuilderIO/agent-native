@@ -14,39 +14,6 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@agent-native/toolkit/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   useDroppable,
   DndContext,
   DragOverlay,
@@ -94,6 +61,35 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -1323,7 +1319,7 @@ export default function SqlDashboardPage() {
 
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
             value={nameInput}
@@ -1335,14 +1331,14 @@ export default function SqlDashboardPage() {
           />
         ) : canEdit ? (
           <button
-            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
               setNameInput(dashboard.name);
               setEditingName(true);
             }}
           >
             <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
+            <IconPencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
           </button>
         ) : (
           <span className="truncate text-lg font-semibold">

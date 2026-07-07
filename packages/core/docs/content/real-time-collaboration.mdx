@@ -258,11 +258,8 @@ export default createCollabPlugin({
 ### 4. Use the client hook
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -364,12 +361,14 @@ Import client-side presence and editor UI from the focused browser subpath:
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 Server-side agent presence helpers stay in the lower-level collab package:
@@ -455,7 +454,7 @@ The agent (AGENT_CLIENT_ID) appears as a first-class participant with `isAgent: 
 Renders remote cursors as absolutely-positioned labels over a container element:
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -475,7 +474,7 @@ The agent's cursor renders distinctly with a sparkle icon. Cursors fade out afte
 Renders colored outline rings + name tags over remotely-selected elements:
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}
@@ -751,7 +750,7 @@ The `useCollaborativeDoc` hook returns:
   (durable presence heartbeat).
 
 Use `emailToColor(email)` and `emailToName(email)` from
-`@agent-native/core/client` to generate consistent cursor colors and display
+`@agent-native/toolkit/collab-ui` to generate consistent cursor colors and display
 names from email addresses.
 
 A `PresenceBar` rendered with `activeUsers` shows live human and agent

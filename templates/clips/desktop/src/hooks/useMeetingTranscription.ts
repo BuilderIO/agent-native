@@ -35,6 +35,15 @@ interface MeetingTranscriptionSession {
   stopping: boolean;
   paused: boolean;
   engine: TranscriptionEngine;
+  // Single-flight flush bookkeeping (M3): `flushInFlight` is the promise of
+  // the currently-running save-browser-transcript call (or null). `flushSeq`
+  // is bumped every time flushTranscript is invoked; `dirtySeq` records the
+  // seq of the most recent *request* to flush. A completed flush only clears
+  // its own dirty marker if no newer flush was requested while it was in
+  // flight — otherwise it re-flushes with the latest snapshot.
+  flushInFlight: Promise<void> | null;
+  flushSeq: number;
+  dirtySeq: number;
 }
 
 type CallClipsAction = <T>(
@@ -80,75 +89,146 @@ export function useMeetingTranscription({
   // Transcript flush
   // -------------------------------------------------------------------------
 
-  const flushTranscript = useCallback(async () => {
+  // Coalescing single-flight flush (M3): only ever one save-browser-transcript
+  // request in flight per session. A flush requested while one is already
+  // outstanding marks the session dirty and re-runs after the in-flight call
+  // settles, using whatever lines/segments are current at that later time —
+  // this prevents a stale, smaller snapshot from a slower request landing
+  // after (and clobbering) a newer, larger one.
+  const flushTranscript = useCallback(async (): Promise<void> => {
     const session = sessionRef.current;
-    if (!session || !session.lines.length) return;
-    await callClipsAction("save-browser-transcript", {
-      recordingId: session.recordingId,
-      fullText: session.lines.join("\n\n"),
-      segments: session.segments,
-      source: session.engine,
-      overwriteReady: true,
-    });
-    emit("clips:meeting-saved", {
-      meetingId: session.meetingId,
-      ts: Date.now(),
-    }).catch(() => {});
+    if (!session) return;
+    session.dirtySeq = session.flushSeq + 1;
+    if (session.flushInFlight) {
+      // A flush is already outstanding — wait for it (and any chained
+      // re-flush it triggers for our own dirty marker) instead of firing a
+      // second overlapping request.
+      await session.flushInFlight;
+      return;
+    }
+    if (!session.lines.length) return;
+
+    const seq = session.dirtySeq;
+    session.flushSeq = seq;
+    const run = (async () => {
+      await callClipsAction("save-browser-transcript", {
+        recordingId: session.recordingId,
+        fullText: session.lines.join("\n\n"),
+        segments: session.segments,
+        source: session.engine,
+        overwriteReady: true,
+      });
+      emit("clips:meeting-saved", {
+        meetingId: session.meetingId,
+        ts: Date.now(),
+      }).catch(() => {});
+      // Newer content arrived while this request was in flight — chain a
+      // re-flush with the latest snapshot before this call resolves, so
+      // every awaiter (including the coalesced branch above) sees the
+      // definitive result.
+      if (session.dirtySeq > seq) {
+        session.flushInFlight = null;
+        await flushTranscript();
+      }
+    })();
+    session.flushInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (session.flushInFlight === run) session.flushInFlight = null;
+    }
   }, [callClipsAction]);
 
   // -------------------------------------------------------------------------
   // Stop
   // -------------------------------------------------------------------------
 
+  // Promise of the currently-running teardown, so a second stop request
+  // (e.g. app-quit arriving during a silence-stop) waits for the in-flight
+  // teardown to finish instead of returning before the final flush landed.
+  const stopInFlightRef = useRef<Promise<void> | null>(null);
+
   const stopTranscription = useCallback(
     async (reason: string = "manual") => {
       const session = sessionRef.current;
-      if (!session || session.stopping) return;
+      if (!session) return;
+      if (session.stopping) {
+        await stopInFlightRef.current;
+        return;
+      }
       session.stopping = true;
-      if (session.flushTimer) {
-        window.clearTimeout(session.flushTimer);
-        session.flushTimer = null;
-      }
-      try {
-        await stopTranscriptionEngine(session.engine);
-      } catch (err) {
-        console.warn("[clips-popover] meeting audio stop failed:", err);
-      }
-      session.unlisten.splice(0).forEach((unlisten) => {
-        try {
-          unlisten();
-        } catch {
-          // ignore
+      const run = (async () => {
+        if (session.flushTimer) {
+          window.clearTimeout(session.flushTimer);
+          session.flushTimer = null;
         }
-      });
-      await invoke("silence_detector_stop").catch(() => {});
-      await flushTranscript().catch((err) => {
-        console.warn("[clips-popover] meeting transcript save failed:", err);
-      });
-      await callClipsAction("stop-meeting-recording", {
-        meetingId: session.meetingId,
-      }).catch((err) => {
-        console.warn("[clips-popover] stop meeting action failed:", err);
-      });
-      if (session.lines.length) {
-        await callClipsAction("finalize-meeting", {
+        try {
+          await stopTranscriptionEngine(session.engine);
+        } catch (err) {
+          console.warn("[clips-popover] meeting audio stop failed:", err);
+        }
+        session.unlisten.splice(0).forEach((unlisten) => {
+          try {
+            unlisten();
+          } catch {
+            // ignore
+          }
+        });
+        await invoke("silence_detector_stop").catch(() => {});
+        // Final flush waits for any in-flight flush first (flushTranscript's
+        // single-flight coalescing) then sends the definitive snapshot.
+        await flushTranscript().catch((err) => {
+          console.warn("[clips-popover] meeting transcript save failed:", err);
+        });
+        await callClipsAction("stop-meeting-recording", {
           meetingId: session.meetingId,
         }).catch((err) => {
-          console.warn("[clips-popover] finalize meeting failed:", err);
+          console.warn("[clips-popover] stop meeting action failed:", err);
         });
+        if (session.lines.length) {
+          const finalizePromise = callClipsAction("finalize-meeting", {
+            meetingId: session.meetingId,
+          }).catch((err) => {
+            console.warn("[clips-popover] finalize meeting failed:", err);
+          });
+          // App-quit teardown must not block on the network round-trip — the
+          // server completes finalize independently, and the web app's
+          // auto-finalize effect is the fallback if this fire-and-forget call
+          // never lands.
+          if (reason !== "app-quit") await finalizePromise;
+        }
+        // Skip opening the meeting in the browser on app-quit — the app is
+        // exiting, there's nothing to hand off to.
+        if (reason !== "app-quit") {
+          openExternal(
+            `${normalizedServerUrl}/meetings/${session.meetingId}`,
+          ).catch((err) => {
+            console.warn("[clips-popover] open meeting in web failed:", err);
+          });
+        }
+        // Guard the shared Rust-side state writes and sessionRef null-out by
+        // identity. App quit and other callers can still race a stop against a
+        // new start that slips in between awaits, and stale teardown must not
+        // clobber the session that has since taken over.
+        if (sessionRef.current === session) {
+          await invoke("recording_pill_hide").catch(() => {});
+          await invoke("set_recording_state", { active: false }).catch(
+            () => {},
+          );
+          await invoke("set_meeting_active", { active: false }).catch(() => {});
+          sessionRef.current = null;
+        }
+        emit("meetings:transcription-stopped", {
+          meetingId: session.meetingId,
+          reason,
+        }).catch(() => {});
+      })();
+      stopInFlightRef.current = run;
+      try {
+        await run;
+      } finally {
+        if (stopInFlightRef.current === run) stopInFlightRef.current = null;
       }
-      openExternal(
-        `${normalizedServerUrl}/meetings/${session.meetingId}`,
-      ).catch((err) => {
-        console.warn("[clips-popover] open meeting in web failed:", err);
-      });
-      await invoke("recording_pill_hide").catch(() => {});
-      await invoke("set_recording_state", { active: false }).catch(() => {});
-      emit("meetings:transcription-stopped", {
-        meetingId: session.meetingId,
-        reason,
-      }).catch(() => {});
-      sessionRef.current = null;
     },
     [callClipsAction, flushTranscript, normalizedServerUrl],
   );
@@ -163,11 +243,15 @@ export function useMeetingTranscription({
       if (!meetingId) return;
 
       const existing = sessionRef.current;
-      if (existing && !existing.stopping) {
-        if (existing.meetingId === meetingId) {
+      if (existing) {
+        if (!existing.stopping && existing.meetingId === meetingId) {
           emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
+        // Always await the existing teardown before starting a new session,
+        // even if it is already stopping. stopTranscription coalesces through
+        // stopInFlightRef, so awaiting an already-stopping session joins the
+        // in-flight promise instead of running teardown twice.
         await stopTranscription("replaced");
       }
 
@@ -192,9 +276,13 @@ export function useMeetingTranscription({
           stopping: false,
           paused: false,
           engine: "whisper",
+          flushInFlight: null,
+          flushSeq: 0,
+          dirtySeq: 0,
         };
         sessionRef.current = session;
         await invoke("set_recording_state", { active: true }).catch(() => {});
+        await invoke("set_meeting_active", { active: true }).catch(() => {});
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -232,6 +320,22 @@ export function useMeetingTranscription({
             if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
               return;
             stopTranscription("manual").catch(() => {});
+          }),
+        );
+        addUnlisten(
+          // Rust only emits this at app-quit while MeetingActive is true (see
+          // lib.rs's ExitRequested handler). Run the graceful teardown, then
+          // tell Rust we're done so it can let the process exit — a 3s
+          // watchdog on the Rust side forces exit regardless if this never
+          // fires (dead webview, hung network call).
+          listen("meetings:quit-requested", () => {
+            stopTranscription("app-quit")
+              .catch((err) => {
+                console.warn("[clips-popover] app-quit teardown failed:", err);
+              })
+              .finally(() => {
+                invoke("quit_teardown_done").catch(() => {});
+              });
           }),
         );
         addUnlisten(
@@ -318,8 +422,13 @@ export function useMeetingTranscription({
             }
           } finally {
             applyingTransition = false;
+            // Re-check for any desiredPaused change queued while this
+            // transition was in flight — including the two early-return
+            // error-recovery branches above, which otherwise skipped this
+            // reconvergence and could leave a queued pause/resume request
+            // unapplied until another external event happened to fire.
+            void applyAudioState();
           }
-          void applyAudioState();
         };
 
         const requestAudioState = (paused: boolean) => {
@@ -446,6 +555,7 @@ export function useMeetingTranscription({
         sessionRef.current = null;
         await invoke("recording_pill_hide").catch(() => {});
         await invoke("set_recording_state", { active: false }).catch(() => {});
+        await invoke("set_meeting_active", { active: false }).catch(() => {});
         const message =
           err instanceof Error ? err.message : "Could not start notes.";
         emit("meetings:transcription-error", {

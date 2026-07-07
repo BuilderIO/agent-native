@@ -42,14 +42,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
+import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  getCameraStreamWithFallback,
+  isMediaConstraintFailure,
+} from "./lib/media-capture-constraints";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
+  MACOS_SCREEN_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
@@ -432,6 +438,11 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "auto") return native;
   if (value === "builder") return "builder-gemini";
   if (value === "macos-native" && !isMacPlatform()) return "browser";
+  // Symmetric migration: a persisted "browser" preference from a non-Mac
+  // install (or an older build) silently ran native transcription on Mac
+  // via resolveProvider()'s mic-override branch with zero UI indication.
+  // Normalize the stale value at the source instead (D1).
+  if (value === "browser" && isMacPlatform()) return "macos-native";
   return value === "browser" ||
     value === "macos-native" ||
     value === "whisper" ||
@@ -1358,15 +1369,15 @@ export function App() {
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
 
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
-        },
-        audio: false,
-      })
+    // The saved camera id can go stale (webcam unplugged since last launch).
+    // The fallback helper retries once with the default camera on a
+    // constraint failure instead of leaving the ghost id to fail with
+    // OverconstrainedError; once `loadDevices()` refreshes the list below,
+    // the stale selection itself is cleared by `useMediaDevices`.
+    getCameraStreamWithFallback(cameraId, {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    })
       .then(async (s) => {
         if (cancelled) {
           // Effect re-ran before we resolved — throw this stream away.
@@ -1426,6 +1437,13 @@ export function App() {
           err?.name === "NotAllowedError"
         ) {
           setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+        } else if (isMediaConstraintFailure(err)) {
+          // Even the default-camera retry inside getCameraStreamWithFallback
+          // failed, so no camera is usable right now. Say that plainly
+          // instead of surfacing constraint jargon like "Invalid constraint".
+          setCameraError(
+            "No camera found. Connect a camera, or pick one from the camera menu.",
+          );
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }
@@ -1769,7 +1787,7 @@ export function App() {
         );
         if (!granted) {
           setReadinessOpen(true);
-          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return;
         }
@@ -1779,6 +1797,8 @@ export function App() {
         return;
       }
     }
+
+    stopAllMicMeters();
 
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
@@ -2363,7 +2383,7 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
-          meterActive={popoverVisible && !isRecording}
+          meterActive={popoverVisible && !isRecording && !recordingFlowActive}
         />
       </div>
 
@@ -2394,11 +2414,16 @@ export function App() {
             : "Start local recording"}
       </button>
       {recError ? (
-        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+        recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
-            panes={permissionPanesForRecording(mode, cameraOn, micOn)}
+            panes={
+              recError === MACOS_SCREEN_PERMISSION_MESSAGE
+                ? ["screen"]
+                : permissionPanesForRecording(mode, cameraOn, micOn)
+            }
             onRetry={handleStartRecording}
           />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (

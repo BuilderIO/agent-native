@@ -1,12 +1,4 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconAlertTriangle,
   IconApps,
@@ -17,6 +9,15 @@ import {
   IconRocket,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 
 const SYNC_POLL_INTERVAL_MS = 8000;
 const EDITS_REFETCH_INTERVAL_MS = 10000;

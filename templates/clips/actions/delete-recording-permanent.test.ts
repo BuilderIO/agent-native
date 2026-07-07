@@ -88,6 +88,7 @@ vi.mock("../server/db/index.js", () => ({
     },
     recordingComments: { recordingId: "recordingComments.recordingId" },
     recordingReactions: { recordingId: "recordingReactions.recordingId" },
+    recordingViews: { recordingId: "recordingViews.recordingId" },
     recordingViewers: { recordingId: "recordingViewers.recordingId" },
     recordingEvents: { recordingId: "recordingEvents.recordingId" },
     recordingTranscripts: {
@@ -152,6 +153,14 @@ describe("delete-recording-permanent", () => {
         skipped: 0,
         errors: [],
       },
+    });
+  });
+
+  it("deletes granular view rows during permanent cleanup", async () => {
+    await deleteRecordingPermanent.run({ id: "rec_1" });
+
+    expect(mockDbDelete).toHaveBeenCalledWith({
+      recordingId: "recordingViews.recordingId",
     });
   });
 

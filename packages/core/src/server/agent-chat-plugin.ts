@@ -76,7 +76,10 @@ import {
   setRunTerminalReason,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
@@ -1352,15 +1355,17 @@ function createDataWidgetActionEntries(): Record<string, ActionEntry> {
 
 /**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
- * These let the agent read and write the app's own SQL database. Scoping to
- * the current user/org is enforced automatically in production via temp views.
+ * By default these let the agent inspect the app's own SQL database; raw SQL
+ * writes are only exposed when the app explicitly opts into write mode.
+ * Scoping to the current user/org is enforced automatically in production via
+ * temp views.
  *
  * In dev mode template actions are invoked via bash and the agent can call
  * `pnpm action db-query ...` — but in production there is no bash, so these
  * must be registered as native tools for the agent to reach the app DB at all.
  */
 async function createDbScriptEntries(
-  mode: DatabaseToolsMode = "write",
+  mode: DatabaseToolsMode = "read",
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
@@ -2774,12 +2779,11 @@ export interface AgentChatPluginOptions {
   /**
    * Expose raw SQL/native database tools to the app agent.
    *
-   * Defaults to `"write"` (also `true`) for backwards-compatible agent/UI
-   * parity: `db-schema`, `db-query`, `db-exec`, and `db-patch` are available
-   * and writes remain scoped to the current user/org. Set to `"read"` to keep
-   * `db-schema`/`db-query` for inspection while routing writes through typed
-   * app actions. Set to `"off"` (also `false`) for chat-first apps that want
-   * agents to use typed actions only.
+   * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
+   * while writes route through typed app actions. Set to `"write"` (also
+   * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
+   * Set to `"off"` (also `false`) for chat-first apps that want agents to use
+   * typed actions only.
    */
   databaseTools?: DatabaseToolsOption;
   /**
@@ -3054,19 +3058,17 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
   "sql-tools": `### SQL Tools
 
-When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. When database write tools are enabled, \`db-exec\` and \`db-patch\` are also available. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
+When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. Raw SQL write tools are only available when the app explicitly opts into database write tools; by default, writes go through typed app actions. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
 
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE when raw DB writes are enabled (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
-- \`db-patch\` — surgical search-and-replace on a large text column when raw DB writes are enabled. Use for edits to large fields instead of re-sending multi-kilobyte strings.
+- \`db-exec\` — only when present: run INSERT / UPDATE / DELETE / REPLACE for scoped maintenance. For normal product data writes, use a typed app action instead.
+- \`db-patch\` — only when present: surgical search-and-replace on a large text column. If a typed app action exists for the resource, use that action.
 
 ### When to pick which SQL tool
-- Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
-- Insert/update several rows as one logical operation → \`db-exec\` with \`statements: '[{"sql":"...","args":[...]}]'\`
-- Change a small slice of a large text/JSON column → \`db-patch\`
 - A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
 - Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.
+- Raw write tools are present and no app action exists → use \`db-exec\` or \`db-patch\` only for deliberate maintenance, not normal product workflows.
 
 ### External data sources vs the app database
 The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
@@ -3122,7 +3124,7 @@ If the app exposes native actions or instructions for dashboards, reports, analy
 
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
-Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+Generated UI content can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). Use appAction() for app data writes, and dbQuery() only for read-only inspection of known app SQL tables. It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
@@ -3505,7 +3507,7 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  databaseTools: DatabaseToolsOption = "write",
+  databaseTools: DatabaseToolsOption = "read",
 ): Promise<string> {
   try {
     return await loadSchemaPromptBlock({
@@ -3801,6 +3803,72 @@ export function shouldBlockInProductCodeEditingSurface(input: {
     hostname === "127.0.0.1" ||
     hostname === "::1" ||
     hostname === "[::1]"
+  );
+}
+
+/**
+ * Load the sandboxed code-execution tool entries for one action registry:
+ * `run-code` plus its `get-code-execution` poll companion. The poll tool is
+ * registered ALONGSIDE run-code everywhere run-code appears, so the durable
+ * background-execution guidance run-code emits ("check it with
+ * get-code-execution") always points at a callable tool. Returns an empty
+ * registry when the coding module is unavailable (e.g. bundled browser
+ * build), mirroring the prior silent-skip behavior.
+ *
+ * Exported for tests — the plugin init calls this for the prod, lean, and dev
+ * tool bags, so a spec on this helper pins the real registration wiring.
+ */
+export async function loadRunCodeToolEntries(
+  supplier: () => Record<string, ActionEntry>,
+  runCodeOptions?: { bridgeTools?: string[] },
+): Promise<Record<string, ActionEntry>> {
+  try {
+    const { createRunCodeEntry, createGetCodeExecutionEntry } =
+      await import("../coding-tools/run-code.js");
+    const entries: Record<string, ActionEntry> = {
+      "run-code": createRunCodeEntry(supplier, runCodeOptions),
+      "get-code-execution": createGetCodeExecutionEntry(),
+    };
+
+    // Data programs: stored JS scripts executed through this same run-code
+    // sandbox, cached in SQL, and rendered by dashboard panels. Registered
+    // identically to run-code — same try/dynamic-import guard, silently
+    // skipped when the module is unavailable (e.g. bundled browser build) —
+    // so every app gets the primitive without per-template wiring.
+    try {
+      const { initDataPrograms, createDataProgramActions } =
+        await import("../data-programs/index.js");
+      const appId = resolveDataProgramsAppId();
+      initDataPrograms({ appId, getActions: supplier });
+      Object.assign(
+        entries,
+        createDataProgramActions({ appId, getActions: supplier }),
+      );
+    } catch {
+      // Module unavailable — skip silently, mirroring the run-code guard above.
+    }
+
+    return entries;
+  } catch {
+    // Module unavailable (e.g. bundled browser build) — skip silently.
+    return {};
+  }
+}
+
+/**
+ * Resolve the stable app identity data programs are scoped under. Mirrors
+ * the precedent in `cli/agent.ts` (`AGENT_NATIVE_APP_ID` env override, then
+ * `APP_ID`, then a fixed fallback) — data programs don't need a per-call
+ * agent-supplied appId the way staged datasets do (staged datasets are
+ * scratch space the agent explicitly stages into); a data program is a
+ * persisted resource scoped to "this app deployment".
+ */
+function resolveDataProgramsAppId(): string {
+  return (
+    process.env.AGENT_NATIVE_APP_ID?.trim() ||
+    process.env.APP_ID?.trim() ||
+    process.env.APP_NAME?.trim() ||
+    "app"
   );
 }
 
@@ -4507,28 +4575,23 @@ export function createAgentChatPlugin(
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
-      // modes and always in dev mode.
-      const runCodeTool: Record<string, ActionEntry> = {};
-      const leanRunCodeTool: Record<string, ActionEntry> = {};
-      try {
-        const { createRunCodeEntry } =
-          await import("../coding-tools/run-code.js");
-        runCodeTool["run-code"] = createRunCodeEntry(
+      // Sandboxed run-code tool (+ its get-code-execution poll companion):
+      // available in "sandboxed" or "trusted" prod modes and always in dev
+      // mode. See loadRunCodeToolEntries for the registration contract.
+      const runCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => prodRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-        leanRunCodeTool["run-code"] = createRunCodeEntry(
+      const leanRunCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
           () => leanRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-      } catch {
-        // Module unavailable (e.g. bundled browser build) — skip silently.
-      }
 
       // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
       // In dev mode this is handled separately via devHandler below.
@@ -4555,21 +4618,15 @@ export function createAgentChatPlugin(
       // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register run-code in dev mode (when the coding module loads).
-      const devRunCodeTool: Record<string, ActionEntry> = {};
-      if (canToggle) {
-        try {
-          const { createRunCodeEntry } =
-            await import("../coding-tools/run-code.js");
-          // devActions is not yet defined at this point; we use a late-binding
-          // supplier so devRunCodeTool can reference the devActions registry
-          // once it is built below (see devHandler block).
-          devRunCodeTool["run-code"] = createRunCodeEntry(
-            () => devRunCodeToolActions,
-            { bridgeTools: options?.codeExecution?.bridgeTools },
-          );
-        } catch {}
-      }
+      // Always register run-code (+ get-code-execution) in dev mode (when the
+      // coding module loads). devActions is not yet defined at this point; we
+      // use a late-binding supplier so devRunCodeTool can reference the
+      // devActions registry once it is built below (see devHandler block).
+      const devRunCodeTool: Record<string, ActionEntry> = canToggle
+        ? await loadRunCodeToolEntries(() => devRunCodeToolActions, {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+          })
+        : {};
 
       const resolveExtraContext = async (
         event: any,
@@ -4858,10 +4915,14 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
-            ? devPrompt + runtimeContext + resources + schemaBlock + extra
-            : basePrompt + runtimeContext + resources + schemaBlock + extra;
+            ? devPrompt + resources + schemaBlock + extra + runtimeContext
+            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -4920,8 +4981,15 @@ export function createAgentChatPlugin(
 
           const a2aTools = actionsToEngineTools(a2aActions);
 
+          // Precise current time rides the user message (not the cached
+          // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
-            { role: "user", content: [{ type: "text", text }] },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: text + buildCurrentTimeUserContext() },
+              ],
+            },
           ];
 
           // Run the SAME agent loop, then extract the final answer from the
@@ -5160,15 +5228,19 @@ export function createAgentChatPlugin(
                 : lazyContext
                   ? DEV_FRAMEWORK_PROMPT_COMPACT
                   : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            // Stable-first ordering: runtime-context (which changes daily)
+            // goes last so the cached prompt prefix survives as long as
+            // possible — same pattern as the other prompt-assembly sites in
+            // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock
+                schemaBlock +
+                buildRuntimeContextPrompt()
               : basePrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock;
+                schemaBlock +
+                buildRuntimeContextPrompt();
 
             let accumulatedText = "";
             const controller = new AbortController();
@@ -5180,7 +5252,17 @@ export function createAgentChatPlugin(
                 systemPrompt,
                 tools: mcpTools,
                 messages: [
-                  { role: "user", content: [{ type: "text", text: message }] },
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        // Precise time rides the user message, not the cached
+                        // system-prompt prefix.
+                        text: message + buildCurrentTimeUserContext(),
+                      },
+                    ],
+                  },
                 ],
                 actions: mcpActions,
                 send: (event) => {
@@ -5838,14 +5920,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : "";
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
+          // Stable-first ordering: base prompt / schema / extra come before
+          // the runtime-context block, which is appended LAST. runtimeContext
+          // only changes once per calendar day, but placing it after any
+          // less-stable content would still invalidate the cached prefix for
+          // everything that follows it — putting it last means a day
+          // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
             return setSystemPromptOnContext(
               leanBasePrompt +
-                runtimeContext +
                 codeEditingSurfaceRestriction +
                 prodCodeExecPromptNote +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -5861,13 +5949,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
-              runtimeContext +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
               prodCodeExecPromptNote +
               extra +
-              modelOverlay,
+              modelOverlay +
+              runtimeContext,
           );
         },
         model: options?.model,
@@ -5958,8 +6046,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const { extra } = await prepareRun(event);
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
-                    runtimeContextForEvent(event) +
-                    extra,
+                    extra +
+                    runtimeContextForEvent(event),
                 );
               },
               model: options?.model,
@@ -6070,9 +6158,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ? FIRST_SESSION_PERSONALIZATION
               : "";
             const modelOverlay = resolveModelOverlay();
+            // Stable-first ordering: runtimeContext (day-granular) is
+            // appended LAST so a day rollover invalidates as little of the
+            // cached prompt prefix as possible. See the prod handler above
+            // for the same pattern.
             if (leanPrompt) {
               return setSystemPromptOnContext(
-                leanBasePrompt + runtimeContext + extra + modelOverlay,
+                leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -6087,11 +6179,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
-                runtimeContext +
                 resources +
                 schemaBlock +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           },
           model: options?.model,

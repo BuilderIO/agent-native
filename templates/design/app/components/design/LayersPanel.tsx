@@ -1,29 +1,24 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@agent-native/toolkit/ui/context-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconChevronDown,
   IconChevronRight,
+  IconClipboard,
+  IconCopy,
   IconEye,
   IconEyeOff,
+  IconFlipHorizontal,
+  IconFlipVertical,
+  IconFrame,
+  IconLayersSubtract,
+  IconLayersUnion,
   IconLock,
   IconLockOpen,
   IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
+  IconStackBack,
+  IconStackFront,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -43,6 +38,21 @@ import {
   type RefObject,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type LayersPanelNodeType =
@@ -146,6 +156,15 @@ export interface LayersPanelLabels {
   hide: string;
   show: string;
   rename: string;
+  copy: string;
+  pasteToReplace: string;
+  group: string;
+  ungroup: string;
+  frameSelection: string;
+  bringToFront: string;
+  sendToBack: string;
+  flipHorizontal: string;
+  flipVertical: string;
 }
 
 export interface LayersPanelProps {
@@ -181,6 +200,48 @@ export interface LayersPanelProps {
   // Board elements — top-level layer nodes projected from the board file.
   // When absent the panel is unchanged.
   boardElements?: LayersPanelNode[];
+  // Id of a layer currently hovered elsewhere (e.g. on the canvas). When set,
+  // the matching row gets a subtle hover-highlight background, visually
+  // distinct from selection. This is display-only: it never triggers the
+  // row's scroll-into-view behavior (that only follows selectedIds), and it
+  // never affects keyboard focus. Optional — the panel is unchanged when
+  // absent.
+  hoveredLayerId?: string | null;
+  // Figma-parity row context-menu actions beyond rename/lock/hide. Each item
+  // renders only when its callback prop is provided, so the panel keeps
+  // working correctly before every callback is wired up from the caller. See
+  // the LayerRow context menu below for the exact order/separators/shortcut
+  // hints — LIVE-VERIFIED against real Figma's layer-row menu: Copy, Paste
+  // to replace, Bring to front, Send to back, Group selection, Frame
+  // selection, Rename, Show/Hide, Lock/Unlock, Flip horizontal, Flip
+  // vertical. Real Figma has NO Duplicate/Delete/Paste-here on this menu
+  // (those are keyboard-only there), and NO Ungroup on a plain row — only on
+  // a container row (see onUngroupSelection below).
+  onCopyLayer?: (ids: string[]) => void;
+  // Kept for callers that still wire it (e.g. a future keyboard shortcut or
+  // a different surface); intentionally never rendered in the row menu
+  // itself, matching Figma (no "Paste here" on layer rows).
+  onPasteHere?: (targetId: string) => void;
+  onPasteToReplace?: (ids: string[]) => void;
+  // Kept for callers/back-compat; intentionally never rendered in the row
+  // menu itself, matching Figma (Duplicate is keyboard-only there).
+  onDuplicateLayer?: (ids: string[]) => void;
+  // Kept for callers/back-compat; intentionally never rendered in the row
+  // menu itself, matching Figma (Delete is keyboard-only there).
+  onDeleteLayer?: (ids: string[]) => void;
+  onGroupSelection?: (ids: string[]) => void;
+  onFrameSelection?: (ids: string[]) => void;
+  // Real Figma only offers Ungroup on a CONTAINER row (a group/frame you can
+  // ungroup), not on a plain leaf row. The row gates rendering this on
+  // `row.canAcceptChildren` (see showContextMenu/LayerRow below) in addition
+  // to this callback being provided.
+  onUngroupSelection?: (ids: string[]) => void;
+  onReorderLayer?: (
+    ids: string[],
+    direction: "front" | "forward" | "backward" | "back",
+  ) => void;
+  onFlipHorizontal?: (ids: string[]) => void;
+  onFlipVertical?: (ids: string[]) => void;
 }
 
 // L12: imperative handle so an external trigger (Cmd+R hotkey, canvas
@@ -260,6 +321,15 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     hide: t("layersPanel.hide"),
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
+    copy: t("layersPanel.copy"),
+    pasteToReplace: t("layersPanel.pasteToReplace"),
+    group: t("layersPanel.group"),
+    ungroup: t("layersPanel.ungroup"),
+    frameSelection: t("layersPanel.frameSelection"),
+    bringToFront: t("layersPanel.bringToFront"),
+    sendToBack: t("layersPanel.sendToBack"),
+    flipHorizontal: t("layersPanel.flipHorizontal"),
+    flipVertical: t("layersPanel.flipVertical"),
   };
 }
 
@@ -463,6 +533,40 @@ function nextExpandedIds(
   return Array.from(next);
 }
 
+// Alt-click on a row's expand chevron (Figma behavior): expand/collapse the
+// node AND every descendant that can itself have children, in one batched
+// state change. Pure tree walk — collects every node id with a non-empty
+// children array so nextExpandedIdsForSubtree can add/remove them all at
+// once instead of the caller looping many onExpandedIdsChange calls.
+export function collectDescendantContainerIds(node: LayersPanelNode): string[] {
+  const ids: string[] = [];
+  function visit(current: LayersPanelNode) {
+    const children = current.children ?? [];
+    if (children.length === 0) return;
+    ids.push(current.id);
+    children.forEach(visit);
+  }
+  visit(node);
+  return ids;
+}
+
+export function nextExpandedIdsForSubtree(
+  ids: readonly string[],
+  node: LayersPanelNode,
+  expanded: boolean,
+): string[] {
+  const subtreeIds = collectDescendantContainerIds(node);
+  const next = new Set(ids);
+  subtreeIds.forEach((id) => {
+    if (expanded) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+  });
+  return Array.from(next);
+}
+
 /**
  * L1: pure computation for the auto-expand-ancestors-of-selection effect.
  * Given the current selection's ancestor ids and the CURRENT expanded set,
@@ -636,6 +740,23 @@ export function getDraggedLayerIdsForRows(args: {
   });
 }
 
+// Row context-menu actions (copy/duplicate/delete/group/reorder) operate on
+// the whole current selection when the right-clicked row is already part of
+// it (matching Figma), or on just that row otherwise (right-clicking an
+// unselected layer acts on that layer alone). Mirrors the same shape as
+// getDraggedLayerIdsForRows's selection-vs-single-row resolution, kept
+// separate since context-menu actions don't need the descendant-exclusion
+// step a drag payload does.
+export function getContextMenuTargetIds(args: {
+  selectedIds: readonly string[];
+  nodeId: string;
+  visibleRows: readonly FlatLayerRow[];
+}): string[] {
+  return args.selectedIds.includes(args.nodeId)
+    ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
+    : [args.nodeId];
+}
+
 export function shouldResyncLayerSelectionAnchor(args: {
   selectionSignature: string;
   lastPanelSelectionSignature: string;
@@ -700,6 +821,18 @@ function LayersPanelImpl(
     onMoveLayer,
     canMoveLayer,
     boardElements,
+    hoveredLayerId,
+    onCopyLayer,
+    onPasteHere,
+    onPasteToReplace,
+    onDuplicateLayer,
+    onDeleteLayer,
+    onGroupSelection,
+    onFrameSelection,
+    onUngroupSelection,
+    onReorderLayer,
+    onFlipHorizontal,
+    onFlipVertical,
   }: LayersPanelProps,
   ref: Ref<LayersPanelHandle>,
 ) {
@@ -1013,7 +1146,17 @@ function LayersPanelImpl(
   // render — this keeps LayerRow's props referentially stable so
   // React.memo(LayerRow) actually skips re-renders.
   const handleToggleExpanded = useCallback(
-    (id: string, expanded: boolean) => {
+    (id: string, expanded: boolean, node?: LayersPanelNode) => {
+      // Alt-click (see LayerRow's chevron onClick): expand/collapse this node
+      // AND all of its descendants in one batched state change, matching
+      // Figma. Only takes this path when the caller passes the node (the
+      // plain toggle path below stays a single-id update).
+      if (node) {
+        onExpandedIdsChange(
+          nextExpandedIdsForSubtree(expandedIdsRef.current, node, expanded),
+        );
+        return;
+      }
       onExpandedIdsChange(
         nextExpandedIds(expandedIdsRef.current, id, expanded),
       );
@@ -1254,6 +1397,8 @@ function LayersPanelImpl(
               const isInSelectedSubtree = row.ancestorIds.some((id) =>
                 selectedIdSet.has(id),
               );
+              const isHovered =
+                hoveredLayerId != null && row.node.id === hoveredLayerId;
               const isActiveScreen =
                 row.node.id === activeScreenId &&
                 (row.node.type === "file" ||
@@ -1273,6 +1418,7 @@ function LayersPanelImpl(
                   isSelected={isSelected}
                   isInSelectedSubtree={isInSelectedSubtree}
                   isActiveScreen={isActiveScreen}
+                  isHovered={isHovered}
                   isRenaming={isRenaming}
                   renameDraft={isRenaming ? renameDraft : ""}
                   registerRowElement={registerRowElement}
@@ -1294,6 +1440,14 @@ function LayersPanelImpl(
                   selectedIdsRef={selectedIdsRef}
                   visibleRowsRef={visibleRowsRef}
                   rootsRef={rootsRef}
+                  onCopyLayer={onCopyLayer}
+                  onPasteToReplace={onPasteToReplace}
+                  onGroupSelection={onGroupSelection}
+                  onFrameSelection={onFrameSelection}
+                  onUngroupSelection={onUngroupSelection}
+                  onReorderLayer={onReorderLayer}
+                  onFlipHorizontal={onFlipHorizontal}
+                  onFlipVertical={onFlipVertical}
                 />
               );
             })}
@@ -1325,6 +1479,10 @@ interface LayerRowProps {
   isSelected: boolean;
   isInSelectedSubtree: boolean;
   isActiveScreen: boolean;
+  // Display-only hover highlight (e.g. mirroring canvas hover), distinct from
+  // selection. Never drives scroll-into-view or focus — see hoveredLayerId on
+  // LayersPanelProps.
+  isHovered: boolean;
   isRenaming: boolean;
   registerRowElement: (rowKey: string, element: HTMLDivElement | null) => void;
   renameDraft: string;
@@ -1342,7 +1500,13 @@ interface LayerRowProps {
       source: "keyboard" | "pointer";
     },
   ) => void;
-  onToggleExpanded: (id: string, expanded: boolean) => void;
+  // node is optional; passed on alt-click so the caller can batch-expand the
+  // whole subtree in one state change instead of a single-id toggle.
+  onToggleExpanded: (
+    id: string,
+    expanded: boolean,
+    node?: LayersPanelNode,
+  ) => void;
   onToggleLocked?: (id: string, locked: boolean) => void;
   onToggleHidden?: (id: string, hidden: boolean) => void;
   onHoverLayer?: (id: string) => void;
@@ -1363,6 +1527,23 @@ interface LayerRowProps {
   // full-tree ancestor map — see buildAncestorIdMap and L13 in the drag-start
   // handler below.
   rootsRef: RefObject<LayersPanelNode[]>;
+  // Figma-parity context-menu actions. Each is optional; the corresponding
+  // menu item only renders when its callback is provided (see showContextMenu
+  // / the ContextMenuContent below). Note: onPasteHere/onDuplicateLayer/
+  // onDeleteLayer are NOT threaded down to the row — real Figma's layer-row
+  // menu has no Paste here/Duplicate/Delete items (see LayersPanelProps for
+  // the full back-compat callback surface).
+  onCopyLayer?: (ids: string[]) => void;
+  onPasteToReplace?: (ids: string[]) => void;
+  onGroupSelection?: (ids: string[]) => void;
+  onFrameSelection?: (ids: string[]) => void;
+  onUngroupSelection?: (ids: string[]) => void;
+  onReorderLayer?: (
+    ids: string[],
+    direction: "front" | "forward" | "backward" | "back",
+  ) => void;
+  onFlipHorizontal?: (ids: string[]) => void;
+  onFlipVertical?: (ids: string[]) => void;
 }
 
 const LayerRow = memo(function LayerRow({
@@ -1372,6 +1553,7 @@ const LayerRow = memo(function LayerRow({
   isSelected,
   isInSelectedSubtree,
   isActiveScreen,
+  isHovered,
   isRenaming,
   registerRowElement,
   renameDraft,
@@ -1393,6 +1575,14 @@ const LayerRow = memo(function LayerRow({
   selectedIdsRef,
   visibleRowsRef,
   rootsRef,
+  onCopyLayer,
+  onPasteToReplace,
+  onGroupSelection,
+  onFrameSelection,
+  onUngroupSelection,
+  onReorderLayer,
+  onFlipHorizontal,
+  onFlipVertical,
 }: LayerRowProps) {
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
@@ -1470,36 +1660,19 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  // GROUND TRUTH (live-verified against real Figma): after clicking a layer
+  // row, ArrowUp/ArrowDown/Home/End do NOT navigate the layers list and must
+  // NOT be intercepted here at all — no preventDefault, no focus move, no
+  // selection change. Figma's list focus does not consume those keys; they
+  // fall through to the app's global hotkey nudge handler, which moves the
+  // SELECTED OBJECT on canvas by 1px (arrow) or listens for its own Home/End
+  // handling. A previous revision made this row intercept those keys (first
+  // to move DOM focus, later to change selection directly) — both were wrong
+  // and are removed here. ArrowLeft/ArrowRight are the one exception Figma
+  // keeps at the list level: they only toggle the focused row's own
+  // expand/collapse (chevron) state, and must NOT change selection while
+  // doing so.
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const getFocusableButtons = () => {
-      const tree = event.currentTarget.closest('[role="tree"]');
-      if (!tree) return [];
-      return Array.from(
-        tree.querySelectorAll<HTMLButtonElement>("[data-layer-row-button]"),
-      ).filter((button) => !button.disabled);
-    };
-    const focusVisibleButton = (nextIndex: number) => {
-      const buttons = getFocusableButtons();
-      const target =
-        buttons[Math.max(0, Math.min(buttons.length - 1, nextIndex))];
-      target?.focus();
-      return Boolean(target);
-    };
-    const focusNodeButton = (nodeId: string) => {
-      const tree = event.currentTarget.closest('[role="tree"]');
-      const target = tree?.querySelector<HTMLButtonElement>(
-        `[data-layer-node-id="${CSS.escape(nodeId)}"]`,
-      );
-      if (!target || target.disabled) return false;
-      target.focus();
-      return true;
-    };
-    const currentIndex = visibleRowsRef.current.findIndex(
-      (visibleRow) => visibleRow.rowKey === row.rowKey,
-    );
-    const focusableButtons = getFocusableButtons();
-    const currentFocusableIndex = focusableButtons.indexOf(event.currentTarget);
-
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       if (!selectable) return;
@@ -1516,54 +1689,15 @@ const LayerRow = memo(function LayerRow({
       onStartRename(node);
       return;
     }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusVisibleButton(currentFocusableIndex + 1);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusVisibleButton(currentFocusableIndex - 1);
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      focusVisibleButton(0);
-      return;
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      focusVisibleButton(focusableButtons.length - 1);
-      return;
-    }
     if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
       event.preventDefault();
       onToggleExpanded(node.id, true);
-      return;
-    }
-    if (event.key === "ArrowRight" && hasChildren && isExpanded) {
-      event.preventDefault();
-      const nextButton = focusableButtons[currentFocusableIndex + 1];
-      const childId = nextButton?.dataset.layerNodeId;
-      const child = childId
-        ? visibleRowsRef.current.find(
-            (visibleRow) => visibleRow.node.id === childId,
-          )
-        : null;
-      if (child?.ancestorIds.includes(node.id)) {
-        focusVisibleButton(currentFocusableIndex + 1);
-      }
       return;
     }
     if (event.key === "ArrowLeft" && hasChildren && isExpanded) {
       event.preventDefault();
       onToggleExpanded(node.id, false);
       return;
-    }
-    if (event.key === "ArrowLeft" && row.ancestorIds.length > 0) {
-      event.preventDefault();
-      const parentId = row.ancestorIds[row.ancestorIds.length - 1];
-      if (parentId) focusNodeButton(parentId);
     }
   };
 
@@ -1724,9 +1858,44 @@ const LayerRow = memo(function LayerRow({
     clearSpringLoadTimer();
   };
 
+  // Right-clicking a row that's already part of the current selection acts on
+  // the whole selection (matching Figma); right-clicking an unselected row
+  // acts on just that row. Computed lazily at action time (not memoized on
+  // render) so it always reflects the live selectedIdsRef/visibleRowsRef —
+  // both are refs updated outside the render cycle (see their declarations in
+  // LayersPanel), so a render-time useMemo could see stale values by the time
+  // the user actually picks a menu item.
+  const getContextMenuTargetIdsForRow = () =>
+    getContextMenuTargetIds({
+      selectedIds: selectedIdsRef.current,
+      nodeId: node.id,
+      visibleRows: visibleRowsRef.current,
+    });
+
+  // Real Figma only offers Ungroup on a container row (something you could
+  // actually ungroup), never on a plain leaf row — gate it on
+  // canAcceptChildren in addition to the callback being provided. Duplicate/
+  // Delete/Paste-here are intentionally excluded here: real Figma's layer
+  // row menu doesn't have them (they're keyboard-only there), so they must
+  // not factor into whether the menu/trigger renders at all.
+  const canUngroupThisRow = Boolean(onUngroupSelection && canAcceptChildren);
+  const hasEditActions = Boolean(
+    onCopyLayer ||
+    onPasteToReplace ||
+    onGroupSelection ||
+    onFrameSelection ||
+    canUngroupThisRow ||
+    onReorderLayer ||
+    onFlipHorizontal ||
+    onFlipVertical,
+  );
+
   const showContextMenu =
     selectable &&
-    (Boolean(onRename && node.renamable !== false) || lockable || hideable);
+    (Boolean(onRename && node.renamable !== false) ||
+      lockable ||
+      hideable ||
+      hasEditActions);
 
   return (
     <ContextMenu>
@@ -1764,10 +1933,16 @@ const LayerRow = memo(function LayerRow({
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
-            <span className="pointer-events-none absolute left-2 right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]" />
+            <span
+              className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
+              style={{ left: rowIndent(depth) }}
+            />
           ) : null}
           {activeDrop === "after" ? (
-            <span className="pointer-events-none absolute bottom-0 left-2 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]" />
+            <span
+              className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
+              style={{ left: rowIndent(depth) }}
+            />
           ) : null}
           <div
             className={cn(
@@ -1790,6 +1965,15 @@ const LayerRow = memo(function LayerRow({
                 !isInSelectedSubtree &&
                 !isActiveScreen &&
                 "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
+              // Canvas-hover highlight (hoveredLayerId): a subtle background,
+              // visually distinct from selection/subtree/active-screen state.
+              // Only applied when none of those stronger states already own
+              // the row's background, and never triggers scroll-into-view.
+              isHovered &&
+                !isSelected &&
+                !isInSelectedSubtree &&
+                !isActiveScreen &&
+                "bg-[var(--design-editor-layer-hover-color)] text-foreground",
               node.hidden && "text-muted-foreground",
             )}
             style={{ paddingLeft: rowIndent(depth) }}
@@ -1803,7 +1987,13 @@ const LayerRow = memo(function LayerRow({
                 aria-label={isExpanded ? labels.collapse : labels.expand}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onToggleExpanded(node.id, !isExpanded);
+                  // Alt-click (Figma behavior): expand/collapse this node AND
+                  // all of its descendants in one batched update.
+                  onToggleExpanded(
+                    node.id,
+                    !isExpanded,
+                    event.altKey ? node : undefined,
+                  );
                 }}
               >
                 {isExpanded ? (
@@ -1886,7 +2076,6 @@ const LayerRow = memo(function LayerRow({
                     "min-w-0 flex-1 truncate font-medium leading-none",
                     isComponentLayer &&
                       "text-[var(--design-editor-component-color)]",
-                    node.hidden && "line-through",
                   )}
                   title={node.name}
                 >
@@ -1968,7 +2157,98 @@ const LayerRow = memo(function LayerRow({
         </div>
       </ContextMenuTrigger>
       {showContextMenu ? (
-        <ContextMenuContent className="z-[300] min-w-[160px] text-[12px]">
+        <ContextMenuContent className="z-[300] min-w-[200px] text-[12px]">
+          {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
+              replace — Bring to front, Send to back — Group selection,
+              (Ungroup, container rows only), Frame selection, Rename —
+              Show/Hide, Lock/Unlock — Flip horizontal, Flip vertical. Real
+              Figma has no Duplicate/Delete/Paste-here on this menu (those
+              are keyboard-only there — see ⌘D/Delete). Each item only
+              renders when its callback prop is provided, so the menu
+              degrades gracefully before every callback is wired up from the
+              caller. */}
+          {onCopyLayer ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
+            >
+              <IconCopy className="size-3.5 text-muted-foreground" />
+              {labels.copy}
+              <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onPasteToReplace ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onPasteToReplace(getContextMenuTargetIdsForRow())}
+            >
+              <IconClipboard className="size-3.5 text-muted-foreground" />
+              {labels.pasteToReplace}
+              <ContextMenuShortcut>
+                {"⇧⌘R" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+
+          {(onCopyLayer || onPasteToReplace) && onReorderLayer ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onReorderLayer ? (
+            <>
+              <ContextMenuItem
+                className="gap-2 text-[12px]"
+                onSelect={() =>
+                  onReorderLayer(getContextMenuTargetIdsForRow(), "front")
+                }
+              >
+                <IconStackFront className="size-3.5 text-muted-foreground" />
+                {labels.bringToFront}
+                <ContextMenuShortcut>]</ContextMenuShortcut>
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="gap-2 text-[12px]"
+                onSelect={() =>
+                  onReorderLayer(getContextMenuTargetIdsForRow(), "back")
+                }
+              >
+                <IconStackBack className="size-3.5 text-muted-foreground" />
+                {labels.sendToBack}
+                <ContextMenuShortcut>[</ContextMenuShortcut>
+              </ContextMenuItem>
+            </>
+          ) : null}
+
+          {onReorderLayer &&
+          (onGroupSelection ||
+            canUngroupThisRow ||
+            onFrameSelection ||
+            onRename) ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onGroupSelection ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onGroupSelection(getContextMenuTargetIdsForRow())}
+            >
+              <IconLayersUnion className="size-3.5 text-muted-foreground" />
+              {labels.group}
+              <ContextMenuShortcut>⌘G</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onFrameSelection ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFrameSelection(getContextMenuTargetIdsForRow())}
+            >
+              <IconFrame className="size-3.5 text-muted-foreground" />
+              {labels.frameSelection}
+              <ContextMenuShortcut>
+                {"⌥⌘G" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
           {onRename && node.renamable !== false ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
@@ -1976,23 +2256,33 @@ const LayerRow = memo(function LayerRow({
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}
+              <ContextMenuShortcut>⌘R</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
-          {onRename && node.renamable !== false && (lockable || hideable) ? (
-            <ContextMenuSeparator />
-          ) : null}
-          {lockable ? (
+
+          {/* Real Figma only shows Ungroup on a container row — a plain row
+              never gets it, even when the callback is wired up. */}
+          {canUngroupThisRow ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
-              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
+              onSelect={() =>
+                onUngroupSelection?.(getContextMenuTargetIdsForRow())
+              }
             >
-              {node.locked ? (
-                <IconLockOpen className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconLock className="size-3.5 text-muted-foreground" />
-              )}
-              {node.locked ? labels.unlock : labels.lock}
+              <IconLayersSubtract className="size-3.5 text-muted-foreground" />
+              {labels.ungroup}
+              <ContextMenuShortcut>
+                {"⇧⌘G" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
             </ContextMenuItem>
+          ) : null}
+
+          {(onGroupSelection ||
+            canUngroupThisRow ||
+            onFrameSelection ||
+            (onRename && node.renamable !== false)) &&
+          (lockable || hideable) ? (
+            <ContextMenuSeparator />
           ) : null}
           {hideable ? (
             <ContextMenuItem
@@ -2005,6 +2295,50 @@ const LayerRow = memo(function LayerRow({
                 <IconEyeOff className="size-3.5 text-muted-foreground" />
               )}
               {node.hidden ? labels.show : labels.hide}
+              <ContextMenuShortcut>
+                {"⇧⌘H" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {lockable ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
+            >
+              {node.locked ? (
+                <IconLockOpen className="size-3.5 text-muted-foreground" />
+              ) : (
+                <IconLock className="size-3.5 text-muted-foreground" />
+              )}
+              {node.locked ? labels.unlock : labels.lock}
+              <ContextMenuShortcut>
+                {"⇧⌘L" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+
+          {(lockable || hideable) && (onFlipHorizontal || onFlipVertical) ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onFlipHorizontal ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFlipHorizontal(getContextMenuTargetIdsForRow())}
+            >
+              <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
+              {labels.flipHorizontal}
+              <ContextMenuShortcut>⇧H</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onFlipVertical ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFlipVertical(getContextMenuTargetIdsForRow())}
+            >
+              <IconFlipVertical className="size-3.5 text-muted-foreground" />
+              {labels.flipVertical}
+              <ContextMenuShortcut>⇧V</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
         </ContextMenuContent>

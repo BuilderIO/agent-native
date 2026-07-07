@@ -5,12 +5,6 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconCheck,
   IconCloud,
   IconExternalLink,
@@ -18,6 +12,13 @@ import {
   IconServer,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (

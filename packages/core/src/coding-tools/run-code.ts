@@ -34,7 +34,23 @@ import http from "node:http";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getSandboxAdapter } from "./sandbox/index.js";
+import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  failExpiredSandboxExecution,
+  getSandboxExecutionForOwner,
+  type SandboxExecutionRow,
+} from "./sandbox/executions-store.js";
+import {
+  BACKGROUND_DEFAULT_TIMEOUT_MS,
+  BACKGROUND_MAX_TIMEOUT_MS,
+  SANDBOX_EXECUTION_REDRIVE_AFTER_MS,
+  driveSandboxExecution,
+  enqueueSandboxExecution,
+  getSandboxAdapter,
+  isQueuedSandboxAdapter,
+  registerSandboxExecutionRunner,
+  resolveExecutionSandboxAdapter,
+} from "./sandbox/index.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
@@ -73,6 +89,22 @@ export function createRunCodeEntry(
 ): ActionEntry {
   const extraBridgeTools = new Set(opts.bridgeTools ?? []);
 
+  // Make this entry's action surface available to the durable background
+  // executor (first registration wins — the host builds the full-surface
+  // production entry first). The executor re-runs `executeSandboxCode` with
+  // the same bridge allowlist under the enqueueing owner's request context,
+  // so background executions see the same tools as foreground ones.
+  registerSandboxExecutionRunner({
+    execute: ({ code, timeoutMs, context }) =>
+      executeSandboxCode({
+        code,
+        timeoutMs,
+        getActions,
+        extraBridgeTools,
+        context,
+      }),
+  });
+
   return {
     readOnly: true,
     allowInPlanMode: false,
@@ -107,6 +139,7 @@ export function createRunCodeEntry(
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
         "Timeout defaults to 120 s (max 600 s). Output is truncated to 50 000 chars by default (max 200 000).",
+        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll by calling run-code again with just `{ executionId }` to get status and, once finished, the output. Keep quick scripts in the default foreground mode.',
       ].join(" "),
       parameters: {
         type: "object",
@@ -114,29 +147,41 @@ export function createRunCodeEntry(
           code: {
             type: "string",
             description:
-              "JavaScript source to execute. ESM syntax, top-level await allowed.",
+              "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.",
           },
           timeoutMs: {
             type: "number",
-            description: `Execution timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS}. Max: ${MAX_TIMEOUT_MS}.`,
+            description: `Execution timeout in milliseconds. Foreground default: ${DEFAULT_TIMEOUT_MS} (max ${MAX_TIMEOUT_MS}). With background: true the default is ${BACKGROUND_DEFAULT_TIMEOUT_MS} (max ${BACKGROUND_MAX_TIMEOUT_MS}).`,
           },
           maxOutputChars: {
             type: "number",
             description: `Maximum combined stdout+stderr characters to return. Default: ${DEFAULT_MAX_OUTPUT_CHARS}. Max: ${MAX_OUTPUT_CHARS}.`,
           },
+          background: {
+            type: "boolean",
+            description:
+              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with executionId for the result.',
+          },
+          executionId: {
+            type: "string",
+            description:
+              "Poll a background execution started earlier: pass the executionId alone (no code) to get its status and, once finished, its output.",
+          },
         },
-        required: ["code"],
+        required: [],
       },
     },
     run: async (args: Record<string, string>, context?: ActionRunContext) => {
+      // Poll path: status/result lookup for a previously queued background
+      // execution. Takes precedence so a poll call never needs `code`.
+      const requestedExecutionId =
+        typeof args.executionId === "string" ? args.executionId.trim() : "";
+      if (requestedExecutionId) {
+        return describeSandboxExecutionForOwner(requestedExecutionId, context);
+      }
+
       const code = typeof args.code === "string" ? args.code : "";
       if (!code.trim()) return "Error: code is required.";
-
-      const requestedTimeout = Number(args.timeoutMs);
-      const timeoutMs =
-        Number.isFinite(requestedTimeout) && requestedTimeout > 0
-          ? Math.min(requestedTimeout, MAX_TIMEOUT_MS)
-          : DEFAULT_TIMEOUT_MS;
 
       const requestedMaxOutput = Number(args.maxOutputChars);
       const maxOutputChars =
@@ -144,78 +189,432 @@ export function createRunCodeEntry(
           ? Math.min(requestedMaxOutput, MAX_OUTPUT_CHARS)
           : DEFAULT_MAX_OUTPUT_CHARS;
 
-      const actions = getActions();
-      const bridgeToken = crypto.randomBytes(32).toString("hex");
-
-      // Start bridge server — resolves once the server is listening.
-      const {
-        bridgePort,
-        getUsedTools,
-        cleanup: cleanupBridge,
-      } = await startBridgeServer(
-        bridgeToken,
-        actions,
-        context,
-        DEFAULT_BRIDGE_TOOLS,
-        extraBridgeTools,
-      );
-
-      try {
-        // Build scrubbed env — only safe POSIX vars, no secrets. The adapter
-        // points TMPDIR/TEMP/TMP at the sandbox's own temp dir.
-        const safeEnv: Record<string, string> = {};
-        for (const key of [
-          "PATH",
-          "HOME",
-          "TMPDIR",
-          "TEMP",
-          "TMP",
-          "LANG",
-          "LC_ALL",
-        ]) {
-          if (process.env[key]) safeEnv[key] = process.env[key]!;
-        }
-
-        // Delegate execution to the active sandbox adapter (local child process
-        // by default; remote/durable adapters can be registered via
-        // ./sandbox). The bridge, env scrub, module, and output formatting stay
-        // in the parent regardless of adapter.
-        const { stdout, stderr, exitCode, timedOut } =
-          await getSandboxAdapter().run({
-            moduleSource: buildSandboxModule(code, bridgePort, bridgeToken),
-            env: safeEnv,
-            timeoutMs,
-            bridgePort,
-          });
-
-        const combined =
-          [
-            stdout ? `stdout:\n${stdout}` : "",
-            stderr ? `stderr:\n${stderr}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n") || "(no output)";
-
-        const lines: string[] = [];
-        if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
-        if (exitCode !== 0 && exitCode !== null)
-          lines.push(`exitCode: ${exitCode}`);
-        const usedTools = getUsedTools();
-        if (usedTools.length)
-          lines.push(`bridgeToolsUsed: ${usedTools.join(", ")}`);
-        lines.push(combined);
-
-        const full = lines.join("\n\n");
-        if (full.length > maxOutputChars) {
-          const truncated = full.slice(0, maxOutputChars);
-          return `${truncated}\n\n...[truncated ${(full.length - maxOutputChars).toLocaleString()} chars]`;
-        }
-        return full;
-      } finally {
-        // The active sandbox adapter owns its own temp-file cleanup; the parent
-        // only tears down the bridge server here.
-        cleanupBridge();
+      // Background path: opt-in per call, or forced when the active sandbox
+      // adapter is the queued backend (AGENT_NATIVE_SANDBOX=background).
+      const backgroundRequested =
+        (args.background as unknown) === true ||
+        (typeof args.background === "string" &&
+          args.background.trim().toLowerCase() === "true");
+      if (backgroundRequested || isQueuedSandboxAdapter(getSandboxAdapter())) {
+        return enqueueBackgroundRunCode({
+          code,
+          requestedTimeoutMs: Number(args.timeoutMs),
+          maxOutputChars,
+          context,
+          getActions,
+        });
       }
+
+      const requestedTimeout = Number(args.timeoutMs);
+      const timeoutMs =
+        Number.isFinite(requestedTimeout) && requestedTimeout > 0
+          ? Math.min(requestedTimeout, MAX_TIMEOUT_MS)
+          : DEFAULT_TIMEOUT_MS;
+
+      const { stdout, stderr, exitCode, timedOut, bridgeToolsUsed } =
+        await executeSandboxCode({
+          code,
+          timeoutMs,
+          getActions,
+          extraBridgeTools,
+          context,
+        });
+
+      const combined =
+        [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""]
+          .filter(Boolean)
+          .join("\n\n") || "(no output)";
+
+      const lines: string[] = [];
+      if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
+      if (exitCode !== 0 && exitCode !== null)
+        lines.push(`exitCode: ${exitCode}`);
+      if (bridgeToolsUsed.length)
+        lines.push(`bridgeToolsUsed: ${bridgeToolsUsed.join(", ")}`);
+      lines.push(combined);
+
+      const full = lines.join("\n\n");
+      if (full.length > maxOutputChars) {
+        const truncated = full.slice(0, maxOutputChars);
+        return `${truncated}\n\n...[truncated ${(full.length - maxOutputChars).toLocaleString()} chars]`;
+      }
+      return full;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Core execution (shared by the foreground path and the background executor)
+// ---------------------------------------------------------------------------
+
+export interface ExecuteSandboxCodeOptions {
+  /** Raw user JavaScript (ESM, top-level await allowed). */
+  code: string;
+  /** Hard wall-clock timeout enforced by the adapter. */
+  timeoutMs: number;
+  /** Supplier for the action registry the loopback bridge exposes. */
+  getActions: () => Record<string, ActionEntry>;
+  /** Extra bridge tool names beyond the defaults. */
+  extraBridgeTools?: Set<string>;
+  /** Request context (owner/org) applied to bridged tool calls. */
+  context?: ActionRunContext;
+}
+
+export interface ExecuteSandboxCodeResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  bridgeToolsUsed: string[];
+}
+
+/**
+ * Run one piece of sandbox code end-to-end: start the loopback bridge, build
+ * the scrubbed env and wrapped module, execute through the active NON-QUEUED
+ * sandbox adapter, and return the raw outputs. This is the exact machinery the
+ * foreground `run-code` path always used, factored out so the durable
+ * background executor reuses it verbatim (with the enqueueing owner's context)
+ * instead of forking it.
+ */
+export async function executeSandboxCode(
+  options: ExecuteSandboxCodeOptions,
+): Promise<ExecuteSandboxCodeResult> {
+  const actions = options.getActions();
+  const bridgeToken = crypto.randomBytes(32).toString("hex");
+
+  // Start bridge server — resolves once the server is listening.
+  const {
+    bridgePort,
+    getUsedTools,
+    cleanup: cleanupBridge,
+  } = await startBridgeServer(
+    bridgeToken,
+    actions,
+    options.context,
+    DEFAULT_BRIDGE_TOOLS,
+    options.extraBridgeTools ?? new Set(),
+  );
+
+  try {
+    // Build scrubbed env — only safe POSIX vars, no secrets. The adapter
+    // points TMPDIR/TEMP/TMP at the sandbox's own temp dir.
+    const safeEnv: Record<string, string> = {};
+    for (const key of [
+      "PATH",
+      "HOME",
+      "TMPDIR",
+      "TEMP",
+      "TMP",
+      "LANG",
+      "LC_ALL",
+    ]) {
+      if (process.env[key]) safeEnv[key] = process.env[key]!;
+    }
+
+    // Delegate execution to the active sandbox adapter (local child process
+    // by default; remote adapters can be registered via ./sandbox). A queued
+    // (background) adapter is never used here — `resolveExecutionSandboxAdapter`
+    // falls back to local so execution can't recurse into the queue. The
+    // bridge, env scrub, module, and output formatting stay in the parent
+    // regardless of adapter.
+    const { stdout, stderr, exitCode, timedOut } =
+      await resolveExecutionSandboxAdapter().run({
+        moduleSource: buildSandboxModule(options.code, bridgePort, bridgeToken),
+        env: safeEnv,
+        timeoutMs: options.timeoutMs,
+        bridgePort,
+      });
+
+    return {
+      stdout,
+      stderr,
+      exitCode,
+      timedOut,
+      bridgeToolsUsed: getUsedTools(),
+    };
+  } finally {
+    // The active sandbox adapter owns its own temp-file cleanup; the parent
+    // only tears down the bridge server here.
+    cleanupBridge();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Durable background executions
+// ---------------------------------------------------------------------------
+
+function structuredRunCodeError(payload: {
+  code: string;
+  message: string;
+  guidance: string;
+  executionId?: string;
+}): string {
+  return JSON.stringify(
+    {
+      ...(payload.executionId ? { executionId: payload.executionId } : {}),
+      status: "error",
+      error: { code: payload.code, message: payload.message },
+      guidance: payload.guidance,
+    },
+    null,
+    2,
+  );
+}
+
+function resolveExecutionOwner(context?: ActionRunContext): string | undefined {
+  return context?.userEmail ?? getRequestUserEmail();
+}
+
+function pollHintFor(executionId: string, hasGetTool: boolean): string {
+  return hasGetTool
+    ? `\`get-code-execution\` with {"executionId": "${executionId}"}`
+    : `\`run-code\` with {"executionId": "${executionId}"} and no code`;
+}
+
+async function enqueueBackgroundRunCode(input: {
+  code: string;
+  requestedTimeoutMs: number;
+  maxOutputChars: number;
+  context?: ActionRunContext;
+  getActions: () => Record<string, ActionEntry>;
+}): Promise<string> {
+  const owner = resolveExecutionOwner(input.context);
+  if (!owner) {
+    return structuredRunCodeError({
+      code: "identity_required",
+      message:
+        "Background execution requires an authenticated owner identity; none was resolved for this call.",
+      guidance:
+        "Run the code in the foreground instead (omit background), or retry from an authenticated agent run.",
+    });
+  }
+
+  const timeoutMs =
+    Number.isFinite(input.requestedTimeoutMs) && input.requestedTimeoutMs > 0
+      ? Math.min(input.requestedTimeoutMs, BACKGROUND_MAX_TIMEOUT_MS)
+      : BACKGROUND_DEFAULT_TIMEOUT_MS;
+
+  const { execution, driveNote } = await enqueueSandboxExecution({
+    code: input.code,
+    timeoutMs,
+    maxOutputChars: input.maxOutputChars,
+    owner,
+    orgId: input.context?.orgId ?? null,
+    threadId: input.context?.threadId ?? null,
+  });
+
+  const hasGetTool = Boolean(input.getActions()["get-code-execution"]);
+  return JSON.stringify(
+    {
+      executionId: execution.id,
+      status: "queued",
+      timeoutMs,
+      guidance:
+        `Queued for durable background execution — it keeps running even if this chat run is cut off, and the result stays available afterwards. ` +
+        `Do NOT wait idle: continue other useful work now, then check progress by calling ${pollHintFor(execution.id, hasGetTool)}. ` +
+        `Poll after finishing your other steps, then every ~15-30 seconds — not in a tight loop. ` +
+        `If the result reports failed or timed_out, split the computation into smaller chunks or persist intermediate progress with workspaceWrite and re-run.`,
+      ...(driveNote ? { note: driveNote } : {}),
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * Owner-scoped status/result lookup for a background execution, with
+ * opportunistic recovery: a stale queued row (lost dispatch) or a running row
+ * whose lease expired (dead executor) is re-driven; an expired row that
+ * exhausted its attempts is reaped to `failed` so it never hangs forever.
+ */
+async function describeSandboxExecutionForOwner(
+  executionId: string,
+  context?: ActionRunContext,
+): Promise<string> {
+  const owner = resolveExecutionOwner(context);
+  if (!owner) {
+    return structuredRunCodeError({
+      executionId,
+      code: "identity_required",
+      message:
+        "Cannot look up a background execution without an authenticated owner identity.",
+      guidance:
+        "Background executions are scoped to the user who started them. Retry from an authenticated agent run.",
+    });
+  }
+
+  let row = await getSandboxExecutionForOwner(executionId, owner);
+  if (!row) {
+    return structuredRunCodeError({
+      executionId,
+      code: "execution_not_found",
+      message: `No background execution "${executionId}" exists for this user.`,
+      guidance:
+        "Check the executionId — it must come from a prior run-code call with background: true made by this same user.",
+    });
+  }
+
+  const now = Date.now();
+  const pollGuidance =
+    `Still in progress. Do not wait idle — continue other useful work, then poll again in ~15-30 seconds by calling ` +
+    `${pollHintFor(executionId, false)}.`;
+
+  if (row.status === "queued") {
+    // Lost-dispatch recovery: re-drive a row that has sat unclaimed.
+    if (now - row.updatedAt >= SANDBOX_EXECUTION_REDRIVE_AFTER_MS) {
+      try {
+        await driveSandboxExecution(row.id);
+      } catch {
+        // Best-effort; the sweep retries.
+      }
+    }
+    return JSON.stringify(
+      {
+        executionId,
+        status: "queued",
+        attemptCount: row.attemptCount,
+        queuedForMs: now - row.createdAt,
+        guidance: pollGuidance,
+      },
+      null,
+      2,
+    );
+  }
+
+  if (row.status === "running") {
+    const leaseExpired =
+      row.leaseExpiresAt !== null && row.leaseExpiresAt < now;
+    if (!leaseExpired) {
+      return JSON.stringify(
+        {
+          executionId,
+          status: "running",
+          attemptCount: row.attemptCount,
+          runningForMs: now - (row.startedAt ?? row.createdAt),
+          guidance: pollGuidance,
+        },
+        null,
+        2,
+      );
+    }
+    if (row.attemptCount < row.maxAttempts) {
+      try {
+        await driveSandboxExecution(row.id);
+      } catch {
+        // Best-effort; the sweep retries.
+      }
+      return JSON.stringify(
+        {
+          executionId,
+          status: "running",
+          attemptCount: row.attemptCount,
+          note: `The previous executor stopped heartbeating (its environment was likely terminated); a retry has been dispatched (attempt ${row.attemptCount + 1} of ${row.maxAttempts}).`,
+          guidance: pollGuidance,
+        },
+        null,
+        2,
+      );
+    }
+    // Attempts exhausted — reap to a terminal failure and report that below.
+    await failExpiredSandboxExecution(
+      row.id,
+      `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
+      now,
+    );
+    row = (await getSandboxExecutionForOwner(executionId, owner)) ?? row;
+  }
+
+  return formatTerminalSandboxExecution(row);
+}
+
+function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
+  const durationMs =
+    row.startedAt !== null && row.finishedAt !== null
+      ? Math.max(0, row.finishedAt - row.startedAt)
+      : undefined;
+  const guidance =
+    row.status === "timed_out"
+      ? `The execution exceeded its ${row.timeoutMs}ms background budget and was terminated. Reduce the work per run, or persist intermediate results with workspaceWrite and continue in a follow-up background execution.`
+      : row.status === "failed"
+        ? "The execution failed. Inspect error/stderr, fix the code, and re-run (use background: true again for long compute). If the executor was lost repeatedly, split the computation into smaller chunks or persist intermediate results with workspaceWrite."
+        : undefined;
+
+  const header = JSON.stringify(
+    {
+      executionId: row.id,
+      status: row.status,
+      exitCode: row.exitCode,
+      ...(row.timedOut ? { timedOut: true } : {}),
+      attemptCount: row.attemptCount,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+      ...(row.error ? { error: row.error } : {}),
+      ...(row.bridgeToolsUsed.length
+        ? { bridgeToolsUsed: row.bridgeToolsUsed }
+        : {}),
+      ...(guidance ? { guidance } : {}),
+    },
+    null,
+    2,
+  );
+
+  const combined =
+    [
+      row.stdout
+        ? `stdout:\n${row.stdout}${row.stdoutTruncated ? "\n...[stored stdout truncated]" : ""}`
+        : "",
+      row.stderr
+        ? `stderr:\n${row.stderr}${row.stderrTruncated ? "\n...[stored stderr truncated]" : ""}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n") || "(no output)";
+
+  const full = `${header}\n\n${combined}`;
+  const maxChars =
+    row.maxOutputChars > 0 ? row.maxOutputChars : MAX_OUTPUT_CHARS;
+  if (full.length > maxChars) {
+    const truncated = full.slice(0, maxChars);
+    return `${truncated}\n\n...[truncated ${(full.length - maxChars).toLocaleString()} chars]`;
+  }
+  return full;
+}
+
+/**
+ * Standalone, access-scoped poll tool for background executions. Behaviorally
+ * identical to calling `run-code` with only `executionId`; hosts that register
+ * it as `get-code-execution` give the model a dedicated read tool (and the
+ * enqueue guidance automatically points at it when present in the registry).
+ */
+export function createGetCodeExecutionEntry(): ActionEntry {
+  return {
+    readOnly: true,
+    tool: {
+      description:
+        "Check a background run-code execution: returns its status (queued | running | succeeded | failed | timed_out) and, once finished, its stdout/stderr output. Executions are scoped to the user who started them. While one is queued or running, continue other useful work and poll every ~15-30 seconds instead of busy-waiting.",
+      parameters: {
+        type: "object",
+        properties: {
+          executionId: {
+            type: "string",
+            description:
+              "The executionId returned by run-code with background: true.",
+          },
+        },
+        required: ["executionId"],
+      },
+    },
+    run: async (args: Record<string, string>, context?: ActionRunContext) => {
+      const executionId =
+        typeof args.executionId === "string" ? args.executionId.trim() : "";
+      if (!executionId) {
+        return structuredRunCodeError({
+          code: "execution_id_required",
+          message: "executionId is required.",
+          guidance:
+            "Pass the executionId returned by a prior run-code call with background: true.",
+        });
+      }
+      return describeSandboxExecutionForOwner(executionId, context);
     },
   };
 }

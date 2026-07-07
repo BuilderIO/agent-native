@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { closeOutStaleMeeting } from "../server/jobs/stale-meeting-sweeper.js";
 
 export default defineAction({
   description:
@@ -24,6 +25,30 @@ export default defineAction({
     await assertAccess("meeting", args.id, "editor");
     const db = getDb();
     const now = new Date().toISOString();
+
+    const [meeting] = await db
+      .select({
+        actualStart: schema.meetings.actualStart,
+        actualEnd: schema.meetings.actualEnd,
+        recordingId: schema.meetings.recordingId,
+        ownerEmail: schema.meetings.ownerEmail,
+        orgId: schema.meetings.orgId,
+      })
+      .from(schema.meetings)
+      .where(eq(schema.meetings.id, args.id))
+      .limit(1);
+
+    // Trashing a still-live meeting also closes out capture state (stamp
+    // actualEnd, flip transcriptStatus, un-stick the linked recording) —
+    // otherwise a live desktop session keeps writing to a now-hidden row.
+    if (meeting && meeting.actualStart && !meeting.actualEnd) {
+      await closeOutStaleMeeting({
+        meetingId: args.id,
+        recordingId: meeting.recordingId,
+        ownerEmail: meeting.ownerEmail,
+        orgId: meeting.orgId,
+      });
+    }
 
     await db
       .update(schema.meetings)

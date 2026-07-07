@@ -5,6 +5,11 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,15 +19,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconMessageCircle, IconPhoto, IconTrash } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 import type {
@@ -38,6 +38,14 @@ function variantStateKey(threadId: string | null) {
   return threadId ? `asset-variants:${threadId}` : "asset-variants";
 }
 
+// Only reconcile a still-pending slot once it is old enough that the run cannot
+// plausibly still be generating. Keep this above the server generation budget
+// (IMAGE_GENERATION_REQUEST_TIMEOUT_MS, default 300s) and in step with
+// STALE_IMAGE_RUN_MS in refresh-generation-run, so a slow-but-healthy run (e.g.
+// gpt-image-2) is not flagged "interrupted" and flipped to an error slot before
+// its finished image arrives.
+const STALE_PENDING_RUN_MS = 6 * 60 * 1000;
+
 function slotTime(slot: AssetVariantState["slots"][number]): number {
   const raw = slot.createdAt ?? slot.updatedAt ?? "";
   const time = Date.parse(raw);
@@ -51,7 +59,7 @@ function stalePendingRunId(
   if (!slot.runId) return null;
   const timestamp = slotTime(slot);
   if (!timestamp) return null;
-  return Date.now() - timestamp >= 2 * 60 * 1000 ? slot.runId : null;
+  return Date.now() - timestamp >= STALE_PENDING_RUN_MS ? slot.runId : null;
 }
 
 export function GenerationResults({ threadId }: { threadId: string | null }) {
@@ -65,7 +73,13 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     queryFn: async ({ signal }) => {
       return readClientAppState<AssetVariantState>(stateKey, { signal });
     },
-    refetchInterval: 1000,
+    refetchInterval: (query) => {
+      const state = query.state.data as AssetVariantState | undefined;
+      const hasPendingSlot = (state?.slots ?? []).some(
+        (slot) => slot.status === "pending",
+      );
+      return hasPendingSlot ? 1000 : false;
+    },
   });
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,

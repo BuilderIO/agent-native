@@ -1,16 +1,4 @@
 import { useReconciledState, useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -24,6 +12,18 @@ import { toast } from "sonner";
 
 import { SqlEditor } from "@/components/SqlEditor";
 import { SqlHighlight } from "@/components/SqlHighlight";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
 import type { DataSourceType, SqlPanel } from "./types";
@@ -35,6 +35,7 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
   "first-party": "First-party",
   demo: "Demo Prometheus",
   prometheus: "Prometheus",
+  program: "Data program",
 };
 
 interface ViewSqlPopoverProps {

@@ -13,22 +13,6 @@ import {
   OrgSwitcher,
   useOrg,
 } from "@agent-native/core/client/org";
-import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconInbox,
   IconArchive,
@@ -54,6 +38,21 @@ import {
   CaptureInstallButton,
   CaptureInstallInlineLink,
 } from "@/components/capture-install-options";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   useFolders,
@@ -62,6 +61,7 @@ import {
   useCreateFolder,
   useRecordingsCount,
 } from "@/hooks/use-library";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { cn } from "@/lib/utils";
 
@@ -153,9 +153,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
 
-  // Routes whose page renders its own h-12 toolbar (with NotificationsBell +
-  // AgentToggleButton). Layout still mounts Sidebar + AgentSidebar, but skips
-  // its own header so there's no double-header.
+  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
+  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");

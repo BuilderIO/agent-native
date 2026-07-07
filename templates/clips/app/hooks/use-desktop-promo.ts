@@ -1,5 +1,6 @@
-import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
 import { useCallback, useEffect, useState } from "react";
+
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const DISMISSED_KEY = "clips.desktop-promo.dismissed";
 

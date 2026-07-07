@@ -33,6 +33,12 @@ static FN_TAP_ENABLED: AtomicBool = AtomicBool::new(false);
 static FN_TAP_INSTALL_STARTED: AtomicBool = AtomicBool::new(false);
 static POPOVER_DISMISS_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
+// P1: tracks whether Escape is currently registered *for dictation-cancel*
+// specifically (independent of POPOVER_DISMISS_SHORTCUT_ACTIVE, which tracks
+// the popover's own reason to want Escape registered). Escape should stay
+// registered globally if EITHER reason wants it, and only unregister once
+// BOTH are false — see `sync_dictation_escape_shortcut`.
+static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
@@ -162,7 +168,7 @@ pub async fn set_custom_shortcuts(
 pub async fn set_fn_shortcut_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
     FN_TAP_ENABLED.store(enabled, Ordering::SeqCst);
     if !enabled {
-        set_dictation_active(&app, false);
+        set_dictation_active_and_sync_escape(&app, false);
         return Ok(());
     }
 
@@ -175,6 +181,22 @@ pub async fn set_fn_shortcut_enabled(app: AppHandle, enabled: bool) -> Result<()
     }
 
     Ok(())
+}
+
+/// Wispr parity (P5): re-paste the last dictation on demand. Cmd+Ctrl+V on
+/// macOS; Ctrl+Alt+V elsewhere (Ctrl+Shift+V collides with several
+/// terminals' native paste override, and Shift+Alt+Z per wispr-ux.md's
+/// Windows row isn't a natural fit for our existing modifier conventions
+/// here, so we mirror our own Ctrl+Shift+L-style dual-binding instead).
+fn paste_last_dictation_shortcut() -> Shortcut {
+    #[cfg(target_os = "macos")]
+    {
+        Shortcut::new(Some(Modifiers::SUPER | Modifiers::CONTROL), Code::KeyV)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV)
+    }
 }
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -197,6 +219,12 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     }
     if let Err(err) = gs.register(voice_ctrl_space) {
         eprintln!("[clips-tray] failed to register Ctrl+Shift+Space voice shortcut: {err}");
+    }
+    // Non-fatal: a collision here should never block the rest of startup —
+    // paste-last-dictation is a convenience shortcut, always reachable via
+    // the tray menu regardless of whether the hotkey registered.
+    if let Err(err) = gs.register(paste_last_dictation_shortcut()) {
+        eprintln!("[clips-tray] failed to register paste-last-dictation shortcut: {err}");
     }
 
     Ok(())
@@ -230,11 +258,69 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
                     }
                 }
             } else if !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+                && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
                 && gs.is_registered(shortcut)
             {
                 let _ = gs.unregister(shortcut);
             }
         });
+    });
+}
+
+/// P1 (Esc cancels dictation): set `DictationActive` and keep the global
+/// Escape registration in lockstep, from a single chokepoint. Every call
+/// site that flips `DictationActive` in this file should go through this
+/// function (or the cmd/ctrl-shift-space branch's own direct mutex flip,
+/// which calls `sync_dictation_escape_shortcut` immediately after) instead of
+/// calling `set_dictation_active` directly, so Escape can never be left
+/// dangling registered after a session ends. Idempotent: registering an
+/// already-registered shortcut or unregistering an absent one is a no-op via
+/// the `is_registered` guards in `sync_dictation_escape_shortcut`.
+pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
+    set_dictation_active(app, active);
+    sync_dictation_escape_shortcut(app.clone(), active);
+}
+
+/// Hands-free dictation outlives the physical key press that started it, while
+/// the physical key-edge handlers disarm Escape as soon as the triggering key
+/// is released. The webview calls this command when hands-free mode starts or
+/// ends so Escape stays armed for the whole hands-free session. `hide_flow_bar`
+/// remains the final safety net and unconditionally disarms on teardown.
+#[tauri::command]
+pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), String> {
+    set_dictation_active_and_sync_escape(&app, active);
+    Ok(())
+}
+
+/// Register/unregister the global Escape shortcut so it only intercepts Esc
+/// while a dictation session is actually active — mirrors
+/// `install_popover_dismiss_handler`'s register-on-demand pattern (same
+/// Carbon-reentrancy hazard: never call global_shortcut::{register,
+/// unregister,is_registered} synchronously from inside a hotkey callback, so
+/// this always hops to a worker thread). Registration failure is logged and
+/// swallowed — never breaks dictation start over a hotkey conflict.
+fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
+    DICTATION_ESCAPE_SHORTCUT_ACTIVE.store(active, Ordering::SeqCst);
+    thread::spawn(move || {
+        let gs = app.global_shortcut();
+        let shortcut = escape_shortcut();
+        if active {
+            if !gs.is_registered(shortcut) {
+                if let Err(err) = gs.register(shortcut) {
+                    eprintln!("[clips-tray] failed to register dictation-cancel Escape: {err}");
+                }
+            }
+            return;
+        }
+        // Only unregister once none of the popover, countdown, or a
+        // dictation session still wants Escape — otherwise we'd steal the
+        // registration out from under whichever of those is still using it.
+        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
+            && gs.is_registered(shortcut)
+        {
+            let _ = gs.unregister(shortcut);
+        }
     });
 }
 
@@ -271,7 +357,10 @@ fn set_countdown_shortcuts_active(app: AppHandle, active: bool) {
                 let _ = gs.unregister(shortcut);
             }
         }
-        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst) && gs.is_registered(escape) {
+        if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && !DICTATION_ESCAPE_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
+            && gs.is_registered(escape)
+        {
             let _ = gs.unregister(escape);
         }
     });
@@ -306,6 +395,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         let is_enter = shortcut.matches(Modifiers::empty(), Code::Enter);
         let is_numpad_enter = shortcut.matches(Modifiers::empty(), Code::NumpadEnter);
+        let is_paste_last_dictation = *shortcut == paste_last_dictation_shortcut();
         if (is_escape || is_enter || is_numpad_enter)
             && COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
         {
@@ -327,6 +417,20 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;
             }
+            // P1: Esc cancels an active dictation (wispr-ux.md §1) —
+            // checked before the popover-dismiss fallthrough below, and
+            // BEFORE the recording-active guard, since dictation and
+            // screen-recording are independent flags and a live dictation
+            // should always win Esc regardless of what else is going on.
+            // This Escape registration is itself gated on dictation being
+            // active (see `install_dictation_escape_handler`), but the
+            // check is cheap and kept here too as defence-in-depth in case
+            // Escape is independently registered for the popover at the
+            // same moment.
+            if is_dictation_active(app) {
+                let _ = app.emit("voice:cancel", ());
+                return;
+            }
             // Don't dismiss mid-recording — same guard as the React-side Esc
             // handler. The user would lose the recorder handle.
             if is_recording_active(app) {
@@ -336,6 +440,18 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 let _ = window.hide();
             }
             let _ = app.emit("clips:popover-visible", false);
+            return;
+        }
+        if is_paste_last_dictation {
+            if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                return;
+            }
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = crate::clips::paste_last_dictation(app).await {
+                    eprintln!("[clips-tray] paste_last_dictation failed: {err}");
+                }
+            });
             return;
         }
         if is_voice_cmd_space || is_voice_ctrl_space || is_custom_voice {
@@ -358,6 +474,11 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     if !already_active {
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
+                        // P1: keep Escape's registration in lockstep with
+                        // DictationActive even though this branch flips the
+                        // mutex directly instead of through
+                        // set_dictation_active_and_sync_escape.
+                        sync_dictation_escape_shortcut(app.clone(), true);
                         emit_voice_shortcut(app, "voice:shortcut-start", source, true);
                     }
                 }
@@ -368,6 +489,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
+                    sync_dictation_escape_shortcut(app.clone(), false);
                     emit_voice_shortcut(app, "voice:shortcut-stop", source, false);
                 }
             }
@@ -518,12 +640,18 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     let prev_down = Arc::new(AtomicBool::new(false));
     let needs_reenable = Arc::new(AtomicBool::new(false));
     let event_count = Arc::new(AtomicU64::new(0));
+    // Millis (via Instant-relative counter) at the last Fn-down edge, 0 if
+    // not currently down. Lets the up-edge detect a fast tap (< 80ms) even
+    // though `prev_down` itself is flipped synchronously on both edges —
+    // see the fast-tap handling below.
+    let fn_down_at = Arc::new(AtomicU64::new(0));
+    let tap_epoch = std::time::Instant::now();
 
     let app_for_cancel = app.clone();
     let prev_for_cancel = prev_down.clone();
     app.listen("voice:cancel", move |_event| {
         prev_for_cancel.store(false, Ordering::SeqCst);
-        set_dictation_active(&app_for_cancel, false);
+        set_dictation_active_and_sync_escape(&app_for_cancel, false);
     });
 
     dlog!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
@@ -535,6 +663,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             let prev_for_cb = prev_down.clone();
             let needs_reenable_for_cb = needs_reenable.clone();
             let event_count_for_cb = event_count.clone();
+            let fn_down_at_for_cb = fn_down_at.clone();
 
             dlog!("[clips-tray][fn-tap] thread started; about to call CGEventTap::new");
             let tap_result = CGEventTap::new(
@@ -599,9 +728,23 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     if fn_down == was_down {
                         return CallbackResult::Keep;
                     }
-                    set_dictation_active(&app_for_cb, fn_down);
+                    // Safe to call from inside the tap callback: the actual
+                    // register/unregister work is deferred to a spawned
+                    // thread inside `sync_dictation_escape_shortcut` — same
+                    // reentrancy avoidance as `emit_voice_shortcut` below.
+                    set_dictation_active_and_sync_escape(&app_for_cb, fn_down);
                     if fn_down {
                         dlog!("[clips-tray] Fn down — starting voice dictation");
+                        // Snapshot the frontmost app now, at press time, so a
+                        // focus change during the (possibly sub-80ms)
+                        // dictation still reactivates the app the user meant
+                        // to dictate into — mirrors emit_voice_shortcut's
+                        // remember_voice_target call for the other sources.
+                        remember_voice_target(&app_for_cb);
+                        fn_down_at_for_cb.store(
+                            tap_epoch.elapsed().as_millis() as u64,
+                            Ordering::SeqCst,
+                        );
                         // Wake the popover (parked at 2x2, no focus) so its
                         // JS runtime is live to receive the event. Without
                         // this, if the popover was hidden, macOS may have
@@ -616,15 +759,49 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         // show happens slightly later than this line.
                         let app_for_emit = app_for_cb.clone();
                         let prev_for_emit = prev_for_cb.clone();
+                        let fn_down_at_for_emit = fn_down_at_for_cb.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(80));
-                            if prev_for_emit.load(Ordering::SeqCst)
-                                && should_emit_delayed_voice_start(&app_for_emit, "fn")
-                            {
+                            let still_down = prev_for_emit.load(Ordering::SeqCst);
+                            // A tap shorter than 80ms flips `prev_for_emit`
+                            // back to false via the up-edge's synchronous
+                            // swap before we wake up here, so gating on
+                            // `still_down` alone silently drops fast taps
+                            // (start never fires, so the up-edge's earlier
+                            // voice:shortcut-stop is a no-op). Detect that
+                            // case via the down-edge timestamp — if nothing
+                            // re-armed it (no newer press), treat it as a
+                            // completed fast tap and still emit start,
+                            // immediately followed by stop, so the existing
+                            // <500ms accidental-tap discard in the TS layer
+                            // handles it uniformly instead of the event
+                            // vanishing.
+                            let fast_tap = !still_down
+                                && fn_down_at_for_emit.load(Ordering::SeqCst) != 0;
+                            // For a fast tap, both `current_fn_flag_down()`
+                            // and `is_dictation_active` (inside
+                            // should_emit_delayed_voice_start) read false by
+                            // now — the up-edge already released the key and
+                            // flipped DictationActive off as part of this
+                            // same tap — so that gate only applies to the
+                            // still-held case. A completed fast tap is only
+                            // gated on the tap still being enabled.
+                            let should_emit = if fast_tap {
+                                FN_TAP_ENABLED.load(Ordering::SeqCst)
+                            } else {
+                                should_emit_delayed_voice_start(&app_for_emit, "fn")
+                            };
+                            if (still_down || fast_tap) && should_emit {
                                 let _ = app_for_emit.emit(
                                     "voice:shortcut-start",
                                     serde_json::json!({ "source": "fn" }),
                                 );
+                                if fast_tap {
+                                    let _ = app_for_emit.emit(
+                                        "voice:shortcut-stop",
+                                        serde_json::json!({ "source": "fn" }),
+                                    );
+                                }
                             } else {
                                 hide_voice_wake_popover(&app_for_emit);
                             }
@@ -632,6 +809,18 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         install_fn_release_watchdog(app_for_cb.clone(), prev_for_cb.clone());
                     } else {
                         dlog!("[clips-tray] Fn up — stopping voice dictation");
+                        let elapsed_since_down =
+                            tap_epoch.elapsed().as_millis() as u64
+                                - fn_down_at_for_cb.load(Ordering::SeqCst);
+                        fn_down_at_for_cb.store(0, Ordering::SeqCst);
+                        if elapsed_since_down < 80 {
+                            // Fast tap: the delayed-start thread (still
+                            // pending) will emit start+stop together once it
+                            // wakes — see the fast_tap branch above. Emitting
+                            // our own stop now would race ahead of a start
+                            // that hasn't happened yet.
+                            return CallbackResult::Keep;
+                        }
                         let _ = app_for_cb.emit(
                             "voice:shortcut-stop",
                             serde_json::json!({ "source": "fn" }),
@@ -727,7 +916,7 @@ fn install_fn_release_watchdog(
             if !current_fn_flag_down() {
                 if prev_down.swap(false, Ordering::SeqCst) {
                     dlog!("[clips-tray] Fn up missed — synthesizing voice stop");
-                    set_dictation_active(&app, false);
+                    set_dictation_active_and_sync_escape(&app, false);
                     let _ = app.emit(
                         "voice:shortcut-stop",
                         serde_json::json!({ "source": "fn", "synthetic": true }),

@@ -1,11 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import {
   Area,
   AreaChart,
   CartesianGrid,
@@ -15,6 +9,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   chartAxisStroke,
   chartGridStroke,

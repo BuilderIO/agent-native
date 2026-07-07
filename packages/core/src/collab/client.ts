@@ -8,6 +8,16 @@
  * Also manages Yjs Awareness for cursor positions and user presence,
  * synced via polling to the server's awareness endpoint.
  *
+ * Connection sharing: connections live in a module-level, ref-counted registry
+ * keyed by docId (mirroring the SyncTransport registry in use-db-sync.ts).
+ * Every `useCollaborativeDoc` mount for the same docId attaches to ONE shared
+ * connection — one Y.Doc, one Awareness, one state fetch, one poll loop, one
+ * awareness POST cycle — instead of each hook instance opening an independent
+ * connection and doubling all collab traffic (e.g. a presence bar and the
+ * editor mounting the hook for the same doc). The first subscriber starts the
+ * connection; the last one leaving tears it down after a short linger so
+ * StrictMode double-mounts and rapid unmount/remounts don't thrash the doc.
+ *
  * Transport improvements (vs previous version):
  * - Local update POSTs are debounced and coalesced with Y.mergeUpdates (~80ms)
  *   to avoid per-keystroke requests. The batch is flushed immediately on
@@ -25,7 +35,11 @@
  *   unavailable the 2s poll resumes automatically.
  */
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import {
+  dedupeCollabUsersByEmail,
+  type CollabUser,
+} from "@agent-native/toolkit/collab-ui";
+import { useEffect, useMemo, useState } from "react";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -33,13 +47,12 @@ import { agentNativePath } from "../client/api-path.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
-export interface CollabUser {
-  name: string;
-  email: string;
-  color: string;
-  /** Profile image shown in presence avatars, cursor flags, and edit tags. */
-  avatarUrl?: string;
-}
+export {
+  dedupeCollabUsersByEmail,
+  emailToColor,
+  emailToName,
+  type CollabUser,
+} from "@agent-native/toolkit/collab-ui";
 
 export interface UseCollaborativeDocOptions {
   /** Document ID to collaborate on. Pass null to disable. */
@@ -75,57 +88,10 @@ export interface UseCollaborativeDocResult {
   agentPresent: boolean;
 }
 
-// Consistent color palette for user cursors
-const CURSOR_COLORS = [
-  "#f87171",
-  "#fb923c",
-  "#fbbf24",
-  "#a3e635",
-  "#34d399",
-  "#22d3ee",
-  "#60a5fa",
-  "#14b8a6",
-  "#f472b6",
-  "#e879f9",
-];
-
-/** Hash a string to a consistent color from the palette. */
-export function emailToColor(email: string): string {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = ((hash << 5) - hash + email.charCodeAt(i)) | 0;
-  }
-  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
-}
-
-/** Derive a display name from an email address. */
-export function emailToName(email: string): string {
-  const local = email.split("@")[0] || email;
-  return local.charAt(0).toUpperCase() + local.slice(1);
-}
-
-function normalizeCollabEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 function isDocumentHidden(): boolean {
   return (
     typeof document !== "undefined" && document.visibilityState === "hidden"
   );
-}
-
-export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
-  const byEmail = new Map<string, CollabUser>();
-  for (const user of users) {
-    const email = normalizeCollabEmail(user.email);
-    if (!email || byEmail.has(email)) continue;
-    byEmail.set(email, {
-      name: user.name || emailToName(email),
-      email,
-      color: user.color || emailToColor(email),
-    });
-  }
-  return Array.from(byEmail.values());
 }
 
 /**
@@ -292,6 +258,862 @@ function scheduleAwarenessPush(
   _awarenessThrottleTimers.set(key, timer);
 }
 
+// ---------------------------------------------------------------------------
+// Shared per-docId collab connection
+//
+// One CollabDocConnection per (baseUrl, docId) pair is held in a module-level
+// registry (the same pattern as SyncTransport in use-db-sync.ts). Every
+// `useCollaborativeDoc` mount for a docId subscribes to the shared connection,
+// so a tab runs exactly ONE state fetch, ONE poll fallback loop, and ONE
+// awareness POST cycle per document no matter how many components mount the
+// hook (e.g. a presence bar + the editor for the same doc).
+//
+// Lifecycle: the connection is created on first render that needs it (the
+// Y.Doc must exist during render so TipTap can bind on mount), starts its
+// network activity when the first subscriber attaches, and is disposed a short
+// linger after the last subscriber detaches. The linger keeps StrictMode's
+// mount→unmount→mount and rapid route remounts from destroying and refetching
+// the doc, and doubles as the cleanup path for connections created by a render
+// that React later discarded (no subscriber ever attaches).
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared reactive state each subscriber mirrors into its own React state.
+ * Replaced immutably on every change so hooks can bail out on identity.
+ */
+interface CollabDocSnapshot {
+  isLoading: boolean;
+  isSynced: boolean;
+  activeUsers: CollabUser[];
+  agentActive: boolean;
+  agentPresent: boolean;
+}
+
+interface CollabDocSubscription {
+  /** Requested poll interval; the connection uses the MIN across subscribers. */
+  pollInterval: number;
+  /** Requested relaxed interval while SSE is healthy (MIN across subscribers). */
+  pollIntervalWithSse: number;
+  /**
+   * Whether this subscriber wants polling paused while the tab is hidden.
+   * The connection pauses only when ALL subscribers request it.
+   */
+  pauseWhenHidden: boolean;
+  /**
+   * Echo-suppression tag. The connection adopts the first defined value and
+   * uses it for BOTH tagging outgoing updates and filtering incoming echoes,
+   * so suppression stays self-consistent even when subscribers pass different
+   * per-tab IDs (all values identify the same tab).
+   */
+  requestSource?: string;
+  onSnapshot: (snapshot: CollabDocSnapshot) => void;
+}
+
+const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
+  isLoading: false,
+  isSynced: false,
+  activeUsers: [],
+  agentActive: false,
+  agentPresent: false,
+});
+
+/**
+ * How long a connection with zero subscribers lingers before disposal.
+ * Long enough to absorb StrictMode double-mounts and route-level remounts
+ * (which would otherwise destroy the Y.Doc, refetch server state, and lose
+ * echo-suppression context), short enough that navigating away stops the
+ * doc's traffic promptly.
+ */
+const DISPOSE_LINGER_MS = 1000;
+
+class CollabDocConnection {
+  readonly ydoc: Y.Doc;
+  readonly awareness: Awareness;
+  /** Immutable snapshot of the shared reactive state (replaced on change). */
+  snapshot: CollabDocSnapshot;
+  disposed = false;
+
+  private subscribers = new Map<symbol, CollabDocSubscription>();
+  private disposeTimer: ReturnType<typeof setTimeout> | null = null;
+  private started = false;
+  private docMissing = false;
+  private requestSource: string | undefined;
+  private lastSetUser: CollabUser | null = null;
+
+  // Local-update batching (debounced + coalesced with Y.mergeUpdates).
+  private pendingUpdates: Uint8Array[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateHandlerAttached = false;
+
+  // Poll loop + SSE fast path.
+  private syncActive = false;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private consecutiveErrors = 0;
+  private pollCycleCount = 0;
+  private pollVersion = 0;
+  private lastPolledVersion = 0;
+  private sseActive = false;
+  private sseSubscribedWithPause: boolean | null = null;
+  private unsubscribeCollabEvents: (() => void) | null = null;
+  private unsubscribeAwarenessEvents: (() => void) | null = null;
+  private agentTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    readonly docId: string,
+    private readonly baseUrl: string,
+    /**
+     * Detached connections are created for SSR renders only: a per-hook
+     * Y.Doc/Awareness with no registry entry and no network activity
+     * (matching the previous per-hook behavior on the server). They are
+     * never started and are reclaimed by GC with the render.
+     */
+    readonly detached = false,
+  ) {
+    this.ydoc = new Y.Doc();
+    this.awareness = new Awareness(this.ydoc);
+    this.snapshot = {
+      isLoading: true,
+      isSynced: false,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+
+    // Track active users / agent presence from awareness changes, and drive
+    // the fast (throttled) awareness push once a local user is published.
+    this.awareness.on("change", this.handleAwarenessChange);
+
+    // Orphan guard: the connection is created during render (the Y.Doc must
+    // exist before mount), so a discarded render can create one that never
+    // gets a subscriber. The linger timer disposes it; the first `add()`
+    // cancels the timer.
+    if (!detached) this.scheduleDispose();
+  }
+
+  private get registryKey(): string {
+    return collabRegistryKey(this.docId, this.baseUrl);
+  }
+
+  // -------------------------------------------------------------------------
+  // Subscriber management (ref-counting)
+  // -------------------------------------------------------------------------
+
+  add(id: symbol, sub: CollabDocSubscription): void {
+    this.subscribers.set(id, sub);
+    if (this.disposeTimer) {
+      clearTimeout(this.disposeTimer);
+      this.disposeTimer = null;
+    }
+    // Adopt the first defined echo-suppression tag for the connection's
+    // lifetime (see CollabDocSubscription.requestSource).
+    if (!this.requestSource && sub.requestSource) {
+      this.requestSource = sub.requestSource;
+    }
+    if (!this.started) {
+      this.started = true;
+      this.start();
+    } else {
+      // A joining subscriber can change the effective poll cadence or the
+      // pause-when-hidden aggregate; pick both up without waiting a cycle.
+      this.resubscribeCollabEventsIfPauseChanged();
+      this.reschedulePoll();
+    }
+  }
+
+  remove(id: symbol): void {
+    this.subscribers.delete(id);
+    if (this.subscribers.size === 0) {
+      this.scheduleDispose();
+    } else {
+      this.resubscribeCollabEventsIfPauseChanged();
+      this.reschedulePoll();
+    }
+  }
+
+  private scheduleDispose(): void {
+    if (this.disposeTimer) clearTimeout(this.disposeTimer);
+    this.disposeTimer = setTimeout(() => {
+      this.disposeTimer = null;
+      this.dispose();
+    }, DISPOSE_LINGER_MS);
+  }
+
+  /**
+   * Tear the connection down: stop all loops and listeners, flush any pending
+   * local updates, clear awareness local state (via destroy), and destroy the
+   * Y.Doc. Also used by the test-only registry reset. @internal
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.disposeTimer) {
+      clearTimeout(this.disposeTimer);
+      this.disposeTimer = null;
+    }
+    this.stopSync();
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
+    this.flushPendingUpdates(true);
+    this.detachUpdateHandler();
+    if (this.agentTimer) {
+      clearTimeout(this.agentTimer);
+      this.agentTimer = null;
+    }
+    // Detach our change listener BEFORE destroy so the destroy-time
+    // `setLocalState(null)` does not schedule a push (matches the previous
+    // per-hook effect cleanup ordering).
+    this.awareness.off("change", this.handleAwarenessChange);
+    this.awareness.destroy();
+    this.ydoc.destroy();
+    if (collabConnectionRegistry.get(this.registryKey) === this) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Derived settings (aggregate over active subscribers)
+  // -------------------------------------------------------------------------
+
+  private get effectivePollInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.pollInterval < min) min = sub.pollInterval;
+    }
+    return isFinite(min) ? min : 2000;
+  }
+
+  private get effectivePollIntervalWithSse(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.pollIntervalWithSse < min) min = sub.pollIntervalWithSse;
+    }
+    return isFinite(min) ? min : 12_000;
+  }
+
+  private get effectivePauseWhenHidden(): boolean {
+    // Pause only if every subscriber has opted in.
+    for (const sub of this.subscribers.values()) {
+      if (!sub.pauseWhenHidden) return false;
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared state fan-out
+  // -------------------------------------------------------------------------
+
+  private setSnapshot(patch: Partial<CollabDocSnapshot>): void {
+    this.snapshot = { ...this.snapshot, ...patch };
+    for (const sub of this.subscribers.values()) {
+      sub.onSnapshot(this.snapshot);
+    }
+  }
+
+  private markAgentActive(): void {
+    this.setSnapshot({ agentActive: true });
+    if (this.agentTimer) clearTimeout(this.agentTimer);
+    this.agentTimer = setTimeout(() => {
+      this.agentTimer = null;
+      this.setSnapshot({ agentActive: false });
+    }, 3000);
+  }
+
+  // -------------------------------------------------------------------------
+  // Awareness: local identity, active-user tracking, fast push
+  // -------------------------------------------------------------------------
+
+  /**
+   * Publish the local user identity (cursor label) and current visibility.
+   * Set once per tab — repeated calls with the same identity are no-ops so
+   * multiple subscribers for the same user don't re-emit awareness updates.
+   */
+  setUser(user: CollabUser): void {
+    if (this.disposed) return;
+    const prev = this.lastSetUser;
+    if (
+      prev &&
+      prev.name === user.name &&
+      prev.email === user.email &&
+      prev.color === user.color
+    ) {
+      return;
+    }
+    this.lastSetUser = {
+      name: user.name,
+      email: user.email,
+      color: user.color,
+    };
+    this.awareness.setLocalStateField("user", {
+      name: user.name,
+      email: user.email,
+      color: user.color,
+    });
+    // Also publish this tab's visibility so peers can elect a VISIBLE client
+    // to apply external snapshots (see isReconcileLeadClient) — a backgrounded
+    // tab pauses its poll and must not hold that role.
+    this.awareness.setLocalStateField("visible", !isDocumentHidden());
+  }
+
+  private handleAwarenessChange = (): void => {
+    const users: CollabUser[] = [];
+    let hasAgent = false;
+    this.awareness.getStates().forEach((state, clientId) => {
+      if (clientId === this.ydoc.clientID) return; // Skip self
+      if (state.user) {
+        users.push(state.user as CollabUser);
+        if ((state.user as CollabUser).email === "agent@system") {
+          hasAgent = true;
+        }
+      }
+    });
+    this.setSnapshot({
+      activeUsers: dedupeCollabUsersByEmail(users),
+      agentPresent: hasAgent,
+    });
+
+    // Fast awareness push: whenever awareness changes (e.g. cursor moves,
+    // setPresence() calls), schedule a throttled POST so peers receive updates
+    // at ~150ms instead of waiting for the next poll cycle. Only active once a
+    // local user identity has been published (matches the previous per-hook
+    // gating on `user`). The poll cycle remains the authoritative baseline.
+    if (this.lastSetUser && !this.disposed) {
+      scheduleAwarenessPush(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        () => this.awareness.getLocalState() as Record<string, unknown> | null,
+      );
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Startup: initial state fetch, update handler, sync loops
+  // -------------------------------------------------------------------------
+
+  private start(): void {
+    this.attachUpdateHandler();
+    this.fetchInitialState();
+    this.startSync();
+
+    // SSE fast-path for awareness: listen on the SHARED framework transport
+    // and apply awareness-change events immediately so peers receive cursor
+    // moves push-style without waiting for the next poll cycle. Kept alive
+    // even when the doc is missing (matches the previous per-hook behavior).
+    this.unsubscribeAwarenessEvents = subscribeSyncEvents({
+      onEvents: (events) => {
+        if (this.disposed) return;
+        for (const data of events) this.applyAwarenessEvent(data);
+      },
+    });
+  }
+
+  private fetchInitialState(): void {
+    fetch(`${this.baseUrl}/${this.docId}/state`)
+      .then(async (res) => {
+        if (this.disposed) return;
+        if (res.status === 404 || res.status === 403) {
+          this.markDocMissing();
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as {
+          state?: string;
+        } | null;
+        if (this.disposed) return;
+        if (data?.state) {
+          const binary = base64ToUint8Array(data.state);
+          if (binary.length > 4) {
+            Y.applyUpdate(this.ydoc, binary, "remote");
+          }
+        }
+        this.setSnapshot({ isLoading: false, isSynced: true });
+      })
+      .catch(() => {
+        if (this.disposed) return;
+        this.setSnapshot({ isLoading: false, isSynced: true });
+      });
+  }
+
+  /**
+   * The initial state fetch returned 404/403 — the doc doesn't exist or isn't
+   * accessible. Stop doc-update traffic (poll loop, update POSTs, collab SSE
+   * handling) so we don't spam the console with errors against it. The
+   * awareness SSE subscription stays (matches previous behavior).
+   */
+  private markDocMissing(): void {
+    this.docMissing = true;
+    this.flushPendingUpdates(true);
+    this.detachUpdateHandler();
+    this.stopSync();
+    this.setSnapshot({ isLoading: false, isSynced: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // Local update batching
+  // -------------------------------------------------------------------------
+
+  private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
+    if (origin === "remote") return;
+    this.pendingUpdates.push(update);
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = setTimeout(
+      () => this.flushPendingUpdates(),
+      UPDATE_DEBOUNCE_MS,
+    );
+  };
+
+  private handlePageHide = (): void => {
+    this.flushPendingUpdates(true /* keepalive */);
+  };
+
+  private attachUpdateHandler(): void {
+    if (this.updateHandlerAttached || this.docMissing) return;
+    this.updateHandlerAttached = true;
+    this.ydoc.on("update", this.handleDocUpdate);
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", this.handlePageHide);
+    }
+  }
+
+  private detachUpdateHandler(): void {
+    if (!this.updateHandlerAttached) return;
+    this.updateHandlerAttached = false;
+    this.ydoc.off("update", this.handleDocUpdate);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pagehide", this.handlePageHide);
+    }
+  }
+
+  private flushPendingUpdates(keepalive = false): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.pendingUpdates.length === 0) return;
+    const toSend = this.pendingUpdates;
+    this.pendingUpdates = [];
+
+    const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
+    fetch(`${this.baseUrl}/${this.docId}/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        update: uint8ArrayToBase64(merged),
+        requestSource: this.requestSource,
+      }),
+      ...(keepalive ? { keepalive: true } : {}),
+    }).catch(() => {});
+  }
+
+  // -------------------------------------------------------------------------
+  // Remote sync: SSE fast path + poll fallback loop
+  // -------------------------------------------------------------------------
+
+  private startSync(): void {
+    if (this.syncActive || this.docMissing || this.disposed) return;
+    this.syncActive = true;
+
+    this.subscribeCollabEvents();
+
+    if (!this.effectivePauseWhenHidden || !isDocumentHidden()) {
+      void this.poll();
+    }
+    window.addEventListener("focus", this.handleFocus);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private stopSync(): void {
+    if (!this.syncActive) return;
+    this.syncActive = false;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.unsubscribeCollabEvents?.();
+    this.unsubscribeCollabEvents = null;
+    this.sseSubscribedWithPause = null;
+    window.removeEventListener("focus", this.handleFocus);
+    document.removeEventListener(
+      "visibilitychange",
+      this.handleVisibilityChange,
+    );
+  }
+
+  /**
+   * SSE fast-path: subscribe to the SHARED framework transport for
+   * /_agent-native/events instead of opening a dedicated EventSource per
+   * collab doc. A tab holds exactly one SSE connection regardless of how many
+   * docs are mounted. Collab update events arrive push-style; we apply them
+   * immediately, avoiding ~2s polling latency for peer edits.
+   *
+   * NOTE: SSE events are subject to the same server-side access scoping as
+   * polling — the server only pushes events that canSeeChangeForUser allows.
+   */
+  private subscribeCollabEvents(): void {
+    const pauseWhenHidden = this.effectivePauseWhenHidden;
+    this.sseSubscribedWithPause = pauseWhenHidden;
+    this.unsubscribeCollabEvents = subscribeSyncEvents({
+      onEvents: (events) => {
+        if (this.disposed || !this.syncActive) return;
+        for (const change of events) this.handleSharedEvent(change);
+      },
+      onSseStateChange: (connected) => {
+        this.sseActive = connected;
+        if (connected) this.consecutiveErrors = 0;
+      },
+      pauseWhenHidden,
+    });
+  }
+
+  /**
+   * The pause-when-hidden aggregate can flip when subscribers join or leave;
+   * the shared-transport subscription captures it at subscribe time, so
+   * re-subscribe when it changes.
+   */
+  private resubscribeCollabEventsIfPauseChanged(): void {
+    if (!this.syncActive) return;
+    if (this.sseSubscribedWithPause === this.effectivePauseWhenHidden) return;
+    this.unsubscribeCollabEvents?.();
+    this.subscribeCollabEvents();
+  }
+
+  private handleSharedEvent(change: SyncEvent): void {
+    if (
+      change.source === "collab" &&
+      change.docId === this.docId &&
+      typeof change.update === "string"
+    ) {
+      // Own echo — skip entirely (including the version tracking below, so
+      // the next poll re-delivers and dedupe happens there; matches the
+      // previous per-hook behavior).
+      if (this.requestSource && change.requestSource === this.requestSource) {
+        return;
+      }
+      try {
+        Y.applyUpdate(this.ydoc, base64ToUint8Array(change.update), "remote");
+      } catch {
+        // Malformed update — trigger state-vector fetch on next poll
+      }
+
+      if (change.requestSource === "agent") {
+        this.markAgentActive();
+      }
+    }
+
+    // Keep the poll cursor updated from shared-transport events so the poll
+    // loop starts from the right version when SSE drops.
+    if (typeof change.version === "number") {
+      this.pollVersion = Math.max(this.pollVersion, change.version);
+    }
+  }
+
+  private getActivePollInterval(): number {
+    return this.sseActive
+      ? this.effectivePollIntervalWithSse
+      : this.effectivePollInterval;
+  }
+
+  private schedulePoll(): void {
+    if (!this.syncActive || this.disposed) return;
+    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = null;
+      void this.poll();
+    }, this.getActivePollInterval());
+  }
+
+  /**
+   * A subscriber joined or left, potentially changing the effective interval.
+   * If a poll is already scheduled, reschedule with the new cadence (the next
+   * natural tick would pick it up anyway; this just avoids a stale long wait
+   * when a faster subscriber joins).
+   */
+  private reschedulePoll(): void {
+    if (this.pollTimer === null) return;
+    clearTimeout(this.pollTimer);
+    this.pollTimer = null;
+    this.schedulePoll();
+  }
+
+  private async fetchStateVector(): Promise<void> {
+    try {
+      const stateVector = uint8ArrayToBase64(Y.encodeStateVector(this.ydoc));
+      const stateRes = await fetch(
+        `${this.baseUrl}/${this.docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
+      );
+      if (stateRes.ok) {
+        const stateData = (await stateRes.json().catch(() => null)) as {
+          state?: string;
+        } | null;
+        if (this.disposed) return;
+        if (stateData?.state) {
+          const binary = base64ToUint8Array(stateData.state);
+          if (binary.length > 2) {
+            Y.applyUpdate(this.ydoc, binary, "remote");
+          }
+        }
+      }
+    } catch {
+      // Non-fatal; the next poll cycle will retry
+    }
+  }
+
+  private async poll(): Promise<void> {
+    if (!this.syncActive || this.disposed) return;
+
+    // Flush any pending local updates before polling so the server has the
+    // latest state before we read remote changes.
+    this.flushPendingUpdates();
+
+    try {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/poll?since=${this.pollVersion}`),
+      );
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      const data = await res.json();
+      if (!this.syncActive || this.disposed) return;
+      const { version, events } = data as {
+        version: number;
+        events: Array<{
+          source: string;
+          docId?: string;
+          update?: string;
+          requestSource?: string;
+        }>;
+      };
+
+      // Detect ring-buffer overflow: if the version jumped by more than the
+      // ring buffer size, some events were evicted and we need a state-vector
+      // fetch to reconcile the gap.
+      const versionGap = version - this.lastPolledVersion;
+      const hadGap = versionGap > POLL_RING_BUFFER_SIZE;
+
+      for (const evt of events) {
+        if (evt.source === "collab" && evt.docId === this.docId && evt.update) {
+          if (this.requestSource && evt.requestSource === this.requestSource) {
+            continue;
+          }
+          try {
+            Y.applyUpdate(this.ydoc, base64ToUint8Array(evt.update), "remote");
+          } catch {
+            // Failed to apply — fetch full state-vector below
+            await this.fetchStateVector();
+          }
+
+          if (evt.requestSource === "agent") {
+            this.markAgentActive();
+          }
+        }
+      }
+
+      this.pollVersion = version;
+      this.lastPolledVersion = version;
+      this.pollCycleCount++;
+      this.consecutiveErrors = 0;
+
+      // Fetch state-vector only when needed:
+      //   1. Ring-buffer overflow detected (missed events).
+      //   2. Low-frequency safety net every STATE_VECTOR_FETCH_INTERVAL cycles.
+      //   3. NOT on every cycle (the previous behavior causing 3 requests/cycle).
+      const shouldFetchStateVector =
+        hadGap || this.pollCycleCount % STATE_VECTOR_FETCH_INTERVAL === 0;
+
+      if (shouldFetchStateVector) {
+        await this.fetchStateVector();
+      }
+
+      // Sync awareness (cursor positions)
+      const localState = this.awareness.getLocalState();
+      if (localState && !this.disposed) {
+        try {
+          const awarenessRes = await fetch(
+            `${this.baseUrl}/${this.docId}/awareness`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                clientId: this.ydoc.clientID,
+                state: JSON.stringify(localState),
+              }),
+            },
+          );
+          if (awarenessRes.ok && !this.disposed) {
+            const awarenessData = await awarenessRes.json();
+            const remoteStates: RemoteAwarenessSnapshot[] = [];
+            for (const remote of awarenessData.states || []) {
+              try {
+                const remoteState = JSON.parse(remote.state);
+                remoteStates.push({
+                  clientId: Number(remote.clientId),
+                  state: remoteState,
+                });
+              } catch {
+                // Invalid state — skip
+              }
+            }
+            if (this.disposed) return;
+            const changes = reconcileRemoteAwarenessStates(
+              this.awareness.getStates() as Map<number, unknown>,
+              this.ydoc.clientID,
+              remoteStates,
+            );
+            if (
+              changes.added.length ||
+              changes.updated.length ||
+              changes.removed.length
+            ) {
+              this.awareness.emit("change", [changes, "remote"]);
+            }
+          }
+        } catch {
+          // Awareness sync failure is non-fatal
+        }
+      }
+    } catch {
+      // Network error — exponential backoff
+      this.consecutiveErrors++;
+      const backoff = calcBackoff(this.consecutiveErrors);
+      if (this.syncActive && !this.disposed) {
+        this.pollTimer = setTimeout(() => {
+          this.pollTimer = null;
+          void this.poll();
+        }, backoff);
+      }
+      return;
+    }
+
+    this.schedulePoll();
+  }
+
+  private pollNow(): void {
+    if (!this.syncActive || this.disposed) return;
+    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+    void this.poll();
+  }
+
+  /**
+   * Publish this tab's visibility to peers. A hidden tab pauses its poll, so
+   * we push the state immediately (keepalive) instead of waiting for the next
+   * cycle — otherwise peers keep treating a backgrounded tab as the visible
+   * lead and an agent edit never lands on the tab the user is actually viewing.
+   */
+  private publishVisibility(visible: boolean): void {
+    this.awareness.setLocalStateField("visible", visible);
+    const localState = this.awareness.getLocalState();
+    if (!localState) return;
+    fetch(`${this.baseUrl}/${this.docId}/awareness`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: this.ydoc.clientID,
+        state: JSON.stringify(localState),
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  private handleVisibilityChange = (): void => {
+    const visible = document.visibilityState === "visible";
+    this.publishVisibility(visible);
+    if (visible) {
+      // Also flush any pending updates when coming back into view
+      this.flushPendingUpdates();
+      this.pollNow();
+    } else if (this.effectivePauseWhenHidden && this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  };
+
+  private handleFocus = (): void => {
+    this.pollNow();
+  };
+
+  // -------------------------------------------------------------------------
+  // Awareness SSE fast-path
+  // -------------------------------------------------------------------------
+
+  private applyAwarenessEvent(data: SyncEvent): void {
+    if (
+      data.source !== "awareness" ||
+      data.type !== "awareness-change" ||
+      data.docId !== this.docId
+    ) {
+      return;
+    }
+    const states = Array.isArray(data.states)
+      ? (data.states as Array<{ clientId: number; state: string }>)
+      : [];
+    const remoteStates: RemoteAwarenessSnapshot[] = [];
+    for (const remote of states) {
+      try {
+        remoteStates.push({
+          clientId: Number(remote.clientId),
+          state: JSON.parse(remote.state),
+        });
+      } catch {
+        // Invalid state entry — skip
+      }
+    }
+    const changes = reconcileRemoteAwarenessStates(
+      this.awareness.getStates() as Map<number, unknown>,
+      this.ydoc.clientID,
+      remoteStates,
+    );
+    if (
+      changes.added.length ||
+      changes.updated.length ||
+      changes.removed.length
+    ) {
+      this.awareness.emit("change", [changes, "remote"]);
+    }
+  }
+}
+
+/**
+ * Registry of active connections keyed by "<baseUrl>\0<docId>".
+ * Module-level singleton: survives React render cycles, shared across all
+ * hook instances in the same browser tab.
+ */
+const collabConnectionRegistry = new Map<string, CollabDocConnection>();
+
+function collabRegistryKey(docId: string, baseUrl: string): string {
+  return `${baseUrl}\0${docId}`;
+}
+
+function getOrCreateCollabConnection(
+  docId: string,
+  baseUrl: string,
+): CollabDocConnection {
+  const key = collabRegistryKey(docId, baseUrl);
+  let conn = collabConnectionRegistry.get(key);
+  if (!conn || conn.disposed) {
+    conn = new CollabDocConnection(docId, baseUrl);
+    collabConnectionRegistry.set(key, conn);
+  }
+  return conn;
+}
+
+// ---------------------------------------------------------------------------
+// Internal test helpers — reset/inspect the connection registry between tests.
+// ---------------------------------------------------------------------------
+/** @internal */
+export function _resetCollabDocRegistryForTests(): void {
+  for (const conn of Array.from(collabConnectionRegistry.values())) {
+    conn.dispose();
+  }
+  collabConnectionRegistry.clear();
+}
+
+/** @internal — current registry size, for leak assertions in tests. */
+export function _collabDocRegistrySizeForTests(): number {
+  return collabConnectionRegistry.size;
+}
+
 export function useCollaborativeDoc(
   options: UseCollaborativeDocOptions,
 ): UseCollaborativeDocResult {
@@ -305,589 +1127,75 @@ export function useCollaborativeDoc(
     user,
   } = options;
 
-  // Stable Y.Doc per docId
-  const ydoc = useMemo(() => {
+  // Bumped when the effect finds the memoized connection was disposed in the
+  // render→effect gap (rare: a suspended transition outliving the linger
+  // window) so the memo below re-acquires a live one.
+  const [generation, setGeneration] = useState(0);
+
+  // Shared connection per docId. Acquired during render so the Y.Doc identity
+  // is available on first render (TipTap binds on mount); get-or-create is
+  // idempotent, so StrictMode's double render returns the same instance.
+  const conn = useMemo(() => {
+    void generation;
     if (!docId) return null;
-    return new Y.Doc();
-  }, [docId]);
+    if (typeof window === "undefined") {
+      // SSR render: per-hook detached doc, never started (matches the
+      // previous per-hook behavior on the server).
+      return new CollabDocConnection(docId, baseUrl, true);
+    }
+    return getOrCreateCollabConnection(docId, baseUrl);
+  }, [docId, baseUrl, generation]);
 
-  // Stable Awareness per ydoc
-  const awareness = useMemo(() => {
-    if (!ydoc) return null;
-    return new Awareness(ydoc);
-  }, [ydoc]);
+  const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
+    conn ? conn.snapshot : EMPTY_SNAPSHOT,
+  );
 
-  const [isLoading, setIsLoading] = useState(!!docId);
-  const [isSynced, setIsSynced] = useState(false);
-  const [activeUsers, setActiveUsers] = useState<CollabUser[]>([]);
-  const [agentActive, setAgentActive] = useState(false);
-  const [agentPresent, setAgentPresent] = useState(false);
-  // Set when the initial state fetch returns 404/403 — stops the awareness
-  // poll so we don't spam the console with errors against a doc that doesn't
-  // exist or isn't accessible.
-  const [docMissing, setDocMissing] = useState(false);
-  const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollVersionRef = useRef(0);
+  // Render-time reset when the connection identity changes (docId switch) so
+  // consumers never see the previous doc's state for a frame.
+  const [prevConn, setPrevConn] = useState(conn);
+  if (prevConn !== conn) {
+    setPrevConn(conn);
+    setSnapshot(conn ? conn.snapshot : EMPTY_SNAPSHOT);
+  }
 
-  // Set local awareness state (user info for cursor labels). Also publish this
-  // tab's visibility so peers can elect a VISIBLE client to apply external
-  // snapshots (see isReconcileLeadClient) — a backgrounded tab pauses its poll
-  // and must not hold that role.
+  // Subscribe (ref-count) — the first subscriber starts the connection, the
+  // last one leaving schedules its teardown.
   useEffect(() => {
-    if (!awareness || !user) return;
-    awareness.setLocalStateField("user", {
-      name: user.name,
-      email: user.email,
-      color: user.color,
-    });
-    awareness.setLocalStateField("visible", !isDocumentHidden());
-  }, [awareness, user?.name, user?.email, user?.color]);
-
-  // Fast awareness push: whenever local state changes (e.g. cursor moves,
-  // setPresence() calls), schedule a throttled POST so peers receive updates
-  // at ~150ms instead of waiting for the next 2s poll cycle. The poll cycle
-  // remains the authoritative baseline (cursors degrade gracefully without SSE).
-  useEffect(() => {
-    if (!awareness || !ydoc || !docId || !user) return;
-    const clientId = ydoc.clientID;
-
-    const onLocalStateChange = () => {
-      scheduleAwarenessPush(
-        baseUrl,
-        docId,
-        clientId,
-        () => awareness.getLocalState() as Record<string, unknown> | null,
-      );
-    };
-
-    // awareness emits "change" for local state changes too (when origin is "local").
-    awareness.on("change", onLocalStateChange);
-    return () => {
-      awareness.off("change", onLocalStateChange);
-    };
-  }, [awareness, ydoc, docId, baseUrl, user]);
-
-  // Track active users from awareness changes
-  useEffect(() => {
-    if (!awareness) return;
-
-    const updateUsers = () => {
-      const users: CollabUser[] = [];
-      let hasAgent = false;
-      awareness.getStates().forEach((state, clientId) => {
-        if (clientId === ydoc?.clientID) return; // Skip self
-        if (state.user) {
-          users.push(state.user as CollabUser);
-          if ((state.user as CollabUser).email === "agent@system") {
-            hasAgent = true;
-          }
-        }
-      });
-      setActiveUsers(dedupeCollabUsersByEmail(users));
-      setAgentPresent(hasAgent);
-    };
-
-    awareness.on("change", updateUsers);
-    return () => {
-      awareness.off("change", updateUsers);
-    };
-  }, [awareness, ydoc]);
-
-  // Clean up on unmount or docId change
-  useEffect(() => {
-    return () => {
-      awareness?.destroy();
-      ydoc?.destroy();
-    };
-  }, [ydoc, awareness]);
-
-  // Fetch server state and apply to existing doc
-  useEffect(() => {
-    if (!ydoc || !docId) {
-      setIsLoading(false);
+    if (!conn || conn.detached) return;
+    if (conn.disposed) {
+      // Disposed between render and effect — re-acquire a live connection.
+      setGeneration((g) => g + 1);
       return;
     }
-
-    let cancelled = false;
-    setIsLoading(true);
-    setIsSynced(false);
-    setDocMissing(false);
-
-    fetch(`${baseUrl}/${docId}/state`)
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.status === 404 || res.status === 403) {
-          setDocMissing(true);
-          setIsLoading(false);
-          setIsSynced(true);
-          return;
-        }
-        const data = (await res.json().catch(() => null)) as {
-          state?: string;
-        } | null;
-        if (data?.state) {
-          const binary = base64ToUint8Array(data.state);
-          if (binary.length > 4) {
-            Y.applyUpdate(ydoc, binary, "remote");
-          }
-        }
-        setIsLoading(false);
-        setIsSynced(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-        setIsSynced(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ydoc, docId, baseUrl]);
-
-  // Send local updates to server — debounced and coalesced with Y.mergeUpdates.
-  //
-  // Instead of firing one POST per Yjs update (one per keystroke), we accumulate
-  // updates in a buffer for UPDATE_DEBOUNCE_MS then merge them into a single
-  // request. The buffer is also flushed immediately on visibilitychange/pagehide
-  // and before each poll/awareness cycle so we don't hold stale local state.
-  useEffect(() => {
-    if (!ydoc || !docId || docMissing) return;
-
-    let pendingUpdates: Uint8Array[] = [];
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const flushPendingUpdates = (keepalive = false) => {
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-      }
-      if (pendingUpdates.length === 0) return;
-      const toSend = pendingUpdates;
-      pendingUpdates = [];
-
-      const merged = toSend.length === 1 ? toSend[0] : Y.mergeUpdates(toSend);
-      fetch(`${baseUrl}/${docId}/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          update: uint8ArrayToBase64(merged),
-          requestSource,
-        }),
-        ...(keepalive ? { keepalive: true } : {}),
-      }).catch(() => {});
-    };
-
-    // Expose flush to the poll loop via a ref so it can flush before each cycle.
-    // We store the flusher in a closure-captured variable; the poll effect
-    // below reads it through the shared `pendingFlushRef`.
-    (ydoc as any).__collabFlush = flushPendingUpdates;
-
-    const handler = (update: Uint8Array, origin: unknown) => {
-      if (origin === "remote") return;
-      pendingUpdates.push(update);
-      if (flushTimer) clearTimeout(flushTimer);
-      flushTimer = setTimeout(flushPendingUpdates, UPDATE_DEBOUNCE_MS);
-    };
-
-    const handlePageHide = () => {
-      flushPendingUpdates(true /* keepalive */);
-    };
-
-    ydoc.on("update", handler);
-    if (typeof window !== "undefined") {
-      window.addEventListener("pagehide", handlePageHide);
-    }
-
-    return () => {
-      ydoc.off("update", handler);
-      delete (ydoc as any).__collabFlush;
-      if (typeof window !== "undefined") {
-        window.removeEventListener("pagehide", handlePageHide);
-      }
-      // Flush any remaining updates on teardown
-      flushPendingUpdates(true);
-    };
-  }, [ydoc, docId, baseUrl, requestSource, docMissing]);
-
-  // Poll for remote doc updates + awareness sync, with SSE fast-path.
-  useEffect(() => {
-    if (!ydoc || !docId || docMissing) return;
-    // Non-null capture: null branch returned early above; async closures lose
-    // the narrowing on the outer ydoc variable.
-    const doc: Y.Doc = ydoc;
-
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let consecutiveErrors = 0;
-    let pollCycleCount = 0;
-    // Track the last version we successfully polled. Used to detect ring-buffer
-    // overflow (version gap larger than the ring buffer).
-    let lastPolledVersion = pollVersionRef.current;
-
-    // SSE connection state. When SSE is healthy, poll interval is relaxed.
-    let sseActive = false;
-
-    // ── SSE fast-path ────────────────────────────────────────────────
-    // Subscribe to the SHARED framework transport for /_agent-native/events
-    // instead of opening a dedicated EventSource per collab doc. A tab holds
-    // exactly one SSE connection regardless of how many docs are mounted —
-    // extra streams eat the browser's per-origin connection budget and can
-    // starve regular data fetches (worst on HTTP/1.1 dev servers).
-    // Collab update events arrive push-style; we apply them immediately,
-    // avoiding ~2s polling latency for peer edits.
-    //
-    // NOTE: SSE events are subject to the same server-side access scoping as
-    // polling — the server only pushes events that canSeeChangeForUser allows.
-    // The server tags collab events with owner/orgId (security commit).
-    const handleSharedEvent = (change: SyncEvent) => {
-      if (
-        change.source === "collab" &&
-        change.docId === docId &&
-        typeof change.update === "string"
-      ) {
-        if (requestSource && change.requestSource === requestSource) return;
-        try {
-          Y.applyUpdate(doc, base64ToUint8Array(change.update), "remote");
-        } catch {
-          // Malformed update — trigger state-vector fetch on next poll
-        }
-
-        if (change.requestSource === "agent") {
-          setAgentActive(true);
-          if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
-          agentTimerRef.current = setTimeout(() => setAgentActive(false), 3000);
-        }
-      }
-
-      // Keep pollVersionRef updated from shared-transport events so the poll
-      // loop starts from the right version when SSE drops.
-      if (typeof change.version === "number") {
-        pollVersionRef.current = Math.max(
-          pollVersionRef.current,
-          change.version,
-        );
-      }
-    };
-
-    const unsubscribeSharedEvents = subscribeSyncEvents({
-      onEvents: (events) => {
-        if (stopped) return;
-        for (const change of events) handleSharedEvent(change);
-      },
-      onSseStateChange: (connected) => {
-        sseActive = connected;
-        if (connected) consecutiveErrors = 0;
-      },
+    const id = Symbol("useCollaborativeDoc");
+    conn.add(id, {
+      pollInterval,
+      pollIntervalWithSse,
       pauseWhenHidden,
+      requestSource,
+      onSnapshot: setSnapshot,
     });
-
-    // ── Poll loop ───────────────────────────────────────────────────
-    function getActivePollInterval(): number {
-      return sseActive ? pollIntervalWithSse : pollInterval;
-    }
-
-    function schedulePoll() {
-      if (stopped) return;
-      if (pauseWhenHidden && isDocumentHidden()) return;
-      timer = setTimeout(poll, getActivePollInterval());
-    }
-
-    async function fetchStateVector(): Promise<void> {
-      try {
-        const stateVector = uint8ArrayToBase64(Y.encodeStateVector(doc));
-        const stateRes = await fetch(
-          `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(stateVector)}`,
-        );
-        if (stateRes.ok) {
-          const stateData = (await stateRes.json().catch(() => null)) as {
-            state?: string;
-          } | null;
-          if (stateData?.state) {
-            const binary = base64ToUint8Array(stateData.state);
-            if (binary.length > 2) {
-              Y.applyUpdate(doc, binary, "remote");
-            }
-          }
-        }
-      } catch {
-        // Non-fatal; the next poll cycle will retry
-      }
-    }
-
-    async function poll() {
-      if (stopped) return;
-
-      // Flush any pending local updates before polling so the server has the
-      // latest state before we read remote changes.
-      const flush = (ydoc as any).__collabFlush as
-        | ((keepalive?: boolean) => void)
-        | undefined;
-      flush?.();
-
-      try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/poll?since=${pollVersionRef.current}`,
-          ),
-        );
-        if (!res.ok) throw new Error("HTTP " + res.status);
-
-        const data = await res.json();
-        const { version, events } = data as {
-          version: number;
-          events: Array<{
-            source: string;
-            docId?: string;
-            update?: string;
-            requestSource?: string;
-          }>;
-        };
-
-        // Detect ring-buffer overflow: if the version jumped by more than the
-        // ring buffer size, some events were evicted and we need a state-vector
-        // fetch to reconcile the gap.
-        const versionGap = version - lastPolledVersion;
-        const hadGap = versionGap > POLL_RING_BUFFER_SIZE;
-
-        for (const evt of events) {
-          if (evt.source === "collab" && evt.docId === docId && evt.update) {
-            if (requestSource && evt.requestSource === requestSource) continue;
-            try {
-              Y.applyUpdate(doc, base64ToUint8Array(evt.update), "remote");
-            } catch {
-              // Failed to apply — fetch full state-vector below
-              await fetchStateVector();
-            }
-
-            if (evt.requestSource === "agent") {
-              setAgentActive(true);
-              if (agentTimerRef.current) clearTimeout(agentTimerRef.current);
-              agentTimerRef.current = setTimeout(
-                () => setAgentActive(false),
-                3000,
-              );
-            }
-          }
-        }
-
-        pollVersionRef.current = version;
-        lastPolledVersion = version;
-        pollCycleCount++;
-        consecutiveErrors = 0;
-
-        // Fetch state-vector only when needed:
-        //   1. Ring-buffer overflow detected (missed events).
-        //   2. Low-frequency safety net every STATE_VECTOR_FETCH_INTERVAL cycles.
-        //   3. NOT on every cycle (the previous behavior causing 3 requests/cycle).
-        const shouldFetchStateVector =
-          hadGap || pollCycleCount % STATE_VECTOR_FETCH_INTERVAL === 0;
-
-        if (shouldFetchStateVector) {
-          await fetchStateVector();
-        }
-
-        // Sync awareness (cursor positions)
-        if (awareness) {
-          const localState = awareness.getLocalState();
-          if (localState) {
-            try {
-              const awarenessRes = await fetch(
-                `${baseUrl}/${docId}/awareness`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    clientId: doc.clientID,
-                    state: JSON.stringify(localState),
-                  }),
-                },
-              );
-              if (awarenessRes.ok) {
-                const awarenessData = await awarenessRes.json();
-                const remoteStates: RemoteAwarenessSnapshot[] = [];
-                for (const remote of awarenessData.states || []) {
-                  try {
-                    const remoteState = JSON.parse(remote.state);
-                    remoteStates.push({
-                      clientId: Number(remote.clientId),
-                      state: remoteState,
-                    });
-                  } catch {
-                    // Invalid state — skip
-                  }
-                }
-                const changes = reconcileRemoteAwarenessStates(
-                  awareness.getStates() as Map<number, unknown>,
-                  doc.clientID,
-                  remoteStates,
-                );
-                if (
-                  changes.added.length ||
-                  changes.updated.length ||
-                  changes.removed.length
-                ) {
-                  awareness.emit("change", [changes, "remote"]);
-                }
-              }
-            } catch {
-              // Awareness sync failure is non-fatal
-            }
-          }
-        }
-      } catch {
-        // Network error — exponential backoff
-        consecutiveErrors++;
-        const backoff = calcBackoff(consecutiveErrors);
-        if (!stopped) {
-          timer = setTimeout(poll, backoff);
-          return;
-        }
-      }
-
-      schedulePoll();
-    }
-
-    function pollNow() {
-      if (pauseWhenHidden && isDocumentHidden()) return;
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      void poll();
-    }
-
-    // Publish this tab's visibility to peers. A hidden tab pauses its poll, so
-    // we push the state immediately (keepalive) instead of waiting for the next
-    // cycle — otherwise peers keep treating a backgrounded tab as the visible
-    // lead and an agent edit never lands on the tab the user is actually viewing.
-    function publishVisibility(visible: boolean) {
-      if (!awareness) return;
-      awareness.setLocalStateField("visible", visible);
-      const localState = awareness.getLocalState();
-      if (!localState) return;
-      fetch(`${baseUrl}/${docId}/awareness`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: doc.clientID,
-          state: JSON.stringify(localState),
-        }),
-        keepalive: true,
-      }).catch(() => {});
-    }
-
-    function handleVisibilityChange() {
-      const visible = document.visibilityState === "visible";
-      publishVisibility(visible);
-      if (visible) {
-        // Also flush any pending updates when coming back into view
-        const flush = (ydoc as any).__collabFlush as
-          | ((keepalive?: boolean) => void)
-          | undefined;
-        flush?.();
-        pollNow();
-      } else if (pauseWhenHidden && timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-    }
-
-    if (!pauseWhenHidden || !isDocumentHidden()) {
-      void poll();
-    }
-    window.addEventListener("focus", pollNow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
+    // Re-sync in case the connection changed state between render and effect.
+    setSnapshot(conn.snapshot);
     return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      unsubscribeSharedEvents();
-      window.removeEventListener("focus", pollNow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      conn.remove(id);
     };
-  }, [
-    ydoc,
-    awareness,
-    docId,
-    pollInterval,
-    pollIntervalWithSse,
-    pauseWhenHidden,
-    requestSource,
-    baseUrl,
-    docMissing,
-  ]);
+  }, [conn, pollInterval, pollIntervalWithSse, pauseWhenHidden, requestSource]);
 
-  // SSE fast-path for awareness: listen on the SHARED framework transport and
-  // apply any awareness-change events immediately so peers receive cursor
-  // moves push-style without waiting for the next poll cycle.
-  // Polling fallback keeps working when SSE is unavailable. Reconnection and
-  // focus/visibility handling live inside the shared transport.
+  // Publish local user identity for cursor labels (set once per tab; the
+  // connection dedupes repeated identical identities across subscribers).
   useEffect(() => {
-    if (!ydoc || !docId || !awareness) {
-      return;
-    }
-    // Non-null captures for closures: null branches returned early above.
-    const capturedYdoc = ydoc;
-    const capturedAwareness = awareness;
-    let stopped = false;
-
-    const applyAwarenessEvent = (data: SyncEvent) => {
-      if (
-        data.source !== "awareness" ||
-        data.type !== "awareness-change" ||
-        data.docId !== docId
-      ) {
-        return;
-      }
-      const states = Array.isArray(data.states)
-        ? (data.states as Array<{ clientId: number; state: string }>)
-        : [];
-      const remoteStates: RemoteAwarenessSnapshot[] = [];
-      for (const remote of states) {
-        try {
-          remoteStates.push({
-            clientId: Number(remote.clientId),
-            state: JSON.parse(remote.state),
-          });
-        } catch {
-          // Invalid state entry — skip
-        }
-      }
-      const changes = reconcileRemoteAwarenessStates(
-        capturedAwareness.getStates() as Map<number, unknown>,
-        capturedYdoc.clientID,
-        remoteStates,
-      );
-      if (
-        changes.added.length ||
-        changes.updated.length ||
-        changes.removed.length
-      ) {
-        capturedAwareness.emit("change", [changes, "remote"]);
-      }
-    };
-
-    const unsubscribe = subscribeSyncEvents({
-      onEvents: (events) => {
-        if (stopped) return;
-        for (const data of events) applyAwarenessEvent(data);
-      },
-    });
-
-    return () => {
-      stopped = true;
-      unsubscribe();
-    };
-  }, [ydoc, docId, awareness]);
+    if (!conn || conn.detached || !user) return;
+    conn.setUser({ name: user.name, email: user.email, color: user.color });
+  }, [conn, user?.name, user?.email, user?.color]);
 
   return {
-    ydoc,
-    awareness,
-    isLoading,
-    isSynced,
-    activeUsers,
-    agentActive,
-    agentPresent,
+    ydoc: conn ? conn.ydoc : null,
+    awareness: conn ? conn.awareness : null,
+    isLoading: snapshot.isLoading,
+    isSynced: snapshot.isSynced,
+    activeUsers: snapshot.activeUsers,
+    agentActive: snapshot.agentActive,
+    agentPresent: snapshot.agentPresent,
   };
 }

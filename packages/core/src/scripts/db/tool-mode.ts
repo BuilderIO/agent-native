@@ -6,8 +6,8 @@ export function normalizeDatabaseToolsMode(
   value: DatabaseToolsOption | undefined,
 ): DatabaseToolsMode {
   if (value === false || value === "off") return "off";
-  if (value === "read") return "read";
-  return "write";
+  if (value === true || value === "write") return "write";
+  return "read";
 }
 
 export function hasDatabaseReadTools(

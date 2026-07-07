@@ -25,6 +25,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockGetSetting = vi.hoisted(() => vi.fn());
+const mockGetUserSetting = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: unknown[]) => mockGetSetting(...args),
+  getUserSetting: (...args: unknown[]) => mockGetUserSetting(...args),
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
@@ -149,7 +151,8 @@ describe("importLoomTranscriptForRecording", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockGetSetting.mockResolvedValue({ transcriptCleanupEnabled: false });
+    mockGetSetting.mockResolvedValue({ transcriptCleanupEnabled: true });
+    mockGetUserSetting.mockResolvedValue({ transcriptCleanupEnabled: false });
     mockFetchLoomTranscript.mockRejectedValue(
       new Error("temporary Loom error"),
     );
@@ -201,6 +204,14 @@ describe("importLoomTranscriptForRecording", () => {
       shareUrl: "https://www.loom.com/share/abcDEF_123456",
       durationMs: 1200,
     });
+    await vi.waitFor(() =>
+      expect(mockGetUserSetting).toHaveBeenCalledWith(
+        "owner@example.com",
+        "clips-user-prefs",
+      ),
+    );
+    expect(mockGetSetting).not.toHaveBeenCalled();
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });

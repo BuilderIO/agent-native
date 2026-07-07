@@ -1,21 +1,3 @@
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   alphaToOpacity,
   parseCssColor,
@@ -41,8 +23,30 @@ import {
   type PointerEvent,
 } from "react";
 
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  GlslShaderPanel,
+  type GlslShaderPanelContext,
+} from "./GlslShaderPanel";
 import {
   GradientEditor,
   defaultGradient,
@@ -187,6 +191,16 @@ export interface DesignColorPickerProps {
    */
   documentColors?: string[];
   /**
+   * Restricts which paint-type tabs are rendered (Solid, Linear, Radial, …).
+   * Omit to show every type (default, backward compatible). Callers that
+   * can't structurally support layered/gradient/image paints for the
+   * property they're editing (e.g. a CSS `border`/`outline` stroke, which
+   * has no clean gradient/image equivalent) should pass a restricted list
+   * — e.g. `["solid"]` — so the tab is never shown rather than shown and
+   * then silently discarded on write.
+   */
+  supportedPaintTypes?: DesignPaintType[];
+  /**
    * Optional design context forwarded to the apply-shader action when a shader
    * fill is selected, so the agent can write real shader code for the target.
    */
@@ -196,6 +210,14 @@ export interface DesignColorPickerProps {
     nodeId?: string;
     selector?: string;
   };
+  /**
+   * Context for the code-backed GLSL shader picker. When provided, the
+   * Shader paint type opens the GlslShaderPanel (Created by you / Create
+   * new (AI) / Presets), which persists real GLSL fragment source into the
+   * screen HTML per shared/shader-fills.ts. When absent, the legacy
+   * ShaderFillsPanel (CSS-approximation presets) renders instead.
+   */
+  glslShaderContext?: GlslShaderPanelContext;
   /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
   onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<DesignColorPickerLabels>;
@@ -617,6 +639,40 @@ const BLEND_MODE_OPTIONS = [
   { value: "luminosity", label: "Luminosity" },
 ] as const;
 
+// ─── Eyedropper (browser EyeDropper API) ────────────────────────────────────
+//
+// Extracted from the picker's own "pick from screen" button so DesignEditor
+// can bind Figma's "I" shortcut to the same flow without duplicating the
+// EyeDropper wiring. Pure/standalone: no dependency on component state, so it
+// can be called from anywhere a `document`/`window` is available.
+
+type EyeDropperCtor = new () => { open: () => Promise<{ sRGBHex: string }> };
+
+/** True when the browser exposes the experimental EyeDropper API. */
+export function hasEyeDropperSupport(): boolean {
+  return typeof window !== "undefined" && "EyeDropper" in window;
+}
+
+/**
+ * Opens the browser's native eyedropper and resolves with the picked color as
+ * a `#rrggbb` hex string, or `null` if the API is unsupported or the user
+ * cancels the pick (e.g. by pressing Escape). Never rejects — callers don't
+ * need a try/catch to handle the "user cancelled" case.
+ */
+export async function beginEyedropperPick(): Promise<string | null> {
+  const EyeDropper = (window as unknown as { EyeDropper?: EyeDropperCtor })
+    .EyeDropper;
+  if (!EyeDropper) return null;
+  try {
+    const result = await new EyeDropper().open();
+    return result.sRGBHex ?? null;
+  } catch {
+    // Browser cancels (Escape / click-away) reject the promise — treat as a
+    // no-op pick rather than an error.
+    return null;
+  }
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function DesignColorPicker({
@@ -652,7 +708,9 @@ export function DesignColorPicker({
   onAddGradientStop: _onAddGradientStop,
   onRemoveGradientStop: _onRemoveGradientStop,
   documentColors,
+  supportedPaintTypes,
   shaderContext,
+  glslShaderContext,
   onShaderChange,
   labels,
   disabled = false,
@@ -721,13 +779,33 @@ export function DesignColorPicker({
   const [shaderDescriptor, setShaderDescriptor] =
     useState<ShaderDescriptor | null>(null);
 
+  // Tabs actually rendered — restricted to `supportedPaintTypes` when the
+  // caller passes it (e.g. strokes only support "solid": there's no clean
+  // CSS border/outline equivalent for gradients or images). Undefined means
+  // "no restriction", preserving today's full-tab behavior everywhere else.
+  const visiblePaintTypes = supportedPaintTypes
+    ? PAINT_TYPES.filter((entry) => supportedPaintTypes.includes(entry.type))
+    : PAINT_TYPES;
+  const isPaintTypeSupported = (type: DesignPaintType) =>
+    !supportedPaintTypes || supportedPaintTypes.includes(type);
+
   // The user's explicit paint-type click (localPaintType) wins over the
   // EditPanel-driven `paintType` prop so selecting a gradient/image/shader
   // engages its editor even when EditPanel doesn't complete the structural
   // fill switch. localPaintType is reset below when the prop changes (i.e. a
   // different element/fill is selected) so the picker still follows selection.
-  const effectivePaintType: DesignPaintType =
+  // Defense in depth: if a stale `localPaintType`/prop-driven `paintType` (or
+  // `inferPaintType`'s guess) ever resolves outside `supportedPaintTypes` —
+  // there is no tab to click since it's filtered out of `visiblePaintTypes`
+  // above — fall back to "solid" instead of rendering an editor for a type
+  // the caller declared unsupported.
+  const rawEffectivePaintType: DesignPaintType =
     localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
+  const effectivePaintType: DesignPaintType = isPaintTypeSupported(
+    rawEffectivePaintType,
+  )
+    ? rawEffectivePaintType
+    : "solid";
 
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
   // the live CSS value, falling back to local edit state.
@@ -952,6 +1030,9 @@ export function DesignColorPicker({
 
   const setPaintType = (nextType: DesignPaintType) => {
     if (disabled) return;
+    // Tabs outside `supportedPaintTypes` aren't rendered, but guard here too
+    // in case a caller invokes setPaintType via another path in the future.
+    if (!isPaintTypeSupported(nextType)) return;
 
     // Shader opens the dedicated shader fills panel.
     if (nextType === "shader") {
@@ -1028,37 +1109,30 @@ export function DesignColorPicker({
   };
 
   const pickScreenColor = async () => {
-    const EyeDropperCtor = (
-      window as unknown as {
-        EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
-      }
-    ).EyeDropper;
-    if (!EyeDropperCtor || disabled) return;
+    if (!hasEyeDropperSupport() || disabled) return;
     setPicking(true);
     try {
-      const result = await new EyeDropperCtor().open();
-      if (result.sRGBHex) {
+      const hex = await beginEyedropperPick();
+      if (hex) {
         if (activeGradient) {
           // In gradient mode, route to the selected stop (preserving its alpha)
           // like every other color edit — don't replace the whole gradient with
           // a solid hex.
-          const parsed = parseCssColor(result.sRGBHex);
+          const parsed = parseCssColor(hex);
           if (parsed) emitStopColor({ ...parsed, a: fieldColor.a });
         } else {
-          lastEmittedValueRef.current = result.sRGBHex;
-          onChange(result.sRGBHex);
+          lastEmittedValueRef.current = hex;
+          onChange(hex);
         }
         // The eyedropper pick is a single discrete commit, not a drag tick.
         notifyChangeComplete();
       }
-    } catch {
-      // Browser cancels are expected; keep the current color.
     } finally {
       setPicking(false);
     }
   };
 
-  const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  const hasEyeDropper = hasEyeDropperSupport();
 
   // ── Value row inputs by mode ─────────────────────────────────────────────────
 
@@ -1226,7 +1300,22 @@ export function DesignColorPicker({
           onFocusOutside={(e) => e.preventDefault()}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
-            {view === "shader" ? (
+            {view === "shader" && glslShaderContext ? (
+              /* Code-backed GLSL shader picker — persists real GLSL source
+                 into the screen HTML (Created by you / Create new (AI) /
+                 Presets). Rendered whenever the caller provides the
+                 persistence context; the legacy CSS-approximation panel
+                 below stays for callers that don't. */
+              <GlslShaderPanel
+                mode="fill"
+                context={glslShaderContext}
+                disabled={disabled}
+                onBack={() => {
+                  setView("picker");
+                  if (effectivePaintType === "shader") setPaintType("solid");
+                }}
+              />
+            ) : view === "shader" ? (
               <ShaderFillsPanel
                 descriptor={shaderDescriptor ?? undefined}
                 applyContext={shaderContext}
@@ -1243,82 +1332,95 @@ export function DesignColorPicker({
             ) : (
               <>
                 {/* ── Paint-type icon row (design-editor, full-width tabs) ─── */}
-                {/* 11 types → two rows: first 6, then 5. Each icon is a
-                    clearly-hittable 36×32px target with a distinct active
-                    accent so the selected mode is immediately obvious. */}
-                <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
-                  {/* Row 1: Solid · Linear · Radial · Angular · Diamond · Image */}
-                  <div className="mb-1 grid grid-cols-6 gap-1">
-                    {PAINT_TYPES.slice(0, 6).map(({ type, label, Icon }) => {
-                      const isActive = effectivePaintType === type;
-                      return (
-                        <Tooltip key={type}>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={label}
-                              aria-pressed={isActive}
-                              disabled={disabled}
-                              onClick={() => setPaintType(type)}
-                              className={cn(
-                                "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                "active:scale-95",
-                                isActive
-                                  ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
-                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                disabled && "pointer-events-none opacity-40",
-                              )}
-                            >
-                              <Icon className="size-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="text-[10px]">
-                            {label}
-                          </TooltipContent>
-                        </Tooltip>
+                {/* Up to 11 types, split across two rows (first row capped at
+                    6 columns). When `supportedPaintTypes` restricts the set
+                    (e.g. solid-only for strokes), only the allowed tabs
+                    render — never a tab that would silently discard its
+                    write. Each icon is a clearly-hittable 36×32px target with
+                    a distinct active accent so the selected mode is
+                    immediately obvious. */}
+                {visiblePaintTypes.length > 1 && (
+                  <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
+                    {(() => {
+                      const firstRowCount = Math.min(
+                        6,
+                        visiblePaintTypes.length,
                       );
-                    })}
-                  </div>
-                  {/* Row 2: Video · Shader · Noise · Pattern · None */}
-                  <div className="grid grid-cols-5 gap-1">
-                    {PAINT_TYPES.slice(6).map(({ type, label, Icon }) => {
-                      const isActive = effectivePaintType === type;
-                      return (
-                        <Tooltip key={type}>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={label}
-                              aria-pressed={isActive}
-                              disabled={disabled}
-                              onClick={() => setPaintType(type)}
-                              className={cn(
-                                "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                "active:scale-95",
-                                isActive
-                                  ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
-                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                disabled && "pointer-events-none opacity-40",
-                              )}
-                            >
-                              <Icon className="size-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="text-[10px]">
-                            {label}
-                          </TooltipContent>
-                        </Tooltip>
+                      const firstRow = visiblePaintTypes.slice(
+                        0,
+                        firstRowCount,
                       );
-                    })}
+                      const secondRow = visiblePaintTypes.slice(firstRowCount);
+                      const renderTab = ({
+                        type,
+                        label,
+                        Icon,
+                      }: (typeof visiblePaintTypes)[number]) => {
+                        const isActive = effectivePaintType === type;
+                        return (
+                          <Tooltip key={type}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label={label}
+                                aria-pressed={isActive}
+                                disabled={disabled}
+                                onClick={() => setPaintType(type)}
+                                className={cn(
+                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
+                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                  "active:scale-95",
+                                  isActive
+                                    ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
+                                    : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                                  disabled && "pointer-events-none opacity-40",
+                                )}
+                              >
+                                <Icon className="size-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="bottom"
+                              className="text-[10px]"
+                            >
+                              {label}
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      };
+                      return (
+                        <>
+                          <div
+                            className={cn(
+                              "grid gap-1",
+                              secondRow.length > 0 && "mb-1",
+                            )}
+                            style={{
+                              gridTemplateColumns: `repeat(${firstRowCount}, minmax(0, 1fr))`,
+                            }}
+                          >
+                            {firstRow.map(renderTab)}
+                          </div>
+                          {secondRow.length > 0 && (
+                            <div
+                              className="grid gap-1"
+                              style={{
+                                gridTemplateColumns: `repeat(${secondRow.length}, minmax(0, 1fr))`,
+                              }}
+                            >
+                              {secondRow.map(renderTab)}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {/* Active-type label — shows which mode is selected */}
+                    <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
+                      {PAINT_TYPES.find((p) => p.type === effectivePaintType)
+                        ?.label ?? effectivePaintType}
+                    </p>
                   </div>
-                  {/* Active-type label — shows which mode is selected */}
-                  <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
-                    {PAINT_TYPES.find((p) => p.type === effectivePaintType)
-                      ?.label ?? effectivePaintType}
-                  </p>
-                </div>
+                )}
 
                 {/* ── Image fill controls ─────────────────────────────────── */}
                 {effectivePaintType === "image" && (

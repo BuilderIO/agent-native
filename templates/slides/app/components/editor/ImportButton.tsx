@@ -1,11 +1,13 @@
 import { agentNativePath, appBasePath, useT } from "@agent-native/core/client";
+import { IconUpload } from "@tabler/icons-react";
+import { useRef } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconUpload } from "@tabler/icons-react";
-import { useRef } from "react";
+} from "@/components/ui/tooltip";
+import { parseUploadResponse } from "@/lib/upload-response";
 
 interface ImportButtonProps {
   deckId?: string;
@@ -28,7 +30,15 @@ export function ImportButton({ deckId, onImportComplete }: ImportButtonProps) {
         method: "POST",
         body: formData,
       });
-      const uploadData = await uploadRes.json();
+      // R83 — guard the parse: a failed upload can come back as a non-JSON
+      // body (upstream proxy/platform error page, plaintext "Internal
+      // Error", etc.). Calling uploadRes.json() unconditionally used to
+      // throw a raw "Unexpected token ... is not valid JSON" SyntaxError
+      // here instead of a clean, catchable failure.
+      const uploadData = await parseUploadResponse(uploadRes, "Upload failed");
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || "Upload failed");
+      }
 
       await fetch(agentNativePath("/_agent-native/actions/import-file"), {
         method: "POST",

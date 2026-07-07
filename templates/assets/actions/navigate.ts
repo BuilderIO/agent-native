@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Assets UI. Views (internal keys, with the surface they open): create, picker (the embedded image Library picker), libraries (the unified Library workspace), library (a single Brand Kit inside Library), asset, generation-session, generation-run, extensions, audit, settings. Use threadId to open a specific create/chat thread; use libraryId, assetId, sessionId, runId, or extensionId where appropriate.",
+    "Navigate the Assets UI. Views (internal keys, with the surface they open): create, picker (the embedded image Library picker), libraries (the unified Library workspace), library (a single Brand Kit inside Library), preset (a generation preset editor), asset, generation-session, generation-run, extensions, audit, settings. Use threadId to open a specific create/chat thread; use libraryId, presetId, assetId, sessionId, runId, or extensionId where appropriate.",
   schema: z.object({
     view: z
       .enum([
@@ -12,6 +12,7 @@ export default defineAction({
         "picker",
         "libraries",
         "library",
+        "preset",
         "asset",
         "image",
         "generation-session",

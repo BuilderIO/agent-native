@@ -27,6 +27,7 @@ export default defineAction({
         "product_reference",
         "diagram_reference",
         "video_reference",
+        "background_reference",
         "subject_reference",
         "edit_target",
         "generated",

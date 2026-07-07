@@ -3,19 +3,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -35,8 +22,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
+import { VocabularySection } from "@/components/dictate/vocabulary-section";
 import { PageHeader } from "@/components/library/page-header";
 import { DayHeader } from "@/components/meetings/day-header";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
 import { cn, shortcutLabel, shortcutModifierLabel } from "@/lib/utils";
@@ -234,11 +235,11 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
             <div className="flex items-center gap-2 mb-1.5">
               <IconMicrophone2 className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs font-medium">
-                {t("dictateRoute.browserDictation")}
+                {t("dictateRoute.quickNoteTitle")}
               </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {t("dictateRoute.browserDictationDescription")}
+              {t("dictateRoute.browserDictationDescriptionDesktop")}
             </p>
           </div>
           <div className="rounded-md border border-border bg-background px-3 py-3">
@@ -314,6 +315,7 @@ function WebDictationPanel({
   saving,
   draftText,
   interimText,
+  isDesktopApp,
   onStart,
   onStop,
 }: {
@@ -322,6 +324,7 @@ function WebDictationPanel({
   saving: boolean;
   draftText: string;
   interimText: string;
+  isDesktopApp: boolean;
   onStart: () => void;
   onStop: () => void;
 }) {
@@ -333,16 +336,24 @@ function WebDictationPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <IconMicrophone2 className="h-4 w-4 text-foreground" />
-            {t("dictateRoute.browserDictation")}
+            {isDesktopApp
+              ? t("dictateRoute.quickNoteTitle")
+              : t("dictateRoute.browserDictation")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Press{" "}
-            <span className="inline-flex items-center gap-1">
-              <Kbd>{shortcutModifierLabel()}</Kbd>
-              <Kbd>⇧</Kbd>
-              <Kbd>Space</Kbd>
-            </span>{" "}
-            while this tab is focused to toggle.
+            {isDesktopApp ? (
+              t("dictateRoute.quickNoteHint")
+            ) : (
+              <>
+                Press{" "}
+                <span className="inline-flex items-center gap-1">
+                  <Kbd>{shortcutModifierLabel()}</Kbd>
+                  <Kbd>⇧</Kbd>
+                  <Kbd>Space</Kbd>
+                </span>{" "}
+                while this tab is focused to toggle.
+              </>
+            )}
           </p>
         </div>
         <Button
@@ -931,6 +942,7 @@ export default function DictateRoute() {
               saving={createDictation.isPending}
               draftText={draftText}
               interimText={interimText}
+              isDesktopApp={isDesktopApp}
               onStart={() => startBrowserDictation("manual")}
               onStop={stopBrowserDictation}
             />
@@ -984,6 +996,10 @@ export default function DictateRoute() {
             )}
           </>
         )}
+
+        <div className="mt-6">
+          <VocabularySection />
+        </div>
       </div>
     </>
   );

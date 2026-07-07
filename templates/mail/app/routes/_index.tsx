@@ -1,5 +1,6 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { redirect } from "react-router";
+
+import { Spinner } from "@/components/ui/spinner";
 
 const SEO_TITLE =
   "Agent-Native Mail - Open Source AI email client and Superhuman alternative";

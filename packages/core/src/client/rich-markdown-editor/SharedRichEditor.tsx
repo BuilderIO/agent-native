@@ -55,6 +55,8 @@ export interface SharedRichEditorProps {
    * `value`/`onChange` editor — the existing, non-collaborative behavior.
    */
   ydoc?: YDoc | null;
+  /** True after the collab provider has loaded persisted Y.Doc state. */
+  collabSynced?: boolean;
   /** Shared awareness instance for live cursors/presence. */
   awareness?: Awareness | null;
   /** Current user info for the collaborative cursor label. */
@@ -142,6 +144,7 @@ export function SharedRichEditor({
   ariaLabel,
   interactive = editable,
   ydoc = null,
+  collabSynced = true,
   awareness = null,
   user = null,
   disableHistory = false,
@@ -250,6 +253,7 @@ export function SharedRichEditor({
   const collabState = useCollabReconcile({
     editor,
     ydoc,
+    collabSynced,
     awareness,
     value,
     contentUpdatedAt,

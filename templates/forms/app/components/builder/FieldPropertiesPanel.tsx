@@ -1,20 +1,21 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
+import type { FormField, FormFieldType } from "@shared/types";
+import { IconPlus, IconX } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import type { FormField, FormFieldType } from "@shared/types";
-import { IconPlus, IconX } from "@tabler/icons-react";
-import { useState } from "react";
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 interface FieldPropertiesPanelProps {
   field: FormField;

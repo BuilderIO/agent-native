@@ -24,6 +24,15 @@ export const BOARD_FILENAME = "__board__.html";
 const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
 const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 
+// Figma-parity default stroke for vector primitives (line/arrow/pen path).
+// Mirrors DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
+// app/components/design/canvas-primitive-style.ts — duplicated as literal
+// values (not imported) so this module stays free of any dependency on the
+// React-adjacent app component tree, per this file's module doc above.
+// Keep these two values in sync if either canonical token ever changes.
+const DEFAULT_LINE_STROKE = "#000000";
+const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
 // ---------------------------------------------------------------------------
 // isBoardFile
 // ---------------------------------------------------------------------------
@@ -146,8 +155,8 @@ export function boardObjectEntryToHtmlFragment(
             `${i === 0 ? "M" : "L"} ${Math.round(p.x - originX)} ${Math.round(p.y - originY)}`,
         )
         .join(" ");
-    const strokeColor = stroke ?? "var(--primary, #2563eb)";
-    const sw = strokeWidth ?? 3;
+    const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
+    const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
 
     let markerDefs = "";
     let markerEnd = "";

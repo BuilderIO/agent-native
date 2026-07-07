@@ -19,12 +19,14 @@ afterEach(() => {
 
 function mockGetUserMedia(
   getUserMedia: ReturnType<typeof vi.fn>,
+  enumerateDevices?: ReturnType<typeof vi.fn>,
 ): ReturnType<typeof vi.fn> {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       mediaDevices: {
         getUserMedia,
+        enumerateDevices,
       },
     },
   });
@@ -60,7 +62,7 @@ describe("desktop media capture constraints", () => {
     );
   });
 
-  it("retries a stale exact mic id with the default mic", async () => {
+  it("retries a stale exact mic id with a saved-label mic rematch", async () => {
     const fallbackStream = { id: "fallback-audio" } as unknown as MediaStream;
     const getUserMedia = mockGetUserMedia(
       vi
@@ -69,20 +71,25 @@ describe("desktop media capture constraints", () => {
           new DOMException("Invalid constraint", "OverconstrainedError"),
         )
         .mockResolvedValueOnce(fallbackStream),
+      vi.fn(async () => [
+        {
+          kind: "audioinput",
+          deviceId: "new-mic-id",
+          label: "MacBook Pro Microphone",
+        },
+      ]),
     );
 
-    await expect(getAudioStreamWithFallback("stale-mic")).resolves.toBe(
-      fallbackStream,
-    );
+    await expect(
+      getAudioStreamWithFallback("stale-mic", "MacBook Pro Microphone"),
+    ).resolves.toBe(fallbackStream);
     expect(getUserMedia).toHaveBeenCalledTimes(2);
     expect(getUserMedia.mock.calls[0]?.[0]).toMatchObject({
       audio: { deviceId: { exact: "stale-mic" } },
       video: false,
     });
     expect(getUserMedia.mock.calls[1]?.[0]).toMatchObject({
-      audio: expect.not.objectContaining({
-        deviceId: expect.anything(),
-      }),
+      audio: { deviceId: { exact: "new-mic-id" } },
       video: false,
     });
   });

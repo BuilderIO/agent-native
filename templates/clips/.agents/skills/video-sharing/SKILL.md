@@ -2,9 +2,10 @@
 name: video-sharing
 description: >-
   How Clips shares recordings — composes with the framework sharing skill and
-  adds password, expiry, embed URLs, and view-counting. Use when wiring the
-  share dialog, building embed links, adding a password, or debugging who can
-  see a recording.
+  adds password, expiry, embed URLs, view-counting, and per-viewer "Viewed by"
+  records. Use when wiring the share dialog, building embed links, adding a
+  password, showing who viewed a clip and when, or debugging who can see a
+  recording.
 ---
 
 # Video Sharing
@@ -38,6 +39,7 @@ Read this skill before:
 - **`recording_shares`** — framework-managed. Do not insert directly — use `share-resource`.
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
 - **`recording_viewers`** + **`recording_events`** — view counting.
+- **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
 
 ## Dropping in the share UI
 
@@ -219,7 +221,18 @@ if (
 }
 ```
 
-Events feeding this live in `recording_events`. The `/api/view-events` route receives `view-start`, `watch-progress` (every 5s), `seek`, `pause`, `resume`, `cta-click`, `reaction`. Aggregate into `recording_viewers` on write to keep `get-insights` fast.
+Events feeding this live in `recording_events`. The `/api/view-event` route receives `view-start`, `watch-progress` (every 5s), `seek`, `pause`, `resume`, `cta-click`, `reaction`. Aggregate into `recording_viewers` on write to keep `get-insights` fast.
+
+### Per-viewer view records ("Viewed by")
+
+On top of the aggregate `viewCount` shown in the library and the `views` stat in the insights panel, Clips records **individual view records** — who viewed a clip and when — so the owner can see a timeline, not just a number.
+
+- **Table:** `recording_views` (`server/db/schema.ts`) — `id`, `recordingId`, `viewerId` (FK to `recording_viewers.id`), denormalized `viewerEmail` / `viewerName`, `viewedAt`. Append-only; never updated after insert.
+- **Where it's written:** `server/routes/api/view-event.post.ts`, in the same handler that already upserts `recording_viewers` and inserts `recording_events`. A `recording_views` row is inserted **exactly once per viewer**, at the moment `countedView` transitions from `false` to `true` (i.e. the same instant that viewer starts contributing to the aggregate `views` count in `get-recording-insights`). This keeps the per-viewer log and the aggregate count always consistent — a returning viewer who is already counted does not create a second row.
+- **Anonymous viewers** still get a row — `viewerEmail` is `null` and `viewerName` holds the `anon:<sessionId>` key, same convention as `recording_viewers`. The UI renders these as "Someone".
+- **Read surface:** `list-clip-views` action — `{ recordingId, limit? }`, owner-only (`assertAccess("recording", recordingId, "editor")`), returns `{ views: [{ id, viewerEmail, viewerName, viewedAt }] }` sorted most-recent-first. Use this instead of scanning `recording_viewers`/`recording_events` when you need a real per-visit timeline.
+- **UI:** clicking the view count (library card or the insights panel's Views stat) opens `<ViewedByPopover recordingId>` (`app/components/sharing/viewed-by-popover.tsx`), which lazily queries `list-clip-views` only while the popover is open.
+- **Privacy:** viewer identities in `recording_views` are visible only to principals who already pass the owner-only `assertAccess` check on the recording — never surfaced on the public share page itself, which never fetches or renders other viewers' data.
 
 ## Anonymous viewers
 
@@ -233,6 +246,7 @@ Events feeding this live in `recording_events`. The `/api/view-events` route rec
 - **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
 - The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.
 - `build-embed-url` is the single source of truth for embed URLs — keep it in sync with the query params the player accepts.
+- **Never** expose `recording_views` rows (or any other viewer's identity) from the public share/embed page — only `list-clip-views`, which is owner-only via `assertAccess`, may return them.
 
 ## Related skills
 

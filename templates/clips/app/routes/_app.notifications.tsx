@@ -3,15 +3,15 @@ import {
   useActionMutation,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
 import { IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   NotificationsList,
   type NotificationItem,

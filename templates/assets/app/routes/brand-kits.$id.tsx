@@ -10,60 +10,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@agent-native/toolkit/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconCheck,
   IconClipboard,
   IconCopy,
@@ -112,7 +58,56 @@ import {
 import { toast } from "sonner";
 
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
@@ -303,7 +298,7 @@ function referenceRoleForAsset(asset: any): ImageRole {
   if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
     return "video_reference";
   }
-  const category = asset?.metadata?.category;
+  const category = asset?.metadata?.category ?? asset?.category;
   if (category === "logo") return "logo_reference";
   if (category === "product") return "product_reference";
   if (category === "diagram") return "diagram_reference";
@@ -1497,7 +1492,7 @@ export function BrandKitDetailRoute({
                 ))}
               </div>
             ) : (
-              <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+              <div className="flex min-h-65 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
                 <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
                 <h3 className="mt-4 text-base font-semibold">
                   {t("brandKitDetail.noRunsYet")}
@@ -1879,9 +1874,10 @@ function assetCategoryLabel(asset: any): string | null {
   if (isContentOnlyReference(asset)) {
     return "content only";
   }
-  const category = asset?.metadata?.category;
+  const category = asset?.metadata?.category ?? asset?.category;
   if (typeof category !== "string") return null;
   if (category === "style-only") return "style reference";
+  if (category === "skeleton") return "skeleton plate";
   return category.replace(/-/g, " ");
 }
 
@@ -2115,9 +2111,12 @@ function GenerationPresetsPanel({
           >
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium">
+                <Link
+                  to={`/brand-kits/${libraryId}/presets/${preset.id}`}
+                  className="truncate text-sm font-medium underline-offset-4 hover:underline"
+                >
                   {preset.title}
-                </span>
+                </Link>
                 <Badge variant="outline">{preset.aspectRatio}</Badge>
                 {preset.includeLogo ? (
                   <Badge variant="secondary">{t("brandKitDetail.logo")}</Badge>
@@ -2127,15 +2126,22 @@ function GenerationPresetsPanel({
                 {preset.textPolicy || preset.description || preset.category}
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
-              onClick={() => setConfirmPresetId(preset.id)}
-            >
-              <IconTrash className="h-4 w-4" />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={`/brand-kits/${libraryId}/presets/${preset.id}`}>
+                  {t("brandKitDetail.edit")}
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
+                onClick={() => setConfirmPresetId(preset.id)}
+              >
+                <IconTrash className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         ))}
         {!presets.length ? (
@@ -2812,7 +2818,7 @@ function AssetSwimlaneBoard({
   if (!hasAnyBoardItem) {
     if (hideEmptyLanes) {
       return (
-        <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
+        <div className="flex min-h-70 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
           <IconSearch className="h-9 w-9 text-muted-foreground" />
           <span className="mt-4 text-base font-semibold">
             {t("library.noAssetsMatchView")}
@@ -2834,7 +2840,7 @@ function AssetSwimlaneBoard({
           e.stopPropagation();
           onDrop(e.dataTransfer.files);
         }}
-        className="flex min-h-[360px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
+        className="flex min-h-90 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
         <span className="mt-4 text-base font-semibold">
@@ -2888,7 +2894,7 @@ function AssetSwimlaneBoard({
 
       <div className="mb-3 flex flex-col gap-3 rounded-md border border-border bg-background px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 text-sm font-medium text-foreground transition hover:border-foreground/30 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+          <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 text-sm font-medium text-foreground transition hover:border-foreground/30 has-disabled:cursor-not-allowed has-disabled:opacity-50">
             <Checkbox
               checked={allSelected}
               disabled={!boardAssets.length || deleting}
@@ -3223,7 +3229,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
 
   if (!items.length) {
     return (
-      <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
+      <div className="flex min-h-55 items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
         {t("library.noAssetsToShow")}
       </div>
     );
@@ -3248,7 +3254,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
             ].join(" ")}
             aria-busy={item.busy}
           >
-            <div className="relative aspect-[4/3] bg-muted/30">
+            <div className="relative aspect-4/3 bg-muted/30">
               {item.href ? (
                 <Link to={item.href} className="block h-full w-full">
                   {item.thumbnail}
@@ -3378,11 +3384,11 @@ function SwimLane({
 
   return (
     <section className="overflow-hidden rounded-lg border border-border/80 bg-background">
-      <div className="assets-brand-kit-preview-grid grid min-h-[360px]">
+      <div className="assets-brand-kit-preview-grid grid min-h-90">
         <div className="flex min-w-0 flex-col bg-muted/10">
           {hasContent ? (
             <>
-              <div className="flex min-h-[272px] flex-1 items-center justify-center border-b border-border/70 p-4">
+              <div className="flex min-h-68 flex-1 items-center justify-center border-b border-border/70 p-4">
                 <div
                   className={[
                     "group relative w-full max-w-3xl overflow-hidden rounded-lg border bg-background shadow-sm",
@@ -3390,7 +3396,7 @@ function SwimLane({
                   ].join(" ")}
                   aria-busy={activeItem?.busy}
                 >
-                  <div className="aspect-[16/10] bg-muted/30">
+                  <div className="aspect-16/10 bg-muted/30">
                     {activeItem?.href ? (
                       <Link
                         to={activeItem.href}
@@ -3435,7 +3441,7 @@ function SwimLane({
                       aria-pressed={active}
                     >
                       {item.thumbnail}
-                      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
                       {item.busy && item.showBusyOverlay !== false ? (
                         <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
                           <Spinner className="h-3 w-3" />
@@ -3447,10 +3453,10 @@ function SwimLane({
               </div>
             </>
           ) : (
-            <div className="min-h-[188px] p-3">{empty}</div>
+            <div className="min-h-47 p-3">{empty}</div>
           )}
         </div>
-        <aside className="order-first flex min-h-32 flex-col justify-between gap-4 border-b border-border bg-background/95 p-4 xl:order-none xl:min-h-[360px] xl:border-b-0 xl:border-l">
+        <aside className="order-first flex min-h-32 flex-col justify-between gap-4 border-b border-border bg-background/95 p-4 xl:order-0 xl:min-h-90 xl:border-b-0 xl:border-l">
           <div className="min-w-0 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <h3 className="truncate text-sm font-semibold">{title}</h3>
@@ -3550,7 +3556,7 @@ function LaneDropTarget({
         e.stopPropagation();
         onDrop(e.dataTransfer.files);
       }}
-      className="flex h-full min-h-[148px] w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
+      className="flex h-full min-h-37 w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
     >
       <span>
         <IconPhotoPlus className="mx-auto h-7 w-7 text-muted-foreground" />
@@ -3573,7 +3579,7 @@ function LaneActionEmpty({
   onClick: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-[148px] items-center justify-between gap-3 rounded-md px-4">
+    <div className="flex h-full min-h-37 items-center justify-between gap-3 rounded-md px-4">
       <div className="min-w-0">
         <div className="text-sm font-medium">{title}</div>
         <div className="mt-1 text-xs text-muted-foreground">{body}</div>
@@ -3720,8 +3726,8 @@ function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
   const t = useT();
   const isChecking = upload.status === "checking";
   return (
-    <div className="w-[144px] shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-[156px]">
-      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
+    <div className="w-36 shrink-0 overflow-hidden rounded-md border border-dashed border-border bg-background sm:w-39">
+      <div className="flex aspect-4/3 items-center justify-center bg-muted/30">
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Spinner className="h-5 w-5" />
           <span className="text-xs font-medium">
@@ -3779,7 +3785,7 @@ function AssetLaneTile({
   return (
     <div
       className={[
-        "group relative w-[144px] shrink-0 overflow-hidden rounded-md border bg-background transition sm:w-[156px]",
+        "group relative w-36 shrink-0 overflow-hidden rounded-md border bg-background transition sm:w-39",
         selected
           ? "border-primary ring-2 ring-primary/25"
           : "border-border/80 hover:border-foreground/20",
@@ -3873,9 +3879,9 @@ function AssetLaneTile({
         </DropdownMenu>
       </div>
       <Link to={`/asset/${asset.id}`} className="block outline-none">
-        <div className="relative aspect-[4/3] bg-muted">
+        <div className="relative aspect-4/3 bg-muted">
           <AssetPreview asset={asset} />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
             <div className="flex items-center gap-1.5 truncate text-xs font-medium">
               {asset.mediaType === "video" ? (
                 <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -4347,7 +4353,7 @@ export function LiveCandidatesStage({
                     aria-pressed={active}
                   >
                     {item.thumbnail}
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
                     {item.busy && item.showBusyOverlay !== false ? (
                       <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
                         <Spinner className="h-3 w-3" />

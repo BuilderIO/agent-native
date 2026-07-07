@@ -1,0 +1,69 @@
+---
+title: "Toolkit UI Primitives"
+description: "How to use @agent-native/toolkit UI primitives without locking apps out of customization."
+---
+
+# Toolkit UI Primitives
+
+Toolkit UI primitives live under `@agent-native/toolkit/ui/*`. They are the
+shared shadcn-style building blocks used by templates and reusable kits.
+
+Reusable package code can import them directly:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Dialog, DialogContent } from "@agent-native/toolkit/ui/dialog";
+```
+
+Apps that render Toolkit UI must also import the Toolkit stylesheet from
+`app/global.css` so Tailwind generates classes used only inside package
+components, such as dropdown and popover z-index and animation utilities:
+
+```css
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+```
+
+Template app code should usually import the app-local adapter instead:
+
+```tsx
+import { Button } from "@/components/ui/button";
+```
+
+The adapter starts as a one-line re-export:
+
+```tsx
+export * from "@agent-native/toolkit/ui/button";
+```
+
+When an app wants its own button, it replaces that one adapter file. The rest of
+the app keeps importing `@/components/ui/button`.
+
+## Provider Overrides {#provider-overrides}
+
+Reusable Toolkit UI should read overridable primitives from `ToolkitProvider`
+instead of hard-coding a visual system. Templates wire their local `Button` into
+that provider so future kits automatically pick up app customization.
+
+```tsx
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { Button } from "@/components/ui/button";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <ToolkitProvider components={{ Button }}>{children}</ToolkitProvider>;
+}
+```
+
+If an app override wants to keep Toolkit's default button styling as its base,
+render `ButtonBase` from `@agent-native/toolkit/ui/button`. Do not render
+Toolkit's `Button` from inside the override; `ButtonBase` is the explicit escape
+hatch, while Toolkit's recursion guard is only a fallback.
+
+Core keeps old imports working with re-export shims, but new app UI should flow
+through local adapters.

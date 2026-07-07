@@ -1,4 +1,8 @@
-export { SettingsPanel, type SettingsPanelProps } from "./SettingsPanel.js";
+export {
+  SettingsPanel,
+  useAgentSettingsTabs,
+  type SettingsPanelProps,
+} from "./SettingsPanel.js";
 export {
   SettingsTabsPage,
   type SettingsTabItem,

@@ -114,6 +114,11 @@ interface VoiceSession {
   // (paste right away, no extra delay).
   lastResultAt: number;
   // common
+  // Which hotkey (if any) started this session — carried through to the
+  // create-dictation history row (R12) so the /dictate tab can show how
+  // the user triggered it. Undefined for the in-webview Dictate panel's
+  // own record button (that flow doesn't go through this module).
+  triggerSource?: VoiceShortcutSource;
   startedAt: number;
   stopping: boolean;
   // Set when transcription begins so the cancel button can abort the
@@ -131,6 +136,16 @@ interface VoiceSession {
   // real-time transcript text; this provider does a short cleanup pass
   // after stop and before paste.
   cleanupProvider?: ServerVoiceProvider | null;
+  // R12 history persistence: set once `completeText` has fired the
+  // fire-and-forget create-dictation call for this session, so the D3
+  // late-final path (safety-timeout already pasted a partial) knows not
+  // to insert a second history row when the real final arrives afterward.
+  historySaved?: boolean;
+  // D3 late-final hook: when the safety timeout has already pasted a
+  // partial and a late `voice:final-transcript` subsequently lands, this
+  // lets that late text improve the (not-yet-saved) history row without
+  // re-pasting into the focused app.
+  onLateFinalText?: ((text: string) => void) | null;
 }
 
 function normalizedMediaDeviceId(value: string | null | undefined): string {
@@ -387,6 +402,7 @@ async function transcribe(
   controller: AbortController,
   instructions?: string,
   contextPack?: VoiceContextPack,
+  language?: string,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -404,6 +420,12 @@ async function transcribe(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  // P3: server fully supports a `language` hint (packages/core's
+  // transcribe-voice.ts) but no client ever sent it. There's no dedicated
+  // language setting in desktop Settings, so reuse the same locale already
+  // sourced for the native/browser recognizers (nativeSpeechArgs/
+  // recognition.lang) rather than adding new settings UI in this pass.
+  if (language) form.append("language", language);
   appendVoiceContext(form, contextPack);
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
@@ -444,6 +466,7 @@ async function cleanupTranscript(
   controller: AbortController,
   instructions?: string,
   contextPack?: VoiceContextPack,
+  language?: string,
 ): Promise<string> {
   const form = new FormData();
   form.append("text", text);
@@ -452,6 +475,10 @@ async function cleanupTranscript(
   if (trimmedInstructions) {
     form.append("instructions", trimmedInstructions);
   }
+  // P3: same language hint as transcribe() — the server's cleanup branch
+  // also reads the `language` form field (transcribe-voice.ts's textPart
+  // path), so thread it through here too.
+  if (language) form.append("language", language);
   appendVoiceContext(form, contextPack);
 
   const timeout = window.setTimeout(() => controller.abort(), 8_000);
@@ -518,7 +545,37 @@ export function installDesktopVoiceDictation(
   // sees a stale cache.
   let providerStatus: ProviderStatus | null = null;
   let providerStatusFetchedAt = 0;
+  // P4 (Wispr double-tap hands-free, push-to-talk only): when a
+  // press-release cycle is too brief for a deliberate dictation (the
+  // existing <500ms accidental-tap discard in stop()), we note the
+  // timestamp here instead of just discarding. If a second press lands
+  // within HANDS_FREE_UPGRADE_WINDOW_MS, that second press upgrades to a
+  // hands-free session instead of being discarded as its own accidental
+  // tap. Cleared once consumed or once the window elapses.
+  let pendingHandsFreeTapAt: number | null = null;
+  // True for the lifetime of a hands-free session: it ignores the
+  // shortcut's release edge and instead waits for the next full press to
+  // stop + paste. Reset on stop, cancel, and dispose so it can never leak
+  // into a later ordinary push-to-talk session.
+  let handsFreeActive = false;
+  const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
   const unlistens: Array<() => void> = [];
+
+  // Hands-free sessions outlive the physical key press that started them, but
+  // Rust's Escape registration is otherwise driven by physical key edges and
+  // disarms when the triggering key is released. Route every hands-free state
+  // transition through this helper so Escape remains armed for the whole
+  // hands-free session and disarms on every exit path.
+  const setHandsFreeActive = (active: boolean) => {
+    if (handsFreeActive === active) return;
+    handsFreeActive = active;
+    invoke("set_dictation_escape_active", { active }).catch((err) => {
+      console.warn(
+        "[voice-dictation] set_dictation_escape_active failed:",
+        err,
+      );
+    });
+  };
 
   const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
     if (!source) return shortcut === "both";
@@ -672,7 +729,7 @@ export function installDesktopVoiceDictation(
     invoke("hide_flow_bar").catch(() => {});
   };
 
-  const start = async () => {
+  const start = async (triggerSource?: VoiceShortcutSource) => {
     if (disposed || !enabled) return;
     // Wait briefly for any in-flight start() or stopping session to
     // settle so a fast-repeat Fn press isn't dropped in the tear-down
@@ -697,18 +754,21 @@ export function installDesktopVoiceDictation(
         return;
       }
       if (resolved.kind === "browser") {
-        await startBrowser(resolved.cleanupProvider);
+        await startBrowser(resolved.cleanupProvider, triggerSource);
       } else if (resolved.kind === "native") {
-        await startNative(resolved.cleanupProvider);
+        await startNative(resolved.cleanupProvider, triggerSource);
       } else if (resolved.kind === "whisper") {
-        await startWhisper(resolved.cleanupProvider);
+        await startWhisper(resolved.cleanupProvider, triggerSource);
       } else {
-        await startServer(resolved.providerPref);
+        await startServer(resolved.providerPref, triggerSource);
       }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
+      // A failed start must not leave hands-free mode latched without a
+      // session; the next shortcut would otherwise try to stop a null session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -718,12 +778,69 @@ export function installDesktopVoiceDictation(
     }
   };
 
+  // R12: map the hotkey that triggered a session onto create-dictation's
+  // accepted `source` enum (fn-hold|cmd-shift-space|manual|other|fn|custom).
+  const dictationHistorySource = (
+    triggerSource: VoiceShortcutSource | undefined,
+  ): "fn-hold" | "cmd-shift-space" | "custom" | "other" => {
+    if (triggerSource === "fn") return "fn-hold";
+    if (
+      triggerSource === "cmd-shift-space" ||
+      triggerSource === "ctrl-shift-space"
+    ) {
+      return "cmd-shift-space";
+    }
+    if (triggerSource === "custom") return "custom";
+    return "other";
+  };
+
+  // R12: persist a history row for a completed hotkey dictation so it shows
+  // up in the /dictate tab, same as the in-webview Dictate panel's own
+  // record button already does via useActionMutation("create-dictation").
+  // Fire-and-forget by design — must never delay paste/pill dismissal, and
+  // desktop offline/errors must stay silent (no UI surface for this here).
+  const saveDictationHistory = (
+    target: VoiceSession,
+    fullText: string,
+    cleanedText: string,
+  ): void => {
+    if (target.historySaved) return;
+    target.historySaved = true;
+    const durationMs = Math.max(0, Date.now() - target.startedAt);
+    void fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-dictation`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fullText,
+          cleanedText: cleanedText !== fullText ? cleanedText : null,
+          durationMs,
+          source: dictationHistorySource(target.triggerSource),
+        }),
+      },
+    ).catch((err) => {
+      console.warn(
+        "[voice-dictation] create-dictation history save failed:",
+        err,
+      );
+    });
+  };
+
   const completeText = async (
     rawText: string,
     target: VoiceSession,
   ): Promise<string> => {
     const original = rawText.trim();
     if (!original) return "";
+    // Install the late-final hook before any await below. Native final text can
+    // arrive while cleanup or paste completion is still in flight, and the
+    // hook lets it update history before the first save wins.
+    target.onLateFinalText = (lateText) => {
+      if (target.historySaved) return;
+      saveDictationHistory(target, lateText, lateText);
+    };
     let text = original;
     if (target.cleanupProvider) {
       setFlowState("processing");
@@ -739,6 +856,7 @@ export function installDesktopVoiceDictation(
             controller,
             instructions,
             contextPack,
+            dictationLanguage(),
           )) || original;
       } catch (err) {
         if ((err as { name?: string })?.name !== "AbortError") {
@@ -770,6 +888,10 @@ export function installDesktopVoiceDictation(
     } catch (err) {
       console.warn("[voice-dictation] vocab learn-monitor failed:", err);
     }
+    saveDictationHistory(target, original, text);
+    // onLateFinalText is wired up at the top of this function so a late final
+    // that lands mid-cleanup or mid-paste can still improve the just-saved
+    // history row instead of being dropped.
     if (target.cleanupProvider) setFlowState("idle");
     return text;
   };
@@ -799,6 +921,13 @@ export function installDesktopVoiceDictation(
     micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
     micDeviceLabel: micDeviceLabel || null,
   });
+
+  // P3: no dedicated language setting exists in desktop Settings, so the
+  // server-side `language` hint reuses the same locale source already used
+  // for the on-device native/browser recognizers (nativeSpeechArgs/
+  // recognition.lang), trimmed to the 8-char cap the server applies.
+  const dictationLanguage = (): string | undefined =>
+    (navigator.language || "en-US").slice(0, 8);
 
   const buildDesktopVoiceContextPack = async (): Promise<
     VoiceContextPack | undefined
@@ -842,7 +971,10 @@ export function installDesktopVoiceDictation(
    * "Cleaning up..." processing state is shown while we wait for the
    * remote transcription.
    */
-  const startServer = async (providerPref: ServerVoiceProvider) => {
+  const startServer = async (
+    providerPref: ServerVoiceProvider,
+    triggerSource?: VoiceShortcutSource,
+  ) => {
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
@@ -853,6 +985,15 @@ export function installDesktopVoiceDictation(
     }
     try {
       console.log("[voice-dictation] startServer:", providerPref);
+      // Show the bar BEFORE getUserMedia (mirrors startNative/startWhisper/
+      // startBrowser) so a first-time mic permission prompt has visible
+      // context, and releasing the hotkey mid-prompt hides a bar the user
+      // actually saw instead of silently no-oping (D6).
+      await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        abortPendingStart();
+        return;
+      }
       // Per-press getUserMedia, but still pinned to the built-in mic when
       // we can identify it. The warm-stream pre-warm caused silent
       // recordings (track.enabled toggling between sessions left WebKit's
@@ -865,15 +1006,6 @@ export function installDesktopVoiceDictation(
       const stream = await navigator.mediaDevices.getUserMedia(
         await preferredMicConstraints(),
       );
-      if (disposed || stopRequestedBeforeReady) {
-        stream.getTracks().forEach((track) => track.stop());
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        return;
-      }
-      await invoke("show_flow_bar");
       if (disposed || stopRequestedBeforeReady) {
         stream.getTracks().forEach((track) => track.stop());
         abortPendingStart();
@@ -896,6 +1028,7 @@ export function installDesktopVoiceDictation(
         finalTranscriptParts: [],
         interimTranscript: "",
         lastResultAt: 0,
+        triggerSource,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -928,6 +1061,7 @@ export function installDesktopVoiceDictation(
             controller,
             instructions,
             contextPack,
+            dictationLanguage(),
           );
           if (next.cancelled) {
             cleanup(next);
@@ -939,6 +1073,7 @@ export function installDesktopVoiceDictation(
               text.slice(0, 120),
             );
             await invoke("complete_voice_dictation", { text });
+            saveDictationHistory(next, text, text);
           } else {
             console.warn(
               "[voice-dictation] transcribe returned empty text — nothing to paste",
@@ -980,6 +1115,9 @@ export function installDesktopVoiceDictation(
       // when session is null (and any concurrent start would have
       // bailed on `startInFlight`).
       session = null;
+      // Same wedge as start()'s outer catch: a failed hands-free upgrade must
+      // not leave handsFreeActive stuck true.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1000,7 +1138,10 @@ export function installDesktopVoiceDictation(
    * No `getUserMedia()` here — the audio engine handles the mic on the Rust
    * side. The synthetic meter still drives the flow-bar's waveform.
    */
-  const startNative = async (cleanupProvider?: ServerVoiceProvider) => {
+  const startNative = async (
+    cleanupProvider?: ServerVoiceProvider,
+    triggerSource?: VoiceShortcutSource,
+  ) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
       // No parallel meter mic — Rust's AVAudioEngine is the only mic
@@ -1038,6 +1179,7 @@ export function installDesktopVoiceDictation(
         finalTranscriptParts: [],
         interimTranscript: "",
         lastResultAt: 0,
+        triggerSource,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -1075,6 +1217,10 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
+      // Clear the hands-free flag alongside session so a failed
+      // native start (mic permission denial, engine-busy) can't wedge every
+      // future press into a no-op stop() branch.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1089,7 +1235,10 @@ export function installDesktopVoiceDictation(
    * commands. Mic-only (captureSystem: false) — same linger/finalize flow
    * as the native path, same voice:*-transcript events from Rust.
    */
-  const startWhisper = async (cleanupProvider?: ServerVoiceProvider) => {
+  const startWhisper = async (
+    cleanupProvider?: ServerVoiceProvider,
+    triggerSource?: VoiceShortcutSource,
+  ) => {
     console.log(
       "[voice-dictation] startWhisper: invoke audio_transcription_start",
     );
@@ -1105,6 +1254,7 @@ export function installDesktopVoiceDictation(
         micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
         micDeviceLabel: micDeviceLabel || null,
         captureSystem: false,
+        owner: "dictation",
       });
       console.log("[voice-dictation] audio_transcription_start ok");
       if (disposed || stopRequestedBeforeReady) {
@@ -1134,6 +1284,7 @@ export function installDesktopVoiceDictation(
         finalTranscriptParts: [],
         interimTranscript: "",
         lastResultAt: 0,
+        triggerSource,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -1151,6 +1302,8 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
+      // See startNative's catch: must clear alongside session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1166,14 +1319,17 @@ export function installDesktopVoiceDictation(
    * moment we stop the recognizer, so we paste immediately unless an LLM
    * cleanup provider is selected.
    */
-  const startBrowser = async (cleanupProvider?: ServerVoiceProvider) => {
+  const startBrowser = async (
+    cleanupProvider?: ServerVoiceProvider,
+    triggerSource?: VoiceShortcutSource,
+  ) => {
     console.log("[voice-dictation] startBrowser: opening mic + recognition");
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
       console.error(
         "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server",
       );
-      await startServer("auto");
+      await startServer("auto", triggerSource);
       return;
     }
     try {
@@ -1211,6 +1367,7 @@ export function installDesktopVoiceDictation(
         finalTranscriptParts: [],
         interimTranscript: "",
         lastResultAt: 0,
+        triggerSource,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -1347,9 +1504,11 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
-      // See note in startServer's catch — clear leaked session so the
+      // See note in startServer's catch: clear leaked session so the
       // next Fn press isn't blocked on a stale `if (session) return`.
       session = null;
+      // See startNative's catch: must clear alongside session.
+      setHandsFreeActive(false);
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -1362,6 +1521,11 @@ export function installDesktopVoiceDictation(
   // User clicked the X on the flow-bar. Mark cancelled (skips paste),
   // abort any in-flight HTTP, stop the recognizer / recorder, hide.
   const cancel = () => {
+    // P4: Esc (or the flow-bar X button) always exits hands-free, even if
+    // there's no live session to tear down (e.g. cancel arriving in the
+    // narrow gap between the terminating tap's stop() and this call).
+    setHandsFreeActive(false);
+    pendingHandsFreeTapAt = null;
     const current = session ?? lingeringSession;
     const isLingeringOnly = !!current && session !== current;
     if (!current) {
@@ -1434,10 +1598,29 @@ export function installDesktopVoiceDictation(
     }
     if (current.stopping) return;
     current.stopping = true;
-    if (Date.now() - current.startedAt < 250) {
+    if (Date.now() - current.startedAt < 500) {
       // Too brief to be a deliberate dictation — tear down without
       // running the transcription path. Treat it as a cancel so onend
-      // for browser sessions also skips the paste.
+      // for browser sessions also skips the paste. Matches Wispr's
+      // documented ~0.5s minimum: "audio saves only if you spoke for at
+      // least half a second" (design-refs/wispr-ux.md §1) (P8).
+      //
+      // P4: in push-to-talk mode, note the timestamp instead of just
+      // discarding — a second press within HANDS_FREE_UPGRADE_WINDOW_MS
+      // upgrades to a hands-free session (Wispr's double-tap gesture)
+      // rather than being discarded again as its own accidental tap. Not
+      // set for an already-hands-free session (its own stop is a
+      // deliberate finalize even if unusually fast).
+      if (mode === "push-to-talk" && !handsFreeActive) {
+        pendingHandsFreeTapAt = Date.now();
+      }
+      // If this is re-stopping a session that was just upgraded to hands-free
+      // (release-before-500ms of the upgrading press), this discard tears the
+      // session down like any other accidental tap. handsFreeActive must come
+      // down with it, or later shortcuts keep trying to stop a null session.
+      if (handsFreeActive) {
+        setHandsFreeActive(false);
+      }
       current.cancelled = true;
       if (current.kind === "browser") {
         try {
@@ -1453,6 +1636,11 @@ export function installDesktopVoiceDictation(
       cleanup(current);
       return;
     }
+    // P4: this stop() call is a deliberate finalize (past the accidental-tap
+    // discard above). If it's ending a hands-free session, clear the flag
+    // now so the very next fresh press starts an ordinary push-to-talk
+    // session rather than being misread as hands-free's own release.
+    setHandsFreeActive(false);
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
@@ -1493,9 +1681,25 @@ export function installDesktopVoiceDictation(
         console.log(
           "[voice-dictation] native stop — pill dismissed, awaiting final",
         );
+        // Already-pasted guard for the timeout path: if the safety timer
+        // fires and pastes a partial, a late `voice:final-transcript` must
+        // never trigger a second `completeText`/paste — it can only refine
+        // the text used for the history row (see completeText's
+        // onLateFinal hook below).
+        let pasted = false;
         let finalized = false;
         const finalize = (reason: "final" | "timeout" | "manual") => {
-          if (finalized) return;
+          if (finalized) {
+            if (reason === "final" && pasted) {
+              // Late final after a timeout-triggered paste: don't paste
+              // again, just let the history row (R12) learn the improved
+              // text if it hasn't already been recorded.
+              const lateText = lingering.browserTranscript.trim();
+              lingering.browserTranscript = "";
+              if (lateText) lingering.onLateFinalText?.(lateText);
+            }
+            return;
+          }
           finalized = true;
           console.log(
             `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
@@ -1512,8 +1716,8 @@ export function installDesktopVoiceDictation(
           }
           if (session && session !== lingering) {
             // A new session took over during the wait window. Drop the
-            // lingering ref so it doesn't outlive its 3s safety timer
-            // and accidentally route a late final-transcript here.
+            // lingering ref so it doesn't outlive its safety timer and
+            // accidentally route a late final-transcript here.
             if (lingeringSession === lingering) lingeringSession = null;
             return;
           }
@@ -1521,9 +1725,22 @@ export function installDesktopVoiceDictation(
           lingering.browserTranscript = "";
           if (text) {
             console.log(
-              `[voice-dictation] native paste (${text.length} chars):`,
+              `[voice-dictation] native paste (${text.length} chars, reason=${reason}):`,
               text.slice(0, 120),
             );
+            pasted = true;
+            if (reason === "timeout") {
+              // Keep routing a late final for a bit longer so the true
+              // final (which may still be flushing on the Rust side) can
+              // still improve the history row even though the pill has
+              // already pasted the partial. lingeringSession stays put
+              // until this fires or a new session takes over.
+              window.setTimeout(() => {
+                if (lingeringSession === lingering) lingeringSession = null;
+              }, 2000);
+            } else if (lingeringSession === lingering) {
+              lingeringSession = null;
+            }
             void (async () => {
               try {
                 await completeText(text, lingering);
@@ -1534,7 +1751,9 @@ export function installDesktopVoiceDictation(
               window.setTimeout(
                 () => {
                   console.log("[voice-dictation] linger done — dismissing");
-                  if (lingeringSession === lingering) lingeringSession = null;
+                  if (reason !== "timeout" && lingeringSession === lingering) {
+                    lingeringSession = null;
+                  }
                   if (disposed) return;
                   if (session && session !== lingering) return;
                   invoke("hide_flow_bar").catch(() => {});
@@ -1558,9 +1777,23 @@ export function installDesktopVoiceDictation(
         // The install-time `voice:final-transcript` listener calls
         // `current.onNativeFinalize` when the final result arrives.
         lingering.onNativeFinalize = () => finalize("final");
-        // Safety timer: if final never arrives (unsupported locale,
-        // crash, etc.), proceed after 3s with whatever partial we have.
-        window.setTimeout(() => finalize("timeout"), 3000);
+        // Safety timer duration: SFSpeechRecognizer's endAudio() is
+        // fire-and-forget with no bounded flush guarantee, so native's 3s
+        // base is a heuristic "recognizer probably crashed" fallback.
+        // Whisper's stop command (whisper_speech.rs macos::stop) blocks up
+        // to 4s server-side to flush a long trailing utterance through
+        // whisper.cpp inference, so its floor must clear that budget.
+        // Scale up with how long the user actually dictated — a long
+        // utterance's final hypothesis takes proportionally longer to
+        // produce, and the fixed 3s window was dropping those tails
+        // entirely instead of just pasting them a bit late.
+        const heldSeconds = (stopAtMs - lingering.startedAt) / 1000;
+        const timeoutBaseMs = lingering.kind === "whisper" ? 4500 : 3000;
+        const finalizeTimeoutMs = Math.min(
+          8000,
+          Math.max(timeoutBaseMs, timeoutBaseMs + 100 * heldSeconds),
+        );
+        window.setTimeout(() => finalize("timeout"), finalizeTimeoutMs);
       } else {
         // BROWSER PATH: three branches based on what we captured AND
         // whether the user was still actively speaking at Fn release.
@@ -1851,20 +2084,77 @@ export function installDesktopVoiceDictation(
       stop();
       return;
     }
-    start();
+    // P4 (Wispr double-tap hands-free): a third press while a hands-free
+    // session is already running is the "tap again to finish" gesture —
+    // finalize + paste, same as a normal push-to-talk release.
+    if (mode === "push-to-talk" && handsFreeActive) {
+      stop();
+      return;
+    }
+    // A press landing within the upgrade window of a just-discarded
+    // accidental tap is the second half of the double-tap gesture: start
+    // (or restart, since the first tap's session was already torn down)
+    // a session and mark it hands-free so its own release is ignored and
+    // it persists until the next standalone tap.
+    const upgradeToHandsFree =
+      mode === "push-to-talk" &&
+      pendingHandsFreeTapAt !== null &&
+      Date.now() - pendingHandsFreeTapAt < HANDS_FREE_UPGRADE_WINDOW_MS;
+    pendingHandsFreeTapAt = null;
+    if (upgradeToHandsFree) {
+      setHandsFreeActive(true);
+    }
+    void start(event.payload?.source).then(() => {
+      // Race guard: the physical key-up of this same upgrade press (a
+      // hands-free tap is typically brief) independently calls
+      // Rust's `set_dictation_active_and_sync_escape(false)` and can land
+      // after our arm-on-upgrade invoke above, disarming Escape for a
+      // session that's actually still live. Re-assert once start() has
+      // settled (by then the key-edge noise from this press is over) so
+      // the two writers can't leave Escape stuck disarmed. No-op unless
+      // still hands-free (start failed / was superseded clears the flag
+      // via setHandsFreeActive(false) already).
+      if (upgradeToHandsFree && handsFreeActive) {
+        invoke("set_dictation_escape_active", { active: true }).catch(() => {});
+      }
+    });
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;
     if (mode === "toggle") return;
+    // P4: while hands-free, the release edge is a no-op — the session
+    // stays open until the next full press (handled above) stops it.
+    if (handsFreeActive) return;
     stop();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
   // Cancel button on the flow-bar emits this. Tear down without pasting.
+  // `cancel()` itself hides the bar synchronously. R21: flow-bar.tsx used
+  // to ALSO fire its own unconditional 250ms-delayed `hide_flow_bar` as a
+  // defensive backstop — but if a new session started in that window (fast
+  // re-press right after clicking cancel), that stale delayed hide would
+  // close the brand-new session's bar. Own the backstop here instead,
+  // gated on "no new session has started since," and keep flow-bar dumb
+  // (it now only emits the event).
   listen("voice:cancel", () => {
     cancel();
+    const sessionAtCancel = session;
+    const lingeringAtCancel = lingeringSession;
+    window.setTimeout(() => {
+      if (disposed) return;
+      // Only fire the defensive hide if nothing new has taken ownership
+      // of the bar since the cancel was requested.
+      if (
+        session !== sessionAtCancel ||
+        lingeringSession !== lingeringAtCancel
+      ) {
+        return;
+      }
+      invoke("hide_flow_bar").catch(() => {});
+    }, 250);
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
@@ -1873,6 +2163,48 @@ export function installDesktopVoiceDictation(
     "[voice-dictation] installed v3 (no-warm-stream): provider=" + provider,
   );
 
+  // R13: settings changing mid-session (e.g. every keystroke in the Voice
+  // Instructions textarea re-runs the installing useEffect) must not leak
+  // a live native/whisper/browser engine with no UI left to stop it.
+  // `cleanup()` alone only releases the meter + MediaStream tracks — for
+  // native/whisper (no `stream`) and browser (never touches `recognition`)
+  // that's a no-op, so the Rust-side SFSpeechRecognizer/whisper.cpp worker
+  // or the WKWebView recognizer kept running indefinitely. Force-stop by
+  // kind, mirroring `cancel()`, before the disposer tears down listeners.
+  const forceStopSession = (target: VoiceSession | null) => {
+    if (!target || target.stopping) return;
+    target.stopping = true;
+    target.cancelled = true;
+    target.transcribeAbort?.abort();
+    if (target.kind === "server") {
+      try {
+        target.recorder?.stop();
+      } catch {
+        // recorder.stop can throw if not in 'recording' state.
+      }
+    } else if (target.kind === "native") {
+      invoke("native_speech_cancel").catch((err) => {
+        console.warn(
+          "[voice-dictation] native_speech_cancel (dispose) failed:",
+          err,
+        );
+      });
+    } else if (target.kind === "whisper") {
+      invoke("audio_transcription_stop").catch((err) => {
+        console.warn(
+          "[voice-dictation] audio_transcription_stop (dispose) failed:",
+          err,
+        );
+      });
+    } else {
+      try {
+        target.recognition?.abort();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   return () => {
     disposed = true;
     enabled = false;
@@ -1880,6 +2212,8 @@ export function installDesktopVoiceDictation(
     shortcut = "both";
     mode = "push-to-talk";
     provider = "auto";
+    setHandsFreeActive(false);
+    pendingHandsFreeTapAt = null;
     unlistens.forEach((u) => {
       try {
         u();
@@ -1888,6 +2222,13 @@ export function installDesktopVoiceDictation(
       }
     });
     unlistens.length = 0;
+    // Idempotent: forceStopSession no-ops on a session already stopping,
+    // and cleanup() only touches global state when `target === session`
+    // (a superseded session it's called on is a harmless no-op).
+    forceStopSession(session);
+    if (lingeringSession && lingeringSession !== session) {
+      forceStopSession(lingeringSession);
+    }
     cleanup(session);
   };
 }

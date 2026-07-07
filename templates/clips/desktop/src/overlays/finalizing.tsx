@@ -1,4 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useState } from "react";
 
 type NativeUploadProgress = {
@@ -11,6 +13,14 @@ type NativeUploadProgress = {
 type ProcessingProgress = {
   stage?: string;
   progress?: number | null;
+};
+
+type NativeUploadFinished = {
+  recordingId?: string;
+  ok?: boolean;
+  viewUrl?: string;
+  error?: string | null;
+  localFilePath?: string | null;
 };
 
 /**
@@ -36,8 +46,33 @@ export function Finalizing() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
+    let unlistenFinished: (() => void) | null = null;
+    let completionTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let openingWatchdog: ReturnType<typeof window.setTimeout> | null = null;
+    let finishedHandled = false;
+    const clearCompletionTimer = () => {
+      if (completionTimer) {
+        window.clearTimeout(completionTimer);
+        completionTimer = null;
+      }
+    };
+    const clearOpeningWatchdog = () => {
+      if (openingWatchdog) {
+        window.clearTimeout(openingWatchdog);
+        openingWatchdog = null;
+      }
+    };
     listen<NativeUploadProgress>("clips:native-upload-progress", (event) => {
       const payload = event.payload ?? {};
+      if (payload.stage === "opening" && payload.progress === 1) {
+        clearOpeningWatchdog();
+        openingWatchdog = window.setTimeout(() => {
+          void invoke("show_popover").catch(() => {});
+          void invoke("hide_finalizing").catch(() => {});
+        }, 15000);
+      } else if (payload.stage !== "opening") {
+        clearOpeningWatchdog();
+      }
       setProgress({
         stage: payload.stage,
         progress:
@@ -55,9 +90,64 @@ export function Finalizing() {
         unlisten = u;
       })
       .catch(() => {});
+
+    const claimNativeOpen = async (
+      recordingId: string | undefined,
+    ): Promise<boolean> => {
+      if (!recordingId) return true;
+      return invoke<boolean>("native_fullscreen_claim_upload_open", {
+        recordingId,
+      }).catch(() => true);
+    };
+
+    const handleFinished = (payload: NativeUploadFinished) => {
+      if (disposed || finishedHandled) return;
+      finishedHandled = true;
+      clearCompletionTimer();
+      clearOpeningWatchdog();
+      if (payload.ok && payload.viewUrl) {
+        setProgress({ stage: "opening", progress: 1 });
+        completionTimer = window.setTimeout(() => {
+          void claimNativeOpen(payload.recordingId).then((claimed) => {
+            if (!claimed || disposed) return;
+            void openExternal(payload.viewUrl as string).catch(() => {});
+            void invoke("hide_finalizing").catch(() => {});
+          });
+        }, 1500);
+        return;
+      }
+
+      setProgress({ stage: "failed", progress: 1 });
+      completionTimer = window.setTimeout(() => {
+        void invoke("show_popover").catch(() => {});
+        void invoke("hide_finalizing").catch(() => {});
+      }, 2500);
+    };
+
+    listen<NativeUploadFinished>("clips:native-upload-finished", (event) => {
+      handleFinished(event.payload ?? {});
+    })
+      .then((u) => {
+        if (disposed) {
+          u();
+          return;
+        }
+        unlistenFinished = u;
+        void invoke<NativeUploadFinished | null>(
+          "native_fullscreen_take_upload_finished",
+        )
+          .then((payload) => {
+            if (payload) handleFinished(payload);
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
     return () => {
       disposed = true;
+      clearCompletionTimer();
+      clearOpeningWatchdog();
       unlisten?.();
+      unlistenFinished?.();
     };
   }, []);
 

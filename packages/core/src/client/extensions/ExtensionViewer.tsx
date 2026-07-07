@@ -1,5 +1,4 @@
 import {
-  IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
   IconCode,
@@ -1204,19 +1203,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       <div className="flex h-full w-full flex-col">
         <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/"
-                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  aria-label="Back to app"
-                >
-                  <IconArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Back to app</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>Back to app</TooltipContent>
-            </Tooltip>
             <nav
               aria-label="Extension breadcrumb"
               className="group/name flex min-w-0 items-center gap-1 text-sm"

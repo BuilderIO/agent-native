@@ -33,6 +33,11 @@ function nativeSegmentsJson(fullText: string): string {
 // Real transcript segments supplied by a caller that already has accurate
 // timestamps (e.g. the desktop Whisper engine). When present these are stored
 // verbatim instead of synthesizing timings from the text.
+//
+// Live-capture engines can occasionally emit a segment with startMs > endMs
+// (clock-skew / chunk-boundary rounding). Repair rather than reject: a single
+// bad segment must never fail the whole array and drop the entire meeting's
+// transcript.
 const segmentSchema = z
   .object({
     startMs: z.number().nonnegative(),
@@ -41,8 +46,14 @@ const segmentSchema = z
     // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
   })
-  .refine((s) => s.startMs <= s.endMs, {
-    message: "startMs must be <= endMs",
+  .transform((s) => {
+    if (s.endMs < s.startMs) {
+      console.warn(
+        `[clips] save-browser-transcript: repaired reversed segment timestamps (startMs=${s.startMs}, endMs=${s.endMs})`,
+      );
+      return { ...s, endMs: s.startMs };
+    }
+    return s;
   });
 
 export default defineAction({

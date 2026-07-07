@@ -14,6 +14,7 @@ import {
   type DragHandleDropContext,
   type DragHandleOptions,
   type RichMarkdownCollabUser,
+  type UseCollaborativeDocResult,
 } from "@agent-native/core/client";
 // `applyDocSurgically` is re-exported from the editor subpath barrel (the top
 // `@agent-native/core/client` barrel doesn't surface the surgical helpers).
@@ -807,6 +808,7 @@ export function PlanDocumentEditor({
   editable,
   onBlocksChange,
   onVisualQuestionsSubmit,
+  sharedCollabDoc,
 }: {
   content: PlanContent;
   contentUpdatedAt?: string | null;
@@ -816,6 +818,22 @@ export function PlanDocumentEditor({
   onBlocksChange: (blocks: PlanBlock[]) => void | Promise<void>;
   /** Forwarded to question-form and legacy visual-questions blocks. */
   onVisualQuestionsSubmit?: (summary: string) => void;
+  /**
+   * An already-open `plan:<planId>` collab connection (from `usePlanPresence`
+   * in the parent `PlanContentRenderer`), reused instead of opening a second
+   * independent `Y.Doc` + poll loop against the same doc id. `usePlanPresence`
+   * mounts unconditionally alongside this editor for the awareness-only
+   * presence bar, so without sharing, every plan view ran TWO parallel
+   * `useCollaborativeDoc` instances against the same `plan:<planId>` doc —
+   * double `/collab/<docId>/state` fetches, `/collab/<docId>/awareness`
+   * posts, and poll-fallback traffic for one logical document. When omitted
+   * (e.g. the surgical/repro specs that mount this component directly), the
+   * editor falls back to opening its own connection.
+   */
+  sharedCollabDoc?: Pick<
+    UseCollaborativeDocResult,
+    "ydoc" | "awareness" | "isSynced"
+  >;
 }) {
   const t = useT();
   const registryValue = useOptionalBlockRegistry();
@@ -973,12 +991,32 @@ export function PlanDocumentEditor({
   const SINGLE_DOC_COLLAB_ENABLED = true;
   const collabEnabled =
     SINGLE_DOC_COLLAB_ENABLED && editable && !!planId && !!docUser;
-  const docId = collabEnabled ? `plan:${planId}` : null;
-  const { ydoc, awareness } = useCollaborativeDoc({
-    docId,
+  // Prefer the connection `usePlanPresence` already opened on the same
+  // `plan:<planId>` doc for the header presence bar — falling back to owning
+  // our own connection only when the caller doesn't provide one (e.g. the
+  // surgical/repro specs that mount this component in isolation). Opening a
+  // second `useCollaborativeDoc` here as well as in `usePlanPresence` would
+  // double every poll/state/awareness request against the identical doc id.
+  const ownDocId = sharedCollabDoc
+    ? null
+    : collabEnabled
+      ? `plan:${planId}`
+      : null;
+  const ownCollabDoc = useCollaborativeDoc({
+    docId: ownDocId,
     requestSource: TAB_ID,
     user: docUser,
   });
+  // Only borrow the shared connection while collab is actually enabled for
+  // this editor (real editability + a known plan + a signed-in collab user) —
+  // otherwise fall through to `ownCollabDoc`, which is already all-null
+  // because `ownDocId` is null in that case.
+  const {
+    ydoc,
+    awareness,
+    isSynced: collabSyncedRaw,
+  } = collabEnabled && sharedCollabDoc ? sharedCollabDoc : ownCollabDoc;
+  const collabSynced = collabEnabled ? collabSyncedRaw : true;
 
   const getDragTransferData = useMemo<DragHandleOptions["getDragTransferData"]>(
     () =>
@@ -1466,6 +1504,7 @@ export function PlanDocumentEditor({
           extraExtensions={extraExtensions}
           slashItems={slashItems}
           ydoc={ydoc}
+          collabSynced={collabSynced}
           awareness={awareness}
           user={collabUser}
           // Non-collab: PM history off so the app-level undo stack (which alone

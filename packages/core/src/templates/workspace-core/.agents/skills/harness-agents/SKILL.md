@@ -132,10 +132,16 @@ const custom = resolveAgentHarness("acp", {
   (`packages/core/src/coding-tools/sandbox/`). The default
   `LocalChildProcessAdapter` spawns a locked-down local Node child process;
   swap it via `AGENT_NATIVE_SANDBOX` or `registerSandboxAdapter()` for a
-  Docker/remote/durable backend (the lever to exceed the hosted ~40s code-exec
-  ceiling). An adapter only runs the already-prepared, non-secret module source
-  — it never sees app secrets. See the Sandbox Adapters doc; `agent-native add
-  sandbox docker` emits a full Docker-adapter recipe.
+  Docker/remote backend. An adapter only runs the already-prepared, non-secret
+  module source — it never sees app secrets. See the Sandbox Adapters doc;
+  `agent-native add sandbox docker` emits a full Docker-adapter recipe.
+- Long compute exceeds the hosted ~40s run ceiling via the built-in durable
+  background backend: per-call `background: true` on `run-code` (or
+  `AGENT_NATIVE_SANDBOX=background` to queue every call) enqueues to the
+  `sandbox_executions` table and executes out-of-band — self-dispatched to
+  `/_agent-native/sandbox/_process-execution` on serverless, in-process on
+  long-lived Node — with lease-based claiming, retries, and owner-scoped
+  polling via `run-code {executionId}` / `get-code-execution`.
 
 ## Sub-Agent Delegation Depth
 

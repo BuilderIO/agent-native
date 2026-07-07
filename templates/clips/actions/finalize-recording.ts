@@ -21,10 +21,11 @@ import {
 } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { debugLog } from "../server/lib/debug.js";
 import {
   applyFaststart,
@@ -43,7 +44,10 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
-import { remuxWebmToSeekable } from "../server/lib/video-remux.js";
+import {
+  probeHasAudioStream,
+  remuxWebmToSeekable,
+} from "../server/lib/video-remux.js";
 import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -115,8 +119,28 @@ function stateBoolean(
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
   if (value === "false") return false;
+  if (value === "1") return true;
+  if (value === "0") return false;
   return value;
 }, z.boolean());
+
+function queueBackgroundBuilderCompression(args: {
+  recordingId: string;
+  ownerEmail: string;
+  videoUrl: string | null | undefined;
+  mimeType: string;
+  providerId?: string | null;
+  assetDbId?: string | null;
+  sourceSizeBytes?: number | null;
+  locallyTranscoded?: boolean;
+}): void {
+  void queueBuilderMediaCompression(args).catch((err) => {
+    console.warn("[finalize] failed to queue media compression", {
+      recordingId: args.recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
 
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
@@ -174,8 +198,51 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        // Guard against a slow/racing finalize resurrecting a recording the
+        // user already aborted (abort.post.ts flips status to 'failed'). If
+        // the row was aborted after this call started, the WHERE clause
+        // excludes it and the UPDATE becomes a no-op instead of silently
+        // flipping 'failed' back to 'ready'.
+        ne(schema.recordings.status, "failed"),
+        // Guard against the other direction of the cancel/finalize race:
+        // trash-recording's skipIfReady only blocks trashing a row that is
+        // ALREADY 'ready'. If cancel lands while this finalize is still
+        // 'processing'/'streaming', trashedAt gets set before this UPDATE
+        // runs. Excluding trashed rows here stops us from flipping status to
+        // 'ready' underneath a recording the user just trashed.
+        isNull(schema.recordings.trashedAt),
       ),
     );
+
+  // Re-select to see whether the guarded UPDATE above actually landed. If the
+  // row is not 'ready' now, the status guard blocked the write (the recording
+  // was aborted concurrently) — stop here without seeding a transcript,
+  // writing 'ready' app-state, emitting clip.created, or kicking off
+  // background transcription for a recording the user already saw fail.
+  const [postUpdate] = await db
+    .select({
+      status: schema.recordings.status,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, id),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
+  if (!postUpdate || postUpdate.status !== "ready") {
+    debugLog(
+      "[finalize] markRecordingReady blocked — recording was aborted concurrently",
+      { id, status: postUpdate?.status },
+    );
+    return {
+      id,
+      status: "failed" as const,
+      videoUrl,
+      videoSizeBytes,
+      durationMs: finalDurationMs,
+    };
+  }
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -284,6 +351,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("MIME type of the assembled blob (e.g. video/webm)"),
+    locallyTranscoded: cliBoolean
+      .optional()
+      .describe(
+        "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
@@ -423,6 +495,17 @@ export default defineAction({
             // background.
             seekableApplied: false,
           });
+          if (result.status === "ready") {
+            queueBackgroundBuilderCompression({
+              recordingId: id,
+              ownerEmail,
+              videoUrl,
+              mimeType,
+              providerId: resumableSession.providerId,
+              sourceSizeBytes: resumableSession.bytesUploaded,
+              locallyTranscoded: args.locallyTranscoded === true,
+            });
+          }
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
           deleteResumableSession(id).catch((err) =>
@@ -652,6 +735,104 @@ export default defineAction({
         }
       }
 
+      // Audio sanity checks. `finalHasAudio` is a CLAIM from the client about
+      // capture intent, not proof the bytes we're about to upload actually
+      // contain an audio track — e.g. the desktop native recorder can report
+      // `hasAudio: true` for a screen recording whose ScreenCaptureKit output
+      // has no audio stream at all (mic audio isn't muxed into that file by
+      // design; see native_screen.rs). Two distinct failure modes, handled
+      // differently:
+      //
+      //   1. PIPELINE DROP — the assembled bytes had audio before our own
+      //      faststart/remux rewrite and don't after. That would be a bug in
+      //      this file, should be unreachable, and is cheap insurance against
+      //      a future regression — fail loud exactly like the existing mp4
+      //      validation failure so the recording is retryable instead of
+      //      silently publishing a video that lost audio in our own pipeline.
+      //   2. CAPTURE-LEVEL MISMATCH — the client claimed audio but the
+      //      ASSEMBLED bytes (before any rewrite of ours) never had an audio
+      //      stream to begin with. This is a capture-side gap upstream of
+      //      finalize, not something a retry here can fix, so hard-failing
+      //      would just turn every affected recording into a lost upload
+      //      instead of a silent-but-watchable one. Log it loudly and correct
+      //      the stored `hasAudio` metadata so it matches reality, but let
+      //      finalize proceed.
+      //
+      // Best-effort throughout: only acts when the probe can actually answer
+      // (skips silently if ffmpeg is unavailable), never blocks a legitimate
+      // upload on missing tooling.
+      let correctedHasAudio = finalHasAudio;
+      if (finalHasAudio) {
+        const assembledHasAudio = await probeHasAudioStream(
+          assembled,
+          videoFormat,
+        ).catch(() => null);
+
+        if (assembledHasAudio === false) {
+          console.warn(
+            "[finalize] recording claimed audio but assembled bytes have none; correcting hasAudio",
+            { id, videoFormat },
+          );
+          try {
+            captureRouteError(
+              new Error(
+                "Recording was reported to have audio, but the assembled upload has no audio track.",
+              ),
+              {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-claimed-but-missing",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: assembled.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              },
+            );
+          } catch {
+            // Sentry must never mask the real capture-side issue.
+          }
+          correctedHasAudio = false;
+        } else if (assembledHasAudio === true && uploadData !== assembled) {
+          // A rewrite ran (faststart/webm remux) AND we positively confirmed
+          // the pre-rewrite source had audio — re-probe the REWRITTEN bytes.
+          // Gated strictly on `=== true` (not just "not false"): when the
+          // source probe was inconclusive (`null`, e.g. ffmpeg unavailable),
+          // we have no proof audio ever existed, so we must not hard-fail a
+          // recording that may simply be a Tier-2 capture-level mismatch.
+          const uploadHasAudio = await probeHasAudioStream(
+            uploadData,
+            videoFormat,
+          ).catch(() => null);
+          if (uploadHasAudio === false) {
+            const err = new Error(
+              "Recording had an audio track before the seekable rewrite, but the rewritten video has no audio track. Please record again.",
+            );
+            try {
+              captureRouteError(err, {
+                route: "finalize-recording",
+                tags: {
+                  uploadStep: "audio-dropped-by-remux",
+                  videoFormat,
+                },
+                extra: {
+                  recordingId: id,
+                  dataBytes: uploadData.byteLength,
+                  mimeType,
+                  ownerEmail,
+                },
+              });
+            } catch {
+              // Sentry must never mask the real validation error.
+            }
+            await failChunkAssembly(err.message);
+          }
+        }
+      }
+
       let upload: Awaited<ReturnType<typeof uploadFile>>;
       try {
         upload = await uploadFile({
@@ -812,12 +993,29 @@ export default defineAction({
         videoUrl: upload.url,
         bytes: uploadData.byteLength,
       });
-      return markRecordingReady({
+      const result = await markRecordingReady({
         ...readyParams,
+        // Use the audio-probe-corrected value, not the raw client claim in
+        // `readyParams` — see the audio sanity check above.
+        finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: uploadData.byteLength,
         seekableApplied,
       });
+      if (result.status === "ready") {
+        queueBackgroundBuilderCompression({
+          recordingId: id,
+          ownerEmail,
+          videoUrl: upload.url,
+          mimeType,
+          providerId: upload.provider,
+          assetDbId: upload.id,
+          sourceSizeBytes: uploadData.byteLength,
+          locallyTranscoded:
+            args.locallyTranscoded === true || Boolean(compressionMeta),
+        });
+      }
+      return result;
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on
       // error — a throw during uploadFile / drizzle update / anything else

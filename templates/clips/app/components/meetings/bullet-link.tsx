@@ -1,12 +1,12 @@
+import { IconSearch } from "@tabler/icons-react";
+import { useMemo } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconSearch } from "@tabler/icons-react";
-import { useMemo } from "react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { TranscriptSegment } from "./transcript-bubbles";

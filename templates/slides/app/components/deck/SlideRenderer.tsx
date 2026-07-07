@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   useState,
   useEffect,
@@ -12,6 +11,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import {

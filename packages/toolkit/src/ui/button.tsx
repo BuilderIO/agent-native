@@ -2,6 +2,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
+import { useToolkitComponent } from "../provider.js";
 import { cn } from "../utils.js";
 
 const buttonVariants = cva(
@@ -40,7 +41,7 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+const ButtonBase = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     return (
@@ -52,6 +53,26 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     );
   },
 );
+ButtonBase.displayName = "ButtonBase";
+
+const ButtonOverrideRenderContext = React.createContext(false);
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  (props, ref) => {
+    const Override = useToolkitComponent("Button");
+    const isRenderingOverride = React.useContext(ButtonOverrideRenderContext);
+    if (Override && Override !== Button && !isRenderingOverride) {
+      const OverrideButton = Override as React.ElementType<ButtonProps>;
+      return (
+        <ButtonOverrideRenderContext.Provider value={true}>
+          <OverrideButton ref={ref} {...props} />
+        </ButtonOverrideRenderContext.Provider>
+      );
+    }
+
+    return <ButtonBase ref={ref} {...props} />;
+  },
+);
 Button.displayName = "Button";
 
-export { Button, buttonVariants };
+export { Button, ButtonBase, buttonVariants };

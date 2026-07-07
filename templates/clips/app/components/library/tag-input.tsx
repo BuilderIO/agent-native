@@ -1,11 +1,11 @@
+import { IconX } from "@tabler/icons-react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import { IconX } from "@tabler/icons-react";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface TagInputProps {

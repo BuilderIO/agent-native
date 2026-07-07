@@ -787,6 +787,44 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
       ].join("; "),
     },
+    {
+      version: 45,
+      name: "recording-transcripts-retry-count",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    // ---------------------------------------------------------------------------
+    // Per-view records — append-only log of counted views (who viewed a clip
+    // and when), backing the owner-facing "Viewed by" popover and the
+    // `list-clip-views` action. Newer rows include a per-player-open
+    // view_session_id so returning viewers can appear again while duplicate
+    // threshold posts for the same open are idempotent.
+    // ---------------------------------------------------------------------------
+    {
+      version: 46,
+      name: "recording-views-per-view-log",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          viewer_id TEXT NOT NULL,
+          viewer_key TEXT,
+          view_session_id TEXT,
+          viewer_email TEXT,
+          viewer_name TEXT,
+          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
+      ].join("; "),
+    },
+    {
+      version: 47,
+      name: "recording-views-session-idempotency",
+      sql: [
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS view_session_id TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1198,6 +1236,158 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
   }
 }
 
+function rowNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+/**
+ * Sweep orphaned resumable upload sessions out of `application_state`.
+ *
+ * The streaming upload path stores provider session handles under
+ * `resumable-session-<recordingId>` and deletes them after finalize commits a
+ * ready recording. Crashes between those two steps can strand small session
+ * rows forever. We only delete sessions whose recording row is gone, or whose
+ * recording reached a terminal status more than an hour ago. Abandoned browser
+ * uploads can leave the recording stuck in `uploading`, so those are swept only
+ * after a much longer grace window.
+ */
+async function sweepOrphanedResumableSessions(): Promise<void> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+
+  let sessionRows: Array<{
+    session_id?: unknown;
+    key?: unknown;
+    updated_at?: unknown;
+  }> = [];
+  try {
+    const probe = await exec.execute({
+      sql: `SELECT session_id, key, updated_at FROM application_state WHERE key LIKE 'resumable-session-%'`,
+      args: [],
+    });
+    sessionRows =
+      (probe.rows as Array<{
+        session_id?: unknown;
+        key?: unknown;
+        updated_at?: unknown;
+      }>) ?? [];
+  } catch (err) {
+    const message = (err as Error)?.message ?? String(err);
+    if (
+      /no such table:\s*application_state/i.test(message) ||
+      /relation ["']?application_state["']? does not exist/i.test(message)
+    ) {
+      return;
+    }
+    console.warn(
+      "[db] resumable-session sweep: application_state probe failed",
+      message,
+    );
+    return;
+  }
+
+  if (sessionRows.length === 0) return;
+
+  const prefix = "resumable-session-";
+  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const staleInProgressIso = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
+  let totalDeleted = 0;
+
+  for (const row of sessionRows) {
+    const key = typeof row.key === "string" ? row.key : "";
+    if (!key.startsWith(prefix)) continue;
+    const recordingId = key.slice(prefix.length);
+    if (!recordingId) continue;
+
+    let shouldSweep = false;
+    try {
+      const probe = await exec.execute({
+        sql: pg
+          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
+          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
+        args: [recordingId],
+      });
+      const recording = (
+        probe.rows as Array<{ status?: string; updated_at?: string }>
+      )[0];
+      if (!recording) {
+        shouldSweep = true;
+      } else if (
+        (recording.status === "ready" || recording.status === "failed") &&
+        (recording.updated_at ?? "") < oneHourAgoIso
+      ) {
+        shouldSweep = true;
+      } else if (
+        (recording.status === "uploading" ||
+          recording.status === "processing") &&
+        (recording.updated_at ?? "") < staleInProgressIso
+      ) {
+        try {
+          await exec.execute({
+            sql: pg
+              ? `UPDATE recordings SET status = 'failed', failure_reason = $1, updated_at = $2 WHERE id = $3 AND status = $4`
+              : `UPDATE recordings SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
+            args: [
+              "Upload did not finish before the resumable upload cleanup window.",
+              new Date().toISOString(),
+              recordingId,
+              recording.status,
+            ],
+          });
+        } catch (err) {
+          console.warn(
+            "[db] resumable-session sweep: stale upload mark-failed failed",
+            {
+              recordingId,
+              status: recording.status,
+              err: (err as Error)?.message ?? err,
+            },
+          );
+        }
+        shouldSweep = true;
+      }
+    } catch (err) {
+      console.warn("[db] resumable-session sweep: recording probe failed", {
+        recordingId,
+        err: (err as Error)?.message ?? err,
+      });
+      continue;
+    }
+
+    if (!shouldSweep) continue;
+
+    try {
+      await exec.execute({
+        sql: pg
+          ? `DELETE FROM application_state WHERE session_id = $1 AND key = $2`
+          : `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
+        args: [String(row.session_id ?? ""), key],
+      });
+      totalDeleted += 1;
+    } catch (err) {
+      console.warn("[db] resumable-session sweep: delete failed", {
+        key,
+        updatedAt: rowNumber(row.updated_at),
+        err: (err as Error)?.message ?? err,
+      });
+    }
+  }
+
+  if (totalDeleted > 0) {
+    console.log("[db] swept orphaned resumable upload sessions", {
+      totalDeleted,
+    });
+  }
+}
+
 async function backfillRecordingOrgId(): Promise<void> {
   const exec = getDbExec();
   try {
@@ -1458,6 +1648,12 @@ export default async (nitroApp: any): Promise<void> => {
   // Best-effort chunk sweep — don't block startup on failures.
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
+  });
+  sweepOrphanedResumableSessions().catch((err) => {
+    console.warn(
+      "[db] resumable-session sweep failed:",
+      (err as Error)?.message ?? err,
+    );
   });
 
   try {

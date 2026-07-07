@@ -4,23 +4,11 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   type AppearancePresetId,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -35,6 +23,18 @@ import { toast } from "sonner";
 
 import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -53,6 +53,7 @@ import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -160,6 +161,7 @@ export default function Settings() {
     <SettingsTabsPage
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
+      extraTabs={agentSettingsTabs}
       general={
         <div className="mx-auto max-w-2xl space-y-6 pb-12">
           <p className="text-sm text-muted-foreground">
@@ -178,22 +180,6 @@ export default function Settings() {
             <CardContent className="max-w-xs space-y-1.5">
               <Label>{t("settings.languageLabel")}</Label>
               <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
             </CardContent>
           </Card>
 

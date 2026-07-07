@@ -54,7 +54,7 @@ vi.mock("@agent-native/core/client", () => ({
     )[key] ?? key,
 }));
 
-vi.mock("@agent-native/toolkit/hooks/use-toast", () => ({
+vi.mock("@/hooks/use-toast", () => ({
   toast: toastMock,
 }));
 

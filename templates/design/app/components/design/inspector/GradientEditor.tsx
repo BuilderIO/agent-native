@@ -29,6 +29,50 @@ export interface GradientValue {
   stops: GradientStopValue[];
 }
 
+/**
+ * Contract for "a gradient editing session is active for element X with
+ * value V" (Figma-parity on-canvas handles, IP21 follow-up). This popover
+ * component stays the source of truth for parsing/serializing the CSS string
+ * (`parseGradientCss`/`gradientToCss` below) and for the ramp-bar UI; a
+ * canvas-side overlay (see `MultiScreenCanvas`'s `gradientEditTarget` prop)
+ * is a *second*, purely-visual view of the same session, so the two must
+ * agree on one shared shape rather than inventing parallel state.
+ *
+ * A caller that wants on-canvas handles alongside this popover should:
+ *  1. Keep the "which element/selection is being fill-edited" id it already
+ *     has to open this popover (e.g. a selected draft primitive id or a
+ *     selected screen/frame id).
+ *  2. Track the *current* `GradientValue` for that element the same way this
+ *     component's `value` prop is already threaded (parsed once via
+ *     `parseGradientCss`, then serialized back to CSS via `gradientToCss` on
+ *     every change — exactly what this component's own `onChange` callers do
+ *     today).
+ *  3. Build a `GradientEditSessionTarget` from those two pieces and pass it
+ *     to `MultiScreenCanvas`'s `gradientEditTarget` prop whenever this
+ *     popover is open (gated on `showGradientEditor` /
+ *     `GRADIENT_PAINT_TYPES.has(effectivePaintType)`) and the target is a
+ *     board/draft primitive or screen frame that canvas can draw chrome for;
+ *     pass `null`/`undefined` otherwise (popover closed, non-canvas target,
+ *     or non-linear kind — see that prop's doc for the current linear-only
+ *     scope).
+ */
+export interface GradientEditSessionTarget {
+  /** Id of the draft primitive or screen/frame the gradient applies to. */
+  frameOrDraftId: string;
+  /** The live CSS gradient string, e.g. what `gradientToCss` produces. */
+  cssValue: string;
+  /**
+   * Called by the canvas overlay when the user drags an on-canvas handle.
+   * `nextCss` is a full replacement gradient CSS string (round-trippable
+   * through `parseGradientCss`). `phase` mirrors the gesture-coalescing
+   * convention used elsewhere in this popover (see `onChangeComplete` on
+   * `DesignColorPickerProps`): "preview" fires on every drag tick for live
+   * feedback, "commit" fires once on pointerup with the final value so undo
+   * history only gets one entry per drag.
+   */
+  onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
+}
+
 // ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
 
 const CHECKER_A = "#d4d4d4";
