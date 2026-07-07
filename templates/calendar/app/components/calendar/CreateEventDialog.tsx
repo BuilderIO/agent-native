@@ -111,6 +111,12 @@ function uniqueAttendees(attendees: AttendeeRecipient[]) {
       email,
       displayName: existing?.displayName ?? attendee.displayName,
       photoUrl: existing?.photoUrl ?? attendee.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : existing?.optional === true
+            ? true
+            : undefined,
     });
   }
   return Array.from(byEmail.values());
@@ -304,6 +310,7 @@ export function CreateEventPopover({
             email: attendee.email,
             displayName: attendee.displayName,
             photoUrl: attendee.photoUrl,
+            optional: attendee.optional === true ? true : undefined,
           })),
         ),
       );
@@ -393,6 +400,7 @@ export function CreateEventPopover({
           ? attendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
       addGoogleMeet: videoProvider === "google_meet",
@@ -490,6 +498,19 @@ export function CreateEventPopover({
     setAttendees((prev) =>
       prev.filter(
         (attendee) => attendee.email.toLowerCase() !== email.toLowerCase(),
+      ),
+    );
+  }
+
+  function toggleAttendeeOptional(email: string, optional: boolean) {
+    setAttendees((prev) =>
+      prev.map((attendee) =>
+        attendee.email.toLowerCase() === email.toLowerCase()
+          ? {
+              ...attendee,
+              optional: optional ? true : undefined,
+            }
+          : attendee,
       ),
     );
   }
@@ -639,6 +660,7 @@ export function CreateEventPopover({
           ? finalAttendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
     };
@@ -925,6 +947,7 @@ export function CreateEventPopover({
                 attendees={attendees}
                 onAdd={addAttendee}
                 onRemove={removeAttendee}
+                onToggleOptional={toggleAttendeeOptional}
                 inputId="event-attendees"
                 placeholder={t("eventForm.attendeesPlaceholder")}
                 onEmptyEnter={() => formRef.current?.requestSubmit()}

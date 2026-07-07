@@ -29,6 +29,20 @@ describe("isTrustedCanvasBridgeMessage", () => {
     ).toBe(true);
   });
 
+  it("accepts explicitly allowed bridge-origin messages from the active preview iframe", () => {
+    const iframeWindow = {} as Window;
+
+    expect(
+      isTrustedCanvasBridgeMessage({
+        source: iframeWindow,
+        origin: "http://127.0.0.1:7331",
+        iframeWindow,
+        parentOrigin: "https://plan.agent-native.com",
+        allowedOrigins: ["http://127.0.0.1:7331"],
+      }),
+    ).toBe(true);
+  });
+
   it("rejects messages from other windows or unrelated origins", () => {
     const iframeWindow = {} as Window;
     const otherWindow = {} as Window;

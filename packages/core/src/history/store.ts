@@ -1,4 +1,9 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  isUniqueViolation,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -8,6 +13,8 @@ import type {
 } from "./types.js";
 
 let historyTableInitPromise: Promise<void> | undefined;
+
+const VERSION_INSERT_MAX_ATTEMPTS = 8;
 
 export interface InsertResourceVersionInput {
   resourceType: string;
@@ -53,7 +60,7 @@ export async function ensureResourceVersionsTable(): Promise<void> {
       metadata_json TEXT
     )`;
       const indexes = [
-        `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_resource
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_resource_versions_resource_number
            ON agent_resource_versions (resource_type, resource_id, version_number)`,
         `CREATE INDEX IF NOT EXISTS idx_agent_resource_versions_owner
            ON agent_resource_versions (owner_email, created_at)`,
@@ -64,7 +71,7 @@ export async function ensureResourceVersionsTable(): Promise<void> {
       if (isPostgres()) {
         await ensureTableExists("agent_resource_versions", createSql);
         await ensureIndexExists(
-          "idx_agent_resource_versions_resource",
+          "idx_agent_resource_versions_resource_number",
           indexes[0],
         );
         await ensureIndexExists(
@@ -89,41 +96,55 @@ export async function insertResourceVersion(
 ): Promise<ResourceVersion> {
   await ensureResourceVersionsTable();
   const client = getDbExec();
-  const maxRows = await client.execute({
-    sql: `SELECT MAX(version_number) as max_version
+  const visibility =
+    input.visibility === "org" || input.visibility === "public"
+      ? input.visibility
+      : "private";
+  const actorKind = input.actorKind ?? "human";
+  const createdBy = input.createdBy ?? null;
+  const ownerEmail = input.ownerEmail ?? input.createdBy ?? null;
+  const orgId = input.orgId ?? null;
+  const title = input.title ?? null;
+  const summary = input.summary ?? null;
+  const metadata = input.metadata ?? null;
+  const snapshotJson = JSON.stringify(input.snapshot);
+  const metadataJson = stringifyOptionalJson(metadata);
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < VERSION_INSERT_MAX_ATTEMPTS; attempt++) {
+    const maxRows = await client.execute({
+      sql: `SELECT MAX(version_number) as max_version
        FROM agent_resource_versions
       WHERE resource_type = ? AND resource_id = ?`,
-    args: [input.resourceType, input.resourceId],
-  });
-  const versionNumber =
-    Number(
-      (maxRows.rows?.[0] as Record<string, unknown> | undefined)?.max_version ??
-        0,
-    ) + 1;
-  const id = createVersionId();
-  const createdAt = new Date().toISOString();
-  const version: ResourceVersion = {
-    id,
-    resourceType: input.resourceType,
-    resourceId: input.resourceId,
-    versionNumber,
-    createdAt,
-    createdBy: input.createdBy ?? null,
-    actorKind: input.actorKind ?? "human",
-    ownerEmail: input.ownerEmail ?? input.createdBy ?? null,
-    orgId: input.orgId ?? null,
-    visibility:
-      input.visibility === "org" || input.visibility === "public"
-        ? input.visibility
-        : "private",
-    title: input.title ?? null,
-    summary: input.summary ?? null,
-    snapshot: input.snapshot,
-    metadata: input.metadata ?? null,
-  };
+      args: [input.resourceType, input.resourceId],
+    });
+    const versionNumber =
+      Number(
+        (maxRows.rows?.[0] as Record<string, unknown> | undefined)
+          ?.max_version ?? 0,
+      ) + 1;
+    const id = createVersionId();
+    const createdAt = new Date().toISOString();
+    const version: ResourceVersion = {
+      id,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      versionNumber,
+      createdAt,
+      createdBy,
+      actorKind,
+      ownerEmail,
+      orgId,
+      visibility,
+      title,
+      summary,
+      snapshot: input.snapshot,
+      metadata,
+    };
 
-  await client.execute({
-    sql: `INSERT INTO agent_resource_versions (
+    try {
+      await client.execute({
+        sql: `INSERT INTO agent_resource_versions (
       id,
       resource_type,
       resource_id,
@@ -139,25 +160,35 @@ export async function insertResourceVersion(
       snapshot_json,
       metadata_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      version.id,
-      version.resourceType,
-      version.resourceId,
-      version.versionNumber,
-      version.createdAt,
-      version.createdBy,
-      version.actorKind,
-      version.ownerEmail,
-      version.orgId,
-      version.visibility,
-      version.title,
-      version.summary,
-      JSON.stringify(version.snapshot),
-      stringifyOptionalJson(version.metadata),
-    ],
-  });
+        args: [
+          version.id,
+          version.resourceType,
+          version.resourceId,
+          version.versionNumber,
+          version.createdAt,
+          version.createdBy,
+          version.actorKind,
+          version.ownerEmail,
+          version.orgId,
+          version.visibility,
+          version.title,
+          version.summary,
+          snapshotJson,
+          metadataJson,
+        ],
+      });
+      return version;
+    } catch (error) {
+      lastError = error;
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+    }
+  }
 
-  return version;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Failed to allocate a unique resource version number");
 }
 
 export async function queryResourceVersions(

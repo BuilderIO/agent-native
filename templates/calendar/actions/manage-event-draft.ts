@@ -11,11 +11,13 @@ import { z } from "zod";
 import type { CalendarEventDraft } from "../shared/api.js";
 import {
   attachmentsInput,
+  attendeesInput,
   availabilityInput,
   buildReminderOverrides,
   cliBoolean,
   eventTypeInput,
   googleColorIdInput,
+  normalizeAttendees,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
@@ -25,43 +27,12 @@ import {
 
 const DRAFT_PREFIX = "calendar-draft-";
 
-const attendeesInput = z
-  .union([
-    z.array(
-      z.object({
-        email: z.string(),
-        displayName: z.string().optional(),
-      }),
-    ),
-    z.string(),
-  ])
-  .optional();
-
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
 function draftKey(id: string) {
   return `${DRAFT_PREFIX}${id}`;
-}
-
-function normalizeAttendees(
-  input: z.infer<typeof attendeesInput>,
-): CalendarEventDraft["attendees"] | undefined {
-  if (input === undefined) return undefined;
-  if (typeof input === "string") {
-    const emails = input
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.includes("@"));
-    return emails.map((email) => ({ email }));
-  }
-  return input
-    .filter((a) => a.email && a.email.includes("@"))
-    .map((a) => ({
-      email: a.email,
-      ...(a.displayName ? { displayName: a.displayName } : {}),
-    }));
 }
 
 /**
@@ -166,9 +137,11 @@ export default defineAction({
       .optional()
       .describe("Preselect Google Meet for this draft"),
     addZoom: cliBoolean.optional().describe("Preselect Zoom for this draft"),
-    attendees: attendeesInput.describe(
-      "Invitees — either an array of {email, displayName?} or a comma-separated string of emails",
-    ),
+    attendees: attendeesInput
+      .optional()
+      .describe(
+        "Invitees — either an array of {email, displayName?, optional?} or a comma-separated string of emails. Set optional:true to mark a guest optional.",
+      ),
     accountEmail: z
       .string()
       .optional()

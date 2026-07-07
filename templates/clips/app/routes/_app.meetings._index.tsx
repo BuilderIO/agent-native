@@ -6,10 +6,12 @@ import {
 import {
   IconAlertTriangle,
   IconAppWindow,
+  IconBellRinging,
   IconCalendar,
   IconCheck,
   IconExternalLink,
   IconLoader2,
+  IconMicrophone2,
   IconNotes,
   IconPlugConnected,
   IconPlugOff,
@@ -428,6 +430,70 @@ function CalendarConnectionAction({
   );
 }
 
+function MeetingNotesSteps() {
+  const t = useT();
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconCalendar className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideCalendarTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideCalendarDescription")}
+        </p>
+      </div>
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconMicrophone2 className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideDesktopTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideDesktopDescription")}
+        </p>
+      </div>
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconBellRinging className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideStartTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideStartDescription")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MeetingNotesGuide({ showDesktopCta }: { showDesktopCta: boolean }) {
+  const t = useT();
+  return (
+    <section className="mb-6 rounded-lg border border-border bg-accent/20 p-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("meetingsRoute.howToTriggerTitle")}
+          </h2>
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            {t("meetingsRoute.howToTriggerDescription")}
+          </p>
+        </div>
+        {showDesktopCta && (
+          <CaptureInstallButton
+            size="sm"
+            variant="secondary"
+            className="h-8 w-fit shrink-0 gap-1.5 cursor-pointer"
+          >
+            <IconAppWindow className="h-4 w-4" />
+            {t("meetingsRoute.getDesktopApp")}
+          </CaptureInstallButton>
+        )}
+      </div>
+      <MeetingNotesSteps />
+    </section>
+  );
+}
+
 function ConnectCalendarEmptyState({
   onConnected,
 }: {
@@ -453,6 +519,9 @@ function ConnectCalendarEmptyState({
                 label={t("meetingsRoute.connectGoogleCalendar")}
                 onConnected={onConnected}
               />
+            </div>
+            <div className="mt-4">
+              <MeetingNotesSteps />
             </div>
           </div>
         </div>
@@ -972,6 +1041,10 @@ export default function MeetingsIndexRoute() {
 
       {needsCalendarReauth && (
         <CalendarReauthBanner onReconnect={handleReconnectCalendar} />
+      )}
+
+      {hasCalendar && meetings.length === 0 && (
+        <MeetingNotesGuide showDesktopCta={showDesktopCta} />
       )}
 
       {nothingAtAll ? (

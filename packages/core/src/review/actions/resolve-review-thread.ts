@@ -45,11 +45,18 @@ export default defineAction({
     if (!threadId) {
       throw new Error("Provide threadId or commentId");
     }
-    await resolveReviewThread(threadId, actionCtx?.userEmail ?? null, {
-      resourceType: args.resourceType,
-      resourceId: args.resourceId,
-    });
-    return { threadId, resolved: true };
+    const updatedCount = await resolveReviewThread(
+      threadId,
+      actionCtx?.userEmail ?? null,
+      {
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+      },
+    );
+    if (updatedCount < 1) {
+      throw new Error("Review thread not found");
+    }
+    return { threadId, resolved: true as const, updatedCount };
   },
   audit: {
     target: (args) => ({

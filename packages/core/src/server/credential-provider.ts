@@ -721,6 +721,8 @@ export async function clearBuilderCredentialAuthFailure(creds: {
 }
 
 const PROVIDER_AUTH_FAILURE_SETTING_PREFIX = "provider-auth-failure:";
+/** Stale failure markers expire so a transient 401 cannot permanently block deploy keys. */
+export const PROVIDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 
 export interface ProviderCredentialAuthFailure {
   fingerprint: string;
@@ -760,10 +762,18 @@ export async function getProviderCredentialAuthFailure(opts: {
   const fingerprint = providerCredentialFingerprint(key, opts.value);
   if (!fingerprint) return null;
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const row = await getSetting(providerAuthFailureSettingKey(fingerprint));
+    const settings = await import("../settings/store.js");
+    const settingKey = providerAuthFailureSettingKey(fingerprint);
+    const row = await settings.getSetting(settingKey);
     if (!row) return null;
     if (row.fingerprint !== fingerprint) return null;
+    const at = typeof row.at === "number" ? row.at : Date.now();
+    if (Date.now() - at > PROVIDER_AUTH_FAILURE_TTL_MS) {
+      if (typeof settings.deleteSetting === "function") {
+        await settings.deleteSetting(settingKey).catch(() => {});
+      }
+      return null;
+    }
     return {
       fingerprint,
       key:
@@ -776,7 +786,7 @@ export async function getProviderCredentialAuthFailure(opts: {
           : "The model provider rejected the saved API key.",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
-      at: typeof row.at === "number" ? row.at : Date.now(),
+      at,
       ownerEmail:
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
       orgId: typeof row.orgId === "string" ? row.orgId : undefined,

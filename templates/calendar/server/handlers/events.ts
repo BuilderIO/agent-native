@@ -181,6 +181,7 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
             responseStatus: a.responseStatus || undefined,
             organizer: a.organizer || undefined,
             self: a.self || undefined,
+            optional: a.optional === true ? true : undefined,
           })),
           remindersUseDefault: evt.reminders?.useDefault ?? true,
           reminders: evt.reminders?.overrides?.map((r: any) => ({

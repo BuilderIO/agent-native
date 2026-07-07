@@ -60,6 +60,58 @@ export const workingLocationTypeInput = z
   .enum(["homeOffice", "officeLocation", "customLocation"])
   .optional();
 
+export const attendeeObjectInput = z.object({
+  email: z.string(),
+  displayName: z.string().optional(),
+  optional: cliBoolean.optional(),
+  comment: z.string().optional(),
+  responseStatus: z
+    .enum(["accepted", "declined", "tentative", "needsAction"])
+    .optional(),
+  organizer: cliBoolean.optional(),
+  self: cliBoolean.optional(),
+});
+
+export const attendeesInput = z.union([
+  z.array(attendeeObjectInput),
+  z.string(),
+]);
+
+export type NormalizedAttendee = {
+  email: string;
+  displayName?: string;
+  optional?: boolean;
+  comment?: string;
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  organizer?: boolean;
+  self?: boolean;
+};
+
+export function normalizeAttendees(
+  input: z.infer<typeof attendeesInput> | undefined,
+): NormalizedAttendee[] | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input === "string") {
+    const emails = input
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes("@"));
+    if (emails.length === 0) return [];
+    return emails.map((email) => ({ email }));
+  }
+  return input
+    .filter((a) => a.email && a.email.includes("@"))
+    .map((a) => ({
+      email: a.email,
+      ...(a.displayName ? { displayName: a.displayName } : {}),
+      ...(a.optional === true ? { optional: true } : {}),
+      ...(a.comment ? { comment: a.comment } : {}),
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+      ...(a.organizer === true ? { organizer: true } : {}),
+      ...(a.self === true ? { self: true } : {}),
+    }));
+}
+
 export function requireActionUserEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");

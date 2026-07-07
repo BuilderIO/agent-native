@@ -217,6 +217,14 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     expect(deps["@react-router/dev"]).toBe("8.1.0");
     expect(deps["@react-router/fs-routes"]).toBe("8.1.0");
     expect(deps["react-router"]).toBe("8.1.0");
+    expect(pkg.dependencies["@react-router/dev"]).toBe("8.1.0");
+    expect(pkg.dependencies["@react-router/fs-routes"]).toBe("8.1.0");
+    expect(pkg.dependencies["react-router"]).toBe("8.1.0");
+    expect(pkg.dependencies.vite).toBeDefined();
+    expect(pkg.devDependencies?.["@react-router/dev"]).toBeUndefined();
+    expect(pkg.devDependencies?.["@react-router/fs-routes"]).toBeUndefined();
+    expect(pkg.devDependencies?.["react-router"]).toBeUndefined();
+    expect(pkg.devDependencies?.vite).toBeUndefined();
   });
 
   it("catalog: refs resolve to semver-like strings", async () => {
@@ -728,6 +736,20 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
     expect(rootPkg.dependencies?.postgres).toBeDefined();
     expect(appPkg.dependencies?.postgres).toBeDefined();
+  });
+
+  it("keeps React Router build packages installed for workspace app builds", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
+
+    expect(appPkg.dependencies["@react-router/dev"]).toBeDefined();
+    expect(appPkg.dependencies["@react-router/fs-routes"]).toBeDefined();
+    expect(appPkg.dependencies["react-router"]).toBeDefined();
+    expect(appPkg.dependencies.vite).toBeDefined();
+    expect(appPkg.devDependencies?.["@react-router/dev"]).toBeUndefined();
+    expect(appPkg.devDependencies?.["@react-router/fs-routes"]).toBeUndefined();
+    expect(appPkg.devDependencies?.["react-router"]).toBeUndefined();
+    expect(appPkg.devDependencies?.vite).toBeUndefined();
   });
 
   it("writes inherited chat auth/chat wrappers while preserving app identity", async () => {

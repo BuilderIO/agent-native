@@ -16,8 +16,8 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-const NOTIFICATION_W_LOGICAL: u32 = 380;
-const NOTIFICATION_H_LOGICAL: u32 = 132;
+const NOTIFICATION_W_LOGICAL: u32 = 420;
+const NOTIFICATION_H_LOGICAL: u32 = 148;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
 
@@ -125,11 +125,7 @@ pub async fn notify_meeting_starting(
     } else {
         format!("in {} min", (starts_in_secs / 60).max(1))
     };
-    let body = if join_url.is_some() {
-        format!("{} — Start notes", pretty_in)
-    } else {
-        format!("Starts {}", pretty_in)
-    };
+    let body = format!("Starts {}", pretty_in);
     dlog!(
         "[clips-tray] notify_meeting_starting id={} title={} body={}",
         meeting_id,

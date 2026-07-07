@@ -6623,6 +6623,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               scope: "user",
               scopeId: ownerEmail,
             });
+            const { clearProviderCredentialAuthFailure } =
+              await import("./credential-provider.js");
+            await clearProviderCredentialAuthFailure({
+              key: secretKey,
+              value: trimmedKey,
+            });
           } catch (err) {
             console.error(
               "[agent-chat] save-key persistence failed:",

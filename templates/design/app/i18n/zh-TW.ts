@@ -600,9 +600,12 @@ const messages = {
       previewLabel: "待處理的視覺預覽",
       applyWithAgent: "用 Design 代理套用",
       copyPrompt: "將提示複製給您的代理",
+      abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
       copiedToast: "樣式提示已複製",
+      abortedToast: "已捨棄待處理的預覽",
+      interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
       leaveTitle: "離開前要套用樣式嗎？",
       leaveDescriptionOne:
         "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",

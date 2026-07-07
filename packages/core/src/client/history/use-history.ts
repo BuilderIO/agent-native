@@ -30,6 +30,13 @@ export interface RestoreResourceVersionInput {
   versionNumber?: number;
 }
 
+export interface GetResourceVersionInput {
+  id?: string;
+  resourceType?: string;
+  resourceId?: string;
+  versionNumber?: number;
+}
+
 export interface ListResourceVersionsResult {
   versions: ResourceVersion[];
 }
@@ -37,6 +44,10 @@ export interface ListResourceVersionsResult {
 export interface ListResourceHistoryResult {
   versions: ResourceVersion[];
   auditEvents: unknown[];
+}
+
+export interface GetResourceVersionResult {
+  version: ResourceVersion;
 }
 
 export interface RestoreResourceVersionResult {
@@ -69,6 +80,23 @@ export function useResourceHistory(
       enabled:
         options?.enabled ?? Boolean(params.resourceType && params.resourceId),
     },
+  );
+}
+
+export function useResourceVersion(
+  params: GetResourceVersionInput,
+  options?: { enabled?: boolean },
+) {
+  const enabled =
+    options?.enabled ??
+    Boolean(
+      params.id ||
+      (params.resourceType && params.resourceId && params.versionNumber),
+    );
+  return useActionQuery<GetResourceVersionResult>(
+    "get-resource-version",
+    params,
+    { enabled },
   );
 }
 

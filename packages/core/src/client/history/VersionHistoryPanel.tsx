@@ -1,5 +1,5 @@
 import { IconClock, IconRestore, IconTimeline } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { ResourceVersion } from "../../history/types.js";
 import { cn } from "../utils.js";
@@ -31,6 +31,7 @@ export function VersionHistoryPanel({
 }: VersionHistoryPanelProps) {
   const versions = useResourceVersions({ resourceType, resourceId, limit });
   const restore = useRestoreResourceVersion();
+  const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
 
   return (
     <section
@@ -49,52 +50,81 @@ export function VersionHistoryPanel({
             Loading versions...
           </div>
         ) : versions.data?.versions.length ? (
-          versions.data.versions.map((version) => (
-            <article key={version.id} className="flex gap-3 px-4 py-3">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                <IconClock className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="min-w-0 flex-1">
-                {renderVersion ? (
-                  renderVersion(version)
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <h3 className="truncate text-sm font-medium">
-                        {version.title ?? `Version ${version.versionNumber}`}
-                      </h3>
-                      <span className="text-xs text-muted-foreground">
-                        {formatVersionDate(version.createdAt)}
-                      </span>
-                    </div>
-                    {version.summary ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {version.summary}
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={restore.isPending}
-                onClick={() =>
-                  restore.mutate(
-                    { id: version.id },
-                    {
-                      onSuccess: (result) => {
-                        onRestored?.(result.version, result.result);
-                      },
-                    },
-                  )
-                }
-              >
-                <IconRestore className="h-3.5 w-3.5" />
-                Restore
-              </button>
-            </article>
-          ))
+          versions.data.versions.map((version) => {
+            const confirming = confirmRestoreId === version.id;
+            return (
+              <article key={version.id} className="flex gap-3 px-4 py-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <IconClock className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  {renderVersion ? (
+                    renderVersion(version)
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <h3 className="truncate text-sm font-medium">
+                          {version.title ?? `Version ${version.versionNumber}`}
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          {formatVersionDate(version.createdAt)}
+                        </span>
+                      </div>
+                      {version.summary ? (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {version.summary}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {confirming ? (
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center rounded-md border border-input px-2.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={restore.isPending}
+                        onClick={() => setConfirmRestoreId(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive bg-destructive px-2.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={restore.isPending}
+                        onClick={() =>
+                          restore.mutate(
+                            { id: version.id },
+                            {
+                              onSuccess: (result) => {
+                                setConfirmRestoreId(null);
+                                onRestored?.(result.version, result.result);
+                              },
+                              onError: () => setConfirmRestoreId(null),
+                            },
+                          )
+                        }
+                      >
+                        <IconRestore className="h-3.5 w-3.5" />
+                        Confirm restore
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={restore.isPending}
+                      onClick={() => setConfirmRestoreId(version.id)}
+                    >
+                      <IconRestore className="h-3.5 w-3.5" />
+                      Restore
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })
         ) : (
           <div className="px-4 py-6 text-sm text-muted-foreground">
             {emptyState}

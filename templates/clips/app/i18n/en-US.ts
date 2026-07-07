@@ -199,6 +199,11 @@ const messages = {
     edit: "Edit",
     aiTools: "AI tools",
     enhanceRecording: "Enhance this recording",
+    includeFullVideo: "Include full video",
+    includeFullVideoDescription:
+      "When on, AI tools watch the recording (Gemini only) for on-screen context — not just the audio transcript. Also applies to default title and description generation. Requires a Gemini model via Builder or GEMINI_API_KEY.",
+    includeFullVideoOn: "AI tools will use the full video (Gemini)",
+    includeFullVideoOff: "AI tools will use the transcript only",
     regenerateTitle: "Regenerate title",
     regenerateDescription: "Regenerate description",
     autoChapters: "Auto chapters",
@@ -324,7 +329,7 @@ const messages = {
     removing: "Removing...",
     remove: "Remove",
     desktopHint:
-      "Record live notes for this meeting from the Clips desktop app — the transcript and AI notes will appear here automatically.",
+      "To start notes, open Clips Desktop from the menu bar and choose Start Meeting Notes, or click Start notes when the reminder appears. Clips captures mic + system audio and writes the transcript here.",
     getDesktopApp: "Get desktop app",
     generateNotesFailed: "Couldn't generate notes. Try again.",
     attendee_one: "{{count}} attendee",
@@ -991,7 +996,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     inHours: "in {{count}} hr",
     join: "Join",
     openNotes: "Open notes",
-    open: "Open",
+    open: "Open notes",
+    startFromDesktopNow:
+      "Start live notes from the desktop reminder or menu bar.",
+    startFromDesktopLater:
+      "Clips Desktop will show Start notes when it is time.",
   },
   transcriptBubbles: {
     listening: "Listening…",
@@ -1417,23 +1426,37 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically.",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",
-    requiredForReminders: "Required for meeting reminders and transcription.",
+    requiredForReminders:
+      "Desktop captures mic + system audio for meeting transcription.",
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
-    intro: "Upcoming calendar meetings and your recorded notes.",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
     searchPlaceholder: "Search meetings...",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes.",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
+    howToTriggerTitle: "How to trigger meeting notes",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.",
+    guideCalendarTitle: "Connect Google Calendar",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you.",
+    guideDesktopTitle: "Keep Clips Desktop open",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription.",
+    guideStartTitle: "Click Start notes",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
   },
 };
 

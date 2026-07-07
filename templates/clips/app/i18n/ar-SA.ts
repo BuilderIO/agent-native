@@ -197,6 +197,11 @@ const messages = {
     edit: "تحرير",
     aiTools: "أدوات الذكاء الاصطناعي",
     enhanceRecording: "تعزيز هذا التسجيل",
+    includeFullVideo: "تضمين الفيديو الكامل",
+    includeFullVideoDescription:
+      "عند التشغيل، تشاهد أدوات الذكاء الاصطناعي التسجيل (Gemini فقط) لسياق الشاشة — وليس نسخة الصوت النصية فقط. ينطبق أيضاً على إنشاء العنوان والوصف الافتراضيين. يتطلب نموذج Gemini عبر Builder أو GEMINI_API_KEY.",
+    includeFullVideoOn: "ستستخدم أدوات الذكاء الاصطناعي الفيديو الكامل (Gemini)",
+    includeFullVideoOff: "ستستخدم أدوات الذكاء الاصطناعي النص فقط",
     regenerateTitle: "إعادة إنشاء العنوان",
     regenerateDescription: "إعادة إنشاء الوصف",
     autoChapters: "فصول السيارات",
@@ -322,7 +327,7 @@ const messages = {
     removing: "جارٍ الإزالة...",
     remove: "يزيل",
     desktopHint:
-      "قم بتسجيل الملاحظات المباشرة لهذا الاجتماع من تطبيق سطح المكتب Clips - سيظهر النص وملاحظات الذكاء الاصطناعي هنا تلقائيًا.",
+      "لبدء الملاحظات، افتح Clips Desktop من شريط القوائم واختر Start Meeting Notes، أو انقر على Start notes عند ظهور التذكير. يلتقط Clips الميكروفون وصوت النظام ويكتب النص هنا.",
     getDesktopApp: "احصل على تطبيق سطح المكتب",
     generateNotesFailed: "تعذر إنشاء الملاحظات. حاول ثانية.",
     attendee_one: "الحضور {{count}}",
@@ -996,7 +1001,11 @@ const messages = {
     inHours: "بعد {{count}} س",
     join: "انضمام",
     openNotes: "فتح الملاحظات",
-    open: "فتح",
+    open: "فتح الملاحظات",
+    startFromDesktopNow:
+      "ابدأ الملاحظات المباشرة من تذكير سطح المكتب أو شريط القوائم.",
+    startFromDesktopLater:
+      "سيعرض Clips Desktop زر Start notes عندما يحين الوقت.",
   },
   transcriptBubbles: {
     listening: "يستمع…",
@@ -1427,10 +1436,10 @@ const messages = {
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically. (مترجم)",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",
     requiredForReminders:
-      "Required for meeting reminders and transcription. (مترجم)",
+      "Desktop captures mic + system audio for meeting transcription. (مترجم)",
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
@@ -1438,14 +1447,27 @@ const messages = {
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",
     title: "Meetings (مترجم)",
-    intro: "Upcoming calendar meetings and your recorded notes. (مترجم)",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
     searchPlaceholder: "Search meetings... (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes. (مترجم)",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (مترجم)",
     noMeetingsMatch: 'No meetings match "{{query}}" (مترجم)',
     refreshing: "Refreshing… (مترجم)",
+    howToTriggerTitle: "How to trigger meeting notes (مترجم)",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (مترجم)",
+    guideCalendarTitle: "Connect Google Calendar (مترجم)",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you. (مترجم)",
+    guideDesktopTitle: "Keep Clips Desktop open (مترجم)",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription. (مترجم)",
+    guideStartTitle: "Click Start notes (مترجم)",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
   },
 };
 

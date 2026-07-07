@@ -1,5 +1,5 @@
 import { getSession } from "@agent-native/core/server";
-import { putUserSetting } from "@agent-native/core/settings";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
@@ -17,11 +17,19 @@ export default defineEventHandler(async (event) => {
     return { error: "Invalid settings payload" };
   }
 
-  await putUserSetting(
-    session.email,
-    CLIPS_USER_PREFS_KEY,
-    body as Record<string, unknown>,
-    { requestSource: getHeader(event, "x-request-source") || undefined },
-  );
-  return body;
+  // Merge so partial Settings saves (playback, notifications, …) don't wipe
+  // AI-tool prefs written from the recording page popover.
+  const existing =
+    (await getUserSetting(session.email, CLIPS_USER_PREFS_KEY)) ?? {};
+  const next = {
+    ...(typeof existing === "object" && existing && !Array.isArray(existing)
+      ? existing
+      : {}),
+    ...(body as Record<string, unknown>),
+  };
+
+  await putUserSetting(session.email, CLIPS_USER_PREFS_KEY, next, {
+    requestSource: getHeader(event, "x-request-source") || undefined,
+  });
+  return next;
 });

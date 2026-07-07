@@ -6,6 +6,9 @@
  * waiting for the agent chat bridge. If the fast path is unavailable, we still
  * queue the older agent-chat request as a fallback.
  *
+ * When the user enables Include full video, we skip the transcript-only fast
+ * path and always delegate so the agent can watch the recording.
+ *
  * Usage:
  *   pnpm action regenerate-title --recordingId=<id>
  */
@@ -19,9 +22,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
+import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import { clearBuilderCreditsExhausted } from "./lib/builder-credits-state.js";
+import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 import {
   cleanGeneratedTitle,
   fallbackTitleFromTranscript,
@@ -66,6 +71,7 @@ export async function queueTitleRegenerationRequest({
   transcriptStatus = "ready",
   segmentsJson = "[]",
   ownerEmail,
+  includeFullVideoInAi,
 }: {
   recordingId: string;
   currentTitle: string | null | undefined;
@@ -73,11 +79,20 @@ export async function queueTitleRegenerationRequest({
   transcriptStatus?: string;
   segmentsJson?: string | null;
   ownerEmail?: string | null;
+  includeFullVideoInAi?: boolean;
 }) {
   const agentsContext = await loadAgentsMdContext({
     ownerEmail,
     purpose: "title",
   });
+  const useVideo =
+    includeFullVideoInAi ?? (await readIncludeFullVideoInAi(ownerEmail));
+  const baseMessage =
+    `Regenerate the title for recording ${recordingId}. ` +
+    `Read the native transcript and AGENTS.md context in this request's context and call ` +
+    `\`update-recording --id=${recordingId} --title="..."\` with a concise ` +
+    `4-9 word descriptive title. Current title: "${currentTitle ?? ""}". ` +
+    "Do not prompt the user.";
   const request = {
     kind: "regenerate-title" as const,
     recordingId,
@@ -87,12 +102,8 @@ export async function queueTitleRegenerationRequest({
     transcriptText,
     segmentsJson: segmentsJson ?? "[]",
     agentsContext,
-    message:
-      `Regenerate the title for recording ${recordingId}. ` +
-      `Read the native transcript and AGENTS.md context in this request's context and call ` +
-      `\`update-recording --id=${recordingId} --title="..."\` with a concise ` +
-      `4-9 word descriptive title. Current title: "${currentTitle ?? ""}". ` +
-      "Do not prompt the user.",
+    includeFullVideoInAi: useVideo,
+    message: withFullVideoAiInstructions(baseMessage, recordingId, useVideo),
   };
 
   await writeAppState(`clips-ai-request-${recordingId}`, request as any);
@@ -102,7 +113,7 @@ export async function queueTitleRegenerationRequest({
 
 export default defineAction({
   description:
-    "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable.",
+    "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable. When the user has enabled Include full video, delegates to the agent so it can watch the recording.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     transcriptText: z
@@ -137,6 +148,31 @@ export default defineAction({
       args.transcriptText?.trim() ||
       transcript?.fullText?.trim() ||
       transcriptTextFromSegments(transcript?.segmentsJson);
+
+    const includeFullVideoInAi = await readIncludeFullVideoInAi();
+
+    // Full-video mode needs the agent to watch the clip; skip the transcript-
+    // only Gemini fast path so we don't generate titles from audio alone.
+    if (includeFullVideoInAi) {
+      await queueTitleRegenerationRequest({
+        recordingId: args.recordingId,
+        currentTitle: rec.title,
+        transcriptStatus: transcript?.status ?? "pending",
+        transcriptText: transcriptText || "",
+        segmentsJson: transcript?.segmentsJson ?? "[]",
+        ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
+        includeFullVideoInAi: true,
+      });
+      console.log(
+        `Delegation queued: regenerate-title (full video) for ${args.recordingId}`,
+      );
+      return {
+        queued: true,
+        recordingId: args.recordingId,
+        includeFullVideoInAi: true,
+      };
+    }
+
     if (
       (!args.transcriptText && transcript?.status !== "ready") ||
       !transcriptText
@@ -279,6 +315,7 @@ export default defineAction({
       transcriptText,
       segmentsJson: transcript?.segmentsJson ?? "[]",
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
+      includeFullVideoInAi: false,
     });
 
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);

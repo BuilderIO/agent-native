@@ -310,13 +310,13 @@ export async function resolveReviewThread(
   threadId: string,
   resolvedBy?: string | null,
   resource?: { resourceType: string; resourceId: string },
-): Promise<void> {
+): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: `UPDATE agent_review_comments
         SET status = 'resolved',
             resolved_by = ?,
@@ -331,15 +331,16 @@ export async function resolveReviewThread(
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
+  return result.rowsAffected ?? 0;
 }
 
 export async function deleteReviewComment(
   id: string,
   deletedBy?: string | null,
-): Promise<void> {
+): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: `UPDATE agent_review_comments
         SET status = 'deleted',
             deleted_by = ?,
@@ -348,22 +349,23 @@ export async function deleteReviewComment(
       WHERE id = ?`,
     args: [deletedBy ?? null, now, now, id],
   });
+  return result.rowsAffected ?? 0;
 }
 
 export async function consumeReviewFeedback(
   ids: string[],
   consumedAt = new Date().toISOString(),
   resource?: { resourceType: string; resourceId: string },
-): Promise<void> {
+): Promise<number> {
   if (!ids.length) {
-    return;
+    return 0;
   }
   await ensureReviewTables();
   const placeholders = ids.map(() => "?").join(", ");
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: `UPDATE agent_review_comments
         SET consumed_at = ?,
             updated_at = ?
@@ -375,6 +377,7 @@ export async function consumeReviewFeedback(
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
+  return result.rowsAffected ?? 0;
 }
 
 export async function upsertReviewStatus(

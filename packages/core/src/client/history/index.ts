@@ -6,9 +6,12 @@ export {
 export {
   useCreateResourceVersion,
   useResourceHistory,
+  useResourceVersion,
   useResourceVersions,
   useRestoreResourceVersion,
   type CreateResourceVersionInput,
+  type GetResourceVersionInput,
+  type GetResourceVersionResult,
   type ListResourceHistoryResult,
   type ListResourceVersionsResult,
   type ResourceHistoryParams,

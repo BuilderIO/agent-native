@@ -45,6 +45,8 @@ export interface CalendarEvent {
     responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
     organizer?: boolean;
     self?: boolean;
+    /** When true, the attendee is optional (Google Calendar `optional`). */
+    optional?: boolean;
   }>;
   reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
   /** Whether this event uses the calendar's default reminder policy. */
