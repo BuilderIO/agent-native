@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   databaseBuilderBulkUpdateSource,
   databaseBulkEditableProperties,
+  databaseBulkPropertyValueForItem,
   databaseBulkMultiSelectFilteredOptions,
   databaseBulkMultiSelectOptionPresence,
   databaseBulkMultiSelectToggleOperation,
@@ -317,6 +318,21 @@ describe("Database bulk multi-select edit helpers", () => {
         },
       ),
     ).toEqual(["agent-native", "cms"]);
+  });
+
+  it("clears all multi-select options with a set-empty operation", () => {
+    const tagsProperty = baseProperty("tags", "multi_select");
+    const row = rowWithPropertyValue("alpha", tagsProperty, [
+      "agent-native",
+      "open-source",
+    ]);
+
+    expect(
+      databaseBulkPropertyValueForItem(row, tagsProperty, {
+        kind: "set",
+        value: [],
+      }),
+    ).toEqual([]);
   });
 
   it("only enables remove when every selected row has the option", () => {

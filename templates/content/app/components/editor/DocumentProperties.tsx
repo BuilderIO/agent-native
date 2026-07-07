@@ -851,7 +851,7 @@ function PropertyRow({
 
 // Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
 // gate which source fields can bind into a column (type compatibility).
-function propertyTypeForSourceFieldType(
+export function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
   const normalized = sourceFieldType.trim().toLowerCase();
@@ -863,12 +863,7 @@ function propertyTypeForSourceFieldType(
   if (normalized === "boolean" || normalized === "checkbox") {
     return "checkbox";
   }
-  if (
-    normalized === "list" ||
-    normalized === "array" ||
-    normalized === "tags" ||
-    normalized === "multi_select"
-  ) {
+  if (normalized === "tags" || normalized === "multi_select") {
     return "multi_select";
   }
   return "text";

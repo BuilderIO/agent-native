@@ -11255,11 +11255,11 @@ export type DatabaseBulkMultiSelectOperation =
       removeOptionIds: string[];
     };
 
-type DatabaseBulkPropertyValueOperation =
+export type DatabaseBulkPropertyValueOperation =
   | { kind: "set"; value: DocumentPropertyValue }
   | DatabaseBulkMultiSelectOperation;
 
-function databaseBulkPropertyValueForItem(
+export function databaseBulkPropertyValueForItem(
   item: ContentDatabaseItem,
   property: DocumentProperty,
   operation: DatabaseBulkPropertyValueOperation,
@@ -12783,18 +12783,29 @@ function DatabaseBulkOptionValueEditor({
             );
           })}
         </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
+        <div className="flex items-center justify-between gap-2">
           <Button
             type="button"
+            variant="ghost"
             size="sm"
-            disabled={disabled || !hasPendingChanges}
-            onClick={() => void onApply(pendingMultiSelectOperation)}
+            disabled={disabled}
+            onClick={() => void onApply({ kind: "set", value: [] })}
           >
-            Apply
+            {dbText("clearValue")}
           </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || !hasPendingChanges}
+              onClick={() => void onApply(pendingMultiSelectOperation)}
+            >
+              Apply
+            </Button>
+          </div>
         </div>
       </div>
     );
