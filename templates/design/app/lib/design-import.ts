@@ -46,6 +46,79 @@ export function importResultSummary(
   return `Imported ${count} screens.`;
 }
 
+// --- R83: safe fetch-response parsing for the file upload path ---
+//
+// A failed upload can come back as a non-JSON body — a plaintext "Internal
+// Error" from an upstream proxy/platform crash page, an HTML error page, or
+// any other unexpected content-type — even though this app's own
+// import-design-file route always returns a JSON `{ error }` envelope on its
+// own thrown failures. Calling `response.json()` unconditionally on a body
+// like that throws a raw `SyntaxError` ("Unexpected token 'I', "Internal
+// E"... is not valid JSON"), which then surfaces verbatim in the upload
+// toast instead of a clean message. Route every parse through this helper so
+// a non-JSON body always degrades to a readable message instead of a raw
+// parser error leaking into the UI.
+
+/** Minimal shape `parseUploadResponse` needs — a subset of the real `Response`. */
+export interface JsonParsableResponse {
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}
+
+/**
+ * Parses a fetch `Response` as JSON only when it is actually JSON, and
+ * always resolves rather than throwing a parse error — the fallback branch
+ * folds an unparsable failure body into the same `{ error }` shape a
+ * well-behaved server route would have sent, truncating an overlong body so
+ * a raw HTML/proxy error page doesn't blow up the toast description.
+ *
+ * Success responses are still expected to be real JSON: a genuinely broken
+ * 200 (should not happen for this route) throws the underlying SyntaxError
+ * rather than silently returning `{}`, so that failure mode stays loud
+ * instead of masquerading as an empty successful import.
+ */
+export async function parseUploadResponse<T extends ImportResult>(
+  response: JsonParsableResponse,
+  fallbackErrorMessage: string,
+): Promise<T> {
+  const raw = await response.text();
+  const contentLooksJson = /^\s*[{[]/.test(raw);
+  if (!contentLooksJson) {
+    if (response.ok) {
+      // Successful response that isn't JSON at all — this is a real bug
+      // (route contract broken), not an expected failure mode. Surface it
+      // loudly rather than swallowing it as a fake success.
+      throw new SyntaxError(
+        `Expected a JSON response but received: ${truncateForToast(raw)}`,
+      );
+    }
+    return {
+      error: raw.trim()
+        ? `${fallbackErrorMessage}: ${truncateForToast(raw)}`
+        : fallbackErrorMessage,
+    } as T;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    if (response.ok) {
+      throw new SyntaxError(
+        `Expected a JSON response but received: ${truncateForToast(raw)}`,
+      );
+    }
+    return { error: fallbackErrorMessage } as T;
+  }
+}
+
+const MAX_TOAST_BODY_CHARS = 160;
+
+function truncateForToast(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= MAX_TOAST_BODY_CHARS) return trimmed;
+  return `${trimmed.slice(0, MAX_TOAST_BODY_CHARS)}…`;
+}
+
 // --- Cross-tab / system-clipboard round-trip (U4/U6) ---
 //
 // The in-memory clipboard refs (copiedLayerEntriesRef etc.) never survive a

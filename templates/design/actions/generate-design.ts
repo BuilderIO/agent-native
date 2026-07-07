@@ -4,8 +4,6 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import {
-  hasCollabState,
-  applyText,
   seedFromText,
   agentEnterDocument,
   agentLeaveDocument,
@@ -19,6 +17,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
+import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
@@ -27,6 +30,7 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -287,7 +291,16 @@ const generateDesignAction = defineAction({
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
-    for (const file of files) {
+    // Stamp missing data-agent-native-node-id attributes before persisting so
+    // every generated screen is born fully addressable by id-keyed editor
+    // operations (move/select/style), instead of depending on a client-side
+    // backfill the first time a human opens the screen.
+    const annotatedFiles = files.map((file) => ({
+      ...file,
+      content: annotateScreenHtmlForPersist(file.content, file.fileType),
+    }));
+
+    for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
         // Publish agent presence so live editors see "AI is generating" in place.
@@ -298,22 +311,44 @@ const generateDesignAction = defineAction({
         });
 
         try {
-          // Update existing file
-          await db
-            .update(schema.designFiles)
-            .set({
-              content: file.content,
-              fileType: file.fileType ?? "html",
-              updatedAt: now,
-            })
-            .where(eq(schema.designFiles.id, existing.id));
+          // `file.content` here is LLM-generated content produced upstream of
+          // this action call, so there can be a large async window (the full
+          // generation time) between whenever this file's content was last
+          // known and this write. Read the LIVE base (collab text when
+          // present, else the SQL row) right before persisting and carry its
+          // versionHash through to writeInlineSourceFile, which re-reads the
+          // live text immediately before its own applyText/DB write and
+          // rejects if it no longer matches — closing the race window where a
+          // concurrent editor/agent write lands mid-generation. See
+          // insert-design-native-asset.ts and insert-asset.ts for the
+          // identical pattern.
+          const workspaceFile: SourceWorkspaceFile = {
+            id: existing.id,
+            designId: existing.designId,
+            filename: existing.filename ?? "",
+            fileType: existing.fileType ?? "html",
+            content: existing.content,
+            createdAt: null,
+            updatedAt: null,
+          };
+          const live = await readLiveSourceFile(workspaceFile);
 
-          // Push content through collab layer for live editors
-          const collabExists = await hasCollabState(existing.id);
-          if (collabExists) {
-            await applyText(existing.id, file.content, "content", "agent");
-          } else {
-            await seedFromText(existing.id, file.content);
+          await writeInlineSourceFile({
+            designId: existing.designId,
+            file: workspaceFile,
+            content: file.content,
+            expectedVersionHash: live.versionHash,
+          });
+
+          // writeInlineSourceFile only persists content/updatedAt; keep
+          // fileType in sync separately when the caller changed it (e.g.
+          // html -> jsx), matching the original update behavior.
+          const nextFileType = file.fileType ?? "html";
+          if (nextFileType !== (existing.fileType ?? "html")) {
+            await db
+              .update(schema.designFiles)
+              .set({ fileType: nextFileType, updatedAt: now })
+              .where(eq(schema.designFiles.id, existing.id));
           }
         } finally {
           agentLeaveDocument(existing.id);

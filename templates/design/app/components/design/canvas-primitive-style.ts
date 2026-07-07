@@ -93,6 +93,23 @@ const FRAME_FILL = "hsl(var(--primary) / 0.05)";
 /** Small radius matching Tailwind `rounded-sm` (2 px). */
 const RECT_RADIUS = "2px";
 
+/**
+ * Canonical default stroke for vector primitives (line / arrow / pen path).
+ *
+ * Figma-parity: a freshly drawn line, arrow, or pen path defaults to solid
+ * black at 1px — not the editor's `--primary` accent color at 3px. These are
+ * exported so every call site that draws or commits one of these primitives
+ * (the board draft preview in MultiScreenCanvas.tsx, the persisted board file
+ * in shared/board-file.ts, and DesignEditor.tsx's
+ * `appendCanvasPrimitiveToHtml`) agrees on the same default, exactly like the
+ * div-based `canvasPrimitiveVisual` tokens above keep rect/ellipse/frame/text
+ * consistent.
+ */
+export const DEFAULT_LINE_STROKE = "#000000";
+
+/** Default stroke width, in pixels, for a freshly drawn line/arrow/pen path. */
+export const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
 // ---------------------------------------------------------------------------
 // canvasPrimitiveVisual
 // ---------------------------------------------------------------------------

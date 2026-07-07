@@ -1,4 +1,9 @@
 import {
+  isSafeCssUrlReference,
+  removeBreakpointMediaDeclaration,
+  setBreakpointMediaDeclaration,
+} from "./breakpoint-media.js";
+import {
   isComponentInstance,
   instanceFromNode,
   type ComponentInstance,
@@ -8,6 +13,8 @@ import {
   getPropertyClasses,
   parseClassGroups,
   parseClassToken,
+  removeMaxWidthPropertyClass,
+  setMaxWidthPropertyClass,
   setPropertyClass,
   removePropertyClass,
   utilityStem,
@@ -64,6 +71,9 @@ export type VisualStyleProperty =
   | "background"
   | "background-color"
   | "background-image"
+  | "background-size"
+  | "background-repeat"
+  | "background-position"
   | "background-blend-mode"
   | "fill"
   | "fill-opacity"
@@ -103,6 +113,8 @@ export type VisualStyleProperty =
   | "outline-style"
   | "outline-color"
   | "outline-offset"
+  | "-webkit-text-stroke-width"
+  | "-webkit-text-stroke-color"
   | "box-shadow"
   | "text-shadow"
   | "filter"
@@ -236,6 +248,22 @@ export type EditCapability =
       reason?: string;
     }
   | {
+      /**
+       * Breakpoint-scoped raw style editing (§6.4) — the `@media` fallback
+       * for values responsive class prefixes can't express. Writes into the
+       * managed `<style data-agent-native-breakpoints>` block via
+       * `breakpoint-media.ts`, targeting the node's stable
+       * `data-agent-native-node-id`.
+       */
+      kind: "breakpoint-style";
+      /** Inclusive upper viewport bound (px) the edit was applied below. */
+      maxWidthPx: number;
+      operations: Array<"set" | "remove">;
+      properties: string[];
+      confidence: number;
+      reason?: string;
+    }
+  | {
       kind: "text";
       operations: Array<"setTextContent">;
       confidence: number;
@@ -244,6 +272,13 @@ export type EditCapability =
   | {
       kind: "structure";
       operations: Array<"moveNode">;
+      confidence: number;
+      reason?: string;
+    }
+  | {
+      /** Single plain-attribute writes (see AttributeEditIntent). */
+      kind: "attribute";
+      operations: Array<"set">;
       confidence: number;
       reason?: string;
     };
@@ -390,6 +425,24 @@ export interface TextEditIntent {
   html?: string;
 }
 
+/**
+ * Node-id integrity (id-on-demand): sets or replaces a single plain HTML
+ * attribute on the target element. Introduced so the host can persist the
+ * bridge's minted `pendingNodeId` (see ElementInfo.pendingNodeId) as the
+ * element's real `data-agent-native-node-id` the moment an id-less node is
+ * selected — every subsequent id-keyed operation (move/reorder, style
+ * commits, motion tracks, scrub) then resolves normally. Not limited to that
+ * attribute name; kept general so other single-attribute host writes can
+ * reuse the same deterministic path instead of a full-document
+ * find/replace-and-resave.
+ */
+export interface AttributeEditIntent {
+  kind: "attribute";
+  target: EditIntentTarget;
+  name: string;
+  value: string;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -485,17 +538,50 @@ export interface ResponsiveClassEditIntent {
    * rejected as `"conflict"` rather than applied. Ignored for `"remove"`.
    */
   from?: string;
+  /**
+   * Framer-style desktop-down scope (§6.4 breakpoint bar). When set, the
+   * edit writes a `max-[<maxWidthPx>px]:` scoped token instead of a
+   * min-width `prefix` token, and `prefix` is ignored. The bound comes from
+   * `breakpointUpperBoundPx` (just below the next-wider frame). `from`
+   * guards are not applied to max-width scopes.
+   */
+  maxWidthPx?: number;
+}
+
+/**
+ * Breakpoint-scoped raw style edit — the `@media` fallback for values that
+ * responsive class prefixes can't express (exact px positions from canvas
+ * drags, rgb()/calc() values, …). Persists into the managed
+ * `<style data-agent-native-breakpoints>` block as a
+ * `@media (max-width: <maxWidthPx>px)` rule targeting the element's
+ * `data-agent-native-node-id` (stamped automatically when missing).
+ *
+ * - `operation: "set"` (default) writes/overwrites the declaration.
+ * - `operation: "remove"` deletes it, falling back to the base value.
+ */
+export interface BreakpointStyleEditIntent {
+  kind: "breakpoint-style";
+  target: EditIntentTarget;
+  /** Inclusive upper viewport bound (px) the override applies below. */
+  maxWidthPx: number;
+  /** CSS property (camelCase or kebab-case). */
+  property: string;
+  /** CSS value. Required for `"set"`; ignored for `"remove"`. */
+  value?: string;
+  operation?: "set" | "remove";
 }
 
 export type EditIntent =
   | StyleEditIntent
   | ClassEditIntent
   | TextEditIntent
+  | AttributeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
   | AutoLayoutEditIntent
-  | ResponsiveClassEditIntent;
+  | ResponsiveClassEditIntent
+  | BreakpointStyleEditIntent;
 
 export interface EditIntentResolution {
   status: "resolved" | "conflict" | "unsupported";
@@ -598,6 +684,9 @@ const STYLE_PROPERTIES = [
   "background",
   "background-color",
   "background-image",
+  "background-size",
+  "background-repeat",
+  "background-position",
   "background-blend-mode",
   "fill",
   "fill-opacity",
@@ -637,6 +726,8 @@ const STYLE_PROPERTIES = [
   "outline-style",
   "outline-color",
   "outline-offset",
+  "-webkit-text-stroke-width",
+  "-webkit-text-stroke-color",
   "box-shadow",
   "text-shadow",
   "filter",
@@ -695,6 +786,12 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   rotation: "rotate",
   shadow: "box-shadow",
 };
+
+// Matches url(...) in double-quoted, single-quoted, or unquoted form so each
+// reference inside a (possibly multi-layer) background-image value can be
+// checked individually against isSafeCssUrlReference.
+const URL_IN_VALUE_RE =
+  /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
 
 const VOID_TAGS = new Set([
   "area",
@@ -1084,16 +1181,55 @@ function normalizeStyleProperty(property: string): VisualStyleProperty | null {
   return normalized as VisualStyleProperty;
 }
 
+/**
+ * `background-image` is the one property where `url(...)` is a legitimate,
+ * expected value (image fills — see `ImageFillControls`/
+ * `imageFillToBackgroundStyles`). Every `url(...)` reference in the value is
+ * checked with the same scheme allowlist the breakpoint-scoped media-block
+ * path uses (`isSafeCssUrlReference`, which itself rejects control
+ * characters and `<>"'`): http(s), protocol-relative, relative/root paths,
+ * and `data:image/...` are allowed; `javascript:` and other non-image
+ * schemes are not. The `background` shorthand is deliberately NOT included
+ * here — keep it on the strict no-url path below.
+ *
+ * A `data:image/...` URI legitimately contains a `;` before `base64,`, so a
+ * validated `url(...)` is excised before the generic `<>{};` breakout check
+ * below runs — that check only ever sees the CSS around the reference.
+ */
+function isSafeBackgroundImageValue(value: string): string | false {
+  URL_IN_VALUE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let lastIndex = 0;
+  let withoutValidatedParts = "";
+  while ((match = URL_IN_VALUE_RE.exec(value))) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? "";
+    if (!isSafeCssUrlReference(raw)) return false;
+    withoutValidatedParts += value.slice(lastIndex, match.index);
+    lastIndex = URL_IN_VALUE_RE.lastIndex;
+  }
+  withoutValidatedParts += value.slice(lastIndex);
+  // Anything left that still looks like "url(" wasn't matched by the
+  // well-formed pattern above (malformed/unterminated) — reject.
+  if (/url\s*\(/i.test(withoutValidatedParts)) return false;
+  return withoutValidatedParts;
+}
+
 function isSafeStyleValue(
   property: VisualStyleProperty,
   value: string,
 ): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  if (/[<>{};]/.test(trimmed)) return false;
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
-  if (/url\s*\(/i.test(trimmed)) return false;
+  if (/url\s*\(/i.test(trimmed)) {
+    if (property !== "background-image") return false;
+    const withoutValidatedUrls = isSafeBackgroundImageValue(trimmed);
+    if (withoutValidatedUrls === false) return false;
+    if (/[<>{};]/.test(withoutValidatedUrls)) return false;
+  } else if (/[<>{};]/.test(trimmed)) {
+    return false;
+  }
   if (property === "display") {
     return [
       "block",
@@ -2625,6 +2761,31 @@ function applyClassEdit(
   };
 }
 
+// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
+// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
+// `on*` event handler. Deliberately conservative: this path is for host-side
+// bookkeeping writes (pending node-id persistence today), not general-purpose
+// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+
+function applyAttributeEdit(
+  html: string,
+  element: ParsedElement,
+  intent: AttributeEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
+    return "unsupported";
+  }
+  return {
+    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    capability: {
+      kind: "attribute",
+      operations: ["set"],
+      confidence: 0.95,
+    },
+  };
+}
+
 function sanitizeTextEditHtml(html: string): string {
   return html
     .replace(
@@ -2724,6 +2885,12 @@ function applyResponsiveClassEdit(
   intent: ResponsiveClassEditIntent,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const currentClass = attributeValue(element, "class") ?? "";
+  const maxWidthPx =
+    intent.maxWidthPx !== undefined &&
+    Number.isFinite(intent.maxWidthPx) &&
+    intent.maxWidthPx > 0
+      ? Math.round(intent.maxWidthPx)
+      : undefined;
 
   let nextClass: string;
   if (intent.operation === "remove") {
@@ -2732,15 +2899,19 @@ function applyResponsiveClassEdit(
       return "unsupported";
     }
     if (!isSafeClassToken(intent.stem)) return "unsupported";
-    nextClass = removePropertyClass(currentClass, intent.prefix, intent.stem);
+    nextClass =
+      maxWidthPx !== undefined
+        ? removeMaxWidthPropertyClass(currentClass, maxWidthPx, intent.stem)
+        : removePropertyClass(currentClass, intent.prefix, intent.stem);
   } else {
-    // "add" and "replace" both use setPropertyClass
+    // "add" and "replace" both use the same replace-if-same-stem setter.
     if (!intent.utility) return "unsupported";
     if (!isSafeClassToken(intent.utility)) return "unsupported";
-    if (intent.from) {
+    if (intent.from && maxWidthPx === undefined) {
       // `from` guard: the utility the caller expects to be effective at this
       // prefix. On mismatch (stale selection / wrong element) reject instead
-      // of silently overwriting whatever is actually there.
+      // of silently overwriting whatever is actually there. Max-width scopes
+      // skip the guard — the desktop-down cascade has no prefix analog.
       if (!isSafeClassToken(intent.from)) return "unsupported";
       const effective = effectivePropertyUtilities(
         currentClass,
@@ -2749,7 +2920,10 @@ function applyResponsiveClassEdit(
       );
       if (!effective.includes(intent.from)) return "conflict";
     }
-    nextClass = setPropertyClass(currentClass, intent.prefix, intent.utility);
+    nextClass =
+      maxWidthPx !== undefined
+        ? setMaxWidthPropertyClass(currentClass, maxWidthPx, intent.utility)
+        : setPropertyClass(currentClass, intent.prefix, intent.utility);
   }
 
   if (nextClass === currentClass) {
@@ -2778,6 +2952,97 @@ function applyResponsiveClassEdit(
       confidence: 0.87,
     },
   };
+}
+
+/**
+ * Apply a breakpoint-style edit intent: persist (or remove) one raw CSS
+ * declaration for the element inside the managed
+ * `<style data-agent-native-breakpoints>` block, scoped to
+ * `@media (max-width: <maxWidthPx>px)`.
+ *
+ * The rule targets the element's `data-agent-native-node-id`; when the
+ * element doesn't carry one yet it is stamped first (stable hash of the
+ * node's identity, mirroring `ensureCodeLayerNodeIdsInHtml`), so the media
+ * rule and the element stay linked across future edits.
+ */
+function applyBreakpointStyleEdit(
+  html: string,
+  element: ParsedElement,
+  node: CodeLayerNode,
+  intent: BreakpointStyleEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  if (!property) return "unsupported";
+  if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
+    return "unsupported";
+  }
+  const maxWidthPx = Math.round(intent.maxWidthPx);
+  const operation = intent.operation ?? "set";
+
+  // Resolve the stable node id, stamping one when missing so the managed
+  // rule has a durable anchor.
+  const existingId = attributeValue(
+    element,
+    "data-agent-native-node-id",
+  )?.trim();
+  let nodeId = existingId || stableAttributeValueForNode(node);
+  let content = html;
+  if (!existingId) {
+    if (content.includes(`data-agent-native-node-id="${nodeId}"`)) {
+      // Extremely unlikely hash collision with another stamped node — derive
+      // a distinct id from the element's source span.
+      nodeId = `an-${hashStable(`${nodeId}:${element.start}:${element.end}`)}`;
+    }
+    content = replaceOrInsertAttribute(
+      content,
+      element,
+      "data-agent-native-node-id",
+      nodeId,
+    );
+  }
+
+  if (operation === "remove") {
+    const next = removeBreakpointMediaDeclaration(content, {
+      nodeId,
+      maxWidthPx,
+      property,
+    });
+    return {
+      content: next,
+      capability: {
+        kind: "breakpoint-style",
+        maxWidthPx,
+        operations: ["remove"],
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+
+  if (intent.value === undefined || !isSafeStyleValue(property, intent.value)) {
+    return "unsupported";
+  }
+  try {
+    const next = setBreakpointMediaDeclaration(content, {
+      nodeId,
+      maxWidthPx,
+      property,
+      value: intent.value.trim(),
+    });
+    return {
+      content: next,
+      capability: {
+        kind: "breakpoint-style",
+        maxWidthPx,
+        operations: ["set"],
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  } catch {
+    // setBreakpointMediaDeclaration throws on unsafe property/value.
+    return "unsupported";
+  }
 }
 
 function applyMoveNodeEdit(
@@ -3608,8 +3873,12 @@ export function applyVisualEdit(
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
+  } else if (intent.kind === "attribute") {
+    edit = applyAttributeEdit(html, element, intent);
   } else if (intent.kind === "responsive-class") {
     edit = applyResponsiveClassEdit(html, element, intent);
+  } else if (intent.kind === "breakpoint-style") {
+    edit = applyBreakpointStyleEdit(html, element, beforeNode, intent);
   } else {
     const anchorResolution = resolveTarget(initial, intent.anchor);
     if (anchorResolution.status !== "resolved" || !anchorResolution.node) {

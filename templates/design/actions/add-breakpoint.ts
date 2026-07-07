@@ -63,9 +63,12 @@ export default defineAction({
   description:
     "Add a breakpoint frame to the design's breakpoint set. " +
     "The breakpoint set is stored in designs.data and controls which side-by-side " +
-    "device widths are shown in the overview canvas (Mobile 390 / Tablet 768 / Desktop 1280, " +
-    "or a custom width). The Tailwind prefix is derived automatically from the width. " +
-    "Duplicate widths are silently ignored.",
+    "device widths are shown in the overview canvas and the editor's breakpoint bar " +
+    "(Framer defaults: Phone 390 / Tablet 810 / Desktop 1200, or a custom width). " +
+    "Every frame renders the SAME document at its own viewport width (Framer model); " +
+    "edits made at a narrower active frame persist as width-scoped overrides that " +
+    "cascade down (see the responsive-breakpoints skill). The legacy Tailwind prefix " +
+    "is derived automatically from the width. Duplicate widths are silently ignored.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
     label: z

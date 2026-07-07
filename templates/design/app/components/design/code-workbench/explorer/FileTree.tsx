@@ -351,10 +351,8 @@ export function FileTree({
                   className={cn(
                     "group flex h-6 cursor-pointer items-center gap-1 rounded-[5px] pr-1 text-[12px] outline-none",
                     isActive
-                      ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-active-fg)]"
+                      ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-fg)]"
                       : "text-[var(--workbench-fg)] hover:bg-[var(--workbench-hover-bg)]",
-                    isFocused &&
-                      "ring-1 ring-inset ring-[var(--workbench-accent)]",
                   )}
                   style={{ paddingLeft: 4 + row.depth * 12 }}
                   draggable={false}

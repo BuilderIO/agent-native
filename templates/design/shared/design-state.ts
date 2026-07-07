@@ -27,12 +27,14 @@ export interface BreakpointDefinition {
   id: string;
   /** Human-readable label shown in the canvas header (e.g. "Mobile", "Tablet"). */
   label: string;
-  /** Frame width in pixels (e.g. 390, 768, 1280). */
+  /** Frame width in pixels (e.g. 390, 810, 1200). */
   widthPx: number;
   /**
-   * The Tailwind responsive prefix this frame is the edit scope for.
-   * Editing a layer in this frame writes classes with this prefix
-   * (or unprefixed classes when `"base"`).
+   * Legacy min-width Tailwind prefix derived from `widthPx` at creation time
+   * (informational). The breakpoint bar's Framer cascade does NOT use this:
+   * edit scopes are desktop-down max-width bounds computed from the frame
+   * widths via `breakpointUpperBoundPx` in `responsive-classes.ts`
+   * (overrides apply just below the next-wider frame and cascade down).
    */
   prefix: TailwindBreakpointPrefix;
 }
@@ -40,6 +42,11 @@ export interface BreakpointDefinition {
 /**
  * The ordered set of breakpoint frames rendered side-by-side for a screen.
  * Frames are ordered Mobile → Tablet → Desktop (left to right).
+ *
+ * Every frame renders the SAME document (single DOM tree) at its own
+ * viewport width — Framer model, never per-breakpoint copies. Width-scoped
+ * overrides persist as `max-[<bound>px]:` classes or managed
+ * `@media (max-width: <bound>px)` rules (see `breakpoint-media.ts`).
  */
 export interface BreakpointSet {
   id: string;
