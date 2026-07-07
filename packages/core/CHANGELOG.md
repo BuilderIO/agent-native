@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.90.10
+
+### Patch Changes
+
+- d6153fd: Remove extra root padding from borderless wireframe blocks and tighten the Toolkit docs hero wireframe header.
+- d6153fd: Retry reasoning-only empty agent responses once before surfacing the manual retry message.
+- d6153fd: Fix Netlify single-template deploy previews by keeping Nitro's `preferStatic` true (so `/assets/*` is served from `dist`) and stripping the harmful default-function URL rewrite that is incompatible with `config.path: "/*"`.
+- d6153fd: Enable first-party session replay by default for signed-in hosted users when Agent Native Analytics is configured, while preserving explicit replay opt-outs.
+- d6153fd: Let Builder video uploads request stable URLs while allowing asynchronous compression, so Clips can keep a single media URL without disabling compression.
+
 ## 0.90.9
 
 ### Patch Changes
