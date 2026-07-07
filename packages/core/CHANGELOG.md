@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.90.6
+
+### Patch Changes
+
+- f6ecee2: Stop unnecessary re-renders driven by collaborative-doc awareness traffic and coalesce SSE-driven query invalidation. `useCollaborativeDoc`'s `activeUsers`/`agentPresent` now only produce a new identity when the deduped active-user set actually changes, instead of on every awareness broadcast (cursor jiggles, unchanged re-published presence state); `useDbSync` batches SSE/poll-driven `invalidateQueries` calls into at most one flush per 250ms instead of one per event. Interaction-critical events (agent navigation, `__set_url__`, and guided questions app-state writes) bypass the coalesce window and flush immediately, so agent-driven navigation and prompts are never delayed by batching.
+
+## 0.90.5
+
+### Patch Changes
+
+- 3da78df: Classify BYO-provider rate limits (HTTP 429) as retryable. The native Anthropic and AI-SDK engines now forward the provider HTTP status as a structured `http_<status>` errorCode + `statusCode` for every failure (not just 401), so a bare "429 status code (no body)" surfaces as `http_429`. `isRetryableError` also matches `http_429` and bare `429` messages. Previously a directly-connected provider key that Anthropic rate-limited failed hard instead of backing off and retrying like the Builder gateway path does, and rate-limited runs can now auto-continue.
+- 3da78df: Fix localhost Design bridge self-registration so capability payloads match the Design server action and bridge tokens can be persisted.
+- 3da78df: Make hosted foreground agent turns continue from the server by default, so switching tabs or closing the browser no longer leaves long runs dependent on a client-side auto-continue POST.
+
 ## 0.90.4
 
 ### Patch Changes

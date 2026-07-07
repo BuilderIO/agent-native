@@ -242,6 +242,43 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
+  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
+  // `<template>` element itself in the live DOM (as a hidden, zero-size
+  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
+  // template, all still children of the same parent — so `ul > template,
+  // li, li, li` is the live shape for `<ul><template x-for>...</template>
+  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
+  // against only ever contains the single template child, never the N
+  // runtime clones, so structural moves (reorder/reparent) targeting a
+  // clone — or targeting another clone as the anchor — can never resolve on
+  // the host and always come back `applied:false`. Detected once per drag
+  // via an ancestor walk (not just the immediate parent) so nested x-for
+  // clones (e.g. a subtask `<li>` inside a per-task `<ul>` that is itself
+  // x-for'd) are also caught, stopping at the first stable-id ancestor
+  // (anything inside a stamped subtree has a real anchor and is fine).
+  function isTemplateCloneElement(el: Element | null): boolean {
+    var node: Element | null = el;
+    while (node && !isDocumentRootElement(node)) {
+      if (hasStableOwnSource(node)) return false;
+      var parent = node.parentElement;
+      if (!parent) return false;
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sib = siblings[i];
+        if (
+          sib !== node &&
+          sib.tagName &&
+          sib.tagName.toLowerCase() === "template" &&
+          sib.hasAttribute("x-for")
+        ) {
+          return true;
+        }
+      }
+      node = parent;
+    }
+    return false;
+  }
+
   function selectionTargetForHit(hit: Element | null): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
     if (selectedEl && hit !== selectedEl && selectedEl.contains(hit))
@@ -520,6 +557,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return path;
   }
 
+  // Editor-internal CSS custom-property prefixes — selection chrome colors,
+  // editor-chrome scale compensation, framework clipboard/surface tokens.
+  // These have no meaning outside this editor session and must never leak
+  // into persisted user HTML/exports. DesignEditor.tsx's
+  // applyPortableStyleSnapshotToHtml (isEditorInternalCssVar /
+  // EDITOR_INTERNAL_CSS_VAR_PREFIXES) already filters them back out on the
+  // apply side; filtering here too at COLLECTION time is pure bloat
+  // reduction (skips carrying them across the postMessage boundary at all)
+  // and changes no observable behavior on the apply side.
+  //
+  // keep in sync with DesignEditor.tsx's EDITOR_INTERNAL_CSS_VAR_PREFIXES
+  var EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
+    "--design-editor-",
+    "--agent-native-editor-chrome-",
+    "--agent-native-",
+  ];
+
+  function isEditorInternalCssVarName(name: string): boolean {
+    for (var i = 0; i < EDITOR_INTERNAL_CSS_VAR_PREFIXES.length; i += 1) {
+      if (name.indexOf(EDITOR_INTERNAL_CSS_VAR_PREFIXES[i]) === 0) return true;
+    }
+    return false;
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
   ): Record<string, string> {
@@ -534,7 +595,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     });
     for (var index = 0; index < cs.length; index += 1) {
       var name = cs.item(index);
-      if (name && name.indexOf("--") === 0) {
+      if (
+        name &&
+        name.indexOf("--") === 0 &&
+        !isEditorInternalCssVarName(name)
+      ) {
         var customValue = cs.getPropertyValue(name);
         if (customValue && customValue.trim()) {
           styles[name] = customValue.trim();
@@ -677,7 +742,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el !== document.body &&
       el !== document.documentElement &&
       el.getAttribute &&
-      el.setAttribute
+      el.setAttribute &&
+      // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
+      // a template clone has no counterpart in source HTML, so no host
+      // persist call could ever durably write data-agent-native-node-id for
+      // it, and Alpine re-renders the clone from scratch on the next data
+      // change anyway (the stamped attribute would vanish). Fail closed
+      // instead of minting a pending id that can never be persisted.
+      !isTemplateCloneElement(el)
     ) {
       pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
       if (!pendingNodeId) {
@@ -1449,13 +1521,108 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     selection: string;
     highlight: string;
   } | null = null;
+  // T22: deferred begin-text-edit command for a node that hasn't landed in
+  // this document yet. The host posts begin-text-edit immediately after
+  // creating a text primitive, but the node itself arrives via the
+  // replace-document-content persist round-trip — when the command wins that
+  // race the old behavior silently dropped it, leaving the user typing into
+  // nothing (worst case: Delete/arrow keystrokes fell through to host layer
+  // shortcuts). Instead, poll briefly (bounded ~2s, rAF cadence) for the
+  // nodeId and activate the edit the moment it appears. Only the newest
+  // command is kept; any user pointerdown or a user-initiated text edit
+  // cancels it (the user has moved on — never yank focus later).
+  var pendingBeginTextEdit: {
+    nodeId: string;
+    force: boolean;
+    deadline: number;
+    raf: number;
+    // Keystrokes typed INTO THIS IFRAME while the command waits for its node
+    // (see the pending-window branch of the document keydown handler) —
+    // replayed into the editable the moment it activates.
+    buffer: string;
+  } | null = null;
+  function cancelPendingBeginTextEdit(): void {
+    if (!pendingBeginTextEdit) return;
+    if (pendingBeginTextEdit.raf) {
+      window.cancelAnimationFrame(pendingBeginTextEdit.raf);
+    }
+    pendingBeginTextEdit = null;
+  }
+  // T25: tell the HOST (DesignCanvas) that a begin-text-edit command is
+  // waiting for its node, so the host arms its own keystroke buffer for keys
+  // that land on the HOST document during the window (the host cannot see
+  // the begin-text-edit post itself — DesignEditor sends it straight to this
+  // iframe). pending:false stands the host down when the wait is abandoned;
+  // successful activation instead flows through text-editing-state(active),
+  // which both flushes the host buffer and clears its pending flag.
+  function postTextEditPending(nodeId: string, pending: boolean): void {
+    (window.parent as Window).postMessage(
+      { type: "text-edit-pending", nodeId: nodeId, pending: pending },
+      "*",
+    );
+  }
+  // T23: is the active text-edit element still part of this document? A
+  // document patch (replaceRuntimeDocument subtree/body swap), a
+  // delete-element command, or in-page reactivity (Alpine x-if) can detach
+  // the edited node while its session is live — its blur/keydown listeners
+  // then never fire again, so nothing ever runs the Escape/blur cleanup
+  // path. The leaked activeTextEditEl blocked ALL drags/marquees
+  // (beginPotentialShieldDrag/beginMarqueeSelection bail on it), kept the
+  // shield pointer-passthrough disabled, swallowed every design hotkey, and
+  // buffered every future runtime content update until a full reload.
+  function isTextEditElConnected(): boolean {
+    return !!(
+      activeTextEditEl &&
+      activeTextEditEl.isConnected &&
+      document.documentElement.contains(activeTextEditEl)
+    );
+  }
+  // T23: exit a stale (detached-element) text edit session through the SAME
+  // cleanup path a user Escape/blur takes. Returns true when a stale session
+  // was cleaned up. Callers that previously hard-bailed on activeTextEditEl
+  // should call this first so a leaked session self-heals on the next
+  // interaction instead of wedging the surface until reload.
+  function exitStaleTextEditSession(): boolean {
+    if (!activeTextEditEl || isTextEditElConnected()) return false;
+    var staleEl = activeTextEditEl;
+    if (finishActiveTextEdit) {
+      finishActiveTextEdit(true);
+    } else {
+      postTextEditingState(staleEl, false);
+      activeTextEditEl = null;
+      setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
+    }
+    // Defensive: finish() only clears activeTextEditEl when it still points
+    // at that session's own target. If overlapping sessions ever left a
+    // different detached element behind, force-clear so the surface can't
+    // stay wedged.
+    if (activeTextEditEl === staleEl) {
+      activeTextEditEl = null;
+      setTextEditingPointerPassthrough(false);
+      setSelectionOverlayResizeChromeVisible(true);
+    }
+    return true;
+  }
   var pendingStructureMoves: Record<
     string,
     {
       requestId: string;
       el: Element;
       target: { anchor: Element; placement: string; axis?: string };
-      origin: { prevParent: Element; prevNextSibling: Node | null } | null;
+      origin: {
+        prevParent: Element;
+        prevNextSibling: Node | null;
+        // Inline position/left/top/right/bottom VALUES captured right before
+        // the optimistic reorder's stripAbsolutePositioningForFlowInsert ran
+        // (absent/undefined when that strip did not apply — e.g. an
+        // absolute-container drop, or a flow-reorder of an already-flow
+        // element with nothing to strip). Restored by the visual-structure-ack
+        // failure branch alongside the parent/sibling revert so a rejected
+        // move-node round-trip cannot leave the element stripped of its
+        // absolute positioning while stuck in the wrong parent.
+        prevInlinePositionStyles?: Record<string, string> | null;
+      } | null;
     }
   > = {};
   var pendingShieldDrag: {
@@ -1713,6 +1880,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     forceFullDocument?: boolean,
   ): void {
     if (typeof html !== "string") return;
+    // T23: a session whose element was already detached (earlier patch,
+    // delete-element, in-page reactivity) can never end via blur/Escape —
+    // buffering behind it would freeze this surface's content forever. Exit
+    // it through the canonical cleanup first, then treat this update
+    // normally. (The nested pendingRuntimeDocumentUpdate replay inside
+    // finish() runs before we continue; this newer payload then supersedes
+    // its result, preserving ordering.)
+    exitStaleTextEditSession();
     if (activeTextEditEl && !forceFullDocument) {
       // Don't yank a runtime content update out from under an in-progress
       // text edit — but don't silently lose it either (T13). Buffer only the
@@ -2849,6 +3024,116 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return false;
   }
 
+  // ── Selection-handle hit-zone inward clamp ────────────────────────────
+  // Keep in sync with multi-screen/handle-hit-zones.ts (the host-side
+  // selection chrome applies the same clamp rule to its screen-frame/board
+  // handles; nominal sizes differ — bridge edge bars are 10px thick centered
+  // on the edge, corner squares 7px with a 4px outward offset — but the
+  // inward-reach clamp and its 0.25 fraction must stay identical).
+  //
+  // The edge/corner handles multiply by the chrome scale so they keep a
+  // constant on-screen size, which makes their HIT zones grow without bound
+  // in iframe-local px as the host zooms out: at 19% zoom the nominal 10px
+  // edge bar is ~52.6 local px thick, reaching ~26.3 local px into the
+  // element from each edge. Any element smaller than twice that reach has
+  // its ENTIRE body covered by the two opposing bars — every press resolves
+  // to a resize, so the element can never be grabbed for a move drag (or
+  // clicked in its interior) at low zoom. Clamp only the INWARD reach of
+  // each handle hit zone to a fraction of the element's own dimension on
+  // that axis; the outward reach (which can never occlude the body) and the
+  // corner handles' VISUAL size stay untouched. With 0.25, two opposing
+  // handles consume at most half the dimension, so the central 50% band of
+  // each axis always stays body-grabbable.
+  var HANDLE_MAX_INWARD_FRACTION = 0.25;
+
+  // Mirror of clampHandleInwardReach in multi-screen/handle-hit-zones.ts.
+  // Non-finite or non-positive dimensions (no overlaid element, degenerate
+  // zero-size elements mid-creation) return the nominal reach unchanged —
+  // exactly the pre-clamp behavior, and a zero-size element has no body to
+  // protect.
+  function clampHandleInwardReach(nominalInward, elementDimension) {
+    if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
+      return nominalInward;
+    }
+    return Math.min(
+      nominalInward,
+      elementDimension * HANDLE_MAX_INWARD_FRACTION,
+    );
+  }
+
+  // Sizes the selection overlay's edge/corner handles for the current chrome
+  // scale, clamping each handle's inward reach against the overlaid
+  // element's own rect. Called from applyEditorChromeScale (scale changes)
+  // AND from positionOverlay (selection/element changes), because the
+  // clamped geometry depends on the element's dimensions, not just the
+  // scale. On large elements this reproduces the historical geometry
+  // exactly: edge bars 10*scale thick centered on the edge, corner squares
+  // 7*scale offset -4*scale.
+  function applySelectionHandleHitGeometry(el) {
+    var sx = chromeScaleX();
+    var sy = chromeScaleY();
+    var line = chromeLineScale();
+    var elWidth = NaN;
+    var elHeight = NaN;
+    if (el && document.documentElement.contains(el)) {
+      var elRect = el.getBoundingClientRect();
+      elWidth = elRect.width;
+      elHeight = elRect.height;
+    }
+
+    // Invisible edge-resize hit bars: nominal 5*scale outward + 5*scale
+    // inward. Only the inward half is clamped; the bar's outward side stays
+    // anchored at -5*scale from the edge.
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-edge-handle]")
+      .forEach(function (edge) {
+        var pos = edge.getAttribute("data-agent-native-edge-handle");
+        if (pos === "n" || pos === "s") {
+          var outwardY = 5 * sy;
+          var inwardY = clampHandleInwardReach(5 * sy, elHeight);
+          edge.style.height = outwardY + inwardY + "px";
+          edge.style[pos === "n" ? "top" : "bottom"] = -outwardY + "px";
+        }
+        if (pos === "e" || pos === "w") {
+          var outwardX = 5 * sx;
+          var inwardX = clampHandleInwardReach(5 * sx, elWidth);
+          edge.style.width = outwardX + inwardX + "px";
+          edge.style[pos === "w" ? "left" : "right"] = -outwardX + "px";
+        }
+      });
+
+    // Visible corner squares: the square keeps its constant on-screen size
+    // (7*scale); when its nominal 3*scale inward overlap would exceed the
+    // per-axis clamp, the square shifts outward so only the clamped reach
+    // overlaps the body. Corners clamp per-axis independently.
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-edit-handle]")
+      .forEach(function (handle) {
+        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
+        var sizeX = 7 * sx;
+        var sizeY = 7 * sy;
+        // sizeY - 4*sy is exact (Sterbenz), so the unclamped offset below
+        // reproduces the historical -4*scale bit-for-bit.
+        var inwardX = clampHandleInwardReach(sizeX - 4 * sx, elWidth);
+        var inwardY = clampHandleInwardReach(sizeY - 4 * sy, elHeight);
+        handle.style.width = sizeX + "px";
+        handle.style.height = sizeY + "px";
+        handle.style.borderWidth = 1 * line + "px";
+        if (pos.indexOf("n") !== -1) {
+          handle.style.top = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("s") !== -1) {
+          handle.style.bottom = inwardY - sizeY + "px";
+        }
+        if (pos.indexOf("w") !== -1) {
+          handle.style.left = inwardX - sizeX + "px";
+        }
+        if (pos.indexOf("e") !== -1) {
+          handle.style.right = inwardX - sizeX + "px";
+        }
+      });
+  }
+
   function applyEditorChromeScale() {
     syncEditorChromeScaleVars();
     var sx = chromeScaleX();
@@ -2865,32 +3150,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     passiveSelectionOverlays.forEach(scalePassiveSelectionOverlay);
     if (selectedEl) updateSpacingOverlay(selectedEl);
 
-    selectionOverlay
-      .querySelectorAll("[data-agent-native-edge-handle]")
-      .forEach(function (edge) {
-        var pos = edge.getAttribute("data-agent-native-edge-handle");
-        if (pos === "n" || pos === "s") {
-          edge.style.height = 10 * sy + "px";
-          edge.style[pos === "n" ? "top" : "bottom"] = -5 * sy + "px";
-        }
-        if (pos === "e" || pos === "w") {
-          edge.style.width = 10 * sx + "px";
-          edge.style[pos === "w" ? "left" : "right"] = -5 * sx + "px";
-        }
-      });
-
-    selectionOverlay
-      .querySelectorAll("[data-agent-native-edit-handle]")
-      .forEach(function (handle) {
-        var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        handle.style.width = 7 * sx + "px";
-        handle.style.height = 7 * sy + "px";
-        handle.style.borderWidth = 1 * line + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = -4 * sy + "px";
-        if (pos.indexOf("s") !== -1) handle.style.bottom = -4 * sy + "px";
-        if (pos.indexOf("w") !== -1) handle.style.left = -4 * sx + "px";
-        if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
-      });
+    applySelectionHandleHitGeometry(selectedEl);
 
     selectionOverlay
       .querySelectorAll("[data-agent-native-rotate-handle]")
@@ -2961,6 +3221,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
     if (overlay === selectionOverlay) {
       applySelectionChrome(el);
+      // Re-clamp handle hit zones for THIS element's dimensions — the
+      // clamped geometry is element-dependent, not just scale-dependent
+      // (see applySelectionHandleHitGeometry).
+      applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
       // `rect` is undefined on the rotated-local-box path; updateComponentTag
       // falls back to its own read in that case.
@@ -3836,7 +4100,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   }
 
   function beginMarqueeSelection(e): void {
-    if (e.button !== 0 || activeTextEditEl) return;
+    if (e.button !== 0) return;
+    // T23: a stale session self-heals and the marquee proceeds; only a LIVE
+    // session (connected element) blocks marquee starts.
+    if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
     var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
@@ -3959,6 +4226,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     )
       return false;
     if (target.parentElement) target.parentElement.removeChild(target);
+    // T23: the removed subtree may contain the active text-edit element —
+    // its blur/keydown listeners are gone with it, so exit the session
+    // through the canonical cleanup instead of leaking it.
+    exitStaleTextEditSession();
     if (
       selectedEl === target ||
       !document.documentElement.contains(selectedEl)
@@ -4927,6 +5198,26 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function hideTransformBadge(): void {
     transformBadge.style.display = "none";
+    transformBadge.style.removeProperty("background");
+    transformBadge.style.removeProperty("color");
+    transformBadge.style.removeProperty("border-color");
+  }
+
+  // Rejection feedback for a drag that can never resolve on the host (see
+  // isTemplateCloneElement): reuses transformBadge with a red-tinted style
+  // instead of adding another chrome element, and a "not-allowed" cursor on
+  // shieldOverlay for the duration of the gesture — clear, immediate signal
+  // instead of an optimistic reorder that silently reverts ~1 frame later.
+  function showRejectedDragBadge(
+    text: string,
+    clientX: number,
+    clientY: number,
+  ): void {
+    showTransformBadge(text, clientX, clientY);
+    transformBadge.style.background =
+      "color-mix(in srgb, #dc2626 92%, transparent)";
+    transformBadge.style.color = "#fff";
+    transformBadge.style.borderColor = "#dc2626";
   }
 
   function hideInsertionGuide(): void {
@@ -4944,12 +5235,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
   }
 
+  // Anchor-candidate gate (companion to the dragged-element
+  // isTemplateCloneElement rejection below): a template clone can never be
+  // used as an insertion ANCHOR either — it has no counterpart in the static
+  // source HTML, so before/after placement against it can never resolve on
+  // the host any more than dragging the clone itself could. Filtering clones
+  // out of the candidate list here (rather than only checking the dragged
+  // element) is what fixes drops into a container whose ONLY children are
+  // x-for clones: without this, nearestChildInsertionTarget's "nearest
+  // child" search and reorderTargetForPoint's sibling-scan fallback would
+  // both happily pick a clone as the anchor, and the resulting moveNode
+  // against source HTML would silently fail (layerMoveFailed toast) even
+  // though the drop gesture itself was completely valid.
   function draggableElementChildren(parent: Element): Element[] {
     return Array.prototype.slice.call(parent.children).filter(function (child) {
       return (
         child.nodeType === 1 &&
         !isOverlayElement(child) &&
-        !isLayerInteractionBlocked(child)
+        !isLayerInteractionBlocked(child) &&
+        !isTemplateCloneElement(child)
       );
     });
   }
@@ -5189,12 +5493,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // pre-marker content — exactly the default white AND the destination is
   // light), switch it to `color:inherit` so it picks up the container's
   // effective text color. A color the user explicitly set is NEVER touched:
-  // DesignEditor should stamp `data-an-auto-text-color` when IT auto-picks
-  // the color at creation and remove the marker on any explicit color edit;
-  // when the marker is present the color is definitely auto (always safe to
-  // adapt), and when absent the conservative default-white + light-target
-  // heuristic below only fires in the exact case where the text would be
-  // invisible anyway.
+  // DesignEditor's appendCanvasPrimitiveToHtml stamps `data-an-auto-text-color`
+  // when IT auto-picks the color at creation (BOARD_TEXT_AUTO_COLOR_MARKER
+  // export in DesignEditor.tsx) and any explicit color edit removes the
+  // marker; when the marker is present the color is definitely auto (always
+  // safe to adapt), and when absent the conservative default-white +
+  // light-target heuristic below only fires in the exact case where the text
+  // would be invisible anyway.
+  //
+  // keep in sync with DesignEditor.tsx's
+  // adaptAutoTextColorForCrossScreenNode / shouldAdaptAutoTextColorForCrossScreenMove
+  // — the cross-screen mirror of this same decision, applied host-side (HTML
+  // string, post-reparent) after handleCrossScreenElementDrop moves a text
+  // node between documents, since this in-iframe bridge only ever sees
+  // same-document re-parents.
   var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
   function parseCssRgb(
@@ -5397,6 +5709,38 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     "li",
   ];
 
+  // keep in sync with hit-test.bridge.ts BRIDGE_INTERACTIVE_LEAF_TAGS
+  var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
+
+  // Drop-on-leaf fix: a `<button>` (or similar interactive leaf control) is
+  // frequently styled `display:flex` purely to align its own icon + label —
+  // that is NOT the same thing as a Figma "frame" a user expects to drop
+  // items into. Neither the tag denylist (BRIDGE_LEAF_TAGS/TEXT_TAGS) nor the
+  // flex/grid computed-display check alone can tell these apart (button is
+  // in neither tag list, and it genuinely has display:flex), so this walks
+  // the element's own children: if every child is itself a leaf/text tag
+  // with no further container/flex descendant of its own, the element is
+  // "leaf content" (an icon+label control) and must not accept nested
+  // drops — only a container that itself hosts a real sub-layout (a nested
+  // container/flex child) qualifies.
+  function hasOnlyLeafContent(el: Element): boolean {
+    var children = el.children;
+    if (!children.length) return true;
+    for (var i = 0; i < children.length; i += 1) {
+      var child = children[i] as Element;
+      var childTag = (child.tagName || "").toLowerCase();
+      if (
+        BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+      ) {
+        return false;
+      }
+      if (child.children.length && !hasOnlyLeafContent(child)) return false;
+    }
+    return true;
+  }
+
   function isContainerDropTarget(el: Element | null): boolean {
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -5408,6 +5752,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       BRIDGE_TEXT_TAGS.indexOf(tag) !== -1
     )
       return false;
+    // Reject interactive leaf controls (button, summary) whose children are
+    // all leaf/text content — see hasOnlyLeafContent above.
+    if (
+      BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 &&
+      hasOnlyLeafContent(el)
+    ) {
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     if (
       cs.display === "flex" ||
@@ -5466,6 +5818,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // with the container-fill affordance instead of an insertion line). Both
   // in-screen drag paths now route container-background hits through this
   // helper so dropping between children works and shows the line.
+  //
+  // keep in sync with hit-test.bridge.ts's own nearestChildInsertionTarget
+  // (finding 6's cross-screen/canvas-to-screen mirror of this same fix —
+  // that copy omits the `excludeEls` param since hit-test.bridge.ts never
+  // has a dragged element of its own).
   function nearestChildInsertionTarget(
     container: Element,
     clientX: number,
@@ -5538,11 +5895,21 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return false;
     }
     var hit = elementFromEditorPoint(clientX, clientY);
+    // Anchor-candidate gate: a hit that resolves directly onto a template
+    // clone (e.g. hovering over one of the rendered `<li>` items inside a
+    // container whose ONLY children are x-for clones) can never anchor a
+    // structural move — see draggableElementChildren's comment above. Falling
+    // through here (instead of using `hit` as the anchor) routes to the
+    // sibling-scan fallback below, which already filters clones out via
+    // draggableElementChildren, so it correctly resolves to either a
+    // non-clone sibling or, when there are none, no anchor at all (caller
+    // falls back to the container itself with "inside" placement).
     if (
       hit &&
       hit !== document.documentElement &&
       !isDraggedOrInsideDragged(hit) &&
-      !isOverlayElement(hit)
+      !isOverlayElement(hit) &&
+      !isTemplateCloneElement(hit)
     ) {
       if (isContainerDropTarget(hit)) {
         var containerRect = hit.getBoundingClientRect();
@@ -5607,7 +5974,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var siblings = draggableElementChildren(parent).filter(function (child) {
       return !isDraggedOrInsideDragged(child);
     });
-    if (!siblings.length) return null;
+    if (!siblings.length) {
+      // No non-clone, non-dragged sibling to anchor against — e.g. `parent`'s
+      // only other children are x-for clones (draggableElementChildren
+      // already filtered those out above). Fall back to the parent container
+      // itself with "inside" placement instead of returning null: null here
+      // would make onReorderUp treat this as "no valid drop target" and
+      // silently no-op the whole gesture, even though moving into `parent`
+      // (landing after the rendered clones, which in source HTML is simply
+      // inside the container since clones don't exist there) is a completely
+      // valid and expected drop.
+      return {
+        anchor: parent,
+        placement: "inside",
+        axis: axis,
+        dropMode: isAbsolutePrimitiveContainer(parent)
+          ? "absolute-container"
+          : "flow-insert",
+      };
+    }
     var beforeTarget = null;
     for (var i = 0; i < siblings.length; i += 1) {
       var rect = siblings[i].getBoundingClientRect();
@@ -5721,29 +6106,55 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // node whose parent happens to be body — must fall through to a plain
       // absolute placement instead of silently wrapping body in auto-layout.
       var parent = cursor.parentElement;
-      if (parent && parent !== document.body && isContainerDropTarget(parent)) {
-        var parentAxis = parentFlowAxis(parent);
-        var childRect = cursor.getBoundingClientRect();
-        var childCenter =
-          parentAxis === "x"
-            ? childRect.left + childRect.width / 2
-            : childRect.top + childRect.height / 2;
-        var childPointer = parentAxis === "x" ? clientX : clientY;
+      // Absolute-primitive-container target (a canvas rectangle marked
+      // data-an-primitive="rectangle"/"rect"): this is a dedicated
+      // free-placement container, not a Figma-style auto-layout frame — the
+      // matching reorderTargetForPoint (flow-reorder) branch already
+      // recognizes it via this same helper and assigns dropMode
+      // "absolute-container" so onUp skips the auto-layout conversion and
+      // keeps the moved element's position:absolute.
+      if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
-          axis: parentAxis,
-          dropMode: "flow-insert",
-          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-          conversionTarget: parent,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container",
         };
       }
-      if (cursor !== document.body && isContainerDropTarget(cursor)) {
-        // B5-4 (absolute path): pointer over the container's own background
-        // — its padding or a gap between children. Prefer the nearest child
-        // slot (insertion line at the pointer index) over plain "inside"
-        // (which appends after the last child); fall back to "inside" only
-        // for containers with no visible children.
+      // Nest-inside-what-you're-hovering takes priority over sibling-insert
+      // UNLESS cursor is already a managed flex-item of an ESTABLISHED
+      // auto-layout parent (isAutoLayoutElement — genuinely display:flex/grid,
+      // not just an isContainerDropTarget tag match). That parent-is-already-
+      // auto-layout signal is what distinguishes "cursor is a list item being
+      // reordered within its existing list" (sibling-insert is correct: a
+      // plain-block <div> chip that is itself a flex-item of #frame/#col)
+      // from "cursor is genuinely being hovered as a nesting target" (a
+      // pristine/empty container, or a real container whose own parent isn't
+      // already running auto-layout — e.g. a top-level or newly-adjacent
+      // rectangle, matching reorderTargetForPoint's isContainerDropTarget(hit)
+      // priority for the flow-reorder gesture).
+      //
+      // This check used to run AFTER the sibling-insert branch below with no
+      // such carve-out, so hovering directly over a pristine/empty auto-layout
+      // container nested under a NON-auto-layout ancestor (e.g. a plain
+      // <main>) — whose own parent still satisfies the old unconditional
+      // "isContainerDropTarget(parent)" check — matched the sibling-insert
+      // branch first and resolved the drop one level too high (anchoring
+      // before/after the hovered container inside ITS parent, instead of
+      // nesting inside the hovered container). Fixed by promoting this
+      // nest-inside check ahead of the sibling-insert fallback, gated on the
+      // parent NOT already being an established auto-layout list (so genuine
+      // flex-item reordering inside an existing list is unaffected).
+      if (
+        cursor !== document.body &&
+        isContainerDropTarget(cursor) &&
+        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+      ) {
+        // B5-4 (absolute path): pointer over the container's own
+        // background — its padding or a gap between children. Prefer the
+        // nearest child slot (insertion line at the pointer index) over
+        // plain "inside" (which appends after the last child); fall back
+        // to "inside" only for containers with no visible children.
         var betweenContainerChildren = nearestChildInsertionTarget(
           cursor,
           clientX,
@@ -5767,6 +6178,55 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           dropMode: "flow-insert",
           needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
           conversionTarget: cursor,
+        };
+      }
+      if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+        // Anchor-candidate gate: cursor is a plain sibling under `parent`
+        // being used as a before/after anchor — but if it's a template
+        // clone (no counterpart in source HTML), fall back to the nearest
+        // non-clone sibling via nearestChildInsertionTarget, else the
+        // container itself with "inside" placement, exactly like
+        // reorderTargetForPoint's equivalent fallback above.
+        if (isTemplateCloneElement(cursor)) {
+          var cloneFallback = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (cloneFallback) {
+            return {
+              anchor: cloneFallback.anchor,
+              placement: cloneFallback.placement,
+              axis: cloneFallback.axis,
+              dropMode: "flow-insert",
+              needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+              conversionTarget: parent,
+            };
+          }
+          return {
+            anchor: parent,
+            placement: "inside",
+            axis: parentFlowAxis(parent),
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+            conversionTarget: parent,
+          };
+        }
+        var parentAxis = parentFlowAxis(parent);
+        var childRect = cursor.getBoundingClientRect();
+        var childCenter =
+          parentAxis === "x"
+            ? childRect.left + childRect.width / 2
+            : childRect.top + childRect.height / 2;
+        var childPointer = parentAxis === "x" ? clientX : clientY;
+        return {
+          anchor: cursor,
+          placement: childPointer < childCenter ? "before" : "after",
+          axis: parentAxis,
+          dropMode: "flow-insert",
+          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+          conversionTarget: parent,
         };
       }
       cursor = parent;
@@ -5824,9 +6284,171 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // Absolute-into-flow teleport fix: a flow-insert reparent (the ONLY
+  // dropMode applyRuntimeReorder ever nests an absolute-positioned member
+  // through — "absolute-container" placements keep position:absolute by
+  // design) must strip the leftover position/left/top/right/bottom the
+  // absolute-drag onMove loop wrote onto the element throughout the drag.
+  // Without this the element reparents into the flow container correctly
+  // but stays absolutely positioned at its last drag offset — rendering
+  // hundreds of px away from the slot the insertion guide indicated, since
+  // position:absolute measures from the nearest positioned ancestor, not
+  // flow layout. DesignEditor.tsx does the equivalent strip on the
+  // PERSISTED source string once the host round-trips (see
+  // removeAbsolutePositioningFromNodeInHtml); this mirrors it on the LIVE
+  // runtime DOM so the optimistic in-iframe result is correct immediately,
+  // not just after the host ack.
+  var ABS_POSITION_INLINE_PROPS = [
+    "position",
+    "left",
+    "top",
+    "right",
+    "bottom",
+  ];
+  // Snapshot of the inline position/left/top/right/bottom VALUES (not just
+  // whether they existed) taken right before stripAbsolutePositioningForFlowInsert
+  // runs, so a failed move-node round-trip can restore exactly what was
+  // there — including "" for a property that had no inline value at all,
+  // which style.removeProperty already treats correctly as "unset". Reused
+  // by the visual-structure-ack failure branch below to undo the optimistic
+  // strip together with the parent/sibling DOM revert.
+  function snapshotInlinePositionStyles(el: Element): Record<string, string> {
+    var htmlEl = el as HTMLElement;
+    var snapshot: Record<string, string> = {};
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      var prop = ABS_POSITION_INLINE_PROPS[i];
+      snapshot[prop] = htmlEl.style.getPropertyValue(prop);
+    }
+    return snapshot;
+  }
+  function restoreInlinePositionStyles(
+    el: Element,
+    snapshot: Record<string, string> | null | undefined,
+  ): void {
+    if (!snapshot) return;
+    var htmlEl = el as HTMLElement;
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      var prop = ABS_POSITION_INLINE_PROPS[i];
+      var value = snapshot[prop];
+      if (value) {
+        htmlEl.style.setProperty(prop, value);
+      } else {
+        htmlEl.style.removeProperty(prop);
+      }
+    }
+  }
+  // Builds the same snapshot shape as snapshotInlinePositionStyles, but from
+  // a startMove memberState's TRUE pre-drag inline values (captured once at
+  // gesture start — see memberStates below) rather than the live element's
+  // CURRENT inline styles. Used at the startMove/applyGroupStructureDrop
+  // call sites: those paths continuously rewrite the dragged element's
+  // left/top to follow the pointer throughout the free-drag phase, so a
+  // snapshot taken right before the strip would only capture the LAST
+  // dragged-to position, not the position the element should return to when
+  // the whole move-node round-trip is rejected and it goes back to its
+  // original parent.
+  function dragOriginInlinePositionStyles(state: {
+    originalPosition: string;
+    originalLeft: string;
+    originalTop: string;
+  }): Record<string, string> {
+    return {
+      position: state.originalPosition,
+      left: state.originalLeft,
+      top: state.originalTop,
+      right: "",
+      bottom: "",
+    };
+  }
+  function stripAbsolutePositioningForFlowInsert(el: Element, target): void {
+    if (!target || target.dropMode !== "flow-insert") return;
+    var htmlEl = el as HTMLElement;
+    var cs = window.getComputedStyle(htmlEl);
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
+    }
+  }
+
+  // Absolute-container nest rebase: an "absolute-container" drop keeps the
+  // member position:absolute BY DESIGN (no flow-insert strip), but the drag
+  // loop wrote its left/top in the member's ORIGINAL containing-block space
+  // (typically the screen root). After reparenting into the drop container —
+  // itself a positioned element — those same numbers re-resolve against the
+  // NEW containing block, displacing the child by exactly the container's
+  // origin: it renders outside the container's (unclipped) box and visually
+  // "vanishes", and that corrupt geometry then persists. Convert left/top
+  // into the new parent's coordinate space BEFORE the DOM move so (a) the
+  // optimistic in-iframe render is correct immediately and (b)
+  // postVisualStructureChange's sourceRect — measured AFTER the move — now
+  // reflects the true on-screen position, which the host's
+  // absoluteContainerOffset persistence math (sourceRect − anchorRect)
+  // depends on. Delta math (old CB origin − new CB origin) keeps the
+  // member's on-screen position identical through the reparent and stays
+  // exact under margins/rotation, unlike re-deriving from the member's own
+  // (transform-inflated) bounding box.
+  function rebaseAbsoluteMemberForContainerDrop(el, target): void {
+    if (!el || !target || target.dropMode !== "absolute-container") return;
+    var container = dropContainerForTarget(target);
+    if (!container || container === document.body || container === el) return;
+    if (el.contains && el.contains(container)) return;
+    var htmlEl = el as HTMLElement;
+    var cs = window.getComputedStyle(htmlEl);
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    // New containing block origin: the container's padding edge, in client
+    // coordinates (border box + border widths − its own scroll offsets).
+    var containerRect = container.getBoundingClientRect();
+    var containerCS = window.getComputedStyle(container);
+    var newOriginX =
+      containerRect.left +
+      readPx(containerCS.borderLeftWidth) -
+      container.scrollLeft;
+    var newOriginY =
+      containerRect.top +
+      readPx(containerCS.borderTopWidth) -
+      container.scrollTop;
+    // Current containing block origin: the member's offsetParent when it is
+    // a real containing block, else the initial containing block (client
+    // 0,0 minus page scroll). offsetParent falls back to <body> even when
+    // body is NOT positioned/transformed — detect that and use the ICB.
+    var oldOriginX = -(window.scrollX || 0);
+    var oldOriginY = -(window.scrollY || 0);
+    var offsetParent = htmlEl.offsetParent as HTMLElement | null;
+    if (offsetParent && offsetParent !== document.documentElement) {
+      var offsetParentIsRealContainingBlock = true;
+      if (offsetParent === document.body) {
+        var bodyCS = window.getComputedStyle(document.body);
+        offsetParentIsRealContainingBlock =
+          bodyCS.position !== "static" ||
+          bodyCS.transform !== "none" ||
+          (bodyCS.getPropertyValue("translate") || "none") !== "none";
+      }
+      if (offsetParentIsRealContainingBlock) {
+        var opRect = offsetParent.getBoundingClientRect();
+        var opCS = window.getComputedStyle(offsetParent);
+        oldOriginX =
+          opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+        oldOriginY =
+          opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+      }
+    }
+    var currentLeft = readPx(htmlEl.style.left || cs.left);
+    var currentTop = readPx(htmlEl.style.top || cs.top);
+    htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
+    htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+  }
+
   function applyRuntimeReorder(el, target) {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return;
+    stripAbsolutePositioningForFlowInsert(el, target);
+    // Must run BEFORE the DOM move below: the delta math reads the member's
+    // CURRENT containing block via offsetParent. Called here (the single
+    // choke point for drop reparenting) so the single-drag, group-drag,
+    // flow-reorder, and alt-drag-duplicate paths all rebase consistently.
+    // Idempotent for already-nested members (old CB === new CB → delta 0),
+    // so the visual-structure-ack replay path is safe too.
+    rebaseAbsoluteMemberForContainerDrop(el, target);
     if (target.placement === "inside") {
       target.anchor.appendChild(el);
       return;
@@ -5900,7 +6522,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // selection to each moved node as it processes each message, so a final
   // marquee-selection message restores the full multi-selection afterwards
   // (requirement: selection stays intact after a group drop).
-  function applyGroupStructureDrop(members: Element[], target, ev): void {
+  // `originInlineStylesFor` (optional): resolves a member's TRUE pre-drag
+  // position/left/top snapshot (see dragOriginInlinePositionStyles) when the
+  // caller has that gesture-start state available (the startMove auto-layout
+  // branch, whose onMove continuously rewrites left/top to follow the
+  // pointer). Falls back to a live snapshot taken here for the flow-reorder
+  // branch's group call site, which never mutates left/top during its drag
+  // (flow-reorder has no free left/top phase), so the live value IS the
+  // pre-strip/pre-move value there.
+  function applyGroupStructureDrop(
+    members: Element[],
+    target,
+    ev,
+    originInlineStylesFor?: (member: Element) => Record<string, string>,
+  ): void {
     var container = dropContainerForTarget(target);
     var previous: Element | null = null;
     for (var i = 0; i < members.length; i += 1) {
@@ -5918,6 +6553,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
               };
       var prevParent = member.parentElement;
       var prevNextSibling = member.nextSibling;
+      // Captured BEFORE applyRuntimeReorder so a rejected move-node
+      // round-trip can restore the exact pre-strip inline values (see
+      // snapshotInlinePositionStyles / dragOriginInlinePositionStyles doc
+      // comments).
+      var prevInlinePositionStyles = originInlineStylesFor
+        ? originInlineStylesFor(member)
+        : snapshotInlinePositionStyles(member);
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
@@ -5925,6 +6567,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       postVisualStructureChange(member, memberTarget, {
         prevParent: prevParent,
         prevNextSibling: prevNextSibling,
+        prevInlinePositionStyles: prevInlinePositionStyles,
       });
       previous = member;
     }
@@ -6151,6 +6794,72 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // move one element, which would tear the group apart.
       postCrossScreenDrag("cancel");
     }
+    // Template-clone reorder rejection (CRITICAL fix): a runtime clone of an
+    // Alpine `<template x-for>` item has no counterpart in the static source
+    // HTML the host resolves structural moves against (only the single
+    // template child exists there), so a reorder/reparent targeting one can
+    // never succeed — the old behavior optimistically reordered the live DOM
+    // then silently reverted it ~1 frame later with zero feedback. Reject up
+    // front instead: no DOM mutation, no doomed host round-trip, clear
+    // "can't reorder" cursor + badge feedback for the whole gesture. Scoped
+    // to single-element, non-duplicate drags of a flow-reorder candidate —
+    // group drags and alt-duplicates build a real, source-backed clone/copy
+    // first (resetRuntimeStableIds), so they are unaffected.
+    if (
+      !isGroupDrag &&
+      !duplicatedForDrag &&
+      isFlowReorderCandidate(gestureEl) &&
+      isTemplateCloneElement(gestureEl)
+    ) {
+      postCrossScreenDrag("cancel");
+      var rejectedEl = gestureEl;
+      function onRejectedMove(ev) {
+        showRejectedDragBadge(
+          "Can't reorder repeated items",
+          ev.clientX,
+          ev.clientY,
+        );
+      }
+      function cleanupRejectedDrag() {
+        document.removeEventListener(events.move, onRejectedMove, true);
+        document.removeEventListener(events.up, onRejectedUp, true);
+        document.removeEventListener("keydown", onRejectedKeyDown, true);
+        clearActiveDragCancel(onRejectedEscape);
+        shieldOverlay.style.cursor = "default";
+      }
+      function onRejectedEscape() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRejectedKeyDown(ev) {
+        if (ev.key === "Escape") {
+          stopNativeInteraction(ev);
+          onRejectedEscape();
+        }
+      }
+      function onRejectedUp() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        selectTargetAfterRejectedDrag();
+      }
+      function selectTargetAfterRejectedDrag(): void {
+        selectedEl = rejectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+      }
+      shieldOverlay.style.cursor = "not-allowed";
+      showRejectedDragBadge(
+        "Can't reorder repeated items",
+        e.clientX,
+        e.clientY,
+      );
+      document.addEventListener(events.move, onRejectedMove, true);
+      document.addEventListener(events.up, onRejectedUp, true);
+      document.addEventListener("keydown", onRejectedKeyDown, true);
+      setActiveDragCancel(onRejectedEscape);
+      return;
+    }
     if (isFlowReorderCandidate(gestureEl)) {
       // Snapshot the element being reordered so a concurrent select-element or
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
@@ -6318,6 +7027,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           // reports applied===false on the structure-ack.
           var prevParent = reorderEl.parentElement;
           var prevNextSibling = reorderEl.nextSibling;
+          // Usually a no-op here (flow-reorder drags a member that's
+          // already in flow, so there's nothing to strip), but captured for
+          // consistency so an absolute-positioned element reordered through
+          // this gesture still rolls back its inline styles correctly on a
+          // rejected move-node round-trip.
+          var prevInlinePositionStyles =
+            snapshotInlinePositionStyles(reorderEl);
           adaptAutoTextColorForNest(
             reorderEl,
             dropContainerForTarget(currentTarget),
@@ -6329,6 +7045,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postVisualStructureChange(reorderEl, currentTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
+            prevInlinePositionStyles: prevInlinePositionStyles,
           });
         }
       }
@@ -6606,10 +7323,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           );
         }
         if (isGroupDrag) {
-          applyGroupStructureDrop(groupEls, currentAutoLayoutTarget, ev);
+          applyGroupStructureDrop(
+            groupEls,
+            currentAutoLayoutTarget,
+            ev,
+            function (member) {
+              var state = memberStates.filter(function (s) {
+                return s.el === member;
+              })[0];
+              return state
+                ? dragOriginInlinePositionStyles(state)
+                : snapshotInlinePositionStyles(member);
+            },
+          );
         } else {
           var prevParent = dragEl.parentElement;
           var prevNextSibling = dragEl.nextSibling;
+          // The element's TRUE pre-drag inline position/left/top (gestureState
+          // is captured once at drag start, before onMove's continuous
+          // pointer-follow rewrites left/top) — not a snapshot taken here,
+          // which would only capture the LAST dragged-to position. On a
+          // rejected move-node round-trip the element goes back to its
+          // ORIGINAL parent, so it must also go back to the position it had
+          // in that original parent, not a mid-drag coordinate.
+          var prevInlinePositionStyles =
+            dragOriginInlinePositionStyles(gestureState);
           adaptAutoTextColorForNest(
             dragEl,
             dropContainerForTarget(currentAutoLayoutTarget),
@@ -6618,6 +7356,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
+            prevInlinePositionStyles: prevInlinePositionStyles,
           });
         }
       } else {
@@ -6984,7 +7723,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
-    if (e.button !== 0 || activeTextEditEl) return;
+    if (e.button !== 0) return;
+    // T23: a stale session self-heals and the drag proceeds; only a LIVE
+    // session (connected element) blocks shield drags.
+    if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
@@ -7193,6 +7935,106 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   document.addEventListener(
     "keydown",
     function (e) {
+      // T25: pending-window keydown routing — a begin-text-edit is still
+      // waiting for its node. Keystrokes that land in THIS document during
+      // the wait belong to the upcoming text session: buffer printable
+      // characters (replayed on activation), let Backspace edit the buffer,
+      // and swallow Delete/Enter/Tab/arrows so they can never be forwarded
+      // into host layer-deletion/navigation. IME composition and Cmd/Ctrl
+      // chords pass through untouched.
+      if (!activeTextEditEl && pendingBeginTextEdit) {
+        if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
+          var pendingKey = e.key || "";
+          if (pendingKey === "Escape") {
+            var abandonedPendingNodeId = pendingBeginTextEdit.nodeId;
+            cancelPendingBeginTextEdit();
+            postTextEditPending(abandonedPendingNodeId, false);
+            stopNativeInteraction(e);
+            return;
+          }
+          if (pendingKey === "Backspace") {
+            pendingBeginTextEdit.buffer = pendingBeginTextEdit.buffer.slice(
+              0,
+              -1,
+            );
+            stopNativeInteraction(e);
+            return;
+          }
+          if (pendingKey.length === 1) {
+            pendingBeginTextEdit.buffer += pendingKey;
+            stopNativeInteraction(e);
+            return;
+          }
+          if (
+            pendingKey === "Delete" ||
+            pendingKey === "Enter" ||
+            pendingKey === "Tab" ||
+            pendingKey.indexOf("Arrow") === 0
+          ) {
+            stopNativeInteraction(e);
+            return;
+          }
+        }
+      }
+      // T23/T24: text-edit keydown routing runs BEFORE hotkey forwarding so
+      // a nominally-active session can never lose keys to host shortcuts.
+      if (activeTextEditEl) {
+        if (exitStaleTextEditSession()) {
+          // The session was stale (element detached by a patch). Swallow
+          // this keystroke entirely — letting it fall through in the same
+          // event would forward Delete/Backspace straight into host
+          // layer-deletion while the user believes they are typing text.
+          stopNativeInteraction(e);
+          return;
+        }
+        // Respect IME composition exactly like the session's own onKeyDown.
+        if (e.isComposing || e.keyCode === 229) return;
+        var activeNow = document.activeElement;
+        var focusInsideEdit = !!(
+          activeNow &&
+          (activeNow === activeTextEditEl ||
+            activeTextEditEl.contains(activeNow))
+        );
+        // T24: Escape must ALWAYS exit the session deterministically, even
+        // when focus fell outside the editable (where the session's own
+        // target-scoped keydown listener can never fire).
+        if (e.key === "Escape") {
+          if (!focusInsideEdit) {
+            stopNativeInteraction(e);
+            if (finishActiveTextEdit) finishActiveTextEdit(true);
+            return;
+          }
+          // Focus is inside: fall through — the session's own capture
+          // onKeyDown on the target handles Escape (commit + blur) next.
+          return;
+        }
+        if (!focusInsideEdit) {
+          // Race window: the session is active but focus sits elsewhere
+          // (creation focus race, transient focus steal). If the user is
+          // legitimately typing in a real form control, leave it alone;
+          // otherwise pull focus back into the editable so the keystroke
+          // lands as text — and never reaches host shortcuts.
+          if (!isEditorTypingTarget(activeNow)) {
+            try {
+              activeTextEditEl.focus();
+              var refocusRange = document.createRange();
+              refocusRange.selectNodeContents(activeTextEditEl);
+              refocusRange.collapse(false);
+              var refocusSelection = window.getSelection();
+              if (refocusSelection) {
+                refocusSelection.removeAllRanges();
+                refocusSelection.addRange(refocusRange);
+              }
+            } catch (_err) {
+              /* focus/selection APIs unavailable — key is still swallowed */
+            }
+            e.stopPropagation();
+          }
+        }
+        // While a live session exists, never forward hotkeys to the host
+        // (matches shouldForwardDesignHotkey's activeTextEditEl guard).
+        return;
+      }
       if (!shouldForwardDesignHotkey(e)) return;
       var key = e.key;
       var normalized = key && key.length === 1 ? key.toLowerCase() : key;
@@ -7244,6 +8086,53 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         { type: "design-hotkey-up", key: e.key, code: e.code },
         "*",
       );
+    },
+    true,
+  );
+
+  // T23/T24: pointerdown-level text-edit session hygiene. Runs on DOCUMENT
+  // capture (not the shield) because an active session sets the shield to
+  // pointer-events:none — and a LEAKED session leaves it that way, so shield
+  // handlers can never observe the pointerdown that should recover from it.
+  // 1. A pointerdown means the user moved on: drop any deferred
+  //    begin-text-edit command so it can't yank focus later.
+  // 2. A stale (detached-element) session self-heals on the next click.
+  // 3. Click-away must exit the session even when the editable is NOT
+  //    focused (the blur-based commit can never fire in that state).
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      if (pendingBeginTextEdit) {
+        var canceledPendingNodeId = pendingBeginTextEdit.nodeId;
+        cancelPendingBeginTextEdit();
+        postTextEditPending(canceledPendingNodeId, false);
+      }
+      if (!activeTextEditEl) return;
+      if (exitStaleTextEditSession()) return;
+      var pointerTarget =
+        e.target && (e.target as Element).nodeType === 1
+          ? (e.target as Element)
+          : null;
+      if (
+        pointerTarget &&
+        (pointerTarget === activeTextEditEl ||
+          activeTextEditEl.contains(pointerTarget))
+      ) {
+        return;
+      }
+      // Editor chrome (overlays) never hosts text content — clicking it
+      // shouldn't force-commit here; the session's own blur handling decides.
+      if (pointerTarget && isOverlayElement(pointerTarget)) return;
+      // A real user pointerdown outside the editable is a deterministic
+      // click-away: commit and exit NOW. This covers both broken states the
+      // blur path can't reach — (a) focus already fell outside the editable
+      // (blur will never fire), and (b) the programmatic empty-text session,
+      // whose blur handler deliberately re-focuses on transient focus steals
+      // but must NOT fight a real click elsewhere. For a healthy focused
+      // session this simply commits a few ms before blur would have.
+      if (finishActiveTextEdit) {
+        finishActiveTextEdit(true);
+      }
     },
     true,
   );
@@ -7338,6 +8227,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return;
     }
     stopNativeInteraction(e);
+    // A new edit supersedes any deferred begin-text-edit command. This is a
+    // USER-initiated path (dblclick) whenever pending is still set here —
+    // the programmatic activation paths clear pending BEFORE calling in —
+    // so also stand the host keystroke buffer down: it must never flush
+    // into this unrelated session.
+    if (pendingBeginTextEdit) {
+      var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
+      cancelPendingBeginTextEdit();
+      postTextEditPending(supersededPendingNodeId, false);
+    }
+    // T23: a live session on a DIFFERENT element must end through the
+    // canonical cleanup BEFORE the new one starts. Previously the new
+    // session simply overwrote activeTextEditEl/finishActiveTextEdit, and
+    // the old session's eventual blur-driven finish() then restored the
+    // shield pointer-passthrough state and posted text-editing-state(false)
+    // UNDERNEATH the new session, corrupting both.
+    if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
     // The raw `eventTarget` fallback (no findTextEditTarget resolution at
@@ -7501,7 +8407,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var next = target.textContent || "";
       var nextHtml = target.innerHTML || "";
       refreshOverlays();
-      if (next !== originalText || nextHtml !== originalHtml) {
+      // T23: never post a content change from a DETACHED node — a document
+      // patch already replaced it, so the in-document copy is the source of
+      // truth and a selector computed from the orphan would target the wrong
+      // (or no) element host-side.
+      if (
+        target.isConnected &&
+        (next !== originalText || nextHtml !== originalHtml)
+      ) {
         postTextContentChange(
           target,
           next,
@@ -7630,6 +8543,88 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     } else {
       placeTextCaretFromPoint(target, e.clientX, e.clientY);
     }
+  }
+
+  // T22: shared programmatic activation used by the begin-text-edit message
+  // handler — both for an immediately-resolvable node and for one that lands
+  // later via the deferred-retry window below.
+  function queryBeginTextEditNode(nodeId: string): HTMLElement | null {
+    var node: Element | null = document.querySelector(
+      '[data-agent-native-node-id="' +
+        nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+        '"]',
+    );
+    return node && node.nodeType === 1 ? (node as HTMLElement) : null;
+  }
+  function activateProgrammaticTextEdit(
+    textTarget: HTMLElement,
+    force: boolean,
+  ): void {
+    // If we are already editing this element, do nothing.
+    if (activeTextEditEl && activeTextEditEl === textTarget) return;
+    // Synthesise coordinates at the end of the element content so the caret
+    // lands at the insertion point (right after any placeholder text).
+    var bteRect = textTarget.getBoundingClientRect();
+    var bteCenterX = bteRect.right - 2;
+    var bteCenterY = bteRect.top + bteRect.height / 2;
+    // Delegate to the canonical path so all state, events, and postMessages
+    // stay consistent with a normal double-click text edit.
+    beginTextEditingFromEvent(
+      {
+        clientX: bteCenterX,
+        clientY: bteCenterY,
+        target: textTarget,
+        agentNativeProgrammaticTextEdit: true,
+        preventDefault: function () {},
+        stopPropagation: function () {},
+        stopImmediatePropagation: function () {},
+      } as unknown as MouseEvent,
+      force,
+    );
+  }
+  function pumpPendingBeginTextEdit(): void {
+    if (!pendingBeginTextEdit) return;
+    var entry = pendingBeginTextEdit;
+    var node = queryBeginTextEditNode(entry.nodeId);
+    if (node) {
+      pendingBeginTextEdit = null;
+      // The user may have started their own edit meanwhile — never steal it.
+      if (!activeTextEditEl) {
+        activateProgrammaticTextEdit(node, entry.force);
+        // Replay keystrokes typed into this iframe during the wait — the
+        // session is focused with the caret at the content end, so this
+        // lands exactly where the user expects their first characters.
+        if (entry.buffer && activeTextEditEl === node) {
+          insertPlainTextAtSelection(entry.buffer);
+        }
+      }
+      return;
+    }
+    if (Date.now() > entry.deadline) {
+      pendingBeginTextEdit = null;
+      postTextEditPending(entry.nodeId, false);
+      return;
+    }
+    entry.raf = window.requestAnimationFrame(pumpPendingBeginTextEdit);
+  }
+  function scheduleBeginTextEditRetry(nodeId: string, force: boolean): void {
+    // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
+    // every few hundred ms until it activates — those re-posts must extend
+    // the wait, not reset it (a reset would drop keystrokes already buffered
+    // for this node).
+    if (pendingBeginTextEdit && pendingBeginTextEdit.nodeId === nodeId) {
+      pendingBeginTextEdit.force = pendingBeginTextEdit.force || force;
+      pendingBeginTextEdit.deadline = Date.now() + 2000;
+      return;
+    }
+    cancelPendingBeginTextEdit();
+    pendingBeginTextEdit = {
+      nodeId: nodeId,
+      force: force,
+      deadline: Date.now() + 2000,
+      raf: window.requestAnimationFrame(pumpPendingBeginTextEdit),
+      buffer: "",
+    };
   }
 
   shieldOverlay.addEventListener("dblclick", beginTextEditingFromEvent, true);
@@ -7826,40 +8821,55 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var nodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!nodeId) return;
-      var nodeTarget: Element | null = document.querySelector(
-        '[data-agent-native-node-id="' +
-          nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
-          '"]',
-      );
-      if (!nodeTarget || nodeTarget.nodeType !== 1) return;
       // Edit the EXACT node identified by nodeId. Do NOT run it through
       // findTextEditTarget here — that helper climbs UP to the highest
       // inline-editable ancestor, which for a text node inside a text-heavy
       // screen resolves all the way to <main>, putting the ENTIRE screen into
       // edit mode instead of this node (keystrokes land in the wrong element).
-      var textTarget: HTMLElement | null = nodeTarget as HTMLElement;
-      if (!textTarget || textTarget.nodeType !== 1) return;
-      // If we are already editing this element, do nothing.
-      if (activeTextEditEl && activeTextEditEl === textTarget) return;
-      // Synthesise coordinates at the end of the element content so the caret
-      // lands at the insertion point (right after any placeholder text).
-      var bteRect = textTarget.getBoundingClientRect();
-      var bteCenterX = bteRect.right - 2;
-      var bteCenterY = bteRect.top + bteRect.height / 2;
-      // Delegate to the canonical path so all state, events, and postMessages
-      // stay consistent with a normal double-click text edit.
-      beginTextEditingFromEvent(
-        {
-          clientX: bteCenterX,
-          clientY: bteCenterY,
-          target: textTarget,
-          agentNativeProgrammaticTextEdit: true,
-          preventDefault: function () {},
-          stopPropagation: function () {},
-          stopImmediatePropagation: function () {},
-        } as unknown as MouseEvent,
-        forceBeginTextEdit,
-      );
+      var textTarget = queryBeginTextEditNode(nodeId);
+      if (!textTarget) {
+        // T22: the node hasn't landed in this document yet — the command won
+        // the race against the replace-document-content round trip that
+        // carries the freshly-created element. Defer instead of dropping,
+        // so the caret is live the moment the node appears. Tell the host so
+        // it buffers HOST-focused keystrokes for the same window (T25).
+        scheduleBeginTextEditRetry(nodeId, forceBeginTextEdit);
+        postTextEditPending(nodeId, true);
+        return;
+      }
+      cancelPendingBeginTextEdit();
+      activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
+      return;
+    }
+    // T25: replay keystrokes the HOST buffered during the creation→activation
+    // race window (DesignCanvas suppresses host shortcuts and stashes
+    // printable keys while its begin-text-edit is pending, then flushes them
+    // here once the session reports active). Inserted at the caret through
+    // the same execCommand path paste uses, so the session's own input
+    // listener updates chrome/state naturally.
+    if (e.data.type === "text-edit-insert-text") {
+      var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
+      if (!bufferedText || !activeTextEditEl || !isTextEditElConnected())
+        return;
+      var bufferedActive = document.activeElement;
+      if (
+        !bufferedActive ||
+        (bufferedActive !== activeTextEditEl &&
+          !activeTextEditEl.contains(bufferedActive))
+      ) {
+        try {
+          activeTextEditEl.focus();
+          var bufferedRange = document.createRange();
+          bufferedRange.selectNodeContents(activeTextEditEl);
+          bufferedRange.collapse(false);
+          var bufferedSelection = window.getSelection();
+          if (bufferedSelection) {
+            bufferedSelection.removeAllRanges();
+            bufferedSelection.addRange(bufferedRange);
+          }
+        } catch (_err) {}
+      }
+      insertPlainTextAtSelection(bufferedText);
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
@@ -8192,7 +9202,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postElementSelect(selectedEl);
         }
       } else {
-        // Revert the optimistic reorder to its pre-drag position.
+        // Revert the optimistic reorder to its pre-drag position AND
+        // restore any inline position/left/top/right/bottom the optimistic
+        // reorder stripped (stripAbsolutePositioningForFlowInsert runs
+        // inside applyRuntimeReorder for flow-insert drops). Without this
+        // second half a rejected move-node round-trip left the element
+        // re-parented back to its original container but permanently
+        // stripped of its absolute positioning — worse than doing nothing,
+        // since it now renders at the flow position of a detached style
+        // instead of either its original spot or the intended drop slot.
         if (
           move.el &&
           move.el.isConnected &&
@@ -8203,6 +9221,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           move.origin.prevParent.insertBefore(
             move.el,
             move.origin.prevNextSibling,
+          );
+          restoreInlinePositionStyles(
+            move.el,
+            move.origin.prevInlinePositionStyles,
           );
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);

@@ -425,11 +425,20 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
 
   it("never falls back to a base inline write while a breakpoint is active", () => {
     // On scoped-patch failure the legacy selector-based fallback would
-    // clobber every viewport width — the commit must fail loud instead.
-    const start = source.indexOf("const resolvedNextContentBeforeFontLink");
+    // clobber every viewport width — the commit must fail loud instead. The
+    // decision now lives in the pure resolveVisualStyleCommitContent helper
+    // (behaviorally pinned in DesignEditor.styleCommitAndDropAnchor.spec.ts:
+    // breakpointScoped + failure → hard error even when a legacy fallback
+    // exists); this source assertion pins that commitVisualStyles actually
+    // routes through it with the breakpoint-scope flag wired.
+    const start = source.indexOf(
+      "const commitResolution = resolveVisualStyleCommitContent",
+    );
     expect(start).toBeGreaterThanOrEqual(0);
     const fallback = source.slice(start, start + 400);
-    expect(fallback).toContain("activeBreakpointUpperBoundPx != null");
+    expect(fallback).toContain(
+      "breakpointScoped: activeBreakpointUpperBoundPx != null",
+    );
   });
 
   it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {

@@ -74,6 +74,24 @@ export function resolveTextStrokeColor(
 }
 
 /**
+ * The style patch the Stroke section's "Add layer" button commits for text
+ * elements: seed a 1px glyph outline in the resolved stroke color.
+ *
+ * Keys MUST stay kebab-case: camelCase webkit props (webkitTextStrokeWidth)
+ * get mangled by code-layer.ts normalizeStyleProperty — its camel→kebab pass
+ * yields `webkit-text-stroke-width` WITHOUT the required leading dash, which
+ * fails the style allow-list and silently persists nothing.
+ */
+export function textStrokeAddPatch(
+  strokeColor: string | undefined,
+): Record<string, string> {
+  return {
+    "-webkit-text-stroke-width": "1px",
+    "-webkit-text-stroke-color": resolveTextStrokeColor(strokeColor),
+  };
+}
+
+/**
  * R94 fix — reads a text stroke's width/color out of `element.computedStyles`
  * regardless of which of two shapes that map is in:
  *

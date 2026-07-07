@@ -95,6 +95,31 @@ function isDocumentHidden(): boolean {
 }
 
 /**
+ * Content equality for deduped active-user lists. `dedupeCollabUsersByEmail`
+ * always allocates a fresh array (and fresh per-user objects), so callers
+ * that only want to know "did the actual user set change" need this instead
+ * of an identity check. Order-sensitive: the dedupe helper iterates awareness
+ * states in a stable Map insertion order, so a reordering here does reflect
+ * a real change (a client joined/left and re-joined).
+ */
+function collabUsersEqual(a: CollabUser[], b: CollabUser[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (
+      left.email !== right.email ||
+      left.name !== right.name ||
+      left.color !== right.color
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Leader election for applying authoritative external snapshots into a shared
  * collaborative document.
  *
@@ -566,10 +591,30 @@ class CollabDocConnection {
         }
       }
     });
-    this.setSnapshot({
-      activeUsers: dedupeCollabUsersByEmail(users),
-      agentPresent: hasAgent,
-    });
+    const nextActiveUsers = dedupeCollabUsersByEmail(users);
+    // Awareness "change" fires for every remote broadcast — including cursor
+    // jiggles, re-published-but-unchanged heartbeat state, and edits to
+    // presence fields (recentEdits, selection) that don't affect who's
+    // active. dedupeCollabUsersByEmail always returns a fresh array, so
+    // without this comparison every one of those events would hand
+    // `activeUsers` a new identity and force every consumer (e.g. a
+    // full-page editor keying a useMemo/effect off it) to re-render even
+    // though the actual user list is unchanged. Reuse the previous
+    // reference when the deduped content is the same, matching the
+    // stable-ref discipline `usePresence`'s shallowEqualOthers already
+    // applies to `others`.
+    const activeUsers = collabUsersEqual(
+      this.snapshot.activeUsers,
+      nextActiveUsers,
+    )
+      ? this.snapshot.activeUsers
+      : nextActiveUsers;
+    if (
+      activeUsers !== this.snapshot.activeUsers ||
+      hasAgent !== this.snapshot.agentPresent
+    ) {
+      this.setSnapshot({ activeUsers, agentPresent: hasAgent });
+    }
 
     // Fast awareness push: whenever awareness changes (e.g. cursor moves,
     // setPresence() calls), schedule a throttled POST so peers receive updates

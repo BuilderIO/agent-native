@@ -222,6 +222,12 @@ export interface MultiScreenCanvasProps {
     /** data-agent-native-node-id of the deepest container at the drop point
      *  inside the target screen iframe (undefined when hit-test timed out). */
     targetAnchorNodeId?: string;
+    /** Pending node id minted by the hit-test bridge for an id-less anchor —
+     *  see CrossScreenHitTestResult.pendingNodeId's doc for the handshake. */
+    targetAnchorPendingNodeId?: string;
+    /** Source-equivalent structural selector locating the pending anchor in
+     *  the persisted dest document (CrossScreenHitTestResult.anchorSelector). */
+    targetAnchorSelector?: string;
     /** DOM insertion placement relative to the anchor node. */
     targetAnchorPlacement?: "before" | "after" | "inside";
     /** Whether the target should receive an in-flow insert or an absolute child. */
@@ -793,6 +799,23 @@ export interface CrossScreenHitTestAnchorRect {
 
 export interface CrossScreenHitTestResult {
   anchorNodeId?: string;
+  /**
+   * Minted by the hit-test bridge when the resolved anchor has no stable id
+   * (AI-generated screens): the anchor's live DOM carries it as
+   * `data-an-pending-node-id`, and `anchorSelector` (below) locates the same
+   * element in the PERSISTED source so a host can stamp the pending id as
+   * the real `data-agent-native-node-id` before resolving the drop — the
+   * two-step id-on-demand handshake mirroring editor-chrome's selection
+   * contract. Without passing these through, drops into id-less screens
+   * silently degrade to absolute placement.
+   */
+  pendingNodeId?: string;
+  /**
+   * Body-rooted source-equivalent structural path for the pending anchor
+   * (skips Alpine-generated runtime nodes + editor overlays). Absent when
+   * the anchor is itself an Alpine-generated instance with no source node.
+   */
+  anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;

@@ -83,7 +83,7 @@ const ptBR = {
       badge: "Framework open source",
       titleLine1: "O framework para",
       titleAccent: "apps agentic",
-      body: "Comece com uma Chat-first app e o app-agent loop. Adicione actions, telas, jobs e workflows à medida que seu agent cresce.",
+      body: "Agent-Native é um framework open source para construir rapidamente aplicações robustas com agents no núcleo.",
       primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
     },
@@ -264,13 +264,13 @@ const ptBR = {
       },
     },
     comparison: {
-      title: "O melhor dos dois mundos",
-      body: "Ferramentas SaaS são rígidas e colocam AI como um acréscimo tardio. Raw AI Agents são poderosos, mas não têm UI. Apps agent-native combinam os dois.",
+      titleLine1: "Não escolha entre apps ou agents.",
+      titleAccent: "Apps agent-native são os dois.",
       columns: {
         saas: "Ferramentas SaaS",
         agents: "Agentes AI brutos",
         internal: "Ferramentas internas",
-        native: "Agent-Native",
+        native: "App Agent-Native",
       },
       rows: {
         ui: "UI",
@@ -311,6 +311,7 @@ const ptBR = {
       titleLine1: "Tudo incluído,",
       titleLine2: "testado em produção",
       body: "Em vez de começar de um prompt vazio e código improvisado, o Agent-Native dá aos agentes componentes testados e boas práticas para criar software real.",
+      browseToolkits: "Explorar toolkits",
     },
     featureCloud: {
       notifications: "Notificações",
@@ -417,6 +418,24 @@ const ptBR = {
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",
+  },
+  buildFromScratch: {
+    title: "Criar do zero",
+    description:
+      "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
+    readDocs: "Ler a documentação",
+    buildOnline: "Criar online",
+    popoverTitle: "Criar online com a Builder.io",
+    popoverBody:
+      "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
+    emailLabel: "Email",
+    emailPlaceholder: "voce@empresa.com",
+    joinWaitlist: "Entrar na lista de espera",
+    joining: "Entrando…",
+    joined:
+      "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
+    invalidEmail: "Insira um endereço de email válido.",
+    submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",

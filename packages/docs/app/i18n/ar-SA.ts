@@ -82,7 +82,7 @@ const arSA = {
       badge: "framework مفتوح المصدر",
       titleLine1: "framework من أجل",
       titleAccent: "agentic apps",
-      body: "ابدأ مع Chat-first app و app-agent loop. أضف actions وشاشات و jobs و workflows مع نمو agent لديك.",
+      body: "Agent-Native هو framework مفتوح المصدر لبناء تطبيقات قوية بسرعة مع agents في جوهرها.",
       primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
     },
@@ -263,13 +263,13 @@ const arSA = {
       },
     },
     comparison: {
-      title: "أفضل ما في العالمين",
-      body: "أدوات SaaS جامدة وتضيف AI كفكرة لاحقة. Raw AI Agents قوية لكنها بلا UI. تجمع agent-native apps بين الاثنين.",
+      titleLine1: "لا تختَر بين apps و agents.",
+      titleAccent: "agent-native apps هما الاثنان معًا.",
       columns: {
         saas: "أدوات ادارة العلاقات مع",
         agents: "وكلاء AI الخام",
         internal: "الأدوات الداخلية",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -310,6 +310,7 @@ const arSA = {
       titleLine1: "كل شيء مضمّن،",
       titleLine2: "مجرّب عمليًا",
       body: "بدل البدء من prompt فارغ وكود مرتجل، يوفّر Agent-Native للوكلاء مكونات مجرّبة وأفضل الممارسات لبناء برامج حقيقية.",
+      browseToolkits: "تصفّح مجموعات الأدوات",
     },
     featureCloud: {
       notifications: "الإشعارات",
@@ -415,6 +416,24 @@ const arSA = {
     body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
+  },
+  buildFromScratch: {
+    title: "ابنِ من الصفر",
+    description:
+      "ابدأ بدليل إطار العمل أو ابنِ عبر الإنترنت باستخدام وكيل البرمجة السحابي من Builder.io.",
+    readDocs: "اقرأ المستندات",
+    buildOnline: "ابنِ عبر الإنترنت",
+    popoverTitle: "ابنِ عبر الإنترنت باستخدام Builder.io",
+    popoverBody:
+      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
+    emailLabel: "البريد الإلكتروني",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "انضم إلى قائمة الانتظار",
+    joining: "جارٍ الانضمام…",
+    joined:
+      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
+    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
+    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

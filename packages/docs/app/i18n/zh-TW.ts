@@ -80,7 +80,7 @@ const messages = {
       badge: "開放原始碼框架",
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
-      body: "從 Chat-first app 和 app-agent loop 開始。隨著你的 agent 成長，新增 actions、介面、jobs 和 workflows。",
+      body: "Agent-Native 是一個開源 framework，用於以 agent 為核心快速建構穩健的應用程式。",
       primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
     },
@@ -257,13 +257,13 @@ const messages = {
       },
     },
     comparison: {
-      title: "兩種優勢兼得",
-      body: "SaaS 工具很僵硬，AI 往往只是後加的補丁。原始 AI agents 很強大，但沒有 UI。Agent-Native apps 把二者結合起來。",
+      titleLine1: "不必在 app 和 agent 之間二選一。",
+      titleAccent: "Agent-native apps 二者兼備。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
         internal: "內部工具",
-        native: "Agent-Native",
+        native: "Agent-Native App",
       },
       rows: {
         ui: "UI",
@@ -304,6 +304,7 @@ const messages = {
       titleLine1: "內建全套能力，",
       titleLine2: "久經實战檢驗",
       body: "不必從空白提示詞和臨時拼湊的程式碼開始，Agent-Native 為代理提供建置真實軟體所需的可靠部件和最佳實踐。",
+      browseToolkits: "瀏覽工具包",
     },
     featureCloud: {
       notifications: "通知",
@@ -409,6 +410,22 @@ const messages = {
     body: "你可以自訂一切。",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",
+  },
+  buildFromScratch: {
+    title: "從零開始建置",
+    description: "從框架指南開始，或使用 Builder.io 的雲端編碼代理在線上建置。",
+    readDocs: "閱讀文件",
+    buildOnline: "線上建置",
+    popoverTitle: "使用 Builder.io 線上建置",
+    popoverBody:
+      "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
+    emailLabel: "電子郵件",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入等候名單",
+    joining: "正在加入…",
+    joined: "你已在等候名單中。線上建置存取開放時，我們會寄信通知你。",
+    invalidEmail: "請輸入有效的電子郵件地址。",
+    submitError: "無法加入等候名單。請再試一次。",
   },
   templateCard: {
     pasteIntoTerminal: "貼上到您的終端中。",

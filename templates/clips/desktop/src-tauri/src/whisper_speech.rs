@@ -656,11 +656,13 @@ mod macos {
             session_start,
         );
         let mic_for_cb = mic_stream.clone();
+        let reuse_voice_processing_engine = owner == SessionOwner::Dictation && !capture_system;
         let mic_cap = start_raw_mic_capture(
             app.clone(),
             mic_device_id,
             mic_device_label,
             voice_processing,
+            reuse_voice_processing_engine,
             Arc::new(move |s: &[f32]| mic_for_cb.push(s)),
         )
         .map_err(|e| {

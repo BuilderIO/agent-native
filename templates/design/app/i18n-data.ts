@@ -665,6 +665,8 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      layerMoveRedirected:
+        "Moved next to its original spot — the exact drop target isn't editable",
       duplicateElementFailed: "Could not duplicate that element",
       eyedropperUnsupported: "Eyedropper isn't supported in this browser",
       saveCopyError: "Could not save a copy of this design",
@@ -8447,6 +8449,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        layerMoveRedirected: "已移动到原位置附近——精确的放置目标不可编辑",
         duplicateElementFailed: "无法复制该元素",
         eyedropperUnsupported: "此浏览器不支持取色器",
       },
@@ -8522,6 +8525,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        layerMoveRedirected:
+          "Se movió cerca de su lugar original — el destino exacto no es editable",
         duplicateElementFailed: "No se pudo duplicar ese elemento",
         eyedropperUnsupported:
           "El cuentagotas no es compatible con este navegador",
@@ -8598,6 +8603,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        layerMoveRedirected:
+          "Déplacé à proximité de son emplacement d’origine — la cible exacte n’est pas modifiable",
         duplicateElementFailed: "Impossible de dupliquer cet élément",
         eyedropperUnsupported:
           "La pipette n'est pas prise en charge par ce navigateur",
@@ -8675,6 +8682,8 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        layerMoveRedirected:
+          "In die Nähe der ursprünglichen Stelle verschoben — das genaue Ziel ist nicht bearbeitbar",
         duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
         eyedropperUnsupported:
           "Die Pipette wird von diesem Browser nicht unterstützt",
@@ -8751,6 +8760,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        layerMoveRedirected:
+          "元の位置の近くに移動しました — 正確なドロップ先は編集できません",
         duplicateElementFailed: "その要素を複製できませんでした",
         eyedropperUnsupported: "このブラウザではスポイトツールを使用できません",
       },
@@ -8826,6 +8837,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        layerMoveRedirected:
+          "원래 위치 근처로 이동되었습니다 — 정확한 놓기 대상은 편집할 수 없습니다",
         duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
         eyedropperUnsupported: "이 브라우저에서는 스포이드를 지원하지 않습니다",
       },
@@ -8901,6 +8914,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        layerMoveRedirected:
+          "Movido para perto do local original — o destino exato não é editável",
         duplicateElementFailed: "Não foi possível duplicar esse elemento",
         eyedropperUnsupported:
           "O conta-gotas não é compatível com este navegador",
@@ -8977,6 +8992,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        layerMoveRedirected:
+          "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
         duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
         eyedropperUnsupported: "इस ब्राउज़र में आई-ड्रॉपर समर्थित नहीं है",
       },
@@ -9052,6 +9069,8 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        layerMoveRedirected:
+          "تم النقل بالقرب من الموضع الأصلي — الهدف الدقيق للإفلات غير قابل للتحرير",
         duplicateElementFailed: "تعذّر تكرار هذا العنصر",
         eyedropperUnsupported: "أداة القطارة غير مدعومة في هذا المتصفح",
       },

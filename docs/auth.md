@@ -17,7 +17,7 @@ Auth modes:
 | Mode                 | When to use                                                                      |
 | -------------------- | -------------------------------------------------------------------------------- |
 | Better Auth          | Default. Email/password + Google / GitHub social + organizations.                |
-| `AUTH_MODE=local`    | Solo local dev. Forces `getSession()` → `{ email: "local@localhost" }`.          |
+| `AUTH_MODE=local`    | Solo local dev. Sets CLI/agent identity only; does not change `getSession()`.    |
 | `ACCESS_TOKEN(S)`    | Static MCP/connect bearer fallback only; not browser auth.                       |
 | `AUTH_DISABLED=true` | Skip login/signup; all requests run as one shared user (local dev/preview only). |
 | Custom `getSession`  | BYOA — Auth.js, Clerk, Lucia, WorkOS, etc.                                       |
