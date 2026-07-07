@@ -24,10 +24,12 @@ const { schema } = vi.hoisted(() => ({
     contentDatabases: {
       id: "contentDatabases.id",
       documentId: "contentDatabases.documentId",
+      ownerEmail: "contentDatabases.ownerEmail",
     },
     contentDatabaseItems: {
       databaseId: "contentDatabaseItems.databaseId",
       documentId: "contentDatabaseItems.documentId",
+      ownerEmail: "contentDatabaseItems.ownerEmail",
     },
     documentPropertyDefinitions: {
       id: "documentPropertyDefinitions.id",
@@ -181,11 +183,27 @@ describe("deleteDocumentRecursive", () => {
 
   it("includes database item pages in one recursive delete pass", async () => {
     selectRows.contentDatabases = [
-      { id: "database-1", documentId: "database-doc" },
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
     ];
     selectRows.contentDatabaseItems = [
-      { databaseId: "database-1", documentId: "row-doc-1" },
-      { databaseId: "database-1", documentId: "row-doc-2" },
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-2",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+      { id: "row-doc-2", ownerEmail: "owner-a@example.com" },
     ];
 
     const deleted = await deleteDocumentRecursive(
@@ -207,5 +225,61 @@ describe("deleteDocumentRecursive", () => {
     expect(membershipDeletes[0].cond).toEqual({
       __inArray: [schema.contentDatabaseItems.databaseId, ["database-1"]],
     });
+  });
+
+  it("does not collect foreign-owned database item documents", async () => {
+    selectRows.contentDatabases = [
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabaseItems = [
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "foreign-row-doc",
+        ownerEmail: "owner-b@example.com",
+      },
+      {
+        databaseId: "database-1",
+        documentId: "mismatched-row-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+      { id: "foreign-row-doc", ownerEmail: "owner-b@example.com" },
+      { id: "mismatched-row-doc", ownerEmail: "owner-b@example.com" },
+    ];
+
+    const deleted = await deleteDocumentRecursive(
+      db,
+      "database-doc",
+      "owner-a@example.com",
+    );
+
+    expect(deleted.sort()).toEqual(["database-doc", "row-doc-1"].sort());
+  });
+
+  it("chunks the final documents delete", async () => {
+    selectRows.documents = Array.from({ length: 95 }, (_, index) => ({
+      id: `child-${index}`,
+      parentId: "doc-1",
+      ownerEmail: "owner-a@example.com",
+    }));
+
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    const documentDeletes = deleteCalls.filter((c) => c.table === "documents");
+    expect(documentDeletes).toHaveLength(2);
+    expect(
+      documentDeletes.map((c: any) => c.cond.__and[0].__inArray[1].length),
+    ).toEqual([90, 6]);
   });
 });

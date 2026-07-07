@@ -11,7 +11,9 @@ import {
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
 
-function chunks<T>(items: T[], size = 500): T[][] {
+const DELETE_BATCH_SIZE = 90;
+
+function chunks<T>(items: T[], size = DELETE_BATCH_SIZE): T[][] {
   const out: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
     out.push(items.slice(index, index + size));
@@ -44,6 +46,7 @@ async function selectDocumentChildren(
 async function selectOwnedDatabaseIds(
   db: ReturnType<typeof getDb>,
   documentIds: string[],
+  ownerEmail: string,
 ) {
   const rows: Array<{ id: string }> = [];
   for (const batch of chunks(documentIds)) {
@@ -51,7 +54,12 @@ async function selectOwnedDatabaseIds(
       ...(await db
         .select({ id: schema.contentDatabases.id })
         .from(schema.contentDatabases)
-        .where(inArray(schema.contentDatabases.documentId, batch))),
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        )),
     );
   }
   return rows;
@@ -60,6 +68,7 @@ async function selectOwnedDatabaseIds(
 async function selectDatabaseItemDocuments(
   db: ReturnType<typeof getDb>,
   databaseIds: string[],
+  ownerEmail: string,
 ) {
   const rows: Array<{ documentId: string }> = [];
   for (const batch of chunks(databaseIds)) {
@@ -67,10 +76,32 @@ async function selectDatabaseItemDocuments(
       ...(await db
         .select({ documentId: schema.contentDatabaseItems.documentId })
         .from(schema.contentDatabaseItems)
-        .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
+        .where(
+          and(
+            inArray(schema.contentDatabaseItems.databaseId, batch),
+            eq(schema.contentDatabaseItems.ownerEmail, ownerEmail),
+          ),
+        )),
     );
   }
-  return rows;
+  if (rows.length === 0) return rows;
+
+  const ownedRows: Array<{ id: string }> = [];
+  for (const batch of chunks(rows.map((row) => row.documentId))) {
+    ownedRows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, batch),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+
+  return ownedRows.map((row) => ({ documentId: row.id }));
 }
 
 async function collectDocumentSubtreeForDelete(
@@ -96,7 +127,11 @@ async function collectDocumentSubtreeForDelete(
       }
     }
 
-    const ownedDatabases = await selectOwnedDatabaseIds(db, frontier);
+    const ownedDatabases = await selectOwnedDatabaseIds(
+      db,
+      frontier,
+      ownerEmail,
+    );
     const newDatabaseIds = ownedDatabases
       .map((database) => database.id)
       .filter((databaseId) => {
@@ -109,6 +144,7 @@ async function collectDocumentSubtreeForDelete(
       const itemDocuments = await selectDatabaseItemDocuments(
         db,
         newDatabaseIds,
+        ownerEmail,
       );
       for (const item of itemDocuments) {
         if (!documentIds.has(item.documentId)) {
@@ -310,14 +346,16 @@ export async function deleteDocumentRecursive(
       .where(inArray(schema.documentShares.resourceId, documentIdBatch));
   });
 
-  await db
-    .delete(schema.documents)
-    .where(
-      and(
-        inArray(schema.documents.id, documentIds),
-        eq(schema.documents.ownerEmail, ownerEmail),
-      ),
-    );
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, documentIdBatch),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
+  });
 
   return documentIds;
 }
