@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.90.3
+
+### Patch Changes
+
+- ec523c4: Allow Builder transcription callers to override the request timeout so long-running media workflows can avoid premature aborts.
+- ec523c4: Skip saved model provider keys after auth failures so chats can fall back to Builder credentials instead of repeatedly retrying rejected BYO keys.
+- ec523c4: Add a Builder upload option for internal recording artifacts to skip asset-library registration.
+- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
+- ec523c4: Add first-class Toolkit docs plus reusable History, Comments/Review, Org/Team, Setup/Connections, and Command/Navigation kit primitives.
+- Updated dependencies [ec523c4]
+  - @agent-native/toolkit@0.4.2
+
 ## 0.90.2
 
 ### Patch Changes

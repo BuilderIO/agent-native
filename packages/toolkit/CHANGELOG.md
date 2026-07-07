@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.4.2
+
+### Patch Changes
+
+- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
+
 ## 0.4.1
 
 ### Patch Changes

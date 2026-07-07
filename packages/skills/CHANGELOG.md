@@ -1,5 +1,16 @@
 # @agent-native/skills
 
+## 0.2.259
+
+### Patch Changes
+
+- Updated dependencies [ec523c4]
+- Updated dependencies [ec523c4]
+- Updated dependencies [ec523c4]
+- Updated dependencies [ec523c4]
+- Updated dependencies [ec523c4]
+  - @agent-native/core@0.90.3
+
 ## 0.2.258
 
 ### Patch Changes
