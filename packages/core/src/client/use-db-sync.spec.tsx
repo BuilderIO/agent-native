@@ -229,6 +229,12 @@ describe("useDbSync", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
 
     expect(resultlessActionInvalidations(queryClient.calls)).toHaveLength(0);
     expect(queryClient.calls).not.toContainEqual({ queryKey: ["extension"] });
@@ -284,6 +290,12 @@ describe("useDbSync", () => {
       );
       await Promise.resolve();
       await Promise.resolve();
+    });
+    // useDbSync coalesces invalidation into a single flush per
+    // INVALIDATE_COALESCE_MS (250ms); wait past that window outside `act`
+    // (see the comment in renderWithEvent above).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
     expect(queryClient.calls).toContainEqual(undefined);
