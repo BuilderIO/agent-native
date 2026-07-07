@@ -648,7 +648,7 @@ pub async fn native_fullscreen_recording_available() -> Result<bool, String> {
 /// the countdown by now; this is just a safety net so a slow/denied mic can't
 /// stall the start.
 #[cfg(target_os = "macos")]
-const MIC_WARM_TIMEOUT_MS: u64 = 1500;
+const MIC_WARM_TIMEOUT_MS: u64 = 250;
 
 /// Acquire a backend (ScreenCaptureKit, or the screencapture fallback) and
 /// store it as the active session. Shared by the immediate-start command and
