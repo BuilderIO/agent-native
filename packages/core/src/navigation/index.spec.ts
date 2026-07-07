@@ -68,9 +68,7 @@ describe("navigation kit helpers", () => {
         params: { dashboardId: "dash_1" },
       }),
     ).toBe("/dashboards/dash_1");
-    expect(resolveOpenPath({ view: "settings", params: {} })).toBe(
-      "/settings",
-    );
+    expect(resolveOpenPath({ view: "settings", params: {} })).toBe("/settings");
     expect(resolveOpenPath({ view: "unknown", params: {} })).toBe("/unknown");
   });
 });
