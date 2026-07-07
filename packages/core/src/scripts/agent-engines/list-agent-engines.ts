@@ -15,7 +15,6 @@ import {
   normalizeModelForEngine,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
-import { canUseDeployCredentialFallbackForRequest } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -38,9 +37,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     : null;
 
   // Same priority chain resolveEngine uses after explicit request options:
-  // AGENT_ENGINE → app default → Builder app_secrets → stored (if usable)
-  // → user BYOK app_secrets → env → anthropic. Gating stored/app defaults
-  // on the request-aware helper keeps the picker in step with the runtime.
+  // AGENT_ENGINE → app default → stored (if usable) → user/Builder app_secrets
+  // → env → anthropic. Gating stored/app defaults on the request-aware helper
+  // keeps the picker in step with the runtime.
   const storedEntry =
     typeof current?.engine === "string"
       ? getAgentEngineEntry(current.engine)
@@ -65,16 +64,13 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     !!envEntry &&
     (await isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry));
   const envUnavailable = !!envEntry && !envUsable;
-  const detectedFromEnv = canUseDeployCredentialFallbackForRequest()
-    ? detectEngineFromEnv()
-    : null;
+  const detectedFromEnv = detectEngineFromEnv();
   const envSelectedEntry = envUsable ? envEntry : undefined;
 
   const currentEntry = envUnavailable
     ? undefined
     : (envSelectedEntry ??
       (appDefaultUsable ? appDefaultEntry : undefined) ??
-      (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
       (storedUsable ? storedEntry : undefined) ??
       detectedFromUser ??
       detectedFromEnv ??

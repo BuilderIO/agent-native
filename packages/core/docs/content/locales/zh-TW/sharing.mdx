@@ -5,7 +5,7 @@ description: "Google Docs 風格的共用，內建於框架中。每個使用者
 
 # 共用和隱私
 
-使用者在 Agent-Native 應用程式中建立的每個資源（檔案、儀表板、設計、簡報、影片編輯、螢幕錄製、會議紀錄、表單、預訂連結）**預設情況下對建立者來說是私人的**。僅當建立者明確共用它或將其可見性更改為 `org` 或 `public` 時，其他人才能看到它。
+使用者在 Agent-Native 應用程式中建立的每個資源（檔案、儀表板、設計、簡報、螢幕錄製、會議紀錄、表單、預訂連結）**預設情況下對建立者來說是私人的**。僅當建立者明確共用它或將其可見性更改為 `org` 或 `public` 時，其他人才能看到它。
 
 它的外觀和工作方式與 Google 檔案類似。相同的共用按鈕、相同的對話框、相同的三層可見性模型、相同的每使用者/每組織授權 - 跨每個範本，無需針對每個應用進行重新設計。
 
@@ -92,11 +92,11 @@ description: "Google Docs 風格的共用，內建於框架中。每個使用者
 - **內容** — 檔案
 - **幻燈片** — 幻燈片
 - **設計** — 設計和資產
-- **影片** — 作品
 - **剪輯** — 螢幕錄製（Loom 風格）
+- **Plan** — visual plans and PR recaps
 - **表單** — 表單定義
 - **行事曆** — 活動和預訂連結
-- **分析** - 儀表板（推出 - 請參閱分析範本的 `AGENTS.md`）
+- **分析** - dashboards, saved analyses, and tokenized session replays
 - **擴充功能** - 沙盒迷你應用程式（參見 [Extensions](/docs/extensions#sharing)）
 
 其中每一個都使用相同的 `ownableColumns()` 模式助手、相同的 `share-resource` 操作和相同的 `<ShareButton>` UI。從一個範本行動到另一個範本，共用對話框看起來相同。
@@ -137,14 +137,21 @@ import { ShareButton } from "@agent-native/core/client";
 
 框架在每個範本中自動安裝這些 actions - 代理將它們稱為工具，UI 透過 `useActionQuery` / `useActionMutation` 呼叫它們：
 
-| 行動                      | 它的作用                                                               |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `share-resource`          | 授予使用者或組織特定角色的存取權限。可選的 `notify` 控制電子郵件通知。 |
-| `unshare-resource`        | 撤銷使用者或組織的存取權限。                                           |
-| `list-resource-shares`    | 顯示目前可見性以及所有顯式授權。                                       |
-| `set-resource-visibility` | 更改為 `private`、`org` 或 `public`。                                  |
+| 行動                         | 它的作用                                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| `share-resource`             | 授予使用者或組織特定角色的存取權限。可選的 `notify` 控制電子郵件通知。                  |
+| `unshare-resource`           | 撤銷使用者或組織的存取權限。                                                            |
+| `list-resource-shares`       | 顯示目前可見性以及所有顯式授權。                                                        |
+| `set-resource-visibility`    | 更改為 `private`、`org` 或 `public`。                                                   |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource. |
 
 告訴代理“與作為編輯的行銷團隊共用此設計”，它會針對 UI 使用的同一端點呼叫 `share-resource`。結果將顯示在下一次渲染的共用對話框中。
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## 將其建置到新範本中 {#building}
 

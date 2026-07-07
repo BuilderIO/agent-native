@@ -3133,10 +3133,9 @@ ${identitySsoScript}
         if (!__anGoogleSignInInFlight) return;
         var btn = document.getElementById('google-btn');
         if (!btn || !btn.disabled) return;
-        if (__anOAuthPollTimer) {
-          clearInterval(__anOAuthPollTimer);
-          __anOAuthPollTimer = null;
-        }
+        // Keep the desktop-exchange poll alive. Agent Native Desktop opens
+        // Google in the system browser, so focus can return before the
+        // callback has stored the session token.
         btn.disabled = false;
         __anGoogleSignInInFlight = false;
       }, 1200);
@@ -3280,13 +3279,16 @@ ${
     : `  var TAB_STORAGE_KEY = 'an.onboarding.tab';
     var tabs = document.querySelectorAll('.tab');
     var forms = document.querySelectorAll('.form');
-    var pendingSignupEmail = '';
-    var pendingSignupPassword = '';
-    var verificationCheckInFlight = false;
-    function setActiveTab(name, opts) {
-      if (name !== 'signup' && name !== 'login') return;
-      var form = document.getElementById(name + '-form');
-      if (!form) return;
+	    var pendingSignupEmail = '';
+	    var pendingSignupPassword = '';
+	    var verificationCheckInFlight = false;
+	    var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60;
+	    var resendVerificationCooldownUntil = 0;
+	    var resendVerificationCooldownTimer = null;
+	    function setActiveTab(name, opts) {
+	      if (name !== 'signup' && name !== 'login') return;
+	      var form = document.getElementById(name + '-form');
+	      if (!form) return;
       var card = document.querySelector('.card');
       if (card) card.classList.remove('verifying');
       tabs.forEach(function(x) { x.classList.remove('active'); });
@@ -3341,13 +3343,21 @@ ${
     function __anNormalizeAuthEmail(value) {
       return String(value || '').trim().toLowerCase();
     }
-    function __anIsValidAuthEmail(value) {
-      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(__anNormalizeAuthEmail(value));
-    }
-    function __anShowEmailValidationError(input, msg) {
-      if (msg) {
-        msg.textContent = __anT('invalidEmail');
-        msg.classList.add('show', 'error');
+	    function __anIsValidAuthEmail(value) {
+	      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(__anNormalizeAuthEmail(value));
+	    }
+	    function __anIsVerifiedRedirectSuccess() {
+	      try {
+	        var params = new URLSearchParams(location.search);
+	        return params.has('verified') && !params.has('error');
+	      } catch (e) {
+	        return false;
+	      }
+	    }
+	    function __anShowEmailValidationError(input, msg) {
+	      if (msg) {
+	        msg.textContent = __anT('invalidEmail');
+	        msg.classList.add('show', 'error');
       }
       if (input && typeof input.focus === 'function') input.focus();
     }
@@ -3445,19 +3455,46 @@ ${
         }
       }
     }
-    function maybeCompleteVerificationAfterReturn() {
-      if (!isVerificationStepActive()) return;
-      checkVerificationSession(null, { silent: true });
-    }
-    async function resendVerificationEmail() {
-      var btn = document.getElementById('resend-verification');
-      var msg = document.getElementById('verify-msg');
-      var email = pendingSignupEmail || document.getElementById('s-email').value;
-      if (!email) return;
-      var original = btn ? btn.textContent : '';
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = __anT('sending');
+	    function maybeCompleteVerificationAfterReturn() {
+	      if (!isVerificationStepActive()) return;
+	      checkVerificationSession(null, { silent: true });
+	    }
+	    function updateResendVerificationCooldown() {
+	      var btn = document.getElementById('resend-verification');
+	      if (!btn) return;
+	      var remaining = Math.ceil((resendVerificationCooldownUntil - Date.now()) / 1000);
+	      if (remaining > 0) {
+	        btn.disabled = true;
+	        btn.textContent = __anT('resendEmail') + ' (' + remaining + 's)';
+	        return;
+	      }
+	      if (resendVerificationCooldownTimer) {
+	        clearInterval(resendVerificationCooldownTimer);
+	        resendVerificationCooldownTimer = null;
+	      }
+	      resendVerificationCooldownUntil = 0;
+	      btn.disabled = false;
+	      btn.textContent = __anT('resendEmail');
+	    }
+	    function startResendVerificationCooldown(seconds) {
+	      resendVerificationCooldownUntil = Date.now() + seconds * 1000;
+	      updateResendVerificationCooldown();
+	      if (resendVerificationCooldownTimer) clearInterval(resendVerificationCooldownTimer);
+	      resendVerificationCooldownTimer = setInterval(updateResendVerificationCooldown, 1000);
+	    }
+	    async function resendVerificationEmail() {
+	      var btn = document.getElementById('resend-verification');
+	      var msg = document.getElementById('verify-msg');
+	      var email = pendingSignupEmail || document.getElementById('s-email').value;
+	      if (!email) return;
+	      if (resendVerificationCooldownUntil > Date.now()) {
+	        updateResendVerificationCooldown();
+	        return;
+	      }
+	      var original = btn ? btn.textContent : '';
+	      if (btn) {
+	        btn.disabled = true;
+	        btn.textContent = __anT('sending');
       }
       if (msg) msg.classList.remove('show', 'error', 'success');
       try {
@@ -3467,21 +3504,15 @@ ${
           body: JSON.stringify({ email: email, callbackURL: __anGetReturnPath() }),
         });
         if (res.ok) {
-          if (msg) {
-            msg.textContent = __anT('sentVerification');
-            msg.classList.add('show', 'success');
-          }
-          if (btn) btn.textContent = __anT('sent');
-          setTimeout(function() {
-            if (btn) {
-              btn.disabled = false;
-              btn.textContent = original;
-            }
-          }, 1600);
-          return;
-        }
-        var data = await res.json().catch(function() { return {}; });
-        if (msg) {
+	          if (msg) {
+	            msg.textContent = __anT('sentVerification');
+	            msg.classList.add('show', 'success');
+	          }
+	          startResendVerificationCooldown(RESEND_VERIFICATION_COOLDOWN_SECONDS);
+	          return;
+	        }
+	        var data = await res.json().catch(function() { return {}; });
+	        if (msg) {
           msg.textContent = (data && (data.message || data.error)) || __anT('resendVerificationFailed');
           msg.classList.add('show', 'error');
         }
@@ -3509,9 +3540,9 @@ ${
       while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
       if (qp === 'login' || qp === 'signup') {
         initial = qp;
-      } else if (params.has('verified')) {
-        initial = 'login';
-      } else if (path === '/login' || path.endsWith('/login')) {
+	      } else if (__anIsVerifiedRedirectSuccess()) {
+	        initial = 'login';
+	      } else if (path === '/login' || path.endsWith('/login')) {
         initial = 'login';
       } else if (path === '/signup' || path.endsWith('/signup')) {
         initial = 'signup';
@@ -3521,9 +3552,9 @@ ${
       }
     } catch (e) {}
     setActiveTab(initial, { persist: false });
-      try {
-        if (new URLSearchParams(location.search).has('verified')) {
-          var msg = document.getElementById('l-msg');
+	      try {
+	        if (__anIsVerifiedRedirectSuccess()) {
+	          var msg = document.getElementById('l-msg');
           if (msg) {
             msg.textContent = __anT('emailVerifiedFinishing');
             msg.classList.remove('error');

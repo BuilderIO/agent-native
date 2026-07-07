@@ -1,4 +1,5 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
 import { useState } from "react";
@@ -13,7 +14,6 @@ import {
   ReferenceLine,
 } from "recharts";
 
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,

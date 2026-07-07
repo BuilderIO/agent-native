@@ -17,6 +17,7 @@ import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -42,13 +43,22 @@ const FALLBACK_INSTRUCTIONS =
   "a screen by name if the inline buttons are not available; after they pick, " +
   "delete each other variant screen at most once, call get-design-snapshot with fileId for " +
   "the kept screen once, then call edit-design on that same fileId in a bounded pass. " +
-  'Use mode "replace-file" when expanding the representative placeholder. ' +
+  'Use mode "replace-file" to replace the representative direction screen with ' +
+  "the actual requested product UI; make the result complete but compact and " +
+  "prefer visible controls/affordances over exhaustive content if the request is large. " +
+  "Do not leave a direction board, summary card, or variant brief as the final result. " +
   "Do not call generate-design after a variant pick.";
 
 const VARIANT_PICK_SUBMIT_MESSAGE =
   "Use this design direction. Keep the selected screen, clean up each other " +
   "variant screen at most once, read only the kept screen, then update that " +
-  "same screen in one bounded pass. If a cleanup action reports a screen was " +
+  "same screen in one bounded pass into the requested app/product UI. Make it " +
+  "complete but compact: prioritize the primary workflow, and if the full feature " +
+  "list is too large for one reliable edit, render secondary details as visible " +
+  "controls, states, or affordances instead of expanding the action input. " +
+  "The selected screen is only a representative direction; the final saved " +
+  "screen must not be a direction board, variant brief, or summary card. " +
+  "If a cleanup action reports a screen was " +
   "already missing, continue. Use the exact file ids and tool instructions in " +
   "the selected answer below. Do not repeat cleanup/read cycles, do not create " +
   "a new index.html, and stop after the first successful screen update.";
@@ -241,7 +251,7 @@ function colorForVariant(
 ) {
   const provided = variant.accentColor?.trim();
   if (provided) return provided;
-  return ["#8b5cf6", "#06b6d4", "#10b981", "#f43f5e", "#f59e0b"][index % 5]!;
+  return ["#f59e0b", "#06b6d4", "#10b981", "#f43f5e", "#d97706"][index % 5]!;
 }
 
 function fallbackVariantContent(
@@ -298,7 +308,7 @@ function fallbackVariantContent(
 <style>
 :root { color-scheme: dark; --accent: ${accent}; --bg: #080a0f; --panel: rgba(18, 22, 33, 0.82); --line: rgba(255,255,255,.11); --muted: #94a3b8; }
 * { box-sizing: border-box; }
-body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
+body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
 .shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
@@ -424,7 +434,7 @@ export default defineAction({
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
     '`mode: "replace-file"` when expanding the representative placeholder ' +
-    "into the full chosen direction. Do not call generate-design after a " +
+    "into a complete but compact product UI in the chosen direction. Do not call generate-design after a " +
     "variant pick. Stop after the first successful edit-design save. For " +
     "complex apps, " +
     "make each variant a " +
@@ -484,12 +494,16 @@ export default defineAction({
       const fileId = nanoid();
       const providedContent = variant.content?.trim();
       const initialSize = inferVariantSize(variant, prompt);
-      const content =
+      const rawContent =
         providedContent ||
         fallbackVariantContent(variant, index, prompt, initialSize);
       const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content })
+        ? inferVariantSize({ ...variant, content: rawContent })
         : initialSize;
+      // Stamp missing data-agent-native-node-id attributes before persisting
+      // so each variant screen is fully addressable by id-keyed editor
+      // operations as soon as it lands on the overview board.
+      const content = annotateScreenHtmlForPersist(rawContent, "html");
 
       await db.insert(schema.designFiles).values({
         id: fileId,
@@ -580,7 +594,7 @@ export default defineAction({
     await writeAppStateForCurrentTab("guided-questions", {
       title: prompt ?? "Pick a direction",
       description:
-        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and edit that same file in a bounded pass.",
+        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and turn that direction into the final requested screen.",
       submitLabel: "Use selected direction",
       submitMessage: VARIANT_PICK_SUBMIT_MESSAGE,
       skipLabel: "Show another set",
@@ -608,7 +622,7 @@ export default defineAction({
               value:
                 `Keep "${screen.label}" (${screen.filename}, file id ${screen.id}) ` +
                 `from variant set ${variantSetId}. Delete each other variant screen at most once: ${otherScreens}. If delete-file says a screen is already missing, continue. ` +
-                `Then call get-design-snapshot exactly once with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" when replacing the representative placeholder with the full chosen direction, or search/replace for smaller refinements. Do not call generate-design after this variant pick, do not repeat delete/snapshot cycles, do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
+                `Then call get-design-snapshot exactly once with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow; if the full feature list is too large for one reliable edit, render secondary details as visible controls, states, or affordances instead of expanding the action input. The final saved screen must be the actual usable UI requested by the user, not a direction board, variant brief, summary card, or description of the direction. Do not call generate-design after this variant pick, do not repeat delete/snapshot cycles, do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
             };
           }),
         },
@@ -626,7 +640,7 @@ export default defineAction({
       embed: true,
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" when expanding the placeholder into the full chosen direction. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
+        'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
     };
   },
   link: ({ result }) => {

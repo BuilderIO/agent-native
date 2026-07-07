@@ -1,6 +1,5 @@
 import {
   AgentToggleButton,
-  NotificationsBell,
   ShareButton,
   appPath,
   useFormatters,
@@ -717,7 +716,6 @@ export function FormBuilderPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <NotificationsBell />
           <AgentToggleButton />
         </div>
       </div>

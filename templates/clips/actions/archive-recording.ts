@@ -7,14 +7,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  ownerEmailMatches,
-} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -23,18 +20,14 @@ export default defineAction({
     id: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.id, "editor");
+
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
 
     const [existing] = await db
       .select({ id: schema.recordings.id })
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.id),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const now = new Date().toISOString();

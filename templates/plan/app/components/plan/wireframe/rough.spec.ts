@@ -3,7 +3,11 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { HTML_ROUGH_SELECTOR } from "./kit";
+import {
+  HTML_ROUGH_SELECTOR,
+  isRoughOverlayMutation,
+  sameRoughState,
+} from "./kit";
 
 describe("HTML wireframe rough overlay defaults", () => {
   it("sketches controls and explicit opt-ins, not broad helper containers", () => {
@@ -30,6 +34,33 @@ describe("HTML wireframe rough overlay defaults", () => {
     expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
     expect(hideRule).not.toContain(".wf-card");
     expect(hideRule).not.toContain(".wf-box");
+  });
+
+  it("ignores its own ready marker mutations", () => {
+    expect(
+      isRoughOverlayMutation({
+        type: "attributes",
+        attributeName: "data-rough-ready",
+      } as MutationRecord),
+    ).toBe(true);
+  });
+
+  it("detects unchanged rough overlay paths", () => {
+    const state = {
+      w: 320,
+      h: 180,
+      paths: [{ d: "M0 0 H10", stroke: "#111", strokeWidth: 1.4 }],
+    };
+
+    expect(sameRoughState(state, { ...state, paths: [...state.paths] })).toBe(
+      true,
+    );
+    expect(
+      sameRoughState(state, {
+        ...state,
+        paths: [{ ...state.paths[0], d: "M0 0 H12" }],
+      }),
+    ).toBe(false);
   });
 
   it("keeps diagram primitive text contained inside boxes", () => {

@@ -16,6 +16,12 @@ export {
   type UseCollabReconcileResult,
 } from "./useCollabReconcile.js";
 export {
+  applyDocSurgically,
+  defaultParseValue,
+  diffTopLevel,
+  type TopLevelDiff,
+} from "./surgical-apply.js";
+export {
   SlashCommandMenu,
   DEFAULT_SLASH_COMMANDS,
   createImageSlashCommand,

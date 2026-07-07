@@ -445,17 +445,12 @@ async function executeJob(
           useHostedDefault: true,
         });
 
-        // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
-        // will fire first; locally this is the only guard.
-        const hardAbortTimer = setTimeout(
-          () => {
-            // startRun's abort controller handles this below, but we still need
-            // the handle to clear it in the finally block.
-          },
-          5 * 60 * 1000,
-        );
-
         let jobError: Error | null = null;
+        // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
+        // will fire first; locally this is the only guard. Cleared when the
+        // run completes so finished jobs don't leave a live timer keeping the
+        // process/event loop alive for the remainder of the window.
+        let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
         await new Promise<void>((resolve, reject) => {
           const activeRun = startRun(
             runId,
@@ -479,6 +474,10 @@ async function executeJob(
             },
             // onComplete: run finished (completed or aborted)
             async (run) => {
+              if (hardAbortTimer) {
+                clearTimeout(hardAbortTimer);
+                hardAbortTimer = null;
+              }
               if (run.status === "completed") {
                 resolve();
               } else {
@@ -491,11 +490,11 @@ async function executeJob(
             },
           );
 
-          // Hard-abort backstop: abort the run-manager's own controller after
-          // 5 minutes if it hasn't finished naturally.
-          clearTimeout(hardAbortTimer);
-          setTimeout(
+          // Abort the run-manager's own controller after 5 minutes if the
+          // run hasn't finished naturally.
+          hardAbortTimer = setTimeout(
             () => {
+              hardAbortTimer = null;
               if (activeRun.status === "running") {
                 activeRun.abort.abort("job_hard_timeout");
                 reject(new Error("Job timed out after 5 minutes"));
@@ -506,6 +505,10 @@ async function executeJob(
         }).catch((err: any) => {
           jobError = err;
         });
+        if (hardAbortTimer) {
+          clearTimeout(hardAbortTimer);
+          hardAbortTimer = null;
+        }
 
         if (jobError) throw jobError;
 

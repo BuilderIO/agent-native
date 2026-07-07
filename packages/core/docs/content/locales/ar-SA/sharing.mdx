@@ -5,7 +5,7 @@ description: "المشاركة بأسلوب Google-Docs، المضمنة في إ
 
 # المشاركة والخصوصية
 
-كل مورد ينشئه المستخدم في تطبيق وكيل أصلي - مستند، أو لوحة معلومات، أو تصميم، أو مجموعة، أو تحرير فيديو، أو تسجيل شاشة، أو نص اجتماع، أو نموذج، أو رابط حجز - يكون **خاصًا بالمنشئ بشكل افتراضي**. ولا يراها الأشخاص الآخرون إلا عندما يشاركها منشئ المحتوى بشكل صريح، أو يغير مستوى رؤيتها إلى `org` أو `public`.
+كل مورد ينشئه المستخدم في تطبيق وكيل أصلي - مستند، أو لوحة معلومات، أو تصميم، أو مجموعة، أو تسجيل شاشة، أو نص اجتماع، أو نموذج، أو رابط حجز - يكون **خاصًا بالمنشئ بشكل افتراضي**. ولا يراها الأشخاص الآخرون إلا عندما يشاركها منشئ المحتوى بشكل صريح، أو يغير مستوى رؤيتها إلى `org` أو `public`.
 
 يبدو ويعمل مثل مستندات Google. نفس زر المشاركة، ونفس مربع الحوار، ونفس نموذج الرؤية ثلاثي المستويات، ونفس المنح لكل مستخدم/لكل مؤسسة - عبر كل قالب، بدون إعادة اختراع لكل تطبيق.
 
@@ -92,11 +92,11 @@ description: "المشاركة بأسلوب Google-Docs، المضمنة في إ
 - **المحتوى** — المستندات
 - **الشرائح** — التشكيلات
 - **التصميم** — التصاميم والأصول
-- **الفيديو** — المقطوعات الموسيقية
 - **المقاطع** — تسجيلات الشاشة (نمط المنوال)
+- **Plan** — visual plans and PR recaps
 - **النماذج** — تعريفات النماذج
 - **التقويم** — الأحداث وروابط الحجز
-- **التحليلات** — لوحات المعلومات (يتم طرحها — راجع `AGENTS.md` لنموذج التحليلات)
+- **التحليلات** — dashboards, saved analyses, and tokenized session replays
 - **الإضافات** — تطبيقات صغيرة في وضع الحماية (راجع [Extensions](/docs/extensions#sharing))
 
 يستخدم كل واحد من هؤلاء نفس مساعد مخطط `ownableColumns()`، ونفس إجراء `share-resource`، ونفس `<ShareButton>` UI. انتقل من قالب إلى آخر وسيبدو مربع حوار المشاركة متطابقًا.
@@ -137,14 +137,21 @@ import { ShareButton } from "@agent-native/core/client";
 
 يقوم إطار العمل بتثبيت actions تلقائيًا في كل قالب - يستدعيها الوكيل كأدوات، ويستدعيها UI من خلال `useActionQuery` / `useActionMutation`:
 
-| الإجراء                   | ماذا يفعل                                                                                          |
-| ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `share-resource`          | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
-| `unshare-resource`        | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
-| `list-resource-shares`    | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
-| `set-resource-visibility` | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
+| الإجراء                      | ماذا يفعل                                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| `share-resource`             | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
+| `unshare-resource`           | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
+| `list-resource-shares`       | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
+| `set-resource-visibility`    | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.            |
 
 أخبر الوكيل "بمشاركة هذا التصميم مع فريق التسويق كمحررين" وسيقوم باستدعاء `share-resource` مقابل نفس نقطة النهاية التي يستخدمها UI. تظهر النتيجة في مربع حوار المشاركة في العرض التالي.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## إنشاءه في قالب جديد {#building}
 

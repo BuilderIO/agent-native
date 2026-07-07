@@ -5,7 +5,7 @@ description: "Google Docs 风格的共享，内置于框架中。每个用户创
 
 # 共享和隐私
 
-用户在代理原生应用程序中创建的每个资源（文档、仪表板、设计、演示文稿、视频编辑、屏幕录制、会议记录、表单、预订链接）**默认情况下对创建者来说是私有的**。仅当创建者明确共享它或将其可见性更改为 `org` 或 `public` 时，其他人才能看到它。
+用户在代理原生应用程序中创建的每个资源（文档、仪表板、设计、演示文稿、屏幕录制、会议记录、表单、预订链接）**默认情况下对创建者来说是私有的**。仅当创建者明确共享它或将其可见性更改为 `org` 或 `public` 时，其他人才能看到它。
 
 它的外观和工作方式与 Google 文档类似。相同的共享按钮、相同的对话框、相同的三层可见性模型、相同的每用户/每组织授权 - 跨每个模板，无需针对每个应用进行重新设计。
 
@@ -92,11 +92,11 @@ description: "Google Docs 风格的共享，内置于框架中。每个用户创
 - **内容** — 文档
 - **幻灯片** — 幻灯片
 - **设计** — 设计和资产
-- **视频** — 作品
 - **剪辑** — 屏幕录制（Loom 风格）
+- **Plan** — visual plans and PR recaps
 - **表单** — 表单定义
 - **日历** — 活动和预订链接
-- **分析** - 仪表板（推出 - 请参阅分析模板的 `AGENTS.md`）
+- **分析** - dashboards, saved analyses, and tokenized session replays
 - **扩展** - 沙盒迷你应用程序（参见 [Extensions](/docs/extensions#sharing)）
 
 其中每一个都使用相同的 `ownableColumns()` 模式助手、相同的 `share-resource` 操作和相同的 `<ShareButton>` UI。从一个模板移动到另一个模板，共享对话框看起来相同。
@@ -137,14 +137,21 @@ import { ShareButton } from "@agent-native/core/client";
 
 框架在每个模板中自动安装这些 actions - 代理将它们称为工具，UI 通过 `useActionQuery` / `useActionMutation` 调用它们：
 
-| 行动                      | 它的作用                                                             |
-| ------------------------- | -------------------------------------------------------------------- |
-| `share-resource`          | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。 |
-| `unshare-resource`        | 撤销用户或组织的访问权限。                                           |
-| `list-resource-shares`    | 显示当前可见性以及所有显式授权。                                     |
-| `set-resource-visibility` | 更改为 `private`、`org` 或 `public`。                                |
+| 行动                         | 它的作用                                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| `share-resource`             | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。                    |
+| `unshare-resource`           | 撤销用户或组织的访问权限。                                                              |
+| `list-resource-shares`       | 显示当前可见性以及所有显式授权。                                                        |
+| `set-resource-visibility`    | 更改为 `private`、`org` 或 `public`。                                                   |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource. |
 
 告诉代理“与作为编辑的营销团队共享此设计”，它会针对 UI 使用的同一端点调用 `share-resource`。结果将显示在下一次渲染的共享对话框中。
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## 将其构建到新模板中 {#building}
 

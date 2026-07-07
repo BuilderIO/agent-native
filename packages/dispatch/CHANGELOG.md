@@ -1,5 +1,23 @@
 # @agent-native/dispatch
 
+## 0.13.8
+
+### Patch Changes
+
+- 9d8c83c: Route Dispatch agent settings through the shared settings tabs.
+
+## 0.13.7
+
+### Patch Changes
+
+- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+
+## 0.13.6
+
+### Patch Changes
+
+- 622d552: Remove retired scaffold aliases from template catalogs and app pickers.
+
 ## 0.13.5
 
 ### Patch Changes
@@ -262,12 +280,6 @@
 ### Minor Changes
 
 - 1acd641: Add a shared provider API runtime for flexible, provider-aware authenticated HTTP requests, and expose provider API catalog/docs/request actions from Dispatch.
-
-## 0.8.29
-
-### Patch Changes
-
-- 966838d: Expose the Contracts template in public metadata with its dedicated icon alias.
 
 ## 0.8.28
 

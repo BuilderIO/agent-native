@@ -959,6 +959,7 @@ export default function RecordRoute() {
     mode: RecordingMode;
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
+    micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
   } | null>(null);
   const tickRef = useRef<number | null>(null);
@@ -1042,6 +1043,7 @@ export default function RecordRoute() {
       mode: RecordingMode;
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
+      micDeviceLabel?: string | null;
       cameraDeviceId: string | null;
     }) => {
       const blockedFeature = isEmbeddedWindow()
@@ -1086,6 +1088,7 @@ export default function RecordRoute() {
           mode: opts.mode,
           displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
+          micDeviceLabel: opts.micDeviceLabel,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
           uploadUrl: "",
@@ -1100,6 +1103,13 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Camera track ended mid-recording (unplugged, permission revoked,
+          // device asleep). The recorded composite already drops the bubble;
+          // clear the on-page preview stream too so it doesn't keep showing a
+          // frozen last frame that no longer matches the recorded output.
+          onCameraEnded: () => {
+            setCameraStream(null);
           },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full
@@ -1188,12 +1198,10 @@ export default function RecordRoute() {
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
         //
-        // The one exception is when a stale saved mic forced the engine to
-        // fall back to the system default during acquire(): the recording is
-        // now on the default device, so live transcription would use the same
-        // mic and is safe to start.
-        const usingDefaultMic =
-          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        // The engine reports whether the final recorded mic stream really is
+        // the system default; corrected explicit fallbacks must not start Web
+        // Speech because it would listen to a different device.
+        const usingDefaultMic = engine.didMicUseSystemDefault();
         if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
@@ -1554,6 +1562,8 @@ export default function RecordRoute() {
               visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
+              mimeType: uploadMimeType,
+              requestStreaming: false,
             }),
           },
         );
@@ -2212,10 +2222,18 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
+      // The recording may have already finished uploading server-side (the
+      // final chunk can land, and the row can flip to "ready", while we're
+      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+      // client). A separate GET-status-then-POST-trash sequence would still
+      // race finalize between the two calls, so ask the server to trash
+      // atomically instead: `skipIfReady` makes the trash a conditional
+      // no-op if the row is already "ready" by the time the UPDATE runs, so a
+      // fully saved video is never silently discarded.
       fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId }),
+        body: JSON.stringify({ id: pendingId, skipIfReady: true }),
       }).catch(() => {});
     }
     setCameraStream(null);

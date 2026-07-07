@@ -714,6 +714,90 @@ function completedToolRepeatSignature(
   ].join("\u0000");
 }
 
+/**
+ * Result prefixes the server emits when a tool_start/tool_done pair is a
+ * REPLAY of a call that already executed in an earlier interrupted chunk of
+ * this turn (tool-call journal hard-block and zombie-ledger recovery in
+ * production-agent.ts). These are not new calls — rendering them as separate
+ * cards produces the "same tool twice, one spinning / one done" duplicate.
+ */
+const JOURNAL_RECOVERY_RESULT_PREFIXES = [
+  "(Already completed in an earlier interrupted attempt",
+  "(Recovered from prior interrupted chunk",
+] as const;
+
+function isJournalRecoveryResult(result: unknown): boolean {
+  return (
+    typeof result === "string" &&
+    JOURNAL_RECOVERY_RESULT_PREFIXES.some((prefix) => result.startsWith(prefix))
+  );
+}
+
+/**
+ * Merge a journal/ledger-recovered tool_done into the earlier card for the
+ * same logical call instead of leaving a duplicate pair. Two shapes occur:
+ *
+ * 1. The original card already completed (reconnect/continuation replay): the
+ *    recovery card at `completedIndex` is redundant — drop it, keeping the
+ *    original result.
+ * 2. The recovery result attached to the ORIGINAL still-pending card (the
+ *    id-less replay tool_done name-matches the earliest pending card): the
+ *    replay's own tool_start pushed a second pending card AFTER it that no
+ *    tool_done will ever resolve — remove that stuck-spinner artifact.
+ *
+ * Gated strictly on the recovery result markers so genuinely repeated
+ * identical calls are never collapsed. Returns true when it spliced the card
+ * at `completedIndex` (callers must not reuse the index afterwards).
+ */
+function coalesceJournalRecoveredTool(
+  content: ContentPart[],
+  completedIndex: number,
+): boolean {
+  const current = content[completedIndex];
+  if (!current || current.type !== "tool-call") return false;
+  if (!isJournalRecoveryResult(current.result)) return false;
+  const matchesCurrentCall = (
+    part: ContentPart,
+  ): part is Extract<ContentPart, { type: "tool-call" }> =>
+    part.type === "tool-call" &&
+    part.activity !== true &&
+    part.toolName === current.toolName &&
+    part.argsText === current.argsText;
+
+  for (let i = completedIndex - 1; i >= 0; i--) {
+    const prior = content[i];
+    if (!matchesCurrentCall(prior)) continue;
+    if (prior.result === undefined) {
+      // The original was interrupted mid-flight (spinner) — resolve it with
+      // the recovered result instead of showing a second card.
+      prior.result = current.result;
+      if (current.isError !== undefined) prior.isError = current.isError;
+      if (current.completedSideEffect !== undefined) {
+        prior.completedSideEffect = current.completedSideEffect;
+      }
+      if (current.mcpApp) prior.mcpApp = current.mcpApp;
+      if (current.chatUI) prior.chatUI = current.chatUI;
+    }
+    content.splice(completedIndex, 1);
+    return true;
+  }
+
+  // No earlier card — the recovery result landed on the original pending card
+  // itself. Remove any later still-pending replay-start artifact for the same
+  // call so it doesn't spin forever.
+  for (let i = content.length - 1; i > completedIndex; i--) {
+    const later = content[i];
+    if (
+      later.type === "tool-call" &&
+      matchesCurrentCall(later) &&
+      later.result === undefined
+    ) {
+      content.splice(i, 1);
+    }
+  }
+  return false;
+}
+
 function coalesceCompletedToolRepeat(
   content: ContentPart[],
   completedIndex: number,
@@ -1022,7 +1106,12 @@ export function processEvent(
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
-        coalesceCompletedToolRepeat(content, doneIdx);
+        // Journal/ledger replay merge first (may splice the card at doneIdx —
+        // when it does, the adjacent-repeat coalesce below must not run on the
+        // stale index).
+        if (!coalesceJournalRecoveredTool(content, doneIdx)) {
+          coalesceCompletedToolRepeat(content, doneIdx);
+        }
       }
     }
     return {

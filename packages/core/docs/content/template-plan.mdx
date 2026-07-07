@@ -6,11 +6,11 @@ description: "Agent-Native Plans turns your coding agent's plan into a structure
 # Visual Plans
 
 > **Most people install Plan as a skill, not a scaffolded app.** One CLI command
-> adds the `/visual-plan` and `/visual-recap` skills plus the hosted Plan
-> connector to your coding agent — see [Plan plugin & marketplace](/docs/plan-plugin)
-> for the plugin and marketplace routes. Forking the Plan template (covered under
-> [For developers](#for-developers)) is the secondary path, for self-hosting or
-> building on Plan itself.
+> adds the `/visual-plan`, `/visual-recap`, and `/visualize-repo` skills plus
+> the hosted Plan connector to your coding agent — see
+> [Plan plugin & marketplace](/docs/plan-plugin) for the plugin and marketplace
+> routes. Forking the Plan template (covered under [For developers](#for-developers))
+> is the secondary path, for self-hosting or building on Plan itself.
 
 Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
 Codex, Claude Code, Markdown, or pasted implementation plan into a structured
@@ -115,7 +115,8 @@ hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-The command installs both commands: `/visual-plan` and `/visual-recap`.
+The command installs three commands: `/visual-plan`, `/visual-recap`, and
+`/visualize-repo`.
 
 If you are using a chat-based host that accepts MCP connector URLs directly
 (rather than a CLI-configured client), connect the hosted Plans connector at
@@ -358,6 +359,35 @@ and commenting, and returns the hosted URL. Local-files mode does not
 automatically make your coding agent's LLM local; choose a local or approved
 model if that privacy boundary matters too.
 
+## Repo visual docs {#visualize-repo}
+
+Use `/visualize-repo` when you want a durable visual documentation layer for a
+codebase instead of a one-off plan or recap. It creates or opens a local Plan
+MDX workspace, updates `agent-native.json` with an `apps.visualize-repo`
+local-files section, and serves the docs through the same localhost bridge:
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+If no `agent-native.json` exists, the command bootstraps one and recommends a
+small starter set from the repo structure, such as `actions/`,
+`app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`,
+`templates/`, `docs/`, or `content/`. You can target specific source anchors:
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+The starter folder lives at `.agent-native/visual-docs/repo-overview` by
+default. Comments stay local in `comments.json`, so reviewers can mark sections
+for a coding agent and the agent can update both code and MDX in the same
+change. Run `visualize-repo check` for local lint, and `visualize-repo verify`
+when you want the Plan renderer schema to validate the MDX.
+
 ## Desktop local file sync {#desktop-local-sync}
 
 Agent Native Desktop also gives hosted Plans a native local-folder bridge. This
@@ -409,6 +439,7 @@ touch local files.
 - "Run `/visual-recap` on this PR so I can review the shape of the change first."
 - "Use `/visual-recap` on the diff between `main` and this branch."
 - "Use `/visual-recap` in local-files mode so no recap content is written to the Plan DB."
+- "Run `/visualize-repo` and start with our public API actions and schema."
 
 ## Recovering from auth errors {#auth-errors}
 

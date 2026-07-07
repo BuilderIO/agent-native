@@ -294,6 +294,62 @@ describe("boardObjectEntryToHtmlFragment — text", () => {
     expect(fragment).not.toContain("<script>");
     expect(fragment).toContain("&lt;script&gt;");
   });
+
+  it("emits font-size:16px and line-height:1.2 defaults matching the creation path", () => {
+    const entry: BoardObjectEntry = {
+      id: "text-font-defaults",
+      kind: "text",
+      geometry: { x: 0, y: 0, width: 100, height: 30 },
+      text: "Hello",
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain("font-size:16px");
+    expect(fragment).toContain("line-height:1.2");
+  });
+
+  it("includes fixed width/height when autoSize is not set", () => {
+    const entry: BoardObjectEntry = {
+      id: "text-fixed",
+      kind: "text",
+      geometry: { x: 0, y: 0, width: 200, height: 40 },
+      text: "Fixed box",
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain("width:200px");
+    expect(fragment).toContain("height:40px");
+  });
+
+  it("omits width/height when autoSize is true (matches DesignEditor creation path)", () => {
+    const entry: BoardObjectEntry = {
+      id: "text-auto",
+      kind: "text",
+      geometry: { x: 0, y: 0, width: 200, height: 40 },
+      text: "Auto-sized",
+      autoSize: true,
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).not.toContain("width:200px");
+    expect(fragment).not.toContain("height:40px");
+    // left/top positioning must still be present.
+    expect(fragment).toContain("left:0px");
+    expect(fragment).toContain("top:0px");
+  });
+
+  it("still includes width/height for non-text kinds even when autoSize is set (ignored for non-text)", () => {
+    const entry: BoardObjectEntry = {
+      id: "rect-autosize-ignored",
+      kind: "rectangle",
+      geometry: { x: 0, y: 0, width: 60, height: 60 },
+      autoSize: true,
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain("width:60px");
+    expect(fragment).toContain("height:60px");
+  });
 });
 
 describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
@@ -313,6 +369,19 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("#2563eb");
   });
 
+  it("defaults a line's stroke to solid black at 1px (Figma parity), not the theme accent at 3px", () => {
+    const entry: BoardObjectEntry = {
+      id: "line-default",
+      kind: "line",
+      geometry: { x: 0, y: 0, width: 200, height: 10 },
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain('stroke="#000000"');
+    expect(fragment).toContain('stroke-width="1"');
+    expect(fragment).not.toContain("var(--primary");
+  });
+
   it("includes marker-end defs for arrow kind", () => {
     const entry: BoardObjectEntry = {
       id: "arrow-1",
@@ -325,6 +394,21 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("marker-end");
   });
 
+  it("defaults an arrow's stroke and arrowhead marker fill to solid black at 1px", () => {
+    const entry: BoardObjectEntry = {
+      id: "arrow-default",
+      kind: "arrow",
+      geometry: { x: 0, y: 0, width: 150, height: 10 },
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    // The path stroke and the marker's arrowhead fill must both use the same
+    // default color so the arrowhead never visually mismatches the shaft.
+    expect(fragment).toContain('stroke="#000000"');
+    expect(fragment).toContain('stroke-width="1"');
+    expect(fragment).toMatch(/<path d="M 0 0 L 10 5 L 0 10 z" fill="#000000"/);
+  });
+
   it("uses provided pathData when given", () => {
     const entry: BoardObjectEntry = {
       id: "path-1",
@@ -335,6 +419,29 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
     expect(fragment).toContain("M 0 0 L 100 100");
+  });
+
+  it("emits a viewBox matching geometry when pathData is present so absolute anchor coordinates are not double-offset", () => {
+    const entry: BoardObjectEntry = {
+      id: "path-2",
+      kind: "path",
+      geometry: { x: 120, y: 80, width: 100, height: 100 },
+      pathData: "M 120 80 L 220 180",
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).toContain('viewBox="120 80 100 100"');
+  });
+
+  it("omits viewBox when pathData is absent (synthesized d is already relative to origin)", () => {
+    const entry: BoardObjectEntry = {
+      id: "line-no-viewbox",
+      kind: "line",
+      geometry: { x: 10, y: 10, width: 200, height: 10 },
+      createdAt: "2024-01-01T00:00:00.000Z",
+    };
+    const fragment = boardObjectEntryToHtmlFragment(entry);
+    expect(fragment).not.toContain("viewBox");
   });
 });
 

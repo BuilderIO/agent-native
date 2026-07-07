@@ -96,6 +96,13 @@ function stateNumber(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
+function expectedDataChunksForFinalPost(
+  index: number,
+  bodySize: number,
+): number {
+  return index + (bodySize > 0 ? 1 : 0);
+}
+
 function trackUploadBlockingFailure(
   ownerEmail: string,
   properties: Record<string, unknown>,
@@ -145,7 +152,7 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
   });
 
-  if (!Number.isFinite(index) || index < 0) {
+  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
@@ -286,6 +293,9 @@ export default defineEventHandler(async (event: H3Event) => {
     // readRawBody(event, false) returns Uint8Array. Buffer is a Uint8Array
     // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
+    const expectedDataChunks = isFinal
+      ? expectedDataChunksForFinalPost(index, bytes.byteLength)
+      : undefined;
 
     const uploadStateRaw = await readAppState(
       `recording-upload-${recordingId}`,
@@ -423,6 +433,13 @@ export default defineEventHandler(async (event: H3Event) => {
         progress,
         chunksReceived,
         totalChunks: total,
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
@@ -440,16 +457,23 @@ export default defineEventHandler(async (event: H3Event) => {
             eq(schema.recordings.status, existing.status),
           ),
         );
-    } else if (bytes.byteLength > 0) {
+    } else if (bytes.byteLength > 0 || isFinal) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
-        status: "uploading",
+        status: isFinal ? "processing" : "uploading",
         chunksReceived: Math.max(
           stateNumber(uploadState, "chunksReceived") ?? 0,
           index + 1,
         ),
+        ...(expectedDataChunks !== undefined
+          ? {
+              expectedDataChunks,
+              finalChunkIndex: index,
+              finalChunkBytes: bytes.byteLength,
+            }
+          : {}),
         bytesReceived,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
@@ -477,6 +501,16 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           videoUrl: (result as any)?.videoUrl,
         });
+        if ((result as any)?.status === "failed") {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            finalized: false,
+            aborted: true,
+            status: "failed",
+            error: "Recording was cancelled before it finished saving.",
+          };
+        }
         const waitingForStorage =
           (result as any)?.status === "waiting_storage" ||
           (result as any)?.storageSetupRequired === true;
@@ -585,19 +619,20 @@ function buildFinalizeArgs(
   mimeType: string,
   query: Record<string, unknown>,
 ) {
+  const queryBoolean = (value: unknown): boolean | undefined => {
+    if (value === undefined) return undefined;
+    if (Array.isArray(value)) return queryBoolean(value[0]);
+    return value === "1" || value === "true" || value === true;
+  };
+
   return {
     id: recordingId,
     durationMs: normalizeChunkUploadNumber(query.durationMs),
     width: normalizeChunkUploadNumber(query.width),
     height: normalizeChunkUploadNumber(query.height),
-    hasAudio:
-      query.hasAudio === undefined
-        ? undefined
-        : query.hasAudio === "1" || query.hasAudio === "true",
-    hasCamera:
-      query.hasCamera === undefined
-        ? undefined
-        : query.hasCamera === "1" || query.hasCamera === "true",
+    hasAudio: queryBoolean(query.hasAudio),
+    hasCamera: queryBoolean(query.hasCamera),
+    locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
   };
 }
@@ -615,6 +650,10 @@ async function handleResumableChunk(
   ownerEmail: string,
 ) {
   const uploadProvider = getActiveFileUploadProvider();
+  if (!uploadProvider?.resumable) {
+    setResponseStatus(event, 502);
+    return { ok: false, error: "Upload storage is not configured" };
+  }
   console.log(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
@@ -637,7 +676,7 @@ async function handleResumableChunk(
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
-    const closeRes = await uploadProvider!.resumable!.relayChunk(
+    const closeRes = await uploadProvider.resumable.relayChunk(
       { sessionId: session.sessionId, meta: session.meta },
       `bytes */${session.bytesUploaded}`,
       new Uint8Array(0),
@@ -683,7 +722,7 @@ async function handleResumableChunk(
         : `bytes ${start}-${end}/*`;
 
       const putT0 = Date.now();
-      const putResult = await uploadProvider!.resumable!.relayChunk(
+      const putResult = await uploadProvider.resumable.relayChunk(
         { sessionId: session.sessionId, meta: session.meta },
         contentRange,
         bytes,
@@ -725,6 +764,16 @@ async function handleResumableChunk(
     const result = await finalizeRecording.run(
       buildFinalizeArgs(recordingId, mimeType, query),
     );
+    if ((result as any)?.status === "failed") {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        finalized: false,
+        aborted: true,
+        status: "failed",
+        error: "Recording was cancelled before it finished saving.",
+      };
+    }
     return { ok: true, finalized: true, ...result };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);

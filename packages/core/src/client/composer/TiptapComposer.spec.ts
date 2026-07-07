@@ -8,6 +8,7 @@ import {
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
+  getComposerPopoverPosition,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
@@ -153,6 +154,40 @@ describe("createTiptapComposerExtensions", () => {
     expect(editor.getText()).toBe("Hello\n");
 
     editor.destroy();
+  });
+
+  it("guards popover positioning when the editor cannot resolve coordinates", () => {
+    expect(
+      getComposerPopoverPosition(
+        {
+          coordsAtPos: () => ({ top: 12, bottom: 20, left: 34, right: 34 }),
+        },
+        1,
+      ),
+    ).toEqual({ top: 12, left: 34 });
+    expect(
+      getComposerPopoverPosition(
+        {
+          coordsAtPos: () => {
+            throw new TypeError("node.getBoundingClientRect is not a function");
+          },
+        },
+        1,
+      ),
+    ).toBeNull();
+    expect(
+      getComposerPopoverPosition(
+        {
+          coordsAtPos: () => ({
+            top: Number.NaN,
+            bottom: 20,
+            left: 34,
+            right: 34,
+          }),
+        },
+        1,
+      ),
+    ).toBeNull();
   });
 
   it("consumes composer file drops so parent drop targets do not attach duplicates", () => {

@@ -59,16 +59,6 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
   },
   {
-    name: "Video",
-    slug: "video",
-    cliCommand:
-      "npx @agent-native/core@latest create my-video-app --template videos",
-    demoUrl: "https://videos.agent-native.com",
-    color: "#ec4899",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800",
-  },
-  {
     name: "Analytics",
     slug: "analytics",
     cliCommand:
@@ -160,9 +150,7 @@ export const templates = [
 
 export type Template = (typeof templates)[number];
 
-export const featuredTemplates = templates.filter(
-  (template) => template.slug !== "video",
-);
+export const featuredTemplates = templates;
 
 function CliPopoverContent({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);

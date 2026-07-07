@@ -73,6 +73,11 @@ or generated image/video assets that another app can reference by ID and URL.
    `assets.metadata.isStyleAnchor`.
 6. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
+   - Model/ratio compatibility: Gemini image models accept any `aspectRatio`, but
+     `gpt-image-2` supports only `1:1`, `2:3`, and `3:2`. When the user needs
+     another ratio (16:9, 9:16, 4:5, 21:9, …), pick a Gemini model rather than
+     `gpt-image-2` — an unsupported pairing is rejected upstream. Source of truth
+     is `supportedAspectRatiosForModel` / `MODEL_ASPECT_RATIOS` in `shared/api.ts`.
 7. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
 8. Use `refine-image` for feedback on an existing asset, `edit-image` for
    targeted changes, and `restyle-image` with `subjectAssetId` and

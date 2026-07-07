@@ -72,7 +72,8 @@ async function ensureTable(): Promise<void> {
           scope_id TEXT,
           scope_label TEXT,
           pinned_at ${intType()},
-          archived_at ${intType()}
+          archived_at ${intType()},
+          share_token_hash TEXT
         )
       `;
 
@@ -98,6 +99,7 @@ async function ensureTable(): Promise<void> {
           ["scope_label", "TEXT"],
           ["pinned_at", intType()],
           ["archived_at", intType()],
+          ["share_token_hash", "TEXT"],
         ] as const) {
           await ensureColumnExists(
             "chat_threads",
@@ -126,6 +128,12 @@ async function ensureTable(): Promise<void> {
           "chat_threads_scope_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
         );
+        // Public share-link resolution looks threads up by token hash;
+        // without this index it degrades to a LIKE scan over every blob.
+        await ensureIndexExists(
+          "chat_threads_share_token_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
+        );
         // One-time backfill of message_count for legacy rows written before
         // the column was maintained.
         await backfillLegacyMessageCounts(client);
@@ -144,6 +152,7 @@ async function ensureTable(): Promise<void> {
         ["scope_label", "TEXT"],
         ["pinned_at", intType()],
         ["archived_at", intType()],
+        ["share_token_hash", "TEXT"],
       ] as const) {
         try {
           await client.execute(
@@ -171,6 +180,7 @@ async function ensureTable(): Promise<void> {
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
       ]) {
         try {
           await client.execute(ddl);
@@ -858,14 +868,24 @@ export interface QueuedMessage {
  * Persist the user's queued (not-yet-sent) messages onto the thread.
  * Stored in thread_data JSON so it survives reloads without a schema
  * change. Safe to call often — the frontend debounces writes.
+ *
+ * Returns false when the thread is missing or `ownerEmail` doesn't match.
+ * Callers that already need an ownership check should pass `ownerEmail`
+ * here instead of doing their own getThread first — this path fires on
+ * debounced composer writes, so a redundant pre-read of the full
+ * thread_data blob is a real per-keystroke cost.
  */
 export async function setThreadQueuedMessages(
   threadId: string,
   queuedMessages: QueuedMessage[],
-): Promise<void> {
+  options: { ownerEmail?: string } = {},
+): Promise<boolean> {
   return withThreadDataLock(threadId, async () => {
     const thread = await getThread(threadId);
-    if (!thread) return;
+    if (!thread) return false;
+    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+      return false;
+    }
     let data: Record<string, unknown> = {};
     try {
       data = JSON.parse(thread.threadData);
@@ -883,6 +903,7 @@ export async function setThreadQueuedMessages(
       thread.messageCount,
       { preserveExistingQueuedMessages: false },
     );
+    return true;
   });
 }
 
@@ -981,10 +1002,11 @@ export async function createThreadShareLink(
 
     const now = Date.now();
     const token = generateShareToken();
+    const tokenHash = hashThreadShareToken(token);
     const data = parseThreadData(thread.threadData);
     const existing = normalizeThreadShare(data[THREAD_SHARE_DATA_KEY]);
     data[THREAD_SHARE_DATA_KEY] = {
-      tokenHash: hashThreadShareToken(token),
+      tokenHash,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       revokedAt: null,
@@ -997,6 +1019,10 @@ export async function createThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
+    // Mirror the hash into the indexed column so getThreadByShareToken
+    // resolves via an equality lookup instead of a LIKE scan over every
+    // thread's blob. thread_data stays the source of truth for validation.
+    await setThreadShareTokenHashColumn(threadId, tokenHash);
 
     return {
       enabled: true,
@@ -1005,6 +1031,17 @@ export async function createThreadShareLink(
       updatedAt: now,
       revokedAt: null,
     };
+  });
+}
+
+async function setThreadShareTokenHashColumn(
+  threadId: string,
+  tokenHash: string | null,
+): Promise<void> {
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE chat_threads SET share_token_hash = ? WHERE id = ?`,
+    args: [tokenHash, threadId],
   });
 }
 
@@ -1035,6 +1072,7 @@ export async function revokeThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
+    await setThreadShareTokenHashColumn(threadId, null);
 
     return {
       enabled: false,
@@ -1053,16 +1091,40 @@ export async function getThreadByShareToken(
   await ensureTable();
   const tokenHash = hashThreadShareToken(cleanToken);
   const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE thread_data LIKE ? LIMIT 10`,
+
+  const validate = (row: Record<string, unknown>): ChatThread | null => {
+    const thread = rowToThread(row);
+    // thread_data remains the source of truth: verify the stored share
+    // matches and is not revoked even when the indexed column matched.
+    const stored = readStoredThreadShare(thread.threadData);
+    if (!stored?.tokenHash || stored.revokedAt) return null;
+    if (stored.tokenHash !== tokenHash) return null;
+    return thread;
+  };
+
+  // Fast path: indexed equality lookup on the mirrored hash column.
+  const indexed = await client.execute({
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash = ? LIMIT 10`,
+    args: [tokenHash],
+  });
+  for (const row of indexed.rows) {
+    const thread = validate(row);
+    if (thread) return thread;
+  }
+
+  // Legacy fallback: shares created before the share_token_hash column
+  // existed only carry the hash inside the thread_data blob. Backfill the
+  // column on hit so the next lookup takes the indexed path.
+  const legacy = await client.execute({
+    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash IS NULL AND thread_data LIKE ? LIMIT 10`,
     args: [`%${tokenHash}%`],
   });
-  for (const row of rows) {
-    const thread = rowToThread(row);
-    const stored = readStoredThreadShare(thread.threadData);
-    if (!stored?.tokenHash || stored.revokedAt) continue;
-    if (stored.tokenHash !== tokenHash) continue;
-    return thread;
+  for (const row of legacy.rows) {
+    const thread = validate(row);
+    if (thread) {
+      await setThreadShareTokenHashColumn(thread.id, tokenHash).catch(() => {});
+      return thread;
+    }
   }
   return null;
 }

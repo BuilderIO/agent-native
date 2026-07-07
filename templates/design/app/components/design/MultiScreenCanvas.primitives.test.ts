@@ -1,18 +1,40 @@
+import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
+import {
+  hitTestPenAnchor,
+  hitTestPenHandle,
+  type PenPath,
+} from "@shared/pen-path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  __clearPrimitiveParseCachesForTests,
+  computeAltHoverMeasurement,
+  getActiveScreenIframeId,
   getBoardContentKey,
   getBoardContentLayerSignature,
   getBoardSurfaceLayerStyle,
   getBoardSurfaceRenderContent,
+  getBreakpointFrameGeometry,
+  getBreakpointIframeId,
   getCrossScreenDropGuideForHitTest,
+  getDraftPreviewGeometryForTool,
+  getOutsideFrameDraftFallback,
+  getPrimaryIframeId,
+  isBreakpointSelectionTarget,
+  frameStyleLeftTop,
   getPrimitiveDropTargetForPoint,
   hasBoardSurfaceContent,
   ParsedScreenPrimitive,
+  parsePrimitivesFromScreen,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
+  screenPxToCanvasPx,
   shouldBoardSurfaceCapturePointerEvents,
+  shouldShowBreakpointMenuAffordance,
+  SURFACE_PADDING,
+  vectorEditCanvasToLocalPoint,
+  vectorEditLocalToCanvasPoint,
   type FrameGeometry,
 } from "./MultiScreenCanvas";
 
@@ -71,7 +93,7 @@ function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
 // Setup: clear the module-level cache before every test so tests are isolated
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  primitiveParseCache.clear();
+  __clearPrimitiveParseCachesForTests();
 });
 
 describe("board surface pointer capture", () => {
@@ -321,6 +343,46 @@ describe("primitiveLocalToBoardRect", () => {
 });
 
 // ---------------------------------------------------------------------------
+// frameStyleLeftTop (PERF9)
+// ---------------------------------------------------------------------------
+describe("frameStyleLeftTop", () => {
+  it("matches Screen's inline style formula: SURFACE_PADDING + x / y - labelHeight", () => {
+    const result = frameStyleLeftTop({ x: 100, y: 200 }, 28);
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 100,
+      top: SURFACE_PADDING + 200 - 28,
+    });
+  });
+
+  it("defaults labelHeight to 0, matching DraftPrimitiveLayer's inline style (no label row)", () => {
+    const result = frameStyleLeftTop({ x: 50, y: 75 });
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 50,
+      top: SURFACE_PADDING + 75,
+    });
+  });
+
+  it("handles negative geometry (frames left/above the surface origin)", () => {
+    const result = frameStyleLeftTop({ x: -500, y: -300 }, 14);
+    expect(result).toEqual({
+      left: SURFACE_PADDING - 500,
+      top: SURFACE_PADDING - 300 - 14,
+    });
+  });
+
+  it("is a pure function of x/y/labelHeight — ignores extra geometry fields", () => {
+    const result = frameStyleLeftTop(
+      { x: 10, y: 20, width: 999, height: 999 } as FrameGeometry,
+      0,
+    );
+    expect(result).toEqual({
+      left: SURFACE_PADDING + 10,
+      top: SURFACE_PADDING + 20,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getCrossScreenDropGuideForHitTest
 // ---------------------------------------------------------------------------
 describe("getCrossScreenDropGuideForHitTest", () => {
@@ -452,6 +514,76 @@ describe("parsePrimitivesFromScreen cache key", () => {
 
     // New hash-based formula must produce different keys:
     expect(makeCacheKey(screenA)).not.toBe(makeCacheKey(screenB));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parsePrimitivesFromScreen identity-first cache (PF17): repeated calls with
+// the *same* content reference (the common case for a drag/marquee mousemove
+// handler re-reading the active screen every frame) should skip re-hashing
+// the full content string and return the memoized result directly.
+// ---------------------------------------------------------------------------
+describe("parsePrimitivesFromScreen identity cache", () => {
+  it("returns the same result reference for repeated calls with unchanged content", () => {
+    const screen: ScreenStub = {
+      id: "identity-screen",
+      filename: "f.html",
+      content: "<div data-agent-native-node-id='a'></div>",
+    };
+    // Seed the hash-keyed cache directly (DOMParser isn't available in this
+    // jsdom-less vitest env — see the seedCache helper above) so the first
+    // call resolves through the normal cache-hit path and populates the
+    // identity cache, mirroring what a real parse would do.
+    const seeded = [
+      primEntry("a", "identity-screen", {
+        left: 0,
+        top: 0,
+        width: 10,
+        height: 10,
+      }),
+    ];
+    seedCache(screen, seeded);
+
+    const first = parsePrimitivesFromScreen(screen as never);
+    const second = parsePrimitivesFromScreen(screen as never);
+
+    // Same object reference in, same result reference out — the identity
+    // fast path returned the memoized array without re-parsing/re-hashing.
+    expect(first).toBe(seeded);
+    expect(second).toBe(first);
+  });
+
+  it("re-parses when content changes even if the screen id is reused", () => {
+    const screenId = "identity-screen-2";
+    const screenV1: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: "A",
+    };
+    const screenV2: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      content: "B",
+    };
+    const seededV1 = [
+      primEntry("v1", screenId, { left: 0, top: 0, width: 10, height: 10 }),
+    ];
+    const seededV2 = [
+      primEntry("v2", screenId, { left: 0, top: 0, width: 20, height: 20 }),
+    ];
+    seedCache(screenV1, seededV1);
+    seedCache(screenV2, seededV2);
+
+    const first = parsePrimitivesFromScreen(screenV1 as never);
+    const second = parsePrimitivesFromScreen(screenV2 as never);
+    // Calling again with the original (now stale) content reference must not
+    // incorrectly reuse screenV2's cached result.
+    const third = parsePrimitivesFromScreen(screenV1 as never);
+
+    expect(first).toBe(seededV1);
+    expect(second).toBe(seededV2);
+    expect(third).toBe(seededV1);
+    expect(second).not.toBe(first);
   });
 });
 
@@ -747,5 +879,586 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
     const boardY = frameGeom.y + 0 * scaleY;
     expect(boardX).toBe(50);
     expect(boardY).toBe(80);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getDraftPreviewGeometryForTool: shift/alt shape-draw modifiers (CV15)
+// ---------------------------------------------------------------------------
+describe("getDraftPreviewGeometryForTool shape-draw modifiers", () => {
+  it("draws a plain rect with no modifiers", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 100, y: 100 },
+      { x: 180, y: 140 },
+      true,
+    );
+    expect(geometry).toEqual({ x: 100, y: 100, width: 80, height: 40 });
+  });
+
+  it("constrains rect to a square when shift is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 100, y: 100 },
+      { x: 180, y: 140 },
+      true,
+      { shiftKey: true },
+    );
+    expect(geometry.width).toBe(geometry.height);
+    expect(geometry.width).toBe(80);
+  });
+
+  it("constrains ellipse to a circle when shift is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "ellipse",
+      { x: 0, y: 0 },
+      { x: 30, y: 90 },
+      true,
+      { shiftKey: true },
+    );
+    expect(geometry.width).toBe(geometry.height);
+    expect(geometry.width).toBe(90);
+  });
+
+  it("draws outward from the start point as center when alt is held", () => {
+    const geometry = getDraftPreviewGeometryForTool(
+      "rect",
+      { x: 150, y: 150 },
+      { x: 190, y: 190 },
+      true,
+      { altKey: true },
+    );
+    expect(geometry).toEqual({ x: 110, y: 110, width: 80, height: 80 });
+  });
+
+  it("does not apply square/fromCenter to a line's bounding box, but does constrain its angle", () => {
+    // A line's preview geometry is a path bounding box; shift constrains the
+    // line's own angle (via the same 45deg pen-tool helper), not squareness.
+    // (100,15) is ~8.5deg from horizontal — closest to the 0deg increment —
+    // so shift should snap it flat, collapsing the bounding box height down
+    // to the tool's minimum hit-box size instead of the unconstrained ~15.
+    const unconstrained = getDraftPreviewGeometryForTool(
+      "line",
+      { x: 0, y: 0 },
+      { x: 100, y: 15 },
+      true,
+    );
+    const constrained = getDraftPreviewGeometryForTool(
+      "line",
+      { x: 0, y: 0 },
+      { x: 100, y: 15 },
+      true,
+      { shiftKey: true },
+    );
+    expect(unconstrained.height).toBeGreaterThan(constrained.height);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Breakpoint sub-frame iframe id resolution (B15)
+// ---------------------------------------------------------------------------
+describe("breakpoint sub-frame iframe id resolution", () => {
+  it("primary iframe id is the bare screen id", () => {
+    expect(getPrimaryIframeId("screen-1")).toBe("screen-1");
+  });
+
+  it("breakpoint sub-frame ids are distinct per width and never collide with the primary", () => {
+    const primary = getPrimaryIframeId("screen-1");
+    const bp390 = getBreakpointIframeId("screen-1", 390);
+    const bp768 = getBreakpointIframeId("screen-1", 768);
+    expect(bp390).not.toBe(primary);
+    expect(bp768).not.toBe(primary);
+    expect(bp390).not.toBe(bp768);
+  });
+
+  it("resolves to the primary iframe when no breakpoint is active", () => {
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390, 768],
+        activeBreakpointWidth: undefined,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("resolves to the active breakpoint sub-frame's own id when one is active", () => {
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390, 768],
+        activeBreakpointWidth: 768,
+      }),
+    ).toBe(getBreakpointIframeId("screen-1", 768));
+  });
+
+  it("falls back to the primary iframe when activeBreakpointWidth is stale (not in breakpointWidths)", () => {
+    // Defends against a screen whose activeBreakpointWidth points at a
+    // breakpoint that was since removed — should not resolve to a
+    // [data-screen-iframe-id] that no longer exists in the DOM.
+    expect(
+      getActiveScreenIframeId({
+        id: "screen-1",
+        breakpointWidths: [390],
+        activeBreakpointWidth: 1280,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("resolves to the primary iframe for a screen with no breakpoints at all", () => {
+    expect(getActiveScreenIframeId({ id: "screen-1" })).toBe("screen-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Breakpoint sub-frame geometry (BP-DEEP item 3a): undistorted, uniform scale
+// ---------------------------------------------------------------------------
+describe("getBreakpointFrameGeometry (BP-DEEP item 3a — no non-uniform scale)", () => {
+  it("scales the iframe uniformly — never a different factor per axis", () => {
+    // The original bug forced frameHeight to the PRIMARY frame's height
+    // regardless of the breakpoint's own natural aspect, producing a
+    // transform: scale(x, y) with x !== y (visible stretch/squish). The
+    // fixed geometry always derives frameHeight from the breakpoint's OWN
+    // naturalHeight, uniformly scaled — so the effective scale factor is
+    // identical whichever axis you divide by.
+    const geometry = getBreakpointFrameGeometry({
+      widthPx: 768,
+      naturalAspect: 900 / 1440, // e.g. a 1440x900 base document
+      primaryScale: 0.5, // primary frame resized to half its natural width
+    });
+    const scaleX = geometry.frameWidth / 768;
+    const scaleY = geometry.frameHeight / geometry.naturalHeight;
+    expect(scaleX).toBeCloseTo(scaleY, 5);
+    expect(scaleX).toBeCloseTo(0.5, 5);
+  });
+
+  it("does not force the breakpoint frame's height to equal the primary's height", () => {
+    // A narrower breakpoint with the SAME aspect ratio as the primary is
+    // naturally shorter in absolute px than the primary frame (768 wide vs.
+    // 1440 wide) — the fix must not silently re-inflate it back up to the
+    // primary's own on-canvas height.
+    const primaryGeometryHeight = 900; // primary frame's own on-canvas height
+    const geometry = getBreakpointFrameGeometry({
+      widthPx: 768,
+      naturalAspect: 900 / 1440,
+      primaryScale: 1,
+    });
+    expect(geometry.frameHeight).toBeLessThan(primaryGeometryHeight);
+  });
+
+  it("falls back to an identity scale for invalid primaryScale input", () => {
+    const zero = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 2,
+      primaryScale: 0,
+    });
+    expect(zero.scale).toBe(1);
+    const negative = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 2,
+      primaryScale: -3,
+    });
+    expect(negative.scale).toBe(1);
+    const notFinite = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 2,
+      primaryScale: Number.NaN,
+    });
+    expect(notFinite.scale).toBe(1);
+  });
+
+  it("derives natural height from the breakpoint's own width and aspect ratio", () => {
+    const geometry = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 2,
+      primaryScale: 1,
+    });
+    expect(geometry.naturalHeight).toBe(780);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Breakpoint selection target (BP-DEEP v2 item 3): one selected frame at a time
+// ---------------------------------------------------------------------------
+describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
+  it("true when the active breakpoint width exists in the set", () => {
+    expect(
+      isBreakpointSelectionTarget({
+        breakpointWidths: [390, 810],
+        activeBreakpointWidth: 810,
+      }),
+    ).toBe(true);
+  });
+
+  it("false when no breakpoint is active (base is the target)", () => {
+    expect(
+      isBreakpointSelectionTarget({
+        breakpointWidths: [390, 810],
+        activeBreakpointWidth: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("false for a stale active width no longer in the set — base keeps selection chrome", () => {
+    expect(
+      isBreakpointSelectionTarget({
+        breakpointWidths: [390],
+        activeBreakpointWidth: 810,
+      }),
+    ).toBe(false);
+  });
+
+  it("false for a screen with no breakpoints at all", () => {
+    expect(isBreakpointSelectionTarget({})).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu gate
+// ---------------------------------------------------------------------------
+describe("shouldShowBreakpointMenuAffordance (item 8b)", () => {
+  it("false when the viewer cannot edit, even if active", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: false,
+        hasRemoveOrChangeWidth: true,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("false when neither Remove nor Change-width is wired", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: false,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("false for an idle (non-active, closed-menu) frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: false,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("true for the active breakpoint frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("true while its own menu is open, even if not the active frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: false,
+        menuOpen: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vector edit mode (P-VE1): coordinate mapping + hit-test priority
+//
+// MultiScreenCanvas isn't render-testable in this vitest environment (no
+// jsdom `environment`, no @testing-library/react in this package — see the
+// harness-limitation note in the smoke test below), so these tests cover the
+// pure coordinate/hit-test logic that backs the interactive overlay:
+// local<->canvas point mapping (vectorEditLocalToCanvasPoint /
+// vectorEditCanvasToLocalPoint), the screen-px->canvas-px hit-radius
+// conversion (screenPxToCanvasPx), and — via the already-tested pen-path.ts
+// primitives — the "handles take priority over anchors when overlapping"
+// hit-test ordering the overlay's mousedown handler relies on.
+// ---------------------------------------------------------------------------
+describe("vector edit: local/canvas coordinate mapping", () => {
+  it("maps a local point to canvas space by adding the origin", () => {
+    expect(
+      vectorEditLocalToCanvasPoint({ x: 10, y: 20 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 110, y: 220 });
+  });
+
+  it("maps a canvas point back to local space by subtracting the origin", () => {
+    expect(
+      vectorEditCanvasToLocalPoint({ x: 110, y: 220 }, { x: 100, y: 200 }),
+    ).toEqual({ x: 10, y: 20 });
+  });
+
+  it("round-trips local -> canvas -> local for arbitrary points/origins", () => {
+    const origin = { x: -37.5, y: 812.25 };
+    const local = { x: 4.5, y: -9 };
+    const canvas = vectorEditLocalToCanvasPoint(local, origin);
+    expect(vectorEditCanvasToLocalPoint(canvas, origin)).toEqual(local);
+  });
+
+  it("is a no-op when origin is (0,0)", () => {
+    const local = { x: 42, y: -7 };
+    expect(vectorEditLocalToCanvasPoint(local, { x: 0, y: 0 })).toEqual(local);
+    expect(vectorEditCanvasToLocalPoint(local, { x: 0, y: 0 })).toEqual(local);
+  });
+});
+
+describe("vector edit: screenPxToCanvasPx zoom conversion", () => {
+  it("is a no-op at 100% zoom", () => {
+    expect(screenPxToCanvasPx(8, 100)).toBe(8);
+  });
+
+  it("grows the canvas-space radius when zoomed out (matches a constant screen size)", () => {
+    // At 50% zoom, one canvas px covers half a screen px, so hitting the
+    // same *screen*-sized radius requires a larger canvas-space radius.
+    expect(screenPxToCanvasPx(8, 50)).toBe(16);
+  });
+
+  it("shrinks the canvas-space radius when zoomed in", () => {
+    expect(screenPxToCanvasPx(8, 200)).toBe(4);
+  });
+
+  it("falls back to the raw screen px for a non-positive zoom", () => {
+    expect(screenPxToCanvasPx(8, 0)).toBe(8);
+    expect(screenPxToCanvasPx(8, -10)).toBe(8);
+  });
+});
+
+describe("vector edit: hit-test priority (handles over anchors when overlapping)", () => {
+  // A node whose handleOut coincides exactly with the anchor point (e.g. a
+  // freshly-converted "smooth" node whose handle hasn't been dragged out
+  // yet) — both hitTestPenAnchor and hitTestPenHandle should match the same
+  // point, and the overlay's mousedown handler must check handles first so
+  // the handle wins.
+  const overlappingPath: PenPath = {
+    nodes: [
+      {
+        point: { x: 50, y: 50 },
+        handleOut: { x: 50, y: 50 },
+      },
+    ],
+    closed: false,
+  };
+
+  it("both an anchor and a handle can match the same point", () => {
+    const point = { x: 50, y: 50 };
+    expect(hitTestPenAnchor(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+    });
+    expect(hitTestPenHandle(overlappingPath, point, 8)).toEqual({
+      nodeIndex: 0,
+      which: "out",
+    });
+  });
+
+  it("checking hitTestPenHandle before hitTestPenAnchor resolves the handle as the winner", () => {
+    const point = { x: 50, y: 50 };
+    // This mirrors MultiScreenCanvas's handleMouseDown vectorEdit branch:
+    // hitTestPenHandle is checked first, and only falls through to
+    // hitTestPenAnchor when no handle is in range.
+    const handleHit = hitTestPenHandle(overlappingPath, point, 8);
+    const winner = handleHit
+      ? { kind: "handle" as const, ...handleHit }
+      : (() => {
+          const anchorHit = hitTestPenAnchor(overlappingPath, point, 8);
+          return anchorHit ? { kind: "anchor" as const, ...anchorHit } : null;
+        })();
+    expect(winner).toEqual({ kind: "handle", nodeIndex: 0, which: "out" });
+  });
+
+  it("falls through to the anchor when no handle is in range", () => {
+    const cornerPath: PenPath = {
+      nodes: [{ point: { x: 0, y: 0 } }],
+      closed: false,
+    };
+    expect(hitTestPenHandle(cornerPath, { x: 0, y: 0 }, 8)).toBeNull();
+    expect(hitTestPenAnchor(cornerPath, { x: 0, y: 0 }, 8)).toEqual({
+      nodeIndex: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Smoke-test harness note (P-VE1):
+//
+// The task asked for a smoke test asserting the vector-edit overlay renders
+// the correct anchor/handle counts for a given path, if the harness supports
+// component rendering. It does not: this package's vitest.config has no
+// `test.environment` (defaults to "node", no DOM) and has no
+// @testing-library/react (or any React renderer) dependency — confirmed by
+// grepping every *.test.ts(x) file under app/components/design, none of
+// which render a component; MotionDock.test.tsx and friends all test pure
+// exported functions the same way this file does. Adding a DOM/render
+// environment is a package-wide harness change out of scope for this
+// overlay, so overlay rendering is instead covered indirectly: the anchor
+// count always equals path.nodes.length and the handle count always equals
+// the number of present handleIn/handleOut across all nodes (see
+// VectorEditOverlay's canvasPath.nodes.map / .flatMap in MultiScreenCanvas.tsx),
+// which is exactly what getPenPathGeometry/serializePenPath (already
+// exercised elsewhere) are computed over, so a positive assertion here would
+// only restate that mapping rather than exercise any DOM output.
+// ---------------------------------------------------------------------------
+
+describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", () => {
+  function bounds(x: number, y: number, w: number, h: number): FrameBounds {
+    const b = getFrameGroupBounds([
+      { id: "x", geometry: makeGeom(x, y, w, h) },
+    ]);
+    if (!b) throw new Error("expected bounds");
+    return b;
+  }
+
+  it("measures the horizontal gap when the hovered object is to the right", () => {
+    const selection = bounds(0, 0, 100, 100);
+    const hovered = bounds(150, 20, 50, 50);
+    const { horizontal, vertical } = computeAltHoverMeasurement(
+      selection,
+      hovered,
+    );
+    expect(horizontal).not.toBeNull();
+    expect(horizontal?.gap).toBe(50);
+    expect(horizontal?.start).toBe(100);
+    expect(horizontal?.end).toBe(150);
+    expect(horizontal?.overlaps).toBe(false);
+    // Boxes overlap vertically (0-100 vs 20-70), so the cross position is
+    // centered on that overlap range (20 to 70), not the naive
+    // center-to-center average.
+    expect(horizontal?.crossPosition).toBe(45);
+    expect(vertical).toBeNull();
+  });
+
+  it("measures the horizontal gap when the hovered object is to the left", () => {
+    const selection = bounds(200, 0, 100, 100);
+    const hovered = bounds(0, 0, 50, 50);
+    const { horizontal } = computeAltHoverMeasurement(selection, hovered);
+    expect(horizontal).not.toBeNull();
+    expect(horizontal?.gap).toBe(150);
+    expect(horizontal?.start).toBe(50);
+    expect(horizontal?.end).toBe(200);
+  });
+
+  it("measures the vertical gap when the hovered object is below", () => {
+    const selection = bounds(0, 0, 100, 100);
+    const hovered = bounds(20, 200, 50, 50);
+    const { horizontal, vertical } = computeAltHoverMeasurement(
+      selection,
+      hovered,
+    );
+    expect(horizontal).toBeNull();
+    expect(vertical).not.toBeNull();
+    expect(vertical?.gap).toBe(100);
+    expect(vertical?.start).toBe(100);
+    expect(vertical?.end).toBe(200);
+    // Boxes overlap horizontally (0-100 vs 20-70) so cross position centers
+    // on that overlap range (20 to 70).
+    expect(vertical?.crossPosition).toBe(45);
+  });
+
+  it("measures the vertical gap when the hovered object is above", () => {
+    const selection = bounds(0, 200, 100, 100);
+    const hovered = bounds(20, 0, 50, 50);
+    const { vertical } = computeAltHoverMeasurement(selection, hovered);
+    expect(vertical).not.toBeNull();
+    expect(vertical?.gap).toBe(150);
+    expect(vertical?.start).toBe(50);
+    expect(vertical?.end).toBe(200);
+  });
+
+  it("measures both axes for a diagonally-offset object (no overlap on either axis)", () => {
+    const selection = bounds(0, 0, 100, 100);
+    const hovered = bounds(200, 300, 50, 50);
+    const { horizontal, vertical } = computeAltHoverMeasurement(
+      selection,
+      hovered,
+    );
+    expect(horizontal).not.toBeNull();
+    expect(horizontal?.gap).toBe(100);
+    expect(vertical).not.toBeNull();
+    expect(vertical?.gap).toBe(200);
+    // No overlap on either axis: cross position falls back to the average of
+    // the two boxes' centers on that axis.
+    expect(horizontal?.crossPosition).toBe((50 + 325) / 2);
+    expect(vertical?.crossPosition).toBe((50 + 225) / 2);
+  });
+
+  it("returns null for an axis where the boxes overlap (nothing to measure)", () => {
+    const selection = bounds(0, 0, 100, 100);
+    const hovered = bounds(50, 50, 100, 100);
+    const { horizontal, vertical } = computeAltHoverMeasurement(
+      selection,
+      hovered,
+    );
+    expect(horizontal).toBeNull();
+    expect(vertical).toBeNull();
+  });
+
+  it("is symmetric in gap size regardless of which box is the selection", () => {
+    const a = bounds(0, 0, 100, 100);
+    const b = bounds(300, 0, 100, 100);
+    const forward = computeAltHoverMeasurement(a, b);
+    const backward = computeAltHoverMeasurement(b, a);
+    expect(forward.horizontal?.gap).toBe(backward.horizontal?.gap);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getOutsideFrameDraftFallback
+//
+// Backs getTargetFrameForDraft's fallback branch: where a drawn primitive
+// lands once its center is confirmed outside every screen frame. A board
+// handler should always win regardless of screen count — the previous bug
+// absorbed the draft into the lone screen whenever there was exactly one,
+// shoving shapes drawn on empty canvas space into that screen instead of
+// placing them on the board.
+// ---------------------------------------------------------------------------
+describe("getOutsideFrameDraftFallback", () => {
+  it("routes to the board (returns undefined) with a single screen when a board handler exists", () => {
+    const entries = [{ id: "sA" }];
+    const result = getOutsideFrameDraftFallback(entries, {
+      hasBoardDrawHandler: true,
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it("routes to the board (returns undefined) with multiple screens when a board handler exists", () => {
+    const entries = [{ id: "sA" }, { id: "sB" }, { id: "sC" }];
+    const result = getOutsideFrameDraftFallback(entries, {
+      hasBoardDrawHandler: true,
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it("absorbs into the only screen as a last resort when there is no board handler", () => {
+    const entries = [{ id: "sA" }];
+    const result = getOutsideFrameDraftFallback(entries, {
+      hasBoardDrawHandler: false,
+    });
+    expect(result).toBe(entries[0]);
+  });
+
+  it("absorbs into the first screen as a last resort with multiple screens and no board handler", () => {
+    const entries = [{ id: "sA" }, { id: "sB" }];
+    const result = getOutsideFrameDraftFallback(entries, {
+      hasBoardDrawHandler: false,
+    });
+    expect(result).toBe(entries[0]);
+  });
+
+  it("returns undefined when there are no screens at all, board handler or not", () => {
+    expect(
+      getOutsideFrameDraftFallback([], { hasBoardDrawHandler: true }),
+    ).toBeUndefined();
+    expect(
+      getOutsideFrameDraftFallback([], { hasBoardDrawHandler: false }),
+    ).toBeUndefined();
   });
 });

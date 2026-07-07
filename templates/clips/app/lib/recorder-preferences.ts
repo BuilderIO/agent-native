@@ -20,6 +20,7 @@ export interface RecorderPreferences {
   mode: RecordingMode;
   displaySurface: DisplaySurface;
   micId: string;
+  micLabel: string;
   cameraId: string;
   cameraSize: CameraBubbleSize;
   cameraBlur: boolean;
@@ -46,6 +47,9 @@ export function loadRecorderPreferences(): Partial<RecorderPreferences> {
       prefs.displaySurface = parsed.displaySurface as DisplaySurface;
     }
     if (typeof parsed.micId === "string") prefs.micId = parsed.micId;
+    if (typeof parsed.micLabel === "string") {
+      prefs.micLabel = parsed.micLabel;
+    }
     if (typeof parsed.cameraId === "string") prefs.cameraId = parsed.cameraId;
     if (VALID_SIZES.includes(parsed.cameraSize as CameraBubbleSize)) {
       prefs.cameraSize = parsed.cameraSize as CameraBubbleSize;

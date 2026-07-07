@@ -133,6 +133,13 @@ APIs，因此僅接受文字或靜態圖片的模型仍然可以理解內容
 
 Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
 
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
+
 端點遵循與共用頁面相同的公開/密碼/過期規則。
 受密碼保護的剪輯需要密碼一次；成功回應返回
 短暫的標記化連結，因此下游代理不需要明文

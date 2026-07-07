@@ -37,6 +37,7 @@ export function SourceRow({
         title={LABELS[value]}
       >
         <span className="row-label">{LABELS[value]}</span>
+        <span className="row-flex" aria-hidden />
         <span className="row-chev" aria-hidden>
           <ChevronDown />
         </span>

@@ -1,4 +1,13 @@
-import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  AGENT_ACCESS_PARAM,
+  getConfiguredAppBasePath,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
+import {
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  safeJsonForHtml,
+} from "@agent-native/core/shared";
 import {
   toSharedDeckSlide,
   type SharedDeckResponse,
@@ -6,15 +15,29 @@ import {
 } from "@shared/api";
 import { eq } from "drizzle-orm";
 import { useEffect } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { data, useLoaderData } from "react-router";
 
 import SharedPresentation from "@/pages/SharedPresentation";
 
 import { getDb, schema } from "../../server/db";
+import {
+  DECK_AGENT_CONTEXT_ENDPOINT,
+  DECK_AGENT_RESOURCE_KIND,
+} from "../../shared/agent-readable";
 
 type LoaderData =
-  | { deck: SharedDeckResponse; error?: undefined }
+  | {
+      deck: SharedDeckResponse;
+      error?: undefined;
+      id: string;
+      basePath: string;
+      agentAccessToken?: string | null;
+    }
   | {
       deck: null;
       error: string;
@@ -34,6 +57,22 @@ type DeckData = {
   aspectRatio?: SharedDeckResponse["aspectRatio"];
 };
 
+const PRIVATE_AGENT_DECK_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  "Referrer-Policy": "no-referrer",
+};
+
+function publicDeckLoaderData(payload: LoaderData, privateAgentAccess = false) {
+  if (!privateAgentAccess) return payload;
+  return data(payload, {
+    headers: PRIVATE_AGENT_DECK_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
 function toSharedDeck(row: {
   title: string | null;
   data: string;
@@ -48,11 +87,13 @@ function toSharedDeck(row: {
   };
 }
 
-export async function loader({
-  params,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
+  const agentAccessToken = new URL(request.url).searchParams.get(
+    AGENT_ACCESS_PARAM,
+  );
+  const basePath = getConfiguredAppBasePath();
 
   // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
   // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
@@ -76,12 +117,28 @@ export async function loader({
     .limit(1);
 
   if (!deck) throw new Response("Not found", { status: 404 });
-  if (deck.visibility === "public") return { deck: toSharedDeck(deck) };
-  return {
+  const tokenAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: DECK_AGENT_RESOURCE_KIND,
+        resourceId: id,
+      }).ok
+    : false;
+  if (deck.visibility === "public" || tokenAccess) {
+    return publicDeckLoaderData(
+      {
+        deck: toSharedDeck(deck),
+        id,
+        basePath,
+        agentAccessToken: tokenAccess ? agentAccessToken : null,
+      },
+      tokenAccess,
+    );
+  }
+  return publicDeckLoaderData({
     deck: null,
     error: "restricted",
-    restricted: { id, basePath: getConfiguredAppBasePath() },
-  };
+    restricted: { id, basePath },
+  });
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
@@ -101,8 +158,65 @@ export default function PublicDeckRoute() {
 
   // Redirecting to the guarded editor to resolve per-user access client-side.
   if (restricted) return null;
+  if (data.deck === null) {
+    return (
+      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    );
+  }
 
   return (
-    <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    <>
+      <AgentReadableDeckDiscovery
+        id={data.id}
+        title={data.deck.title}
+        basePath={data.basePath}
+        token={data.agentAccessToken}
+      />
+      <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+    </>
+  );
+}
+
+export function buildDeckDiscovery({
+  id,
+  title,
+  basePath,
+  token,
+}: {
+  id: string;
+  title?: string;
+  basePath?: string;
+  token?: string | null;
+}) {
+  return buildAgentReadableResourceDiscovery({
+    resourceType: "deck",
+    resourceId: id,
+    title,
+    path: `/p/${id}`,
+    contextEndpoint: DECK_AGENT_CONTEXT_ENDPOINT,
+    basePath,
+    token,
+    instructions:
+      "Use contextUrl to read this shared Slides deck as JSON. Slide numbers are 1-based for users.",
+  });
+}
+
+function AgentReadableDeckDiscovery({
+  id,
+  title,
+  basePath,
+  token,
+}: {
+  id: string;
+  title?: string;
+  basePath?: string;
+  token?: string | null;
+}) {
+  const discovery = buildDeckDiscovery({ id, title, basePath, token });
+  return (
+    <script
+      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+    />
   );
 }

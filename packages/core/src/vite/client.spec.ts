@@ -464,6 +464,24 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("externalizes native sqlite deps for production SSR builds", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        ssr: {
+          external: ["custom-native-package"],
+        },
+      },
+      { command: "build", mode: "production" },
+    )) as any;
+
+    expect(config.ssr.external).toContain("better-sqlite3");
+    expect(config.ssr.external).toContain("bindings");
+    expect(config.ssr.external).toContain("custom-native-package");
+  });
+
   it("keeps legacy defineConfig caller plugins before framework plugins", () => {
     const callerPlugin = { name: "react-router" };
     const config = defineConfig({ plugins: [callerPlugin] });
@@ -819,6 +837,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const encodeStateAsUpdate = stub;");
     expect(code).toContain("export const mergeUpdates = stub;");
     expect(code).toContain("export const EditorContent = stub;");
+    expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
   });
 });
@@ -855,12 +874,70 @@ describe("local-core dev aliases and router dedupe", () => {
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/i18n");
     expect(deps).toContain("@assistant-ui/react");
     expect(deps).toContain("@tiptap/react");
     expect(deps).toContain("@xterm/xterm");
     expect(deps).toContain("shiki/core");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("pre-optimizes the i18n subpath for published core consumers", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-optimize-i18n-"),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/core": "^0.88.0",
+        },
+      }),
+    );
+
+    const deps = _getDefaultOptimizeDeps(tmpDir);
+    expect(deps).toContain("@agent-native/core/client/i18n");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("excludes and aliases the i18n subpath when local core source is active", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-i18n-src-"));
+    const appDir = path.join(tmpDir, "templates", "dispatch");
+    const coreSrcDir = path.join(tmpDir, "packages", "core", "src");
+    fs.mkdirSync(path.join(coreSrcDir, "client"), { recursive: true });
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(coreSrcDir, "index.ts"), "export {};\n");
+    fs.writeFileSync(path.join(coreSrcDir, "client", "i18n.tsx"), "\n");
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
+      const aliases =
+        (
+          config.resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+
+      expect(exclude).toContain("@agent-native/core/client/i18n");
+      expect(
+        aliases.some(
+          (alias) =>
+            alias.find.test("@agent-native/core/client/i18n") &&
+            alias.replacement.endsWith("src/client/i18n.tsx"),
+        ),
+      ).toBe(true);
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("does not pre-optimize packages that are only optional core peers", () => {

@@ -24,17 +24,19 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import { applyVisualEdit, type EditIntent } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   A11Y_FINDING_CATEGORIES,
   A11Y_FINDING_SEVERITIES,
@@ -78,21 +80,6 @@ const findingSchema = z
 // Live-content + resolve/persist helpers (mirrors apply-visual-edit's scoped path)
 // ---------------------------------------------------------------------------
 
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content remains the fallback.
-  }
-  return storedContent;
-}
-
 async function resolveEditableDesignFile(source: {
   designId?: string;
   fileId?: string;
@@ -102,6 +89,7 @@ async function resolveEditableDesignFile(source: {
   designId: string;
   filename: string;
   content: string;
+  versionHash: string;
 }> {
   if (!source.fileId && !source.designId) {
     throw new Error("designId or fileId is required.");
@@ -151,42 +139,73 @@ async function resolveEditableDesignFile(source: {
   // Writes require editor access to the owning design.
   await assertAccess("design", file.designId, "editor");
 
+  // Read the LIVE base (collab text when present, else the SQL row) ONCE
+  // here and capture its versionHash. This is the actual base the deterministic
+  // edit engine transforms in run() below, so this hash — not a fresh re-read
+  // computed at persist time — is what proves the transform's input is still
+  // current when persistDesignFileEdit writes. Mirrors apply-visual-edit.ts's
+  // resolveEditableDesignFile/persistDesignFileEdit split.
+  const workspaceFile: SourceWorkspaceFile = {
+    id: file.id,
+    designId: file.designId,
+    filename: file.filename,
+    fileType: "html",
+    content: file.content ?? "",
+    createdAt: null,
+    updatedAt: null,
+  };
+  const live = await readLiveSourceFile(workspaceFile);
+
   return {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
-    content: await liveContent(file.id, file.content ?? ""),
+    content: live.content,
+    versionHash: live.versionHash,
   };
 }
 
 async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
+  filename: string;
   content: string;
+  expectedVersionHash: string;
 }): Promise<void> {
   // Re-assert at the write boundary so the persist path is independently scoped.
   await assertAccess("design", file.designId, "editor");
 
-  const db = getDb();
-  const now = new Date().toISOString();
-
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+    // Pass through the versionHash captured in resolveEditableDesignFile at
+    // the SAME read the transform used as its base (NOT a fresh re-read of
+    // the (already-transformed) content here — re-reading here would always
+    // observe whatever is live "now" and trivially match itself, proving
+    // nothing about whether a sibling write landed between the transform's
+    // base read and this persist). writeInlineSourceFile re-reads the live
+    // text immediately before its own applyText/DB write and rejects if it no
+    // longer matches this hash — closing the race window where a concurrent
+    // editor/agent write lands between the base read (used to compute this
+    // patch) and this persist call (the same stale-diff-base bug fixed for
+    // insert-design-native-asset.ts / insert-asset.ts: a diff computed from a
+    // stale base, char-diffed into a collab doc that has since moved on,
+    // corrupts or drops the other writer's change).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
-
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: file.expectedVersionHash,
+    });
   } finally {
     agentLeaveDocument(file.id);
   }
@@ -282,7 +301,10 @@ export default defineAction({
 
     if (patch.result.target) {
       agentUpdateSelection(file.id, {
-        selection: patch.result.target.selector,
+        selection: agentSelectionDescriptor(
+          patch.result.target,
+          "Fixing accessibility",
+        ),
         nodeId: patch.result.target.nodeId,
         editingFile: file.filename,
         designId: file.designId,
@@ -294,7 +316,9 @@ export default defineAction({
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
         content: patch.content,
+        expectedVersionHash: file.versionHash,
       });
     }
 

@@ -5754,6 +5754,84 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
+  // ── Opt-in foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ──────
+  // Default-OFF: with the eligibility flag omitted/false, a foreground run
+  // must behave exactly as before (never chains; the client's auto_continue
+  // re-POST is the only continuation path). The first test in this describe
+  // ("does NOT chain a foreground run") pins the omitted-flag default.
+
+  it("does NOT chain a foreground run when the self-chain flag is explicitly false (default)", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+        foregroundSelfChainEligible: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("CHAINS a foreground run at a continuation boundary when self-chain is opted in", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+        foregroundSelfChainEligible: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT foreground-self-chain a run that was dispatched to the durable background worker", () => {
+    // A background-dispatched run's recovery is owned by the circuit-breaker
+    // + isBackgroundWorker chain — the foreground flag must never double up.
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: 0,
+        foregroundSelfChainEligible: true,
+        dispatchedToBackground: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT foreground-self-chain an aborted (user-stopped) run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun(
+          [{ type: "auto_continue", reason: "run_timeout" }],
+          "aborted",
+        ),
+        continuationCount: 0,
+        foregroundSelfChainEligible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT foreground-self-chain a cleanly finished run", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "text", text: "all done" }, { type: "done" }]),
+        continuationCount: 0,
+        foregroundSelfChainEligible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("foreground self-chain respects the continuation budget", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS,
+        foregroundSelfChainEligible: true,
+      }),
+    ).toBe(false);
+  });
+
   it("preserves the specific continuation reason for recoverable background errors", () => {
     expect(
       backgroundContinuationReasonForRun(
@@ -6320,5 +6398,102 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     });
     // Bounded by the reaper-anchored cap (liveness+50 → iter4), not unbounded.
     expect(readClaim).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("runAgentLoop tool-result images", () => {
+  it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
+    const oversize = "A".repeat(2_000_001);
+    const actions: Record<string, ActionEntry> = {
+      screenshot: {
+        ...actionEntry({ description: "Take a screenshot", readOnly: true }),
+        run: async () => ({
+          ok: true,
+          page: "dashboard",
+          _agentImages: [
+            { url: "https://cdn.example.com/shot.png", label: "before" },
+            { data: oversize, mediaType: "image/png", label: "too-big" },
+          ],
+        }),
+      },
+    };
+    const tools = actionsToEngineTools(actions);
+    let streamCalls = 0;
+    let secondCallMessages: any[] = [];
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "shot-1",
+                name: "screenshot",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        secondCallMessages = opts.messages as any[];
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "looks good" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+    });
+
+    const toolResult = secondCallMessages
+      .flatMap((m: any) => m.content ?? [])
+      .find((p: any) => p.type === "tool-result");
+    expect(toolResult).toBeDefined();
+    // Valid image rides the part; the oversize one was dropped.
+    expect(toolResult.images).toEqual([
+      { url: "https://cdn.example.com/shot.png", label: "before" },
+    ]);
+    // The field is stripped from the JSON the model reads…
+    expect(toolResult.content).not.toContain("_agentImages");
+    expect(toolResult.content).toContain('"page": "dashboard"');
+    // …the url note and the oversize drop note are appended as text…
+    expect(toolResult.content).toContain("https://cdn.example.com/shot.png");
+    expect(toolResult.content).toContain("exceeds");
+    // …and the base64 payload never reaches the text.
+    expect(toolResult.content).not.toContain("A".repeat(100));
+
+    // The persisted tool_done event carries only the string result (with the
+    // notes), never an images array.
+    const toolDone = events.find((e) => e.type === "tool_done") as any;
+    expect(toolDone).toBeDefined();
+    expect(toolDone.result).toContain("https://cdn.example.com/shot.png");
+    expect(toolDone.result).not.toContain("A".repeat(100));
+    expect(toolDone.images).toBeUndefined();
   });
 });

@@ -135,6 +135,11 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   private/authenticated recording context. When preparing a link for another
   agent outside Clips, use `create-recording-agent-link`; it mints a two-hour
   `agent_access` share URL without changing recording visibility.
+- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+  helpers for scoped token mint/verify and bot-visible URL construction. Keep
+  Clips-specific visibility, password, transcript, frame, and player behavior
+  in Clips. New URLs should use `agent_access`; existing agent API routes should
+  keep accepting legacy `t` tokens for copied links.
 
 ## Skills
 

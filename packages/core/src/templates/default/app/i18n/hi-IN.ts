@@ -284,7 +284,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "इसे क्या करना चाहिए?",
     createPlaceholder: "एक कार्य सूची, एपीआई डैशबोर्ड, कैलकुलेटर...",
-    backToApp: "ऐप पर वापस जाएं",
     title: "एक्सटेंशन",
     hiddenShown: "छिपाव दिखाया गया",
     showHidden: "छिपे हुए दिखाएं",

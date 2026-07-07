@@ -42,6 +42,8 @@ const messages = {
       placeholder: "검색...",
       clear: "Clear search (Esc)",
       noMatches: "일치하는 결과 없음",
+      localResults: "이 받은편지함에서",
+      searchingGmail: "Gmail 검색 중...",
     },
     tabSettings: {
       views: "조회수",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "블록",
       media: "미디어",
       ai: "AI",
+      snippets: "스니펫",
     },
     mobileActions: {
       archive: "보관",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "예약 이메일이 취소되었습니다.",
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "이미지 업로드 실패",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -535,6 +539,19 @@ const messages = {
     whatsNewDescription:
       "Agent-Native Mail의 최근 사용자 대상 변경 사항입니다.",
     drafting: "작성",
+    snippets: "스니펫",
+    snippetsDescription:
+      "/ 와 스니펫 이름을 입력해 작성 중인 초안에 삽입할 수 있는 저장된 답변입니다.",
+    newSnippet: "새 스니펫",
+    noSnippets: "아직 스니펫이 없습니다. 시작하려면 하나를 만드세요.",
+    snippetName: "스니펫 이름",
+    snippetNamePlaceholder: "예: 가격 후속 안내",
+    snippetBody: "스니펫 본문",
+    snippetBodyPlaceholder: "이 스니펫을 사용할 때 삽입되는 텍스트...",
+    editSnippet: "스니펫 편집",
+    deleteSnippet: "스니펫 삭제",
+    deleteSnippetDescription:
+      '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",

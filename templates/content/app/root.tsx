@@ -4,6 +4,7 @@ import {
   appPath,
   CommandMenu,
   createAgentNativeQueryClient,
+  ErrorReportActions,
   getLocaleInitScript,
   getThemeInitScript,
   type LocaleCode,
@@ -46,6 +47,7 @@ import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 // shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
@@ -545,9 +547,33 @@ export default function Root() {
 
   if (isPublicPath) {
     return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          disableThemeTransitions={false}
+          toaster={contentToaster}
+          i18n={{
+            catalog: i18nCatalog,
+            initialLocale: loaderData.locale,
+            initialPreference: loaderData.preference,
+            initialMessages: loaderData.messages,
+            persistPreference: false,
+          }}
+        >
+          <Toaster />
+          <PublicAgentShell>
+            <Outlet />
+          </PublicAgentShell>
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  return (
+    <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{
@@ -555,34 +581,14 @@ export default function Root() {
           initialLocale: loaderData.locale,
           initialPreference: loaderData.preference,
           initialMessages: loaderData.messages,
-          persistPreference: false,
         }}
       >
+        <AppSetup />
         <Toaster />
-        <PublicAgentShell>
-          <Outlet />
-        </PublicAgentShell>
+        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <Outlet />
       </AppProviders>
-    );
-  }
-
-  return (
-    <AppProviders
-      queryClient={queryClient}
-      disableThemeTransitions={false}
-      toaster={contentToaster}
-      i18n={{
-        catalog: i18nCatalog,
-        initialLocale: loaderData.locale,
-        initialPreference: loaderData.preference,
-        initialMessages: loaderData.messages,
-      }}
-    >
-      <AppSetup />
-      <Toaster />
-      <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <Outlet />
-    </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
@@ -627,6 +633,14 @@ function ContentErrorBoundaryBody() {
         >
           Reload
         </button>
+        <ErrorReportActions
+          appName="Content"
+          title={title}
+          details={details}
+          issueTitle={`Content error: ${title}`}
+          className="mt-4"
+          align="center"
+        />
       </div>
     </main>
   );

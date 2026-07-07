@@ -28,6 +28,7 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
@@ -258,14 +259,16 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-      <DbSyncSetup />
-      <NavigationStateSync />
-      <UrlStateSync />
-      <OpenLinkInterceptor />
-      <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <Outlet />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <DbSyncSetup />
+        <NavigationStateSync />
+        <UrlStateSync />
+        <OpenLinkInterceptor />
+        <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <Outlet />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

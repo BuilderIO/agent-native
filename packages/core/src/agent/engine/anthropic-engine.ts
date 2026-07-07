@@ -106,15 +106,43 @@ class AnthropicEngine implements AgentEngine {
       cachedTools[cachedTools.length - 1] = last;
     }
 
+    // Apply a moving cache breakpoint on the last user message's last content
+    // block so the entire conversation prefix (system + tools + growing
+    // history) is cached turn-over-turn as the thread lengthens. Mirrors the
+    // Builder gateway engine's identical handling in builder-engine.ts.
+    let cachedMessages = messages;
+    if (cacheEnabled && messages.length > 0) {
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
+      }
+    }
+
     const requestParams: any = {
       model: opts.model,
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
+        opts.model,
       ),
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
-      messages,
+      messages: cachedMessages,
       ...(opts.temperature !== undefined
         ? { temperature: opts.temperature }
         : {}),

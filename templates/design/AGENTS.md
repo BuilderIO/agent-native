@@ -30,8 +30,9 @@ patterns live in `.agents/skills/`.
   screens, linked design systems, tokens, and component language before
   inventing a new direction. Use realistic content/copy and one signature choice
   per direction; avoid lorem ipsum, generic SaaS filler, and decorative
-  placeholders. Include expected responsive/accessibility states and visually
-  inspect the result before calling it ready.
+  placeholders. Include expected responsive/accessibility states, run
+  `run-design-audit`, and call `take-design-screenshot` on each changed screen
+  before calling it ready — see the `design-generation` skill's Phase 5.
 - For editable reusable building blocks inside Design, use
   `list-design-native-assets` first, then `insert-design-native-asset` with the
   chosen kind. These are Design-native HTML primitives/components, not external
@@ -39,7 +40,12 @@ patterns live in `.agents/skills/`.
   supports our own primitives.
 - For raster image generation, restyling, or editing existing screenshots/photos,
   use the available first-party Assets MCP tool such as `generate-asset` instead
-  of placeholders or generic stock imagery. When the Assets picker returns a
+  of placeholders or generic stock imagery. Default to `tier: "fast"` (the cheap
+  Gemini flash "nanobanana"-class model) unless the user explicitly asks for
+  best quality; pass `aspectRatio` matching the layout slot (e.g. `21:9` hero,
+  `4:3` card, `1:1` avatar); include the linked design system's
+  `imageStyle.styleDescription` in the prompt when one is linked; and always
+  pass `callerAppId: "design"`. When the Assets picker returns a
   selected asset, preserve `assetId`, `runId`, and URLs verbatim; if a design is
   open, call `insert-asset` with the chosen URL/id, then refine placement with
   `get-design-snapshot` and `edit-design` as needed. If no Assets MCP tool is
@@ -87,13 +93,19 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
-- When a user wants tokens from design.md, CSS, theme/tokens JSON, Tailwind
-  config, local files, or the current design, call `import-design-tokens` and
-  preserve its `tokens`, `filesAnalyzed`, and provenance in your answer. Manual
-  `apply-design-token-edit` / one-by-one token entry is the fallback for a small
-  one-off token, not the primary import workflow. For Figma variables/styles or
-  raw `.fig` files, keep using Builder-backed design-system indexing instead of
-  local `.fig` parsing.
+- For reusable design-system setup from Figma, connected code/GitHub, local
+  code/design files, or optional `design.md`, use Builder-backed DSI indexing
+  through `index-design-system-with-builder` or `import-file --format fig`.
+  Pass readable `design.md` content as `designMd`, use the returned local design
+  system id in Design flows, and call `get-design-system` before generation to
+  hydrate Builder docs/tokens when available. Do not create a duplicate local
+  design system from raw Figma/code sources.
+- When a user wants one-off tokens from design.md, CSS, theme/tokens JSON,
+  Tailwind config, local files, or the current design, call
+  `import-design-tokens` and preserve its `tokens`, `filesAnalyzed`, and
+  provenance in your answer. Manual `apply-design-token-edit` / one-by-one
+  token entry is the fallback for a small one-off token, not the primary import
+  workflow.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
 - For non-trivial new design prompts, ask before generating: create/open the
@@ -151,8 +163,10 @@ patterns live in `.agents/skills/`.
   current SQL-backed prototype mode. Localhost connections come from
   `npx @agent-native/core@latest design connect` and are persisted with
   `connect-localhost`; list them with `list-localhost-connections` before
-  creating or resolving local-code artboards. Fusion is a future source type and
-  should be preserved when present but not invented for inline/local work.
+  creating or resolving local-code artboards. Fusion designs are full-app
+  designs backed by a running Builder Fusion container, created via
+  `create-fusion-app` when `FULL_APP_BUILDING_ENABLED` is on; preserve the
+  design's `fusionApp` linkage data whenever present and never invent it.
 - Localhost route manifests are scaffolding for URL-backed Flow Canvas
   artboards. Use `add-localhost-screens` to place routes or path/query states as
   iframe screens in overview mode. Preserve route ids, paths, `sourceType`,
@@ -193,21 +207,31 @@ patterns live in `.agents/skills/`.
 
 ## Code Workspace
 
-- The editor left rail has a wide `code` workspace panel. Open it with
-  `navigate --view editor --designId <id> --leftPanel code` and optionally pass
-  `fileId`, `filename`, or `screen` to focus a file.
-- Use `list-source-files` to inspect the source workspace. For the MVP the
-  backend is `virtual-inline` over SQL-backed `design_files`, exposed as
-  `designfs://<designId>/`.
-- Use `read-source-file` for file contents and preserve its `versionHash` before
+- The editor left rail has a wide `code` panel: a VS Code-style workbench
+  (`app/components/design/code-workbench/`) with an explorer, workspace search,
+  editor tabs, quick open (⌘P), a command palette (⇧⌘P), and a status bar. Open
+  it with `navigate --view editor --designId <id> --leftPanel code` and
+  optionally pass `fileId`, `filename`, or `screen` to focus a file.
+- The explorer shows one root per workspace source: the design's SQL-backed
+  files (`designfs://<designId>/`, backend `virtual-inline`) always, plus one
+  root per localhost connection referenced by the design's screens
+  (`list-local-files` / `read-local-file` proxy the `design connect` bridge;
+  writes go through `write-local-file` and its user-approved consent grant).
+- Inline design files are auto-formatted with Prettier the first time they are
+  opened in the workbench and the formatted result is persisted; local files
+  are never auto-formatted.
+- Use `list-source-files` to inspect the inline source workspace and
+  `read-source-file` for file contents; preserve its `versionHash` before
   writing. Do not return full file content from `view-screen`; it reports only
   active code file metadata and dirty state.
 - Use `preview-source-edit` to show a diff without saving, then
   `apply-source-edit` with the prior `versionHash` to save either a full replace
-  or exact replace. These actions update the same inline file state as the UI.
+  or exact replace. These actions update the same inline file state as the UI;
+  agent edits show up live in open workbench buffers.
 - Use `resolve-selection-source` when the user has a canvas element selected and
-  you need the best matching inline file location/snippet. Localhost/container
-  source reads and writes remain future backend work.
+  you need the best matching inline file location/snippet.
+- The workbench session (open tabs, active file, sidebar layout) persists per
+  design in application state under `code-workbench:<designId>`.
 
 ## Localhost Source Actions
 
@@ -222,6 +246,60 @@ patterns live in `.agents/skills/`.
   the latest localhost connection or a specific `connectionId`. Pass `routes`
   with `path`/`url` when visualizing a flow; pass `paths` for a concise route
   list. Then call `navigate --view editor --designId <id> --editorView overview`.
+
+## Review, Breakpoints, Screen States & Components
+
+- **Review**: `run-design-audit` runs a read-only accessibility audit over a
+  design's rendered HTML (missing alt/labels, tap-target size,
+  focus-visibility, reduced-motion coverage, a contrast hint) and returns
+  `A11yFinding[]`. `apply-a11y-fix` applies one deterministic inline fix for a
+  finding (contrast, tap-target size, focus ring) when `fixAvailable: true`.
+  `get-design-review` compares two design snapshots/branches and returns a
+  file-level visual diff (added/removed/modified). See the `design-generation`
+  skill's Phase 5 for when to run these.
+- **Breakpoints**: `add-breakpoint`, `remove-breakpoint`, and
+  `set-active-breakpoint` manage the design's device-width frame set and which
+  frame new edits target. Breakpoint frames are one document with a
+  Framer-style cascade (base = widest frame; narrower-frame edits persist as
+  width-scoped overrides via `apply-visual-edit` + `activeFrameWidthPx`).
+  Read the `responsive-breakpoints` skill before responsive edits.
+- **Design states**: `create-design-state`, `apply-design-state`,
+  `capture-design-state`, `list-design-states`, and `delete-design-state`
+  manage named DOM/Alpine states (Loading/Empty/Error), static data fixtures,
+  and live app captures. See the same skill section.
+- **Components**: `create-component` promotes a selected element into a
+  recognised reusable component; `index-components` scans a design's HTML for
+  existing component annotations; `get-component-details`,
+  `preview-component-prop-edit`, `apply-component-prop-edit`, and
+  `open-component-source` inspect, preview, persist, and navigate to a
+  component instance. See the `design-generation` skill's "Component reuse"
+  section — promote a 3+ times repeated pattern instead of inventing another
+  near-duplicate.
+
+## Full App Building
+
+Flag-gated (`FULL_APP_BUILDING_ENABLED` in `shared/full-app.ts`, default off)
+and requires Builder connected. See `full-app-build` skill for the full flow.
+
+- `create-fusion-app`: creates the app branch via the Builder cloud agent; one
+  branch per design; returns existing linkage if already created.
+- `sync-fusion-app`: boots/attaches the container; poll while building; on
+  ready, updates `previewUrl` and upserts URL-backed screens.
+- `add-fusion-screens`: places more routes as screens once `previewUrl` is
+  known.
+- `queue-fusion-edit`: queues one edit intent against a fusion screen.
+- `list-fusion-edits`: inspects the queued edits.
+- `apply-fusion-edits`: batches pending edits into one prompt for the app's
+  in-container agent (fire-and-forget); marks them "sent".
+- `send-fusion-message`: relays a freeform request to the app's coding agent.
+- `push-fusion-app`: pushes the branch's code to its git remote.
+- `deploy-fusion-app`: reserves `<slug>.builder.cloud` and triggers a deploy.
+- `get-fusion-deploy-status`: polls deploy status until live/failed/canceled.
+- Fusion screens are URL-backed iframes, same model as localhost screens.
+  Never inline-edit a fusion screen's HTML or use `generate-design` /
+  `edit-design` / `apply-visual-edit` on it — queue and dispatch edits
+  instead. When not configured, actions return a connect CTA like
+  `migrate-inline-design-to-app`; never throw or invent `fusionApp` data.
 
 ## App-Backed Skill Distribution
 
@@ -243,8 +321,14 @@ patterns live in `.agents/skills/`.
   wait for the user to pick one in chat, delete each other generated variant
   screen with `delete-file` at most once, call `get-design-snapshot` exactly
   once with the selected screen's `fileId`, then call `edit-design` exactly once
-  on that same `fileId` for follow-up refinement. Use `mode: "replace-file"`
-  when expanding the representative placeholder into the full chosen direction.
+  on that same `fileId` for follow-up refinement. The kept variant screen is a
+  representative direction, not the final deliverable: use `mode:
+"replace-file"` to replace it with the actual requested app/product UI in the
+  chosen visual style. Keep the replacement complete but compact: prioritize
+  the primary workflow, and if the requested feature list is too large for one
+  reliable edit, represent secondary details as visible controls, states, or
+  affordances instead of expanding the action input. Do not leave a direction
+  board, variant brief, summary card, or prose description as the final screen.
   Do not repeat delete/snapshot cycles, and do not call `generate-design` after
   a variant pick.
 - If inline chat choice buttons are unavailable, the user can tell you the
@@ -256,8 +340,14 @@ patterns live in `.agents/skills/`.
 Read the relevant skill before deeper work:
 
 - `design-generation` for creating/editing prototype HTML and variant flows.
+- `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
+  cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
+- `full-app-build` for flag-gated fusion-backed full app building.
+- `shader-fills` for code-backed GLSL shader fills/effects (editable source
+  in screen HTML, uniform knobs, preset library, and the picker's "Create a
+  custom shader fill." prompt).
 - `frontend-design` and `shadcn-ui` for app UI changes.
 - `actions`, `delegate-to-agent`, `security`, and `self-modifying-code` for
   framework patterns.

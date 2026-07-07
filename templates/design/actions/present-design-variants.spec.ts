@@ -233,6 +233,12 @@ describe("present-design-variants", () => {
     expect(guidedQuestions.submitMessage).toContain(
       "exact file ids and tool instructions in the selected answer",
     );
+    expect(guidedQuestions.submitMessage).toContain("requested app/product UI");
+    expect(guidedQuestions.submitMessage).toContain("complete but compact");
+    expect(guidedQuestions.submitMessage).toContain("primary workflow");
+    expect(guidedQuestions.submitMessage).toContain(
+      "must not be a direction board",
+    );
     expect(guidedQuestions.submitMessage).toContain(
       "Do not repeat cleanup/read cycles",
     );
@@ -249,6 +255,13 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("edit-design with fileId file-a");
     expect(firstOption?.value).toContain('mode "replace-file"');
+    expect(firstOption?.value).toContain(
+      "replace the representative direction screen",
+    );
+    expect(firstOption?.value).toContain("complete but compact");
+    expect(firstOption?.value).toContain("primary workflow");
+    expect(firstOption?.value).toContain("actual usable UI requested");
+    expect(firstOption?.value).toContain("not a direction board");
     expect(firstOption?.value).toContain("bounded single-file pass");
     expect(firstOption?.value).toContain(
       "do not repeat delete/snapshot cycles",
@@ -302,6 +315,11 @@ describe("present-design-variants", () => {
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
     expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain("complete but compact");
+    expect(result.nextRequiredAction).toContain("primary workflow");
+    expect(result.nextRequiredAction).toContain(
+      "Do not leave a direction board",
+    );
     expect(result.nextRequiredAction).toContain(
       "Do not repeat delete/snapshot cycles",
     );
@@ -512,5 +530,42 @@ describe("present-design-variants", () => {
       label: "Open screen overview",
       view: "editor",
     });
+  });
+
+  it("stamps missing data-agent-native-node-id attributes on every persisted variant", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Explore two directions",
+      variants: [
+        {
+          id: "provided-html",
+          label: "Provided HTML",
+          content: "<main><button>Buy</button></main>",
+        },
+        {
+          id: "generated-fallback",
+          label: "Generated Fallback",
+          description: "A fallback representative screen.",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenCalledTimes(2);
+    const providedInsert = mocks.insertChain.values.mock.calls[0]![0] as {
+      content: string;
+    };
+    const fallbackInsert = mocks.insertChain.values.mock.calls[1]![0] as {
+      content: string;
+    };
+
+    expect(providedInsert.content).toContain("data-agent-native-node-id");
+    expect(providedInsert.content).toContain("<button");
+    // The provided-HTML path preserves text content verbatim alongside the
+    // injected ids.
+    expect(providedInsert.content).toContain(">Buy<");
+
+    // The generated fallbackVariantContent() path is also annotated, since it
+    // persists just as any other AI-authored screen would.
+    expect(fallbackInsert.content).toContain("data-agent-native-node-id");
   });
 });

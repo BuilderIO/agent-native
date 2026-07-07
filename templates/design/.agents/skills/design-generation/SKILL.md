@@ -110,6 +110,50 @@ Pick a preset by `projectType`:
   `:root` CSS variable. Never hardcode `text-white` / `bg-black` / hex literals
   in the markup — that's what keeps brand + multi-screen consistency automatic.
 
+### Type-scale recipe
+
+Use this as a starting scale, then adjust to the chosen Aesthetic:
+
+- Display: 56-96px · H1: 40-64px · H2: 28-36px · Body: 16-18px · Caption: 12-13px.
+- Each adjacent step should be at least 1.25× the one below it — smaller jumps
+  read as "almost the same size" rather than a deliberate hierarchy.
+- A hero/display line should be at least 3× the body size.
+- Line-heights: display/H1 tight at 1.05-1.15, H2/H3 at 1.2-1.3, body relaxed
+  at 1.5-1.7.
+- Measure (line length) for body copy: 60-75 characters; constrain with
+  `max-width` in `ch` units, not a raw pixel guess.
+
+### Section rhythm
+
+Pick one section padding value and repeat it for every top-level section on
+the page/screen: 96-128px on desktop, 48-64px on mobile. Don't let each
+section invent its own padding — that's what makes a page feel unplanned.
+Use spacing to encode grouping: gaps *inside* a card or cluster should be
+visibly smaller than the gap *between* cards/sections — if inside-group and
+between-group spacing match, the eye can't tell where one group ends and the
+next begins.
+
+### Verifiable contrast pairs
+
+Don't just assert "WCAG AA" — check the actual token pairs the design ships.
+The most common real failure is muted text (`--color-text-muted`) directly on
+a card/surface background rather than the page background; verify that pair
+specifically, not just text-on-page. If an accent color doubles as text (a
+link, an active nav item, a price), it usually fails 4.5:1 against typical
+surfaces — add a separate `--color-accent-text` variant tuned for text-on-
+background contrast rather than reusing the decorative accent for copy.
+
+### Richer tokens
+
+Go beyond the minimal `:root` block in the HTML Structure Requirements below
+when the design needs it — add `--space-section` (see Section rhythm),
+`--color-border`, `--color-accent-text` (see contrast pairs above),
+`--shadow-card`, and a success/warning/danger trio
+(`--color-success` / `--color-warning` / `--color-danger`) once the design has
+status states, alerts, or form validation to express. Keep font tokens as
+placeholders you fill per design (see HTML Structure Requirements) rather than
+hardcoding a concrete family in a shared template.
+
 ## Building on existing code, screens, or a design system
 
 When a design system, tokens, current screens, or a connected codebase already
@@ -127,7 +171,7 @@ defaults. The banned-defaults list above still applies, plus:
   your colors". Keep structure and layout genuinely varied per screen while the
   palette, type, and components stay on-brand.
 
-## Generation Workflow — the canonical 4-phase flow
+## Generation Workflow — the canonical 5-phase flow
 
 This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
 
@@ -152,6 +196,8 @@ pnpm action show-design-questions \
   --questions '[{"id":"form_factor","type":"text-options","question":"What form factor?","options":[{"label":"Desktop web app","value":"desktop"},{"label":"Mobile app","value":"mobile"},{"label":"Both / responsive","value":"responsive"},{"label":"Decide for me","value":"decide"}],"allowOther":true}]'
 ```
 
+**Carry the form-factor answer through to generation — do not just ask and discard it.** A "Desktop web app" answer means the generated screen's canvas frame must be desktop-sized (~1440×1024), not left at whatever a screen with no placement falls back to. Map the answer to real frame geometry: pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen to `generate-screens`, explicit `width`/`height` per variant to `present-design-variants`, or an explicit `canvasFrames` entry to `generate-design` — see Phase 2 and Phase 3 below. For "Both / responsive," generate at desktop width and rely on the responsive breakpoint system (see `responsive-breakpoints` skill) rather than guessing a size.
+
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
 For new designs, default to **three** variations (`present-design-variants`
@@ -165,14 +211,16 @@ screen name.
   "designId": "<the design id>",
   "prompt": "Pick a direction",
   "variants": [
-    { "id": "a", "label": "Editorial Serif", "content": "<!DOCTYPE html>...full self-contained HTML..." },
-    { "id": "b", "label": "Bold Brutalist", "content": "<!DOCTYPE html>..." },
-    { "id": "c", "label": "Soft & Spacious", "content": "<!DOCTYPE html>..." }
+    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." }
   ]
 }
 ```
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
+
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -197,19 +245,40 @@ pnpm action generate-design \
   --designId "<id>" \
   --prompt "Description of the design" \
   --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]' \
-  --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]'
+  --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]' \
+  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":1024}]'
 ```
+
+Always pass `canvasFrames` with an explicit `width`/`height` matching the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024 as above) — a screen saved without a placement falls back to a generic default that won't match a desktop-intended design. For multiple screens generated together, call `generate-screens` first and pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
 ### Phase 4 — Always ship tweaks with the design
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
 
-### Phase 5 — Review before calling it ready
+### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
 
-Open the generated screen or overview and inspect it like a design review:
-hierarchy, overflow, mobile fit, contrast, keyboard focus, empty/loading/error
-states for app UI, and whether the copy/content still sounds real. Fix obvious
-issues before reporting the design as ready.
+Run `run-design-audit` against each screen (`designId` + `fileId`/`filename`).
+It returns `A11yFinding[]` covering missing alt/labels, tap-target size,
+focus-visibility, reduced-motion coverage, a contrast hint, and — for
+multi-screen designs — token drift against `index.html`'s `:root` block. For
+every `error`-severity finding with `fixAvailable: true`, call
+`apply-a11y-fix`; for findings that aren't auto-fixable (missing alt text,
+structural issues, token drift), fix them directly with `edit-design`. **A
+design with audit errors is not ready** — don't report a design as done while
+`run-design-audit` still returns unresolved errors.
+
+After the audit is clean, call `take-design-screenshot` on each changed screen
+(default: 1280px desktop + 375px mobile). Fix everything its `diagnostics`
+report flags — real computed contrast ratios, horizontal/container overflow,
+broken images, zero-size or off-screen text, console errors — before reporting
+the design as ready; this is the same "visually inspect the result" pass, done
+against the real rendered DOM/CSS instead of by eye. If Chromium isn't
+available in the current environment, it returns `{ ok: false, reason }`
+instead — fall back to a careful read of the HTML plus the audit findings. The
+returned screenshot `url` is for human review (embed it as `![...](url)` in
+your reply); also still scan the rendered output yourself for anything the
+diagnostics don't catch — broken hierarchy, empty/loading/error states for app
+UI, and whether the copy/content still sounds real.
 
 ## HTML Structure Requirements
 
@@ -247,8 +316,8 @@ Every `index.html` must include:
       --color-surface: #1E293B;
       --color-text: #F8FAFC;
       --color-text-muted: #94A3B8;
-      --font-heading: 'Space Grotesk', sans-serif;
-      --font-body: 'DM Sans', sans-serif;
+      --font-heading: '<HEADING_FONT>', sans-serif; /* pick per Font Recommendations below — do not default to Space Grotesk */
+      --font-body: '<BODY_FONT>', sans-serif; /* pick a pairing, not a repeat of every other generation */
       --radius: 12px;
     }
 
@@ -484,11 +553,20 @@ to the chosen Aesthetic layer is what keeps designs from sharing a fingerprint:
 | Space Grotesk | DM Sans | Modern tech |
 | Playfair Display | Source Sans 3 | Editorial luxury |
 | Sora | Outfit | Clean geometric |
-| Cabinet Grotesk | Satoshi | Contemporary startup |
+| Bricolage Grotesque | Schibsted Grotesk | Contemporary startup |
 | Fraunces | Work Sans | Warm editorial |
 | JetBrains Mono | IBM Plex Sans | Developer tool |
-| Clash Display | General Sans | Bold statement |
+| Unbounded | Sora | Bold statement |
 | Archivo | Nunito Sans | Friendly SaaS |
+| Instrument Serif | Schibsted Grotesk | Editorial minimal |
+
+All of the above are served by Google Fonts (`fonts.googleapis.com/css2`). The
+mandatory `<head>` only loads the Google Fonts CDN (see HTML Structure
+Requirements) — Fontshare-only families (Cabinet Grotesk, Satoshi, Clash
+Display, General Sans) are not on Google Fonts and will silently fail to load,
+so the browser falls back to a system sans and quietly reintroduces the exact
+slop this skill bans. Only use a Fontshare family if you also add its
+Fontshare `<link>`/`@import` and confirm it renders.
 
 ## Multi-screen prototypes & navigation
 
@@ -569,7 +647,125 @@ regeneration is slow, expensive, and regresses unrelated parts.
 - Never use `<script>` blocks with raw DOM manipulation — use Alpine.js directives
 - Never inline `onclick="..."` handlers — use `@click`
 - Never use `!important` except in `[x-cloak]`
-- Never use position: fixed for modals — wrap in a portal-like pattern with Alpine.js
 - Never forget `cursor-pointer` on interactive elements
-- Never use `<img>` with placeholder URLs — use colored divs or gradients
-- Never set font-size below 14px for body text or 12px for labels
+- Never use `<img>` with placeholder/stock URLs — generate real imagery (see
+  Imagery below) or use tokened colored divs/gradients only for pure UI
+  chrome (icons, avatars-as-initials, decorative fills), never as a stand-in
+  for a hero, product shot, or portrait that should be a generated image
+- Never set font-size below 16px for body text or 12px for labels
+
+## Multi-screen consistency contract
+
+When a design has more than one screen, the shared system must be
+byte-identical across every screen file, not just similar: the `:root` token
+block, the Google Fonts `<link>`, the nav, and the footer should match exactly
+between `index.html` and every other screen. Before saving a new or edited
+screen, diff its `:root` block against `index.html`'s (or the design system's
+tokens) and reconcile any drift instead of letting each screen accumulate its
+own slightly-different palette. Consistency is not sameness — keep structure
+and layout varied per screen (see "Building on existing code" above) while the
+token layer, typography, nav, and footer stay identical.
+
+## Breakpoints & screen states
+
+- **Breakpoints**: `add-breakpoint` adds a device-width frame (Framer
+  defaults Phone 390 / Tablet 810 / Desktop 1200, or a custom width) to the
+  design's breakpoint set stored in `designs.data`; duplicate widths are
+  ignored. `remove-breakpoint` removes one by id. `set-active-breakpoint`
+  sets which frame is the current edit scope. Breakpoint frames are ONE
+  document rendered at different widths with a Framer-style cascade: the
+  primary (widest) frame is the base, and edits at a narrower active
+  breakpoint persist as width-scoped overrides (`max-[<bound>px]:` classes
+  or managed `@media` rules) that cascade down. Always check the active
+  breakpoint before a responsive-only edit, and pass `activeFrameWidthPx`
+  to `apply-visual-edit` so the write lands at the right scope. Read the
+  `responsive-breakpoints` skill for the full model.
+- **Design states**: `create-design-state` creates a named alternate
+  DOM/Alpine snapshot (`kind: "state"` — Loading, Empty, Error), a static data
+  fixture (`kind: "fixture"`), or a placeholder for a live capture
+  (`kind: "capture"`). `apply-design-state` updates an existing state row
+  (rename, change breakpoint, update fixture/capture data, set the preview
+  reference). `capture-design-state` records a running app's current route,
+  props, and API data into a `capture` row — it requires the design's source
+  to advertise the `captureState` bridge capability (localhost/fusion); for
+  inline designs without a live bridge, use `create-design-state` instead.
+  `list-design-states` lists all states/fixtures/captures for a design, and
+  `delete-design-state` removes one (irreversible; the design itself is
+  unaffected).
+
+## Component reuse
+
+Before hand-rolling another near-duplicate card/button/nav item, check
+whether the pattern already exists as a recognised component. Once a visual
+pattern repeats 3+ times in a design, promote it: call `create-component` on
+the selected root element to stamp deterministic
+`data-agent-native-component="<Name>"` and `data-agent-native-prop-*`
+annotations, so it becomes a recognised component instance for the canvas
+outline and the Component inspector section. Use `index-components` to scan a
+design's HTML for existing `data-agent-native-component` annotations and
+persist the discovered component list before inventing something that may
+already exist. `get-component-details` returns a selected instance's name,
+props, variants, and source info. `preview-component-prop-edit` previews a
+prop/class change on the canvas without saving; `apply-component-prop-edit`
+persists it. `open-component-source` navigates to the component's source
+location (the design file for inline/Alpine designs, or the resolved external
+file for localhost/fusion sources).
+
+## Realistic app-state content
+
+For app/product UI (not marketing pages), populate lists and tables with
+plausible mid-life data — not a pristine "just signed up" empty account and
+not obviously fake placeholder rows (avoid "Lorem Ipsum User", "Item 1", "Item
+2"). Include at least one realistically long name/title/label so truncation
+and wrapping behavior is visible. Always design the empty state and a loading
+skeleton for the screen's primary data surface — don't only show the
+happy-path populated state.
+
+## Motion craft
+
+Push motion the same way you push type and color: on purpose, not as a
+uniform default. Duration bands: 150-250ms for micro-interactions (hover,
+toggle, button press), 300-500ms for panel/sheet/modal transitions, and
+500-800ms reserved for exactly one orchestrated page-load reveal (stagger
+individual elements 60-100ms apart, capped at about 6 staggered elements —
+more than that reads as sluggish, not polished). Ease functions: `ease-out`
+for elements entering, `ease-in` for elements leaving. Animate only
+`transform` and `opacity` for performance; avoid animating `width`/`height`/
+`top`/`left`. Every non-essential animation must respect
+`prefers-reduced-motion` (see the mandatory `<style>` block below). For
+inline/Alpine screens, persist motion as durable timeline metadata: inspect
+the current file's timeline with `get-motion-timeline`, then write changes
+with `apply-motion-edit` using the same `sourceRef`/`fileId` — this is not a
+one-way export, edits stay editable.
+
+## Imagery
+
+Generate real images for anything a real product would photograph or
+illustrate: hero backgrounds, product shots, portraits/avatars, testimonial
+photos, marketing/editorial imagery. Don't generate images for utility UI —
+icons, data tables, form chrome, and dashboard widgets should stay as
+tokened SVG/CSS, not photos.
+
+- **Use the Assets generation tool** (`generate-asset`, or `insert-asset` once
+  an asset is chosen) instead of `<img>` placeholder URLs or colored-div
+  stand-ins. See the Core Rules image-generation bullet in `AGENTS.md` for the
+  full calling convention (default `tier: "fast"`, `callerAppId: "design"`,
+  matching `aspectRatio`).
+- **Write image prompts as art direction, not a one-line label.** Specify
+  subject, composition, lens/framing, lighting, and palette, and tie the
+  palette/mood back to the design's own `:root` tokens so the image reads as
+  part of the same system rather than a stock photo dropped in. If a design
+  system is linked, fold its `imageStyle.styleDescription` into the prompt
+  (see `design-systems` skill) so generated imagery matches the brand's
+  established photographic/illustration style.
+- **Default to `tier: "fast"`** (the cheap Gemini Flash "nanobanana"-class
+  model) for exploration and every non-final variant. Only request
+  `tier: "best"` for the final, user-approved hero image — not for every pass.
+- **Match `aspectRatio` to the layout slot**: `21:9` for a full-bleed hero,
+  `4:3` for a card/feature image, `1:1` for an avatar or square thumbnail.
+  Mismatched aspect ratios force ugly crops in the browser.
+- **Always write real `alt` text** describing the image's content — never
+  leave `alt=""` on a meaningful (non-decorative) image.
+- **Placement is a two-step pass**: call `insert-asset` to place the chosen
+  image, then do one `edit-design` pass to adjust surrounding layout/spacing
+  if the inserted figure doesn't sit flush with the rest of the design.

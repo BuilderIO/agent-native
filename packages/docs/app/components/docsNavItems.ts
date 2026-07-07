@@ -49,6 +49,42 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-surfaces",
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
+      {
+        id: "toolkit-group",
+        labelKey: "agentNativeToolkit",
+        children: [
+          {
+            id: "agent-native-toolkit",
+            labelKey: "toolkitOverview",
+            slug: "agent-native-toolkit",
+          },
+          {
+            id: "toolkit-ui",
+            labelKey: "toolkitUiPrimitives",
+            slug: "toolkit-ui",
+          },
+          {
+            id: "toolkit-app-adapters",
+            labelKey: "toolkitAppAdapters",
+            slug: "toolkit-app-adapters",
+          },
+          {
+            id: "toolkit-collaboration-ui",
+            labelKey: "toolkitCollaborationUi",
+            slug: "toolkit-collaboration-ui",
+          },
+          {
+            id: "toolkit-sharing-ui",
+            labelKey: "toolkitSharingUi",
+            slug: "toolkit-sharing-ui",
+          },
+          {
+            id: "toolkit-shell-hooks",
+            labelKey: "toolkitShellHooks",
+            slug: "toolkit-shell-hooks",
+          },
+        ],
+      },
       { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
       { id: "faq", labelKey: "faq", slug: "faq" },
     ],
@@ -184,6 +220,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "automations", labelKey: "automations", slug: "automations" },
       { id: "extensions", labelKey: "extensions", slug: "extensions" },
+      {
+        id: "data-programs",
+        labelKey: "dataPrograms",
+        slug: "data-programs",
+      },
       {
         id: "multi-app-workspace",
         labelKey: "multiAppWorkspaces",
@@ -321,7 +362,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       { id: "template-slides", labelKey: "slides", slug: "template-slides" },
-      { id: "template-videos", labelKey: "video", slug: "template-videos" },
       {
         id: "template-analytics",
         labelKey: "analytics",

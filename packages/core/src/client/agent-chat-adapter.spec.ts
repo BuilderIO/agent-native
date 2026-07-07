@@ -5298,8 +5298,8 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Past the 45s follow idle window (polled at ~1s cadence).
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Past the 150s follow idle window (polled at ~1s cadence).
+    await vi.advanceTimersByTimeAsync(165_000);
     const results = await promise;
 
     expect(postCount).toBe(1);

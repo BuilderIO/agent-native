@@ -5,12 +5,56 @@ import {
 } from "@agent-native/core/blocks/server";
 import { z } from "zod";
 
+export type SourceComponentEditState =
+  | "safe-to-edit"
+  | "needs-review"
+  | "preserved-only";
+
+export type SourceComponentMappingStatus = "mapped" | "preserved" | "unknown";
+
+const sourceComponentMappingStatuses = [
+  "mapped",
+  "preserved",
+  "unknown",
+] as const satisfies readonly SourceComponentMappingStatus[];
+
+const sourceComponentEditStates = [
+  "safe-to-edit",
+  "needs-review",
+  "preserved-only",
+] as const satisfies readonly SourceComponentEditState[];
+
+const sourceComponentPreviewStatuses = [
+  "available",
+  "unavailable",
+  "warning",
+] as const satisfies readonly SourceComponentData["previewStatus"][];
+
+const sourceComponentPreviewKinds = [
+  "summary",
+  "table",
+  "embed",
+  "symbol",
+  "component",
+] as const satisfies readonly SourceComponentData["previewKind"][];
+
+function enumAttr<T extends string>(
+  value: string | undefined,
+  allowed: readonly T[],
+): T | undefined {
+  return allowed.includes(value as T) ? (value as T) : undefined;
+}
+
 export interface SourceComponentData {
   provider: string;
   componentName: string;
   rawRef: string;
   rawHash: string;
   sourceLabel?: string;
+  mappingId?: string;
+  mappingStatus?: SourceComponentMappingStatus;
+  mappingReason?: string;
+  sourceEditState?: SourceComponentEditState;
   previewStatus?: "available" | "unavailable" | "warning";
   previewKind?: "summary" | "table" | "embed" | "symbol" | "component";
   previewUrl?: string;
@@ -78,6 +122,12 @@ export const sourceComponentSchema = z.object({
   rawRef: z.string().trim().min(1),
   rawHash: z.string().trim().min(1),
   sourceLabel: z.string().trim().max(200).optional(),
+  mappingId: z.string().trim().max(120).optional(),
+  mappingStatus: z.enum(["mapped", "preserved", "unknown"]).optional(),
+  mappingReason: z.string().trim().max(1_000).optional(),
+  sourceEditState: z
+    .enum(["safe-to-edit", "needs-review", "preserved-only"])
+    .optional(),
   previewStatus: z.enum(["available", "unavailable", "warning"]).optional(),
   previewKind: z
     .enum(["summary", "table", "embed", "symbol", "component"])
@@ -97,6 +147,10 @@ export const sourceComponentMdx: BlockMdxConfig<SourceComponentData> = {
     rawRef: data.rawRef,
     rawHash: data.rawHash,
     sourceLabel: data.sourceLabel,
+    mappingId: data.mappingId,
+    mappingStatus: data.mappingStatus,
+    mappingReason: data.mappingReason,
+    sourceEditState: data.sourceEditState,
     previewStatus: data.previewStatus,
     previewKind: data.previewKind,
     previewUrl: data.previewUrl,
@@ -111,12 +165,24 @@ export const sourceComponentMdx: BlockMdxConfig<SourceComponentData> = {
     rawRef: attrs.string("rawRef") ?? "",
     rawHash: attrs.string("rawHash") ?? "",
     sourceLabel: attrs.string("sourceLabel"),
-    previewStatus: attrs.string("previewStatus") as
-      | SourceComponentData["previewStatus"]
-      | undefined,
-    previewKind: attrs.string("previewKind") as
-      | SourceComponentData["previewKind"]
-      | undefined,
+    mappingId: attrs.string("mappingId"),
+    mappingStatus: enumAttr(
+      attrs.string("mappingStatus"),
+      sourceComponentMappingStatuses,
+    ),
+    mappingReason: attrs.string("mappingReason"),
+    sourceEditState: enumAttr(
+      attrs.string("sourceEditState"),
+      sourceComponentEditStates,
+    ),
+    previewStatus: enumAttr(
+      attrs.string("previewStatus"),
+      sourceComponentPreviewStatuses,
+    ),
+    previewKind: enumAttr(
+      attrs.string("previewKind"),
+      sourceComponentPreviewKinds,
+    ),
     previewUrl: attrs.string("previewUrl"),
     previewItems: attrs.array<string>("previewItems"),
     preview: attrs.object<SourceComponentPreview>("preview"),

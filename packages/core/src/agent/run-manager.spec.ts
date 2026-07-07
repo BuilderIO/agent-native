@@ -708,7 +708,7 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("no_progress");
   });
 
-  it("does not bump durable progress for keepalives or zero-byte action preparation", async () => {
+  it("does not bump durable progress for keepalives or anonymous zero-byte action preparation", async () => {
     vi.setSystemTime(10_000);
 
     const run = startRun(
@@ -738,6 +738,53 @@ describe("run manager soft timeout", () => {
     expect(bumpRunProgress).not.toHaveBeenCalled();
 
     expect(abortRun("run-empty-prep-progress")).toBe(true);
+    await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  it("bumps durable progress for the first identified zero-byte action preparation", async () => {
+    vi.setSystemTime(10_000);
+
+    const run = startRun(
+      "run-identified-empty-prep-progress",
+      "thread-identified-empty-prep-progress",
+      async (send, signal) => {
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(12_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-a",
+          progressBytes: 0,
+        });
+        vi.setSystemTime(14_000);
+        send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "call-b",
+          progressBytes: 0,
+        });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    expect(bumpRunProgress).toHaveBeenCalledTimes(1);
+    expect(bumpRunProgress).toHaveBeenCalledWith(
+      "run-identified-empty-prep-progress",
+    );
+
+    expect(abortRun("run-identified-empty-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 
@@ -1678,6 +1725,75 @@ describe("run manager soft timeout", () => {
       runId: "run-recent-errored",
       status: "errored",
     });
+  });
+
+  it("enriches in-memory active runs with SQL dispatch metadata", async () => {
+    const run = startRun(
+      "run-mem-background",
+      "thread-mem-background",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-mem-background",
+      threadId: "thread-mem-background",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      terminalReason: null,
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-mem-background");
+
+    expect(result).toMatchObject({
+      runId: "run-mem-background",
+      status: "running",
+      dispatchMode: "background-processing",
+      terminalReason: null,
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+    abortRun(run.runId, "test");
+  });
+
+  it("prefers terminal SQL truth over a stale in-memory running buffer", async () => {
+    const run = startRun(
+      "run-mem-terminal",
+      "thread-mem-terminal",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    );
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-mem-terminal",
+      threadId: "thread-mem-terminal",
+      status: "completed",
+      startedAt: Date.now() - 120_000,
+      heartbeatAt: Date.now() - 5_000,
+      completedAt: Date.now() - 2_000,
+      lastProgressAt: Date.now() - 3_000,
+      dispatchMode: "background-processing",
+      terminalReason: "done",
+      diagStage: '{"stage":"completed","at":1}',
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-mem-terminal");
+
+    expect(result).toMatchObject({
+      runId: "run-mem-terminal",
+      status: "completed",
+      dispatchMode: "background-processing",
+      terminalReason: "done",
+    });
+    abortRun(run.runId, "test");
   });
 
   // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────

@@ -21,16 +21,16 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { and, eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  ownerEmailMatches,
-} from "../server/lib/recordings.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
+
+const MAX_CAS_ATTEMPTS = 5;
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
@@ -82,18 +82,15 @@ export default defineAction({
     filename: z.string().optional(),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
+
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
     const [existing] = await db
       .select()
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.recordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.recordingId));
     if (!existing) {
       throw new Error(`Recording not found: ${args.recordingId}`);
     }
@@ -101,10 +98,13 @@ export default defineAction({
       assertNativeRecordingMedia(existing);
     }
 
-    const edits = parseEdits(existing.editsJson);
-    const patch: Record<string, unknown> = {
-      updatedAt: new Date().toISOString(),
-    };
+    // Do the (potentially slow) upload side-effect once, up front — it does
+    // not depend on the current editsJson, so it must not be repeated on
+    // every CAS retry below.
+    const basePatch: Record<string, unknown> = {};
+    let thumbnailPatch: { kind: "url"; value: string } | undefined;
+    let gifPatch: { kind: "gif"; value: string; url: string } | undefined;
+    let framePatch: { kind: "frame"; value: string } | undefined;
 
     if (args.kind === "upload") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=upload");
@@ -118,13 +118,13 @@ export default defineAction({
         ownerEmail,
       });
       const url = uploaded?.url ?? args.dataUrl; // fall back to inline storage
-      patch.thumbnailUrl = url;
-      edits.thumbnail = { kind: "url", value: url };
+      basePatch.thumbnailUrl = url;
+      thumbnailPatch = { kind: "url", value: url };
     } else if (args.kind === "frame") {
       if (typeof args.timeMs !== "number") {
         throw new Error("timeMs is required for kind=frame");
       }
-      edits.thumbnail = { kind: "frame", value: String(args.timeMs) };
+      framePatch = { kind: "frame", value: String(args.timeMs) };
       // thumbnailUrl stays whatever the last captured-frame upload was.
     } else if (args.kind === "gif") {
       if (!args.dataUrl) throw new Error("dataUrl is required for kind=gif");
@@ -136,10 +136,11 @@ export default defineAction({
         ownerEmail,
       });
       const url = uploaded?.url ?? args.dataUrl;
-      patch.animatedThumbnailUrl = url;
-      patch.animatedThumbnailEnabled = true;
-      edits.thumbnail = {
+      basePatch.animatedThumbnailUrl = url;
+      basePatch.animatedThumbnailEnabled = true;
+      gifPatch = {
         kind: "gif",
+        url,
         value: JSON.stringify({
           url,
           startMs: args.startMs ?? 0,
@@ -148,24 +149,64 @@ export default defineAction({
       };
     }
 
-    patch.editsJson = serializeEdits(edits);
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const [current] =
+        attempt === 0
+          ? [existing]
+          : await db
+              .select()
+              .from(schema.recordings)
+              .where(eq(schema.recordings.id, args.recordingId));
+      if (!current) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
 
-    await db
-      .update(schema.recordings)
-      .set(patch)
-      .where(eq(schema.recordings.id, args.recordingId));
+      const previousEditsJson = current.editsJson;
+      const edits = parseEdits(previousEditsJson);
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+      if (thumbnailPatch) edits.thumbnail = thumbnailPatch;
+      else if (framePatch) edits.thumbnail = framePatch;
+      else if (gifPatch)
+        edits.thumbnail = { kind: gifPatch.kind, value: gifPatch.value };
 
-    console.log(`Set ${args.kind} thumbnail for ${args.recordingId}`);
+      const patch: Record<string, unknown> = {
+        ...basePatch,
+        editsJson: serializeEdits(edits),
+        updatedAt: new Date().toISOString(),
+      };
 
-    return {
-      id: args.recordingId,
-      kind: args.kind,
-      thumbnailUrl: patch.thumbnailUrl ?? existing.thumbnailUrl,
-      animatedThumbnailUrl:
-        patch.animatedThumbnailUrl ?? existing.animatedThumbnailUrl,
-      editsJson: edits,
-    };
+      const result = await db
+        .update(schema.recordings)
+        .set(patch)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            previousEditsJson == null
+              ? isNull(schema.recordings.editsJson)
+              : eq(schema.recordings.editsJson, previousEditsJson),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+
+      if (result.length > 0) {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        console.log(`Set ${args.kind} thumbnail for ${args.recordingId}`);
+        return {
+          id: args.recordingId,
+          kind: args.kind,
+          thumbnailUrl: patch.thumbnailUrl ?? current.thumbnailUrl,
+          animatedThumbnailUrl:
+            patch.animatedThumbnailUrl ?? current.animatedThumbnailUrl,
+          editsJson: edits,
+        };
+      }
+      // Someone else changed editsJson between our read and write — retry
+      // against the now-current value. The already-uploaded file stays
+      // valid; only the editsJson merge is recomputed.
+    }
+
+    throw new Error(
+      `Could not set thumbnail on recording ${args.recordingId} after ${MAX_CAS_ATTEMPTS} concurrent attempts.`,
+    );
   },
 });

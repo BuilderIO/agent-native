@@ -235,11 +235,17 @@ Session replay प्रत्येक ब्राउज़र session के 
 - URLs को ब्राउज़र एनालिटिक्स द्वारा उपयोग किए जाने वाले समान `scrubUrl()` हेल्पर के साथ स्क्रब किया जाता है।
 - Replay capture केवल-वेब और ऑप्ट-इन है; यह नेटिव डेस्कटॉप स्क्रीन को रिकॉर्ड नहीं करता।
 
-रिकॉर्डिंग के दौरान, session replay ब्राउज़र कंसोल आउटपुट (`log`, `info`, `warn`, `error`, `debug`, साथ ही window `error` / `unhandledrejection`) और नेटवर्क रिक्वेस्ट मेटाडेटा (`fetch` और XHR) को टैग किए गए rrweb कस्टम इवेंट्स के रूप में भी कैप्चर करता है, ताकि एजेंट और replay viewer उपयोगकर्ता-रिपोर्ट की गई समस्याओं को डीबग कर सकें। जब replay सक्षम होता है तो capture डिफ़ॉल्ट रूप से चालू होता है; इसे `sessionReplay.console` और `sessionReplay.network` विकल्पों के साथ ट्यून या अक्षम करें, प्रत्येक एक बूलियन या एक विकल्प ऑब्जेक्ट स्वीकार करता है। Request/response bodies और headers कभी कैप्चर नहीं किए जाते, URLs स्क्रब किए जाते हैं, संदेश छोटे किए जाते हैं, रिकॉर्डर का अपना ingest/tracking ट्रैफ़िक बाहर रखा जाता है, और प्रति-session बजट (1000 console / 2000 network events) से अधिक होने पर एक truncation नोटिस जोड़ते हैं।
+रिकॉर्डिंग के दौरान, session replay ब्राउज़र कंसोल आउटपुट (`log`, `info`, `warn`, `error`, `debug`, साथ ही window `error` / `unhandledrejection`) और नेटवर्क रिक्वेस्ट मेटाडेटा (`fetch` और XHR) को टैग किए गए rrweb कस्टम इवेंट्स के रूप में भी कैप्चर करता है, ताकि एजेंट और replay viewer उपयोगकर्ता-रिपोर्ट की गई समस्याओं को डीबग कर सकें। जब replay सक्षम होता है तो capture डिफ़ॉल्ट रूप से चालू होता है; इसे `sessionReplay.console` और `sessionReplay.network` विकल्पों के साथ ट्यून या अक्षम करें, प्रत्येक एक बूलियन या एक विकल्प ऑब्जेक्ट स्वीकार करता है (`{ maxEvents?: number }`, जिसमें `network` अतिरिक्त रूप से `captureErrorBodies` और `maxErrorBodyLength` भी स्वीकार करता है)। Request bodies और headers कभी कैप्चर नहीं किए जाते; response bodies केवल 5xx (सर्वर एरर) रिस्पॉन्स के लिए एक बाउंडेड, रिडैक्टेड स्निपेट के रूप में कैप्चर किए जाते हैं (`captureErrorBodies`, डिफ़ॉल्ट true, `maxErrorBodyLength` वर्णों तक सीमित, डिफ़ॉल्ट 2048) — non-5xx और नेटवर्क-फेलियर (status 0) रिस्पॉन्स में कभी कोई body नहीं होती। URLs स्क्रब किए जाते हैं, संदेश छोटे किए जाते हैं, रिकॉर्डर का अपना ingest/tracking ट्रैफ़िक बाहर रखा जाता है, और प्रति-session बजट (1000 console / 2000 network events) से अधिक होने पर एक truncation नोटिस जोड़ते हैं।
 
 Analytics टेम्पलेट replay मेटाडेटा को SQL (`session_recordings`) में संग्रहीत करता है और chunks को प्राइवेट blob refs (`session_replay_chunks`) के माध्यम से संग्रहीत करता है। ब्राउज़र और एजेंट को कभी भी प्रदाता URLs प्राप्त नहीं होते। Playback स्कोप्ड सर्वर रूट्स के माध्यम से जाता है और डिफ़ॉल्ट एजेंट टूल्स सारांश या बाउंडेड replay events लौटाते हैं, कच्ची chunk table एक्सेस नहीं।
 
 जब आपको किसी बाहरी एजेंट को एक प्राइवेट रिकॉर्डिंग सौंपने की आवश्यकता हो, तो session डिटेल पेज के **Copy for agent** नियंत्रण का उपयोग करें। यह एक दो-घंटे का, रिकॉर्डिंग-स्कोप्ड `agent_access` लिंक बनाता है, `/sessions/:recordingId` पर एक छोटा डिस्कवरी पेलोड SSR करता है, और केवल एजेंट context/events JSON APIs को एक्सपोज़ करता है। रिकॉर्डिंग की visibility नहीं बदलती।
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
 
 केवल स्थानीय विकास के लिए, Analytics प्राइवेट blob storage उपलब्ध न होने पर capped SQL inline chunks पर फ़ॉलबैक कर सकता है। प्रोडक्शन डिप्लॉयमेंट्स को replay payloads के लिए Postgres पर निर्भर रहने के बजाय प्राइवेट या एन्क्रिप्टेड blob storage कॉन्फ़िगर करना चाहिए।
 

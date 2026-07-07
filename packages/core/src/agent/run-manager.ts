@@ -553,6 +553,16 @@ export function startRun(
         preparingActivityBytes.get(activityKey) ?? 0,
         restartHighWater,
       );
+      if (
+        !preparingActivityBytes.has(activityKey) &&
+        progressBytes === 0 &&
+        !preparingActivityRestartHighWater.has(toolKey)
+      ) {
+        preparingActivityTools.set(activityKey, toolKey);
+        preparingActivityBytes.set(activityKey, 0);
+        preparingActivityRestartHighWater.set(toolKey, 0);
+        return true;
+      }
       if (progressBytes <= previousBytes) {
         preparingActivityTools.set(activityKey, toolKey);
         preparingActivityBytes.set(
@@ -1362,20 +1372,32 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   // the full conversation from completed runs via SSE.
   const memRun = getActiveRunForThread(threadId);
   if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
+    const sqlSnapshot = await fetchRunThreadSnapshot(memRun.runId, threadId);
+    const status = sqlSnapshot?.status ?? memRun.status;
+    const heartbeatAt =
+      status === "running"
+        ? Date.now()
+        : (sqlSnapshot?.heartbeatAt ?? memRun.startedAt);
     return {
       runId: memRun.runId,
       threadId: memRun.threadId,
       turnId: memRun.turnId,
-      status: memRun.status,
+      status,
       // In-memory means this isolate is the producer. By definition, the
-      // heartbeat is fresh as of "now" — the client can trust this.
-      heartbeatAt: Date.now(),
+      // heartbeat is fresh as of "now" while the run is still running. Once
+      // SQL has terminal truth, prefer that timestamp so a stale in-memory
+      // buffer cannot keep the browser believing a finished background run is
+      // still alive.
+      heartbeatAt,
       // For an in-memory run we don't have a separate "last event emit"
       // timestamp tracked in JS — the SQL bump is throttled per-second.
       // Read it back from SQL on demand. For the common case the SQL row
       // is well under 1s old; if it isn't, the stuck-detector will pick
       // it up on the next poll cycle.
-      lastProgressAt: await fetchLastProgressAt(memRun.runId),
+      lastProgressAt: sqlSnapshot?.lastProgressAt ?? null,
+      dispatchMode: sqlSnapshot?.dispatchMode ?? null,
+      terminalReason: sqlSnapshot?.terminalReason ?? null,
+      diagStage: sqlSnapshot?.diagStage ?? null,
     };
   }
   // Fall back to SQL — also surface recently terminated runs so the client
@@ -1454,16 +1476,14 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   return null;
 }
 
-async function fetchLastProgressAt(runId: string): Promise<number | null> {
+async function fetchRunThreadSnapshot(runId: string, threadId: string) {
   try {
-    const run = await getRunById(runId);
-    if (!run) return null;
     // `getRunById` returns a narrow projection today; ask for the row via
-    // the thread lookup which carries last_progress_at.
-    const byThread = await getRunByThread(run.threadId, {
+    // the thread lookup which carries dispatch/terminal/progress fields.
+    const byThread = await getRunByThread(threadId, {
       includeTerminal: true,
     });
-    if (byThread && byThread.id === runId) return byThread.lastProgressAt;
+    if (byThread && byThread.id === runId) return byThread;
     return null;
   } catch {
     return null;

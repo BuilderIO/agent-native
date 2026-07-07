@@ -2931,3 +2931,97 @@ describe("SSE event processor activity-label clearing", () => {
     );
   });
 });
+
+describe("journal-recovery tool replay coalescing", () => {
+  function eventsStream(events: object[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const ev of events) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+        controller.close();
+      },
+    });
+  }
+
+  async function contentAfter(events: object[]) {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([...events, { type: "done" }]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {
+      // Terminal signals from the fixture stream are irrelevant here — the
+      // assertions inspect the mutated content array.
+    });
+    return content;
+  }
+
+  const JOURNAL_MARKER =
+    "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\nreal result";
+  const LEDGER_MARKER =
+    "(Recovered from prior interrupted chunk — action already completed.)\n\nreal result";
+
+  it("drops a journal-replayed pair when the original call already completed", async () => {
+    const content = await contentAfter([
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 }, id: "srv_1" },
+      {
+        type: "tool_done",
+        tool: "edit-screen",
+        result: "real result",
+        id: "srv_1",
+      },
+      // Continuation chunk replays the same call via the tool-call journal
+      // (id-less re-emit with the marker result).
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
+      { type: "tool_done", tool: "edit-screen", result: JOURNAL_MARKER },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(1);
+    expect(toolCards[0].result).toBe("real result");
+  });
+
+  it("resolves an interrupted spinner with the ledger-recovered result and removes the replay artifact", async () => {
+    const content = await contentAfter([
+      // Original call was interrupted: tool_start with no tool_done.
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 }, id: "srv_1" },
+      // Next chunk replays it; the id-less tool_done name-matches the original
+      // pending card, leaving the replay's own start as a stuck spinner.
+      { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
+      { type: "tool_done", tool: "edit-screen", result: LEDGER_MARKER },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(1);
+    expect(toolCards[0].result).toBe(LEDGER_MARKER);
+    expect(toolCards[0].toolCallId).toBe("srv_1");
+  });
+
+  it("keeps genuinely repeated identical calls that are not journal replays", async () => {
+    const content = await contentAfter([
+      {
+        type: "tool_start",
+        tool: "db-query",
+        input: { sql: "select 1" },
+        id: "srv_1",
+      },
+      { type: "tool_done", tool: "db-query", result: "row A", id: "srv_1" },
+      { type: "text", text: "checking again" },
+      {
+        type: "tool_start",
+        tool: "db-query",
+        input: { sql: "select 1" },
+        id: "srv_2",
+      },
+      { type: "tool_done", tool: "db-query", result: "row B", id: "srv_2" },
+    ]);
+
+    const toolCards = content.filter((p) => p.type === "tool-call");
+    expect(toolCards).toHaveLength(2);
+    expect(toolCards.map((p) => p.result)).toEqual(["row A", "row B"]);
+  });
+});

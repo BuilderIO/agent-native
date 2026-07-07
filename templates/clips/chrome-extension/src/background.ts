@@ -40,6 +40,8 @@ type ExtensionSettings = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
 };
 
 type PopupStartMessage = {
@@ -145,6 +147,8 @@ type NativeRecording = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
@@ -228,6 +232,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
+  videoDeviceId: "",
+  audioDeviceId: "",
 };
 
 const sessions = new Map<string, CaptureSession>();
@@ -264,6 +270,12 @@ const CROSS_TAB_FOLLOW: boolean = false;
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
 let armingNativeRecordingSessionId: string | null = null;
+// If the worker dies mid-arming (before the `finally` in handlePopupStart
+// clears the guard), the persisted guard would otherwise survive for the rest
+// of the browser session and permanently report "already recording". A TTL
+// comfortably longer than the picker + create-recording round trip lets a
+// stuck guard self-clear instead.
+const ARMING_GUARD_TTL_MS = 120000;
 
 function desiredParts(): OverlayPart[] {
   // The on-page controls match the desktop app: a left-edge vertical pill plus
@@ -349,10 +361,17 @@ async function restoreRuntimeState(): Promise<void> {
   const stored = await sessionStorageGet([
     "activeNativeRecording",
     "overlayRuntime",
+    "armingNativeRecordingSessionId",
   ]);
   const rec = stored.activeNativeRecording as NativeRecording | undefined;
   if (rec && typeof rec.sessionId === "string" && !activeNativeRecording) {
     activeNativeRecording = rec;
+  }
+  const freshArmingSessionId = await readFreshPersistedArmingSessionId(
+    stored.armingNativeRecordingSessionId,
+  );
+  if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
+    armingNativeRecordingSessionId = freshArmingSessionId;
   }
   const rt = stored.overlayRuntime as
     | {
@@ -618,6 +637,10 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function normalizeDeviceId(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function chromeLastError(): Error | null {
   const error = chrome.runtime.lastError;
   return error ? new Error(error.message) : null;
@@ -648,6 +671,8 @@ async function readSettings(
     "includeCamera",
     "includeMicrophone",
     "includeDeveloperLogs",
+    "videoDeviceId",
+    "audioDeviceId",
   ]);
   return {
     clipsBaseUrl: normalizeBaseUrl(
@@ -667,6 +692,12 @@ async function readSettings(
     includeDeveloperLogs: normalizeBoolean(
       overrides?.includeDeveloperLogs ?? stored.includeDeveloperLogs,
       DEFAULT_SETTINGS.includeDeveloperLogs,
+    ),
+    videoDeviceId: normalizeDeviceId(
+      overrides?.videoDeviceId ?? stored.videoDeviceId,
+    ),
+    audioDeviceId: normalizeDeviceId(
+      overrides?.audioDeviceId ?? stored.audioDeviceId,
     ),
   };
 }
@@ -765,6 +796,59 @@ async function saveActiveNativeRecording(): Promise<void> {
   await sessionStorageSet({
     activeNativeRecording: activeNativeRecording,
   }).catch(() => undefined);
+}
+
+// The arming guard rejects a second CLIPS_POPUP_START while the picker +
+// create-recording round trip is in flight. The in-memory var alone does not
+// survive an MV3 service-worker suspension (possible while awaiting the
+// native picker or the create-recording network call), which would let a
+// second start race in on a revived worker. Persist it to session storage
+// (authoritative; cleared when the browser session ends) and treat the
+// in-memory var as a fast path only. Stored alongside a timestamp so a guard
+// left behind by a worker that died mid-arming (skipping the `finally` that
+// normally clears it) expires instead of blocking every future start for the
+// rest of the browser session.
+async function setArmingGuard(sessionId: string | null): Promise<void> {
+  armingNativeRecordingSessionId = sessionId;
+  if (sessionId) {
+    await sessionStorageSet({
+      armingNativeRecordingSessionId: { sessionId, ts: Date.now() },
+    }).catch(() => undefined);
+  } else {
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+  }
+}
+
+// Reads the persisted arming guard and returns its sessionId only if it is
+// still fresh. Clears (best-effort) and treats as absent when: missing,
+// expired, or in the old bare-string shape (no `ts` — can't be aged, so
+// treat as stale). Centralized so handlePopupStart and restoreRuntimeState
+// apply the exact same TTL logic.
+async function readFreshPersistedArmingSessionId(
+  rawValue: unknown,
+): Promise<string | null> {
+  if (typeof rawValue === "string" && rawValue) {
+    // Old shape (bare string, no timestamp) — can't verify freshness, so
+    // treat as stale and clear it.
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+    return null;
+  }
+  if (rawValue && typeof rawValue === "object") {
+    const { sessionId, ts } = rawValue as { sessionId?: unknown; ts?: unknown };
+    if (typeof sessionId === "string" && sessionId && typeof ts === "number") {
+      if (Date.now() - ts < ARMING_GUARD_TTL_MS) {
+        return sessionId;
+      }
+    }
+    await sessionStorageRemove("armingNativeRecordingSessionId").catch(
+      () => undefined,
+    );
+  }
+  return null;
 }
 
 function queryActiveTab(): Promise<ChromeTab | null> {
@@ -919,6 +1003,18 @@ function recordingUrl(
   return `${recording.clipsBaseUrl}/r/${encodeURIComponent(recording.recordingId)}`;
 }
 
+function settingsFromRecording(recording: NativeRecording): ExtensionSettings {
+  return {
+    clipsBaseUrl: recording.clipsBaseUrl,
+    captureSurface: recording.captureSurface,
+    includeCamera: recording.includeCamera,
+    includeMicrophone: recording.includeMicrophone,
+    includeDeveloperLogs: recording.includeDeveloperLogs,
+    videoDeviceId: recording.videoDeviceId ?? "",
+    audioDeviceId: recording.audioDeviceId ?? "",
+  };
+}
+
 function createSession(
   sessionId: string,
   tab: ChromeTab,
@@ -953,7 +1049,19 @@ function createSession(
 }
 
 async function handlePopupStart(message: PopupStartMessage) {
-  if (activeNativeRecording || armingNativeRecordingSessionId) {
+  // The persisted value is authoritative (survives a worker suspension during
+  // arming); the in-memory var is only a same-tick fast path on top of it.
+  // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
+  // readFreshPersistedArmingSessionId.
+  const persistedArmingSessionId = await readFreshPersistedArmingSessionId(
+    (await sessionStorageGet(["armingNativeRecordingSessionId"]))
+      .armingNativeRecordingSessionId,
+  );
+  if (
+    activeNativeRecording ||
+    armingNativeRecordingSessionId ||
+    persistedArmingSessionId
+  ) {
     return {
       ok: false,
       error: "Clips is already recording. Stop the active clip first.",
@@ -961,7 +1069,7 @@ async function handlePopupStart(message: PopupStartMessage) {
   }
 
   const sessionId = crypto.randomUUID();
-  armingNativeRecordingSessionId = sessionId;
+  await setArmingGuard(sessionId);
   try {
     const tab = await queryActiveTab();
     if (!tab || typeof tab.id !== "number") {
@@ -974,7 +1082,7 @@ async function handlePopupStart(message: PopupStartMessage) {
     return await armRecording({ sessionId, tab, settings });
   } finally {
     if (armingNativeRecordingSessionId === sessionId) {
-      armingNativeRecordingSessionId = null;
+      await setArmingGuard(null);
     }
   }
 }
@@ -1012,6 +1120,8 @@ async function armRecording(args: {
     surface,
     includeMicrophone: settings.includeMicrophone,
     includeCamera: settings.includeCamera,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
   });
   console.log("[clips-bg] arm: acquired stream", acq);
 
@@ -1106,6 +1216,8 @@ async function armRecording(args: {
     includeCamera: settings.includeCamera,
     includeMicrophone: settings.includeMicrophone,
     includeDeveloperLogs: settings.includeDeveloperLogs,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
@@ -1251,12 +1363,27 @@ async function handleOverlayRestart() {
   // If the previous take's chunks could not be cleared, do NOT re-arm with the
   // same recordingId — finalize would otherwise assemble stale chunk keys from
   // the aborted take into the restarted recording. Surface the failure instead.
+  // CLIPS_OFFSCREEN_RESTART above already cleared the offscreen's active
+  // recording (it only holds the raw source streams in a "prepared" slot now),
+  // so we must not leave the overlay stuck mid-recording/paused with no
+  // recorder behind it — tear the overlay back down and release those streams,
+  // matching the re-arm failure handling just below.
   const chunksReset = await resetRecordingChunks(recording);
   if (!chunksReset) {
+    recording.status = "error";
+    recording.error =
+      "Could not clear the previous take before restarting. Stop and start a new recording.";
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId: recording.sessionId,
+    }).catch(() => undefined);
+    resetOverlay();
+    await saveActiveNativeRecording();
+    await broadcastUnmount();
+    broadcastOverlayState();
     return {
       ok: false,
-      error:
-        "Could not clear the previous take before restarting. Stop and start a new recording.",
+      error: recording.error,
     };
   }
   overlayPhase = "countdown";
@@ -1265,13 +1392,7 @@ async function handleOverlayRestart() {
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
   recording.status = "recording";
   const restartAuthToken = (
-    await readAuthSession({
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    })
+    await readAuthSession(settingsFromRecording(recording))
   )?.token;
   // Re-arm the recorder on the same (re-homed) source streams with a fresh
   // pre-roll. The offscreen reports "recording" when it restarts.
@@ -1311,13 +1432,7 @@ async function resetRecordingChunks(
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
-  const headers = await authHeaders({
-    clipsBaseUrl: recording.clipsBaseUrl,
-    captureSurface: recording.captureSurface,
-    includeCamera: recording.includeCamera,
-    includeMicrophone: recording.includeMicrophone,
-    includeDeveloperLogs: recording.includeDeveloperLogs,
-  });
+  const headers = await authHeaders(settingsFromRecording(recording));
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -1377,17 +1492,9 @@ async function stopRecording() {
       // as an aborted take — discard the empty recording instead of opening a
       // playback tab for a finished-but-empty clip.
       await deleteSession(recording.sessionId);
-      await postAction(
-        {
-          clipsBaseUrl: recording.clipsBaseUrl,
-          captureSurface: recording.captureSurface,
-          includeCamera: recording.includeCamera,
-          includeMicrophone: recording.includeMicrophone,
-          includeDeveloperLogs: recording.includeDeveloperLogs,
-        },
-        "trash-recording",
-        { id: recording.recordingId },
-      ).catch(() => undefined);
+      await postAction(settingsFromRecording(recording), "trash-recording", {
+        id: recording.recordingId,
+      }).catch(() => undefined);
       resetOverlay();
       await broadcastUnmount();
       broadcastOverlayState();
@@ -1432,17 +1539,9 @@ async function cancelRecording() {
     sessionId: recording.sessionId,
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
-  await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
-    "trash-recording",
-    { id: recording.recordingId },
-  ).catch(() => undefined);
+  await postAction(settingsFromRecording(recording), "trash-recording", {
+    id: recording.recordingId,
+  }).catch(() => undefined);
   await clearNativeRecording();
   return { ok: true };
 }
@@ -1455,13 +1554,7 @@ async function saveNativeDiagnostics(
   if (!session) return;
   const diagnostics = snapshotSession(session);
   await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
+    settingsFromRecording(recording),
     "save-browser-diagnostics",
     {
       recordingId: recording.recordingId,

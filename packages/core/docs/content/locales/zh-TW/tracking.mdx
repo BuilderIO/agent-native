@@ -235,11 +235,17 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 - URL 會使用瀏覽器分析所用的同一個 `scrubUrl()` 輔助函式進行清理。
 - 重播擷取僅限於網頁，且為選擇加入；它不會錄製原生桌面畫面。
 
-在錄製期間，工作階段重播還會擷取瀏覽器主控台輸出（`log`、`info`、`warn`、`error`、`debug`，以及視窗的 `error`/`unhandledrejection`）與網路請求元資料（`fetch` 與 XHR），並以帶標籤的 rrweb 自訂事件形式儲存，讓代理與重播檢視器能夠偵錯使用者回報的問題。啟用重播後，擷取功能預設為開啟；可透過 `sessionReplay.console` 與 `sessionReplay.network` 選項進行調整或停用，這兩個選項都接受布林值或選項物件。請求/回應主體與標頭永遠不會被擷取，URL 會被清理，訊息會被截斷，記錄器自身的擷取/追蹤流量會被排除，且每個工作階段的預算（1000 個主控台事件／2000 個網路事件）在超過時會加上截斷提示。
+在錄製期間，工作階段重播還會擷取瀏覽器主控台輸出（`log`、`info`、`warn`、`error`、`debug`，以及視窗的 `error`/`unhandledrejection`）與網路請求元資料（`fetch` 與 XHR），並以帶標籤的 rrweb 自訂事件形式儲存，讓代理與重播檢視器能夠偵錯使用者回報的問題。啟用重播後，擷取功能預設為開啟；可透過 `sessionReplay.console` 與 `sessionReplay.network` 選項進行調整或停用，這兩個選項都接受布林值或選項物件（`{ maxEvents?: number }`，其中 `network` 另外還可接受 `captureErrorBodies` 與 `maxErrorBodyLength`）。請求主體與標頭永遠不會被擷取；回應主體僅在 5xx（伺服器錯誤）回應時才會被擷取，且僅擷取一段有邊界、經過遮蔽處理的片段（`captureErrorBodies`，預設為 `true`，上限為 `maxErrorBodyLength` 個字元，預設 2048）——非 5xx 及網路失敗（狀態碼 0）的回應永遠不會帶有主體。URL 會被清理，訊息會被截斷，記錄器自身的擷取/追蹤流量會被排除，且每個工作階段的預算（1000 個主控台事件／2000 個網路事件）在超過時會加上截斷提示。
 
 Analytics 範本將重播中繼資料儲存在 SQL（`session_recordings`）中，並透過私有 blob 參照（`session_replay_chunks`）儲存區塊。瀏覽器與代理永遠不會收到提供者 URL。播放透過範圍受限的伺服器路由進行，且預設代理工具傳回摘要或範圍受限的重播事件，而非原始區塊資料表存取權。
 
 當您需要將私人錄製內容交給外部代理時，請使用工作階段詳細資料頁面的**複製給代理**控制項。它會產生一個兩小時、僅限該筆錄製的 `agent_access` 連結，在 `/sessions/:recordingId` 上以伺服器端轉譯（SSR）一個小型探索酬載，並僅公開代理內容/事件 JSON API。該筆錄製的可見性不會改變。
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
 
 僅在本機開發時，Analytics 可以在私有 blob 儲存體無法使用時，回退到有上限的 SQL 內嵌區塊。正式環境部署應設定私有或加密的 blob 儲存體，而不是依賴 Postgres 來儲存重播酬載。
 

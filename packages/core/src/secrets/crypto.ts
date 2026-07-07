@@ -16,25 +16,61 @@
  * lets readers distinguish ciphertext from legacy plaintext during migration.
  */
 
-import {
-  randomBytes,
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-} from "node:crypto";
+type NodeCryptoModule = typeof import("node:crypto");
+
+function getNodeCrypto(): NodeCryptoModule | undefined {
+  if (
+    typeof window !== "undefined" ||
+    typeof process === "undefined" ||
+    !process.versions?.node ||
+    typeof process.getBuiltinModule !== "function"
+  ) {
+    return undefined;
+  }
+  return process.getBuiltinModule("node:crypto") as
+    | NodeCryptoModule
+    | undefined;
+}
+
+const nodeCrypto = getNodeCrypto();
 
 let _warnedFallback = false;
+
+function requireNodeCrypto(): NonNullable<typeof nodeCrypto> {
+  if (!nodeCrypto) {
+    throw new Error(
+      "[agent-native/secrets] Secret encryption is only available in server/runtime code.",
+    );
+  }
+  return nodeCrypto;
+}
+
+function processNodeEnv(): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return process.env.NODE_ENV;
+}
+
+function processCwd(): string {
+  if (typeof process === "undefined") return ".";
+  return process.cwd();
+}
 
 /**
  * Derive a 32-byte AES key from the configured secret material via SHA-256.
  * Re-derived per call (cheap, stateless, and makes rotation easy).
  */
 export function getSecretEncryptionKey(): Buffer {
+  const { createHash } = requireNodeCrypto();
   const explicit =
-    process.env.SECRETS_ENCRYPTION_KEY || process.env.BETTER_AUTH_SECRET;
+    (typeof process === "undefined"
+      ? undefined
+      : process.env.SECRETS_ENCRYPTION_KEY) ||
+    (typeof process === "undefined"
+      ? undefined
+      : process.env.BETTER_AUTH_SECRET);
 
   if (!explicit) {
-    if (process.env.NODE_ENV === "production") {
+    if (processNodeEnv() === "production") {
       throw new Error(
         "[agent-native/secrets] Refusing to start in production without an encryption key. " +
           "Set SECRETS_ENCRYPTION_KEY (preferred) or BETTER_AUTH_SECRET in the deploy environment. " +
@@ -53,12 +89,13 @@ export function getSecretEncryptionKey(): Buffer {
     }
   }
 
-  const material = explicit || `agent-native-secrets:${process.cwd()}`;
+  const material = explicit || `agent-native-secrets:${processCwd()}`;
   return createHash("sha256").update(material).digest();
 }
 
 /** Encrypt a plain-text value. Returns `v1:<iv-hex>:<ct-hex>:<tag-hex>`. */
 export function encryptSecretValue(plaintext: string): string {
+  const { createCipheriv, randomBytes } = requireNodeCrypto();
   const key = getSecretEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -69,6 +106,7 @@ export function encryptSecretValue(plaintext: string): string {
 
 /** Decrypt a value produced by `encryptSecretValue`. Throws on tampering. */
 export function decryptSecretValue(encrypted: string): string {
+  const { createDecipheriv } = requireNodeCrypto();
   if (!encrypted.startsWith("v1:")) {
     throw new Error("Unrecognised secret encoding");
   }

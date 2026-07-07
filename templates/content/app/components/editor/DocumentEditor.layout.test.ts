@@ -41,6 +41,19 @@ describe("document editor layout", () => {
     );
   });
 
+  it("shows the editor skeleton instead of stale data during document switches", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("const { data: queriedDocument, isError }");
+    expect(source).toContain("queriedDocument?.id === documentId");
+    expect(source).toContain("return <DocumentEditorSkeleton />");
+  });
+
   it("keeps desktop comments inside the document scroll surface", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -105,19 +118,48 @@ describe("document editor layout", () => {
     expect(source).toContain("if (!canEditRef.current) return");
   });
 
-  it("keeps read-only documents off editor-only realtime endpoints", () => {
-    const source = readFileSync(
+  it("gives viewers live collab while keeping write-only surfaces editor-gated", () => {
+    const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
         encoding: "utf8",
       },
     );
-
-    expect(source).toContain(
-      'docId: canEdit && !isLocalFileDocument ? documentId : ""',
+    const visualEditorSource = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
     );
-    expect(source).toContain(
+
+    // Viewers join the shared Y.Doc read-only: collab is enabled whenever the
+    // doc is not a local-file doc, regardless of `canEdit`.
+    expect(documentEditorSource).toContain(
+      "const collabEnabled = !isLocalFileDocument;",
+    );
+    expect(documentEditorSource).toContain(
+      'docId: collabEnabled ? documentId : "",',
+    );
+    expect(documentEditorSource).toContain(
+      "ydoc={collabEnabled ? ydoc : null}",
+    );
+    expect(documentEditorSource).toContain(
+      "awareness={collabEnabled ? awareness : null}",
+    );
+
+    // Comments stay editor-only — viewers must not open the comment endpoints.
+    expect(documentEditorSource).toContain(
       "canEdit && !isLocalFileDocument ? documentId : null",
+    );
+
+    // A read-only client must never mutate the shared Y.Doc: VisualEditor
+    // neuters seed + reconcile-apply so no local `/update` POST can originate.
+    expect(visualEditorSource).toContain(
+      "setContent: (e, value, options) => {",
+    );
+    expect(visualEditorSource).toContain("if (!editable) return;");
+    expect(visualEditorSource).toContain(
+      "shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>\n      editable &&",
     );
   });
 

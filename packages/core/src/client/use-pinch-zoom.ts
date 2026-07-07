@@ -55,11 +55,57 @@ export function usePinchZoom({
 
     const clamp = (n: number) => Math.max(min, Math.min(max, n));
 
+    // rAF coalescing: multiple wheel/pointermove events can fire per frame
+    // (trackpad pinch and touch pinch both deliver many events between
+    // paints). Instead of calling setZoom() synchronously per event — which
+    // schedules a React re-render per event — stash the latest pending zoom
+    // (and its cursor-anchored scroll delta) in a ref and flush once per
+    // animation frame with the last-wins value. This preserves the exact
+    // zoom-to-cursor math; it just applies it at most once per frame.
+    //
+    // Within a burst the DOM's real scrollLeft/scrollTop do NOT move until
+    // flush() runs, so per-event math must not read them directly — every
+    // event after the first in the same frame would anchor against the
+    // pre-burst scroll position instead of where the (not-yet-committed)
+    // previous events in the burst would have scrolled to. Track a simulated
+    // running scroll position (`simScrollLeft`/`simScrollTop`, seeded from the
+    // real scroll position when a new burst starts) and use that as the
+    // anchor base, so each event's math composes exactly as if the prior
+    // events in the burst had already been applied — matching the
+    // pre-coalescing, one-setZoom-per-event behavior.
+    let pendingZoom: number | null = null;
+    let pendingScrollDelta: { dx: number; dy: number } | null = null;
+    let simScrollLeft = 0;
+    let simScrollTop = 0;
+    let rafId: number | null = null;
+
+    const flush = () => {
+      rafId = null;
+      if (pendingZoom === null) return;
+      const nextZoom = pendingZoom;
+      const scrollDelta = pendingScrollDelta;
+      pendingZoom = null;
+      pendingScrollDelta = null;
+      setZoomRef.current(nextZoom);
+      if (scrollDelta) {
+        container.scrollLeft += scrollDelta.dx;
+        container.scrollTop += scrollDelta.dy;
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(flush);
+    };
+
     const handleWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
 
-      const currentZoom = zoomRef.current;
+      // Use the latest not-yet-applied zoom (if a flush is pending) so rapid
+      // wheel events within the same frame compound correctly instead of
+      // each computing off the last-committed React state.
+      const currentZoom = pendingZoom ?? zoomRef.current;
       const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
       const factor = Math.exp(-clampedDelta * 0.01);
       const nextZoom = clamp(currentZoom * factor);
@@ -67,20 +113,33 @@ export function usePinchZoom({
       if (nextZoom === currentZoom) return;
 
       if (zoomToCursor) {
+        // Starting a new burst (nothing pending yet): seed the simulated
+        // scroll position from the container's real, currently-committed
+        // scroll offset.
+        if (pendingScrollDelta === null) {
+          simScrollLeft = container.scrollLeft;
+          simScrollTop = container.scrollTop;
+        }
         const rect = container.getBoundingClientRect();
-        const cx = e.clientX - rect.left + container.scrollLeft;
-        const cy = e.clientY - rect.top + container.scrollTop;
+        const cx = e.clientX - rect.left + simScrollLeft;
+        const cy = e.clientY - rect.top + simScrollTop;
         const ratio = nextZoom / currentZoom;
         const dx = cx * (ratio - 1);
         const dy = cy * (ratio - 1);
-        setZoomRef.current(nextZoom);
-        requestAnimationFrame(() => {
-          container.scrollLeft += dx;
-          container.scrollTop += dy;
-        });
+        // Advance the simulated scroll position so the next event in this
+        // same burst anchors against where this event would have left it.
+        simScrollLeft += dx;
+        simScrollTop += dy;
+        pendingZoom = nextZoom;
+        const prevDelta = pendingScrollDelta;
+        pendingScrollDelta = {
+          dx: (prevDelta?.dx ?? 0) + dx,
+          dy: (prevDelta?.dy ?? 0) + dy,
+        };
       } else {
-        setZoomRef.current(nextZoom);
+        pendingZoom = nextZoom;
       }
+      scheduleFlush();
     };
 
     const activePointers = new Map<number, { x: number; y: number }>();
@@ -105,8 +164,11 @@ export function usePinchZoom({
         const [p1, p2] = Array.from(activePointers.values());
         const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const nextZoom = clamp(initialZoom * (distance / initialDistance));
-        if (nextZoom !== zoomRef.current) {
-          setZoomRef.current(nextZoom);
+        if (nextZoom !== (pendingZoom ?? zoomRef.current)) {
+          // Touch pinch has no cursor-anchoring math, so last-wins is simply
+          // the newest zoom value — no scroll delta to accumulate.
+          pendingZoom = nextZoom;
+          scheduleFlush();
         }
         e.preventDefault();
       }
@@ -132,6 +194,9 @@ export function usePinchZoom({
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", handlePointerEnd);
       container.removeEventListener("pointercancel", handlePointerEnd);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      pendingZoom = null;
+      pendingScrollDelta = null;
     };
   }, [containerRef, enabled, min, max, zoomToCursor]);
 }

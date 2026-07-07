@@ -194,6 +194,71 @@ export default defineAction({
           ),
         }));
       }
+    } else if (nav?.view === "agents") {
+      screen.page = "agents";
+      screen.agentsView = nav?.agentsView || "monitoring";
+      if (nav?.dbAdminConnectionId) {
+        screen.dbAdminConnectionId = nav.dbAdminConnectionId;
+      }
+      screen.agentAdminSurfaces = [
+        {
+          id: "monitoring",
+          label: "Monitoring",
+          path: "/agents",
+          includes: [
+            "agent traces",
+            "agent conversations",
+            "eval results",
+            "experiments",
+            "feedback",
+          ],
+        },
+        {
+          id: "database",
+          label: "App Databases",
+          path: "/agents?view=database",
+          advanced: true,
+          adminOnly: true,
+          includes: [
+            "connected agent-native app databases",
+            "table browser",
+            "row editor",
+            "SQL editor",
+          ],
+        },
+      ];
+      const email = getRequestUserEmail();
+      if (email) {
+        const orgId = getRequestOrgId() || null;
+        const [keys, catalog] = await Promise.all([
+          listAnalyticsPublicKeys({
+            userEmail: email,
+            orgId,
+          }),
+          listDashboardCatalog({
+            email,
+            orgId,
+          }),
+        ]);
+        const llmTemplate = catalog.find(
+          (template) => template.id === "agent-observability-llm",
+        );
+        screen.firstPartyAnalytics = {
+          activeKeys: keys.filter((key: any) => !key.revokedAt).length,
+          serverEnv: "AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+          browserEnv: "VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+        };
+        if (llmTemplate) {
+          screen.llmObservabilityDashboard = {
+            templateId: llmTemplate.id,
+            name: llmTemplate.name,
+            installed: llmTemplate.installed,
+            installedDashboardIds: llmTemplate.installedDashboards.map(
+              (dashboard) => dashboard.id,
+            ),
+          };
+        }
+      }
     } else if (nav?.view === "settings") {
       screen.page = "settings";
       const email = getRequestUserEmail();

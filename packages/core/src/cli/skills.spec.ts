@@ -13,7 +13,7 @@ import {
 } from "./skills.js";
 
 const tmpRoots: string[] = [];
-const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap"];
+const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap", "visualize-repo"];
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -750,6 +750,7 @@ describe("agent-native skills", () => {
     const pairs = [
       ["visual-plan", "visual-plans"],
       ["visual-recap", "visual-recap"],
+      ["visualize-repo", "visualize-repo"],
     ];
 
     for (const [templateName, exportedName] of pairs) {
@@ -1468,7 +1469,7 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("offers all Agent Native skills while defaulting the two plan skills", async () => {
+  it("offers all Agent Native skills while defaulting the Plan skills", async () => {
     const root = tmpDir();
     let context:
       | { initialTargets: string[]; options: { value: string }[] }
@@ -1493,13 +1494,14 @@ describe("agent-native skills", () => {
     expect(context?.options.map((o) => o.value)).toEqual([
       "visual-plan",
       "visual-recap",
+      "visualize-repo",
       "assets",
       "content",
       "design-exploration",
       "visual-edit",
       "context-xray",
     ]);
-    expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
+    expect(context?.initialTargets).toEqual(PLANS_SKILL_NAMES);
     // Both selected installs the whole plan bundle (one shared MCP connector).
     expect(
       fs.existsSync(
@@ -1516,6 +1518,16 @@ describe("agent-native skills", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(root, ".agents", "commands", "visual-recap.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "skills", "visualize-repo", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(root, ".agents", "commands", "visualize-repo.md"),
+      ),
     ).toBe(true);
   });
 
@@ -1568,6 +1580,7 @@ describe("agent-native skills", () => {
     expect(allContext?.options.map((option) => option.value)).toEqual([
       "visual-plan",
       "visual-recap",
+      "visualize-repo",
       "assets",
       "content",
       "design-exploration",
@@ -1575,7 +1588,7 @@ describe("agent-native skills", () => {
       "context-xray",
       "quick-recap",
     ]);
-    expect(allContext?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
+    expect(allContext?.initialTargets).toEqual(PLANS_SKILL_NAMES);
   });
 
   it("asks for plan mode before clients and skips MCP for local-files", async () => {
@@ -1598,7 +1611,7 @@ describe("agent-native skills", () => {
       isInteractive: () => true,
       promptSkills: async () => {
         calls.push("skills");
-        return ["visual-plan", "visual-recap"];
+        return PLANS_SKILL_NAMES;
       },
       promptPlanMode: async () => {
         calls.push("plan-mode");
@@ -1833,6 +1846,9 @@ describe("agent-native skills", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(root, ".agents", "skills", "visual-plan")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "visualize-repo")),
     ).toBe(false);
     expect(
       fs.existsSync(path.join(root, ".agents", "commands", "visual-plan.md")),

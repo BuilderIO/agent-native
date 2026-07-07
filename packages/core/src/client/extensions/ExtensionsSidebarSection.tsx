@@ -949,7 +949,8 @@ export function ExtensionsSidebarSection() {
               <PopoverContent
                 side="right"
                 align="start"
-                className="w-[420px] p-3"
+                collisionPadding={8}
+                className="relative z-[360] w-[min(420px,calc(100vw-16px))] p-3"
               >
                 <p className="px-1 pb-2 text-sm font-semibold text-foreground">
                   {copy.newExtension}

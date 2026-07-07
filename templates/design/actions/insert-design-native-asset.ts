@@ -1,16 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
-import {
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   DESIGN_NATIVE_ASSET_KINDS,
   type DesignNativeAssetKind,
@@ -27,11 +26,31 @@ const schemaInput = z.object({
   fileId: z
     .string()
     .optional()
-    .describe("Design file id. Defaults to the active editor file."),
+    .describe(
+      "Design file id to insert into. Defaults to the active editor file. Also used as the fallback target when screenId is omitted or does not resolve.",
+    ),
+  screenId: z
+    .string()
+    .optional()
+    .describe(
+      "Screen/design-file id to insert into, when it differs from the currently active editor file (e.g. a drop captured on a non-active screen in overview mode). Falls back to fileId, then the active editor file, when omitted or unresolvable.",
+    ),
   ownerId: z
     .string()
     .optional()
     .describe("Design editor selection owner token from current screen state."),
+  x: z
+    .number()
+    .optional()
+    .describe(
+      "Drop position x, in the target screen's own content px (same coordinate space as committed canvas-primitive geometry — NOT viewport/client px). Optional; when omitted (or when y is omitted), the asset appends before </main>/</body> exactly as before this parameter existed.",
+    ),
+  y: z
+    .number()
+    .optional()
+    .describe(
+      "Drop position y, in the target screen's own content px. See x for the coordinate-space contract. Both x and y must be provided together for positioned insertion to take effect.",
+    ),
 });
 
 function stringFromState(state: unknown, key: string): string | undefined {
@@ -48,6 +67,49 @@ function insertBeforeClosingTag(
   const pattern = new RegExp(`</${closingTag}>`, "i");
   if (!pattern.test(html)) return null;
   return html.replace(pattern, `${snippet}\n</${closingTag}>`);
+}
+
+/**
+ * Whether a caller-supplied drop position should drive positioned insertion.
+ * Both x and y must be finite and non-negative — matching
+ * appendCanvasPrimitiveToHtml's own `Math.max(0, Math.round(geometry.x))`
+ * clamp for committed canvas primitives (MultiScreenCanvas.tsx /
+ * DesignEditor.tsx, not touched by this change) — so a caller that can only
+ * produce a raw/unconvertible point (see DesignExtensionsPanel's
+ * documented fallback contract) safely falls through to the exact
+ * append-before-closing-tag behavior this action always had.
+ */
+function isUsableDropPosition(
+  x: number | undefined,
+  y: number | undefined,
+): x is number {
+  return (
+    typeof x === "number" &&
+    typeof y === "number" &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    x >= 0 &&
+    y >= 0
+  );
+}
+
+/**
+ * Wraps `snippet` in an absolutely-positioned container at `{x, y}`, in the
+ * same coordinate space and CSS convention `appendCanvasPrimitiveToHtml` uses
+ * for committed canvas primitives (DesignEditor.tsx, not modified by this
+ * change): `position:absolute; left:{x}px; top:{y}px`. A wrapping `<div>`
+ * (rather than trying to graft a style attribute onto whichever element in
+ * `snippet` happens to carry `data-agent-native-node-id` — that element
+ * varies by kind, e.g. "button"/"card" put it on an inner element, not the
+ * outer section) keeps this correct regardless of the native asset kind's
+ * own markup shape. The wrapper carries no size, so the snippet's own
+ * classes (`max-w-*`, `mx-auto`, etc.) keep controlling its box — only its
+ * top-left anchor point moves.
+ */
+function positionSnippetAt(snippet: string, x: number, y: number): string {
+  const left = Math.round(x);
+  const top = Math.round(y);
+  return `\n    <div data-agent-native-positioned-wrapper style="position:absolute;left:${left}px;top:${top}px;">${snippet}\n    </div>`;
 }
 
 function createInsertedNodeId(prefix: string): string {
@@ -142,12 +204,25 @@ function nativeSnippet(kind: DesignNativeAssetKind, nodeId: string): string {
   }
 }
 
+/**
+ * Inserts a native-asset snippet into `html`. When `position` is provided
+ * (both x and y finite/non-negative — see isUsableDropPosition), the snippet
+ * is wrapped in an absolutely-positioned container anchored at that point
+ * (positionSnippetAt), matching how appendCanvasPrimitiveToHtml positions
+ * committed canvas primitives. Without a usable position, behavior is
+ * UNCHANGED from before this parameter existed: append before </main>/</body>
+ * (or at the end of the document as a last resort).
+ */
 function appendNativeAssetMarkup(
   html: string,
   kind: DesignNativeAssetKind,
   nodeId: string,
+  position?: { x: number; y: number },
 ): string {
-  const snippet = nativeSnippet(kind, nodeId);
+  const rawSnippet = nativeSnippet(kind, nodeId);
+  const snippet = position
+    ? positionSnippetAt(rawSnippet, position.x, position.y)
+    : rawSnippet;
   return (
     insertBeforeClosingTag(html, "main", snippet) ??
     insertBeforeClosingTag(html, "body", snippet) ??
@@ -179,7 +254,14 @@ async function resolveTarget(args: z.infer<typeof schemaInput>) {
       : undefined;
   return {
     designId,
+    // screenId (when the caller resolved a specific drop-target screen, e.g.
+    // a drop captured on a non-active overview screen) wins over fileId, but
+    // both are just candidates here — the run() below still validates the
+    // resolved id is an actual HTML file in this design and falls back to
+    // fileId/the active file exactly as before if it isn't (see the
+    // requestedFileId lookup in run()).
     fileId:
+      args.screenId ??
       args.fileId ??
       (canUseSelection
         ? stringFromState(selection, "activeFileId")
@@ -238,33 +320,47 @@ export default defineAction({
     if (!file) throw new Error("No editable HTML design file found.");
     await assertAccess("design", file.designId, "editor");
 
-    let base = file.content ?? "";
-    try {
-      if (await hasCollabState(file.id)) {
-        const live = await getText(file.id, "content");
-        if (typeof live === "string") base = live;
-      }
-    } catch {
-      // Collab read is best-effort; fall back to stored content.
-    }
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for update-file: a diff computed from a stale base, char-diffed
+    // into a collab doc that has since moved on, corrupts or drops the
+    // other writer's change). See update-file.ts and apply-source-edit.ts
+    // for the identical pattern. writeInlineSourceFile/readLiveSourceFile
+    // only ever dereference file.id (and content/filename for the read); the
+    // createdAt/updatedAt fields aren't selected above and aren't needed.
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: file.fileType ?? "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const base = live.content;
 
     const insertedNodeId = createInsertedNodeId("native");
-    const content = appendNativeAssetMarkup(base, args.kind, insertedNodeId);
-    const now = new Date().toISOString();
-    await db
-      .update(schema.designFiles)
-      .set({ content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    const position = isUsableDropPosition(args.x, args.y)
+      ? { x: args.x, y: args.y as number }
+      : undefined;
+    const content = appendNativeAssetMarkup(
+      base,
+      args.kind,
+      insertedNodeId,
+      position,
+    );
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, content, "content", "agent");
-    } else {
-      await seedFromText(file.id, content);
-    }
+    await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content,
+      expectedVersionHash: live.versionHash,
+    });
 
     return {
       designId: file.designId,
@@ -275,6 +371,7 @@ export default defineAction({
       insertedSelector: `[data-agent-native-node-id="${insertedNodeId}"]`,
       source: "design-native",
       kind: args.kind,
+      positioned: Boolean(position),
     };
   },
 });

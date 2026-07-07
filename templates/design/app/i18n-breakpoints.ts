@@ -1,0 +1,205 @@
+/**
+ * Localized strings for BreakpointDeviceControl and breakpoint interactions.
+ * Used in: app/components/design/BreakpointBar.tsx (the unified breakpoint
+ * targeting control in the right-inspector header).
+ */
+export const breakpointBarOverrides = {
+  "en-US": {
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Edit base width",
+        addBreakpoint: "Add breakpoint",
+        remove: "Remove breakpoint",
+        options: "Breakpoint options",
+        changeWidth: "Change width",
+        customWidth: "Custom width",
+        add: "Add",
+        showAllBreakpoints: "Show all breakpoints",
+        desktop: "Desktop",
+        tablet: "Tablet",
+        phone: "Phone",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      breakpointBar: {
+        base: "基础",
+        editBaseWidth: "编辑基础宽度",
+        addBreakpoint: "添加断点",
+        remove: "移除断点",
+        options: "断点选项",
+        changeWidth: "更改宽度",
+        customWidth: "自定义宽度",
+        add: "添加",
+        showAllBreakpoints: "显示所有断点",
+        desktop: "桌面端",
+        tablet: "平板",
+        phone: "手机",
+      },
+    },
+  },
+  "zh-TW": {
+    designEditor: {
+      breakpointBar: {
+        base: "基礎",
+        editBaseWidth: "編輯基礎寬度",
+        addBreakpoint: "新增中斷點",
+        remove: "移除中斷點",
+        options: "中斷點選項",
+        changeWidth: "變更寬度",
+        customWidth: "自訂寬度",
+        add: "新增",
+        showAllBreakpoints: "顯示所有中斷點",
+        desktop: "桌面",
+        tablet: "平板",
+        phone: "手機",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Editar ancho de base",
+        addBreakpoint: "Añadir punto de quiebre",
+        remove: "Quitar punto de quiebre",
+        options: "Opciones de punto de quiebre",
+        changeWidth: "Cambiar ancho",
+        customWidth: "Ancho personalizado",
+        add: "Añadir",
+        showAllBreakpoints: "Mostrar todos los puntos de quiebre",
+        desktop: "Escritorio",
+        tablet: "Tablet",
+        phone: "Teléfono",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Modifier la largeur de base",
+        addBreakpoint: "Ajouter un point d'arrêt",
+        remove: "Supprimer le point d'arrêt",
+        options: "Options du point d'arrêt",
+        changeWidth: "Modifier la largeur",
+        customWidth: "Largeur personnalisée",
+        add: "Ajouter",
+        showAllBreakpoints: "Afficher tous les points d'arrêt",
+        desktop: "Bureau",
+        tablet: "Tablette",
+        phone: "Téléphone",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      breakpointBar: {
+        base: "Basis",
+        editBaseWidth: "Basisbreite bearbeiten",
+        addBreakpoint: "Haltepunkt hinzufügen",
+        remove: "Haltepunkt entfernen",
+        options: "Haltepunkt-Optionen",
+        changeWidth: "Breite ändern",
+        customWidth: "Benutzerdefinierte Breite",
+        add: "Hinzufügen",
+        showAllBreakpoints: "Alle Haltepunkte anzeigen",
+        desktop: "Desktop",
+        tablet: "Tablet",
+        phone: "Telefon",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      breakpointBar: {
+        base: "ベース",
+        editBaseWidth: "ベース幅を編集",
+        addBreakpoint: "ブレークポイントを追加",
+        remove: "ブレークポイントを削除",
+        options: "ブレークポイント オプション",
+        changeWidth: "幅を変更",
+        customWidth: "カスタム幅",
+        add: "追加",
+        showAllBreakpoints: "すべてのブレークポイントを表示",
+        desktop: "デスクトップ",
+        tablet: "タブレット",
+        phone: "モバイル",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      breakpointBar: {
+        base: "기본",
+        editBaseWidth: "기본 너비 편집",
+        addBreakpoint: "중단점 추가",
+        remove: "중단점 제거",
+        options: "중단점 옵션",
+        changeWidth: "너비 변경",
+        customWidth: "사용자 지정 너비",
+        add: "추가",
+        showAllBreakpoints: "모든 중단점 표시",
+        desktop: "데스크톱",
+        tablet: "태블릿",
+        phone: "휴대폰",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      breakpointBar: {
+        base: "Base",
+        editBaseWidth: "Editar largura base",
+        addBreakpoint: "Adicionar ponto de interrupção",
+        remove: "Remover ponto de interrupção",
+        options: "Opções de ponto de interrupção",
+        changeWidth: "Alterar largura",
+        customWidth: "Largura personalizada",
+        add: "Adicionar",
+        showAllBreakpoints: "Mostrar todos os pontos de interrupção",
+        desktop: "Desktop",
+        tablet: "Tablet",
+        phone: "Telefone",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      breakpointBar: {
+        base: "आधार",
+        editBaseWidth: "आधार चौड़ाई संपादित करें",
+        addBreakpoint: "ब्रेकपॉइंट जोड़ें",
+        remove: "ब्रेकपॉइंट हटाएं",
+        options: "ब्रेकपॉइंट विकल्प",
+        changeWidth: "चौड़ाई बदलें",
+        customWidth: "कस्टम चौड़ाई",
+        add: "जोड़ें",
+        showAllBreakpoints: "सभी ब्रेकपॉइंट दिखाएं",
+        desktop: "डेस्कटॉप",
+        tablet: "टैबलेट",
+        phone: "फ़ोन",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      breakpointBar: {
+        base: "الأساس",
+        editBaseWidth: "تحرير عرض الأساس",
+        addBreakpoint: "إضافة نقطة توقف",
+        remove: "إزالة نقطة التوقف",
+        options: "خيارات نقطة التوقف",
+        changeWidth: "تغيير العرض",
+        customWidth: "عرض مخصص",
+        add: "إضافة",
+        showAllBreakpoints: "عرض جميع نقاط التوقف",
+        desktop: "سطح المكتب",
+        tablet: "الجهاز اللوحي",
+        phone: "الهاتف",
+      },
+    },
+  },
+};

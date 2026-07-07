@@ -235,11 +235,17 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 - URL は、ブラウザー分析で使用されるものと同じ `scrubUrl()` ヘルパーでスクラブされます。
 - リプレイ キャプチャは Web 専用でオプトインです。ネイティブ デスクトップ画面は記録しません。
 
-記録中、セッション リプレイはブラウザーのコンソール出力 (`log`、`info`、`warn`、`error`、`debug`、およびウィンドウの `error`/`unhandledrejection`) とネットワーク リクエストのメタデータ (`fetch` および XHR) もタグ付けされた rrweb カスタム イベントとしてキャプチャするため、エージェントとリプレイ ビューアーがユーザー報告の問題をデバッグできます。キャプチャは、リプレイが有効な場合デフォルトでオンになっています。`sessionReplay.console` と `sessionReplay.network` オプション (それぞれ真偽値またはオプション オブジェクトを受け取ります) で調整または無効化できます。リクエスト/レスポンスの本文とヘッダーは記録されず、URL はスクラブされ、メッセージは切り詰められ、レコーダー自身の取り込み/追跡トラフィックは除外されます。セッションごとの上限 (コンソール 1000 件/ネットワーク 2000 件) を超えると切り詰めの通知が追加されます。
+記録中、セッション リプレイはブラウザーのコンソール出力 (`log`、`info`、`warn`、`error`、`debug`、およびウィンドウの `error`/`unhandledrejection`) とネットワーク リクエストのメタデータ (`fetch` および XHR) もタグ付けされた rrweb カスタム イベントとしてキャプチャするため、エージェントとリプレイ ビューアーがユーザー報告の問題をデバッグできます。キャプチャは、リプレイが有効な場合デフォルトでオンになっています。`sessionReplay.console` と `sessionReplay.network` オプション (それぞれ真偽値またはオプション オブジェクト `{ maxEvents?: number }` を受け取り、`network` はさらに `captureErrorBodies` と `maxErrorBodyLength` を受け取ります) で調整または無効化できます。リクエストの本文とヘッダーは記録されませんが、レスポンスの本文は 5xx (サーバー エラー) レスポンスに限り、境界付きでレダクト済みのスニペットとしてキャプチャされます (`captureErrorBodies`、デフォルトは `true`、上限は `maxErrorBodyLength` 文字、デフォルト 2048) — 5xx 以外およびネットワーク障害 (ステータス 0) のレスポンスに本文が含まれることはありません。URL はスクラブされ、メッセージは切り詰められ、レコーダー自身の取り込み/追跡トラフィックは除外されます。セッションごとの上限 (コンソール 1000 件/ネットワーク 2000 件) を超えると切り詰めの通知が追加されます。
 
 Analytics テンプレートは、リプレイ メタデータを SQL (`session_recordings`) に保存し、チャンクはプライベートな blob 参照 (`session_replay_chunks`) を通じて保存します。ブラウザーとエージェントはプロバイダーの URL を受け取ることはありません。再生はスコープ付きのサーバー ルートを経由し、デフォルトのエージェント ツールは要約または範囲を限定したリプレイ イベントを返すのみで、生のチャンク テーブルへのアクセスはできません。
 
 プライベートな記録を外部エージェントに渡す必要がある場合は、セッション詳細ページの **Copy for agent** コントロールを使用します。これにより、2 時間有効で記録にスコープされた `agent_access` リンクが発行され、`/sessions/:recordingId` で小さなディスカバリー ペイロードが SSR され、エージェント コンテキスト/イベントの JSON API のみが公開されます。記録の可視性は変更されません。
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
 
 ローカル開発でのみ、Analytics はプライベートな blob ストレージが利用できない場合に、上限付きの SQL インライン チャンクにフォールバックできます。本番デプロイでは、リプレイ ペイロードを Postgres に依存するのではなく、プライベートまたは暗号化された blob ストレージを設定する必要があります。
 

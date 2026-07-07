@@ -223,6 +223,12 @@ export const recordingTranscripts = table("recording_transcripts", {
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
+  // Count of automatic retries already attempted after a transient failure
+  // (ffmpeg timeout, transient provider/network error). Bounds the
+  // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly
+  // failing clip doesn't retry forever. Manual retries (force=true) don't
+  // consume this budget.
+  retryCount: integer("retry_count").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -342,6 +348,26 @@ export const recordingViewers = table("recording_viewers", {
   ctaClicked: integer("cta_clicked", { mode: "boolean" })
     .notNull()
     .default(false),
+});
+
+// Per-view records — one row per distinct counted view, so the owner can see
+// *who viewed and when* (not just an aggregate count or a single
+// first/last-seen row per viewer). Additive on top of `recording_viewers`:
+// that table still drives dedup/aggregation for the counting rule, this table
+// is an append-only log of the moments a view was actually counted.
+export const recordingViews = table("recording_views", {
+  id: text("id").primaryKey(),
+  recordingId: text("recording_id").notNull(),
+  // FK to recording_viewers.id — the viewer/session this view belongs to.
+  viewerId: text("viewer_id").notNull(),
+  // Stable key for this viewer (email or anonymous session key), used to
+  // collapse duplicate threshold posts for a single player-open session.
+  viewerKey: text("viewer_key"),
+  viewSessionId: text("view_session_id"),
+  // Denormalized for cheap reads without joining recording_viewers.
+  viewerEmail: text("viewer_email"), // null = anonymous
+  viewerName: text("viewer_name"),
+  viewedAt: text("viewed_at").notNull().default(now()),
 });
 
 // -----------------------------------------------------------------------------

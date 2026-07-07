@@ -9,12 +9,6 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
-  getRequestUserEmail,
-  signShortLivedToken,
-  verifyShortLivedToken,
-} from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
-import {
   IconAlertTriangle,
   IconArrowLeft,
   IconDownload,
@@ -71,10 +65,10 @@ import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 import { getDb, schema } from "../../server/db";
-import { CLIPS_AGENT_ACCESS_PARAM } from "../../server/lib/public-agent-context";
 import {
-  agentAccessTokenResourceId,
   buildAgentApiUrls,
+  CLIPS_AGENT_ACCESS_PARAM,
+  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   safeJsonForHtml,
 } from "../../shared/agent-context";
 import {
@@ -114,6 +108,7 @@ const PRIVATE_AGENT_SHARE_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
 };
+const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
 function emptyLoaderData(url: URL): SharePageLoaderData {
   return {
@@ -172,6 +167,17 @@ function shouldShowGeneratedTitleSkeleton(
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const id = params.shareId;
   if (!id) return emptyLoaderData(url);
+  const [
+    {
+      getRequestUserEmail,
+      signScopedAgentAccessToken,
+      verifyScopedAgentAccessToken,
+    },
+    { resolveAccess },
+  ] = await Promise.all([
+    import("@agent-native/core/server"),
+    import("@agent-native/core/sharing"),
+  ]);
 
   const [rec] = await getDb()
     .select({
@@ -192,10 +198,16 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
+  const agentAccessToken =
+    url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ??
+    url.searchParams.get("t") ??
+    "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
   const tokenGrantsAgentAccess = agentAccessToken
-    ? verifyShortLivedToken(agentAccessToken, agentAccessTokenResourceId(id)).ok
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+        resourceId: id,
+      }).ok
     : false;
 
   if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
@@ -233,7 +245,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     : canExposeAgentContext &&
         rec.password &&
         getRequestUserEmail() === rec.ownerEmail
-      ? signShortLivedToken({ resourceId: agentAccessTokenResourceId(id) })
+      ? signScopedAgentAccessToken({
+          resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+          resourceId: id,
+          ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
+        })
       : undefined;
   const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
   const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
@@ -431,7 +447,28 @@ export default function ShareRoute() {
       return { ok: res.ok, status: res.status, data };
     },
     enabled: !!shareId,
-    refetchInterval: 2000,
+    refetchInterval: (q) => {
+      const payload = (q.state.data as { data?: any } | undefined)?.data;
+      const rec = payload?.recording;
+      if (!rec) return false;
+      // Poll while the recording is still being assembled / transcoded so the
+      // page auto-upgrades from "Processing" to the real player the moment
+      // the server flips status to 'ready' and writes videoUrl. Mirrors
+      // r.$recordingId.tsx's playerDataQ.refetchInterval.
+      if (rec.status !== "ready" || !rec.videoUrl) return 2000;
+      // Also keep polling while a transcript is pending so "Transcribing…"
+      // auto-flips to the ready transcript (or to the failure card). The
+      // public payload has no transcript.cleanup field (that's authenticated
+      // -only), so there is no equivalent of the cleanup.status poll here.
+      if (payload?.transcript?.status === "pending") return 3000;
+      // And keep polling while the title is still the server-seeded default
+      // — the agent will land a generated title via `update-recording` and
+      // we want the skeleton to swap in promptly.
+      if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
+        return 3000;
+      }
+      return false;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -771,10 +808,10 @@ export default function ShareRoute() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+    <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 lg:flex-nowrap">
+      <div className="flex w-full min-w-0 flex-col lg:flex-1">
+        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 lg:flex-nowrap">
           {session ? (
             <Button
               variant="ghost"
@@ -796,7 +833,7 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
             {viewerCanEdit ? (
               <Button variant="outline" size="sm" asChild>
                 <a
@@ -880,12 +917,13 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-1 flex-col gap-4 overflow-visible p-4 lg:min-h-0 lg:overflow-hidden">
-          <div className="min-h-[240px] flex-1 lg:min-h-0">
+        <div className="flex flex-col gap-4 overflow-hidden p-0 sm:p-4 lg:min-h-0 lg:flex-1">
+          <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
@@ -899,11 +937,11 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
-              className="h-full w-full"
+              className="h-full w-full rounded-none sm:rounded-xl"
             />
           </div>
 
-          <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
             <div className="min-w-0 flex-1">
               {showTitleSkeleton ? (
                 <Skeleton
@@ -978,14 +1016,11 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
-        <Tabs defaultValue="agent" className="flex h-full flex-col">
+      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
+        <Tabs defaultValue="comments" className="flex h-full flex-col">
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
-            <TabsTrigger value="agent" className="text-xs">
-              {t("sharePage.agent")}
-            </TabsTrigger>
             <TabsTrigger value="comments" className="text-xs gap-1">
-              {t("sharePage.comments")}
+              {t("recordingPage.activity")}
               {comments.length > 0 ? (
                 <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
                   {comments.length}
@@ -994,6 +1029,9 @@ export default function ShareRoute() {
             </TabsTrigger>
             <TabsTrigger value="transcript" className="text-xs">
               {t("sharePage.transcript")}
+            </TabsTrigger>
+            <TabsTrigger value="agent" className="text-xs">
+              {t("sharePage.agent")}
             </TabsTrigger>
             <TabsTrigger value="insights" className="text-xs">
               {t("sharePage.insights")}
@@ -1049,7 +1087,12 @@ export default function ShareRoute() {
               enableComments={recording.enableComments}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               onUnauthenticated={requireSignIn}
-              queryKey={["public-recording", shareId, password]}
+              queryKey={[
+                "public-recording",
+                shareId,
+                password,
+                agentAccessToken,
+              ]}
               selectComments={(d: any) => d?.data?.comments}
               applyComments={(d: any, next) =>
                 d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d

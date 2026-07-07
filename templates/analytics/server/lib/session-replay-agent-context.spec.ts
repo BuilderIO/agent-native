@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetRequestContext = vi.hoisted(() => vi.fn());
-const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
-const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockCreateScopedAgentAccessGrant = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSessionReplaySummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedSummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedEvents = vi.hoisted(() => vi.fn());
@@ -23,10 +23,29 @@ const mockCompactSessionRecordingSummary = vi.hoisted(() =>
 );
 
 vi.mock("@agent-native/core/server", () => ({
+  buildAgentAccessApiUrl: ({
+    endpoint,
+    resourceId,
+    token,
+    origin,
+    basePath,
+    extraParams,
+  }: any) => {
+    const params = new URLSearchParams({ id: resourceId });
+    if (token) params.set("agent_access", token);
+    for (const [key, value] of extraParams ?? [])
+      params.set(key, String(value));
+    return `${origin ?? ""}${basePath ?? ""}${endpoint}?${params.toString()}`;
+  },
+  buildAgentAccessUrl: ({ path, token, origin, basePath }: any) =>
+    `${origin ?? ""}${basePath ?? ""}${path}?agent_access=${encodeURIComponent(
+      token,
+    )}`,
+  createScopedAgentAccessGrant: (...args: unknown[]) =>
+    mockCreateScopedAgentAccessGrant(...args),
   getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
-  signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
-  verifyShortLivedToken: (...args: unknown[]) =>
-    mockVerifyShortLivedToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("./session-replay.js", () => ({
@@ -115,8 +134,12 @@ describe("session replay agent context links", () => {
     mockGetRequestContext.mockReturnValue({
       requestOrigin: "https://analytics.example.com",
     });
-    mockSignShortLivedToken.mockReturnValue("signed-token");
-    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+    mockCreateScopedAgentAccessGrant.mockReturnValue({
+      token: "signed-token",
+      expiresAt: "2026-01-01T02:00:00.000Z",
+      ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     mockGetSessionReplaySummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedSummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedEvents.mockResolvedValue({
@@ -154,8 +177,9 @@ describe("session replay agent context links", () => {
       origin: "https://analytics.example.com",
     });
 
-    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "analytics-session-replay-agent-context:sr_1",
+    expect(mockCreateScopedAgentAccessGrant).toHaveBeenCalledWith({
+      resourceKind: "analytics-session-replay-agent-context",
+      resourceId: "sr_1",
       viewerEmail: "owner@example.com",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     });
@@ -175,9 +199,12 @@ describe("session replay agent context links", () => {
       origin: "https://analytics.example.com",
     });
 
-    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
       "signed-token",
-      "analytics-session-replay-agent-context:sr_1",
+      {
+        resourceKind: "analytics-session-replay-agent-context",
+        resourceId: "sr_1",
+      },
     );
     expect(context.apis.page.url).toBe(
       "https://analytics.example.com/sessions/sr_1?agent_access=signed-token",
@@ -358,7 +385,7 @@ describe("session replay agent context links", () => {
   });
 
   it("rejects invalid agent access tokens", async () => {
-    mockVerifyShortLivedToken.mockReturnValue({ ok: false });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
 
     await expect(
       buildSessionReplayAgentContext({
@@ -501,6 +528,46 @@ describe("buildSessionReplayDiagnostics", () => {
     expect(request.error).toHaveLength(1001);
   });
 
+  it("passes through a 5xx responseBody and defensively re-truncates it server-side", () => {
+    const diagnostics = buildSessionReplayDiagnostics([
+      networkEvent(1000, {
+        api: "fetch",
+        method: "GET",
+        url: "/api/broken",
+        status: 502,
+        ok: false,
+        durationMs: 12,
+        responseBody: '{"error":"boom"}',
+      }),
+      networkEvent(1100, {
+        api: "fetch",
+        method: "GET",
+        url: "/api/huge-broken",
+        status: 500,
+        ok: false,
+        durationMs: 9,
+        responseBody: "b".repeat(5000),
+      }),
+      networkEvent(1200, {
+        api: "fetch",
+        method: "GET",
+        url: "/api/ok",
+        status: 200,
+        ok: true,
+        durationMs: 4,
+      }),
+    ] as any);
+
+    expect(diagnostics.network.entries[0]?.responseBody).toBe(
+      '{"error":"boom"}',
+    );
+    expect(diagnostics.network.entries[1]?.responseBody).toHaveLength(2049);
+    expect(diagnostics.network.entries[1]?.responseBody?.endsWith("…")).toBe(
+      true,
+    );
+    expect(diagnostics.network.entries[2]?.responseBody).toBeUndefined();
+  });
+
   it("computes offsetMs relative to the first replay event", () => {
     const diagnostics = buildSessionReplayDiagnostics([
       { type: 4, timestamp: 5000, data: { href: "https://a.example" } },
@@ -534,5 +601,228 @@ describe("buildSessionReplayDiagnostics", () => {
     expect(diagnostics.console.entries[0]?.level).toBe("error");
     expect(diagnostics.console.total).toBe(3);
     expect(diagnostics.console.warnCount).toBe(1);
+  });
+
+  it("defaults hasMore to false when nothing is truncated", () => {
+    const diagnostics = buildSessionReplayDiagnostics([
+      consoleEvent(1000, { level: "log", source: "console", message: "a" }),
+      networkEvent(1100, {
+        api: "fetch",
+        method: "GET",
+        url: "/api/ok",
+        status: 200,
+        ok: true,
+        durationMs: 2,
+      }),
+    ] as any);
+
+    expect(diagnostics.console.hasMore).toBe(false);
+    expect(diagnostics.network.hasMore).toBe(false);
+  });
+
+  it("sets hasMore alongside truncated when the errors-first cap overflows", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      events.push(
+        consoleEvent(1000 + i, {
+          level: "log",
+          source: "console",
+          message: `log ${i}`,
+        }),
+      );
+    }
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      maxConsoleEntries: 5,
+    });
+
+    expect(diagnostics.console.truncated).toBe(true);
+    expect(diagnostics.console.hasMore).toBe(true);
+  });
+
+  it("keeps default errors-first ordering when no paging params are given", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      events.push(
+        consoleEvent(1000 + i, {
+          level: "log",
+          source: "console",
+          message: `log ${i}`,
+        }),
+      );
+    }
+    events.push(
+      consoleEvent(2000, {
+        level: "error",
+        source: "console",
+        message: "boom",
+      }),
+    );
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      maxConsoleEntries: 3,
+    });
+
+    // Priority (error) entry is kept even though it's chronologically last,
+    // and the cap only holds 2 of the 10 routine logs alongside it.
+    expect(diagnostics.console.entries).toHaveLength(3);
+    expect(
+      diagnostics.console.entries.some((entry) => entry.level === "error"),
+    ).toBe(true);
+    expect(diagnostics.console.truncated).toBe(true);
+    expect(diagnostics.console.hasMore).toBe(true);
+  });
+
+  it("switches to strictly chronological ordering when offset is provided", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      events.push(
+        consoleEvent(1000 + i, {
+          level: "log",
+          source: "console",
+          message: `log ${i}`,
+        }),
+      );
+    }
+    events.push(
+      consoleEvent(2000, {
+        level: "error",
+        source: "console",
+        message: "boom",
+      }),
+    );
+
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      maxConsoleEntries: 3,
+      offset: 0,
+    });
+
+    // Chronological: first 3 by offsetMs, regardless of level priority.
+    expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
+      "log 0",
+      "log 1",
+      "log 2",
+    ]);
+    expect(diagnostics.console.truncated).toBe(true);
+    expect(diagnostics.console.hasMore).toBe(true);
+  });
+
+  it("pages through offset to produce disjoint pages that union to the full chronological set", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      events.push(
+        consoleEvent(1000 + i, {
+          level: i % 7 === 0 ? "error" : "log",
+          source: "console",
+          message: `entry ${i}`,
+        }),
+      );
+    }
+
+    const pageSize = 10;
+    const pages: string[][] = [];
+    for (let offset = 0; offset < 30; offset += pageSize) {
+      const diagnostics = buildSessionReplayDiagnostics(events as any, {
+        maxConsoleEntries: pageSize,
+        offset,
+      });
+      pages.push(diagnostics.console.entries.map((entry) => entry.message));
+      if (!diagnostics.console.hasMore) break;
+    }
+
+    expect(pages).toEqual([
+      Array.from({ length: 10 }, (_, i) => `entry ${i}`),
+      Array.from({ length: 10 }, (_, i) => `entry ${i + 10}`),
+      Array.from({ length: 5 }, (_, i) => `entry ${i + 20}`),
+    ]);
+    // Union of all pages is the full chronological set, no dupes/gaps.
+    const union = pages.flat();
+    expect(union).toHaveLength(25);
+    expect(new Set(union).size).toBe(25);
+  });
+
+  it("windows entries by fromMs/toMs (inclusive) and reflects totals for the windowed population", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      events.push(
+        consoleEvent(1000 + i * 100, {
+          level: "log",
+          source: "console",
+          message: `entry ${i}`,
+        }),
+      );
+    }
+    // offsetMs values will be 0, 100, 200, ..., 900 (startedAt = 1000).
+
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      fromMs: 200,
+      toMs: 500,
+    });
+
+    expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
+      "entry 2",
+      "entry 3",
+      "entry 4",
+      "entry 5",
+    ]);
+    // total reflects the windowed population (4), not the full 10.
+    expect(diagnostics.console.total).toBe(4);
+    expect(diagnostics.console.truncated).toBe(false);
+    expect(diagnostics.console.hasMore).toBe(false);
+  });
+
+  it("combines fromMs/toMs windowing with offset paging", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      events.push(
+        consoleEvent(1000 + i * 100, {
+          level: "log",
+          source: "console",
+          message: `entry ${i}`,
+        }),
+      );
+    }
+
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      fromMs: 200,
+      toMs: 900,
+      offset: 2,
+      maxConsoleEntries: 2,
+    });
+
+    // Windowed population is entries 2..9 (offsetMs 200-900, 8 entries).
+    expect(diagnostics.console.total).toBe(8);
+    expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
+      "entry 4",
+      "entry 5",
+    ]);
+    expect(diagnostics.console.hasMore).toBe(true);
+  });
+
+  it("windows network entries by fromMs/toMs the same way as console", () => {
+    const events: unknown[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      events.push(
+        networkEvent(1000 + i * 100, {
+          api: "fetch",
+          method: "GET",
+          url: `/api/${i}`,
+          status: i === 0 ? 500 : 200,
+          ok: i !== 0,
+          durationMs: 2,
+        }),
+      );
+    }
+
+    const diagnostics = buildSessionReplayDiagnostics(events as any, {
+      fromMs: 100,
+      toMs: 300,
+    });
+
+    expect(diagnostics.network.entries.map((entry) => entry.url)).toEqual([
+      "/api/1",
+      "/api/2",
+      "/api/3",
+    ]);
+    expect(diagnostics.network.total).toBe(3);
+    expect(diagnostics.network.hasMore).toBe(false);
   });
 });

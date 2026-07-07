@@ -268,17 +268,6 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="videos"
-          options={{
-            title: "Video",
-            headerShown: false,
-            href: null,
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="film" size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
           name="sessions"
           options={{
             title: "Sessions",

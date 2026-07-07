@@ -36,6 +36,15 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
     );
   });
 
+  it("does not expose plan history snapshots to signed-out HTTP callers", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/get-plan-version",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/list-plan-versions",
+    );
+  });
+
   it("keeps local no-account publish callable so it can return needsAuth", () => {
     expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
       "/_agent-native/actions/publish-visual-plan",

@@ -28,15 +28,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import {
-  agentEnterDocument,
-  agentLeaveDocument,
-  agentUpdateSelection,
-  applyText,
-  getText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+import { agentUpdateSelection } from "@agent-native/core/collab";
 import {
   accessFilter,
   assertAccess,
@@ -47,9 +39,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   COMPONENT_NAME_ATTR,
   COMPONENT_PROP_PREFIX,
@@ -208,54 +206,6 @@ export function applyComponentAnnotations(
   };
 }
 
-// ─── DB helpers ───────────────────────────────────────────────────────────────
-
-async function liveContent(
-  fileId: string,
-  storedContent: string,
-): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
-  }
-  return storedContent;
-}
-
-async function persistEdit(file: {
-  id: string;
-  designId: string;
-  content: string;
-}): Promise<void> {
-  await assertAccess("design", file.designId, "editor");
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  agentEnterDocument(file.id);
-  try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
-
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
-
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
-  } finally {
-    agentLeaveDocument(file.id);
-  }
-}
-
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
@@ -370,7 +320,26 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    const html = await liveContent(file.id, file.content ?? "");
+    // Read the LIVE base (collab text when present, else the SQL row) right
+    // before transforming, and carry its versionHash through to the write
+    // below. writeInlineSourceFile re-reads the live text immediately before
+    // its own applyText/DB write and rejects if it no longer matches this
+    // hash — closing the race window where a concurrent editor/agent write
+    // lands between this read and the persist (the same stale-diff-base bug
+    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff/patch
+    // computed from a stale base, unconditionally persisted, corrupts or
+    // drops the other writer's change).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename ?? "",
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const live = await readLiveSourceFile(workspaceFile);
+    const html = live.content;
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -409,14 +378,18 @@ export default defineAction({
 
     // ── Persist ──────────────────────────────────────────────────────────────
     if (changed) {
-      await persistEdit({
-        id: file.id,
+      await writeInlineSourceFile({
         designId: file.designId,
+        file: workspaceFile,
         content: patchedContent,
+        expectedVersionHash: live.versionHash,
       });
 
       agentUpdateSelection(file.id, {
-        selection: node.selector,
+        selection: agentSelectionDescriptor(
+          { nodeId: node.id, selector: node.selector },
+          "Creating component",
+        ),
         nodeId: node.id,
         editingFile: file.filename,
         designId: file.designId,

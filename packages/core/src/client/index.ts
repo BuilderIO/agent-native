@@ -164,6 +164,21 @@ export {
   useScreenRefreshKey,
 } from "./use-db-sync.js";
 export {
+  VisualControlRow,
+  VisualColorPicker,
+  VisualInspectorPanel,
+  VisualInspectorSection,
+  VisualScrubInput,
+  VisualSegmentedControl,
+  VisualSliderControl,
+  VisualSwatchControl,
+  VisualToggleControl,
+  VisualTweakControl,
+  type VisualControlOption,
+  type VisualControlValue,
+  type VisualTweakDefinition,
+} from "./visual-style-controls.js";
+export {
   useChangeVersion,
   useChangeVersions,
   getChangeVersion,
@@ -449,6 +464,10 @@ export {
 } from "./MultiTabAssistantChat.js";
 export { RunStuckBanner, type RunStuckBannerProps } from "./RunStuckBanner.js";
 export {
+  KeepTabOpenNotice,
+  type KeepTabOpenNoticeProps,
+} from "./KeepTabOpenNotice.js";
+export {
   useRunStuckDetection,
   useAbortRun,
   type RunStuckState,
@@ -620,6 +639,7 @@ export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
+  useAgentSettingsTabs,
   type SettingsPanelProps,
   type SettingsTabItem,
   type SettingsTabsPageProps,
@@ -655,11 +675,22 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  ErrorReportActions,
+  type ErrorReportActionsProps,
+} from "./ErrorReportActions.js";
+export {
+  buildErrorReportTemplate,
+  buildGitHubIssueUrl,
+  type ErrorReportDebugItem,
+  type ErrorReportTemplateOptions,
+} from "./error-reporting.js";
 export { getClientSurface, type ClientSurface } from "./client-surface.js";
 export {
   DevDatabaseLink,
   type DevDatabaseLinkProps,
 } from "./db-admin/DevDatabaseLink.js";
+export { DbAdminPage } from "./db-admin/DbAdminPage.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export {
   installRouteChunkRecovery,
@@ -853,7 +884,40 @@ export {
 export {
   RemoteSelectionRings,
   type RemoteSelectionRingsProps,
+  type SelectionDescriptor,
 } from "./components/RemoteSelectionRings.js";
+export {
+  RecentEditHighlights,
+  type RecentEditHighlightsProps,
+} from "./components/RecentEditHighlights.js";
+// Recent-edit attribution (lingering highlights)
+export {
+  appendRecentEdit,
+  collectRecentEdits,
+  publishRecentEdit,
+  useRecentEdits,
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type RecentEdit,
+  type RecentEditDescriptor,
+  type AttributedRecentEdit,
+  type UseRecentEditsOptions,
+} from "../collab/recent-edits.js";
+// Per-user undo/redo
+export {
+  useCollabUndo,
+  useLocalOpUndo,
+  createLocalOpUndoController,
+  type UseCollabUndoOptions,
+  type UseCollabUndoResult,
+  type CollabUndoScope,
+  type UseLocalOpUndoOptions,
+  type UseLocalOpUndoResult,
+  type LocalOpUndoEntry,
+  type LocalOpUndoController,
+  type CreateLocalOpUndoOptions,
+  type UndoKeyboardOptions,
+} from "../collab/undo.js";
 // Structured data collaboration hooks
 export {
   useCollaborativeMap,

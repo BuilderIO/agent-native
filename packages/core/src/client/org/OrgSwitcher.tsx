@@ -13,7 +13,6 @@ import {
   IconChevronRight,
   IconClipboardList,
   IconCode,
-  IconContract,
   IconFileText,
   IconLayoutBoard,
   IconLoader2,
@@ -34,7 +33,6 @@ import {
   IconUser,
   IconUserPlus,
   IconUsers,
-  IconVideo,
   IconWorld,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -109,12 +107,10 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
-  Video: IconVideo,
   BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  Contract: IconContract,
   MessageCircle: IconMessageCircle,
   Route: IconRoute,
   ScreenShare: IconScreenShare,

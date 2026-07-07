@@ -46,10 +46,15 @@ agent answers about browser recordings in the Analytics template.
   custom events tagged `agent-native.console` and `agent-native.network`.
 - Capture is on by default whenever session replay is enabled. Tune or disable
   it with the `console` / `network` options on the session replay config; each
-  accepts a boolean or an options object.
-- Privacy bounds: request/response bodies and headers are never captured, URLs
-  are scrubbed, messages are truncated, and recorder self-traffic (the replay
-  ingest and tracking endpoints) is excluded.
+  accepts a boolean or an options object (`{ maxEvents?: number }`); `network`
+  also accepts `captureErrorBodies` (default true) and `maxErrorBodyLength`
+  (default 2048) to control the bounded 5xx response-body snippet.
+- Privacy bounds: request bodies and headers are never captured. Response
+  bodies are captured only as a bounded, redacted snippet for 5xx (server
+  error) responses, capped at `maxErrorBodyLength` chars; non-5xx and
+  network-failure (status 0) responses never carry a body. URLs are scrubbed,
+  messages are truncated, and recorder self-traffic (the replay ingest and
+  tracking endpoints) is excluded.
 - Per-session budgets: 1000 console events and 2000 network events, with a
   truncation notice event once a budget is hit.
 - On ingest, `deriveReplaySignals` computes the real `errorCount` from tagged
@@ -65,9 +70,19 @@ agent answers about browser recordings in the Analytics template.
 - The agent timeline includes `console-error` / `network-error` markers; error
   markers are kept preferentially under the 200-marker cap.
 - `apis.diagnostics` advertises the fuller bounded list:
-  `GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all&level=<level>&limit=<n>`
+  `GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all&level=<level>&limit=<n>&offset=<n>&fromMs=<n>&toMs=<n>`
   (limit defaults to 200, max 500). It uses the same recording-scoped
   `agent_access` token as the other agent JSON APIs.
+- `offset` and `fromMs`/`toMs` (inclusive offsetMs window) enable full
+  enumeration of a session's captured entries: page with `offset`, or window
+  with `fromMs`/`toMs` around a timeline marker's `offsetMs`. Providing any of
+  these switches ordering to strictly chronological (no errors-first
+  reshuffle) so pages are stable and disjoint. `total`/`errorCount`/
+  `warnCount`/`failedCount` reflect the filtered (windowed/level/kind)
+  population, not just the returned page, and each kind's response includes
+  `hasMore` alongside `truncated` so an agent can tell whether more entries
+  remain. Route validation rejects negative/non-numeric `offset`/`fromMs`/
+  `toMs` and `fromMs > toMs` with 400.
 
 ## Dev Tools Panel
 

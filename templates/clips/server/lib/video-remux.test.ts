@@ -4,6 +4,7 @@ import {
   faststartMp4,
   isFfmpegAvailable,
   makeSeekable,
+  probeHasAudioStream,
   remuxWebmToSeekable,
 } from "./video-remux";
 
@@ -125,5 +126,20 @@ describe("makeSeekable dispatch", () => {
 
   it("reports ffmpeg availability as a boolean", () => {
     expect(typeof isFfmpegAvailable()).toBe("boolean");
+  });
+});
+
+describe("probeHasAudioStream", () => {
+  it("returns null for empty input without invoking ffmpeg", async () => {
+    const result = await probeHasAudioStream(new Uint8Array(), "mp4");
+    expect(result).toBeNull();
+  });
+
+  it("returns null (not false) for garbage bytes that ffmpeg can't demux", async () => {
+    // Should never misreport an unreadable file as "confirmed no audio" —
+    // callers treat null as "couldn't verify" and skip hard-fail checks.
+    const garbage = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    const result = await probeHasAudioStream(garbage, "mp4");
+    expect(result).not.toBe(false);
   });
 });

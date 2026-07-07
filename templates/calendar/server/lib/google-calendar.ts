@@ -381,8 +381,33 @@ async function getValidAccessToken(
   owner?: string,
   orgId?: string,
 ): Promise<string> {
-  // Check if token is expired (with 5-minute buffer)
-  if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
+  if (!tokens.access_token && !tokens.refresh_token) {
+    // The stored record has no usable credentials at all. The most common
+    // cause is a row that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
+    // BETTER_AUTH_SECRET rotation — core's parseStoredTokens returns `{}`
+    // instead of throwing. Without this guard the expiry check below is
+    // skipped (no expiry_date) and we fall through to returning
+    // `tokens.access_token === undefined`, so every Google call goes out as
+    // "Authorization: Bearer undefined" and 401s instead of prompting a
+    // reconnect.
+    //
+    // Deliberately do NOT delete the row here (unlike the provider-confirmed
+    // dead paths below): a failed decrypt can also mean THIS process has the
+    // wrong key — e.g. a dev server pointed at a prod DB with a different
+    // secret, or key material missing at boot. Deleting would irreversibly
+    // destroy tokens a correctly configured deployment can still decrypt.
+    // Throwing is enough: getAuthStatus excludes accounts whose token fetch
+    // throws, so the UI still flips to the reconnect banner.
+    throw new Error(
+      `No usable OAuth tokens for ${accountId} — please reconnect.`,
+    );
+  }
+  // Refresh when the token is expired (with a 5-minute buffer) or when the
+  // record has a refresh token but no access token at all.
+  if (
+    !tokens.access_token ||
+    (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000)
+  ) {
     if (!tokens.refresh_token) {
       // No refresh token means we can never recover this account; drop it
       // so the UI prompts a reconnect instead of using an expired token.
@@ -427,7 +452,11 @@ async function getValidAccessToken(
       // token hasn't actually expired yet — we only entered this path
       // because we're inside the 5-minute pre-expiry buffer — fall back to
       // it so a flaky moment doesn't 502 the calendar.
-      if (tokens.access_token && tokens.expiry_date > Date.now()) {
+      if (
+        tokens.access_token &&
+        tokens.expiry_date != null &&
+        tokens.expiry_date > Date.now()
+      ) {
         return tokens.access_token;
       }
       throw err;

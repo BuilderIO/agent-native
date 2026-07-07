@@ -9,14 +9,13 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -29,6 +28,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
@@ -67,10 +67,8 @@ interface RecordingCardProps {
   onMove?: (rec: RecordingSummary, folderId: string | null) => void;
   moveTargets?: BulkMoveTarget[];
   isMovePending?: boolean;
-  onRename?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
-  canRenameTitle?: boolean;
 }
 
 export function RecordingCard({
@@ -82,10 +80,8 @@ export function RecordingCard({
   onMove,
   moveTargets = [],
   isMovePending = false,
-  onRename,
   onArchive,
   onTrash,
-  canRenameTitle = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const t = useT();
@@ -122,6 +118,10 @@ export function RecordingCard({
       recording.failureReason ?? "",
     );
   const canMove = Boolean(onMove && moveTargets.length > 0);
+  const hasDefaultTitle = isDefaultTitle(recording.title);
+  const displayTitle = hasDefaultTitle
+    ? t("editableTitle.untitled")
+    : recording.title;
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -294,20 +294,16 @@ export function RecordingCard({
       <div className="flex-1 p-3 space-y-2">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <EditableRecordingTitle
-              recordingId={recording.id}
-              title={recording.title}
-              canEdit={canRenameTitle}
-              displayTitle={
-                isDefaultTitle(recording.title)
-                  ? t("editableTitle.untitled")
-                  : recording.title
-              }
-              showPendingSkeleton={isDefaultTitle(recording.title)}
-              className="text-sm font-medium text-foreground"
-              inputClassName="h-7 text-sm font-medium"
-              skeletonClassName="h-3.5 w-3/4"
-            />
+            {hasDefaultTitle ? (
+              <Skeleton
+                aria-label={t("editableTitle.generatingTitle")}
+                className="h-3.5 w-3/4"
+              />
+            ) : (
+              <div className="min-w-0 truncate select-none text-sm font-medium text-foreground">
+                {displayTitle}
+              </div>
+            )}
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <PrivacyIcon
                 visibility={recording.visibility}
@@ -315,11 +311,22 @@ export function RecordingCard({
               />
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
-              <span>
-                {t("clipsFinalRaw.viewsCount", {
-                  count: recording.viewCount,
-                })}
-              </span>
+              {recording.viewCount > 0 ? (
+                <ViewedByPopover
+                  recordingId={recording.id}
+                  className="underline-offset-2 hover:underline hover:text-foreground"
+                >
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </ViewedByPopover>
+              ) : (
+                <span>
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </span>
+              )}
               <span>•</span>
               <span>{relative}</span>
             </div>
@@ -372,15 +379,6 @@ export function RecordingCard({
                     ))}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-              ) : null}
-              {onRename ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 me-2" />{" "}
-                    {t("folderTree.rename")}
-                  </DropdownMenuItem>
-                </>
               ) : null}
               <DropdownMenuSeparator />
               {recording.archivedAt ? (

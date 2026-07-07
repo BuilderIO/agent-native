@@ -17,6 +17,12 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+// `content` here may be a bounded preview (see the `contentPreview`
+// projection below) rather than the full document body. If the query match
+// falls outside the preview window (a deeper match in the full doc, which the
+// SQL LIKE filter already confirmed exists), `indexOf` simply misses and we
+// fall back to a beginning-of-document snippet — the same behavior as the
+// no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
   if (!compact) return "";
@@ -75,13 +81,23 @@ export default defineAction({
     const db = getDb();
     const pattern = `%${escapeLike(query)}%`;
 
+    // Project a bounded preview of `content` instead of the full column:
+    // document bodies can be multi-MB, and this action only returns a short
+    // snippet (use get-document for full content). 5000 chars is generous
+    // headroom for `makeSnippet`'s 120-char radius even when the match is
+    // deep-ish into the doc, while the true length still comes from SQL
+    // `length()` rather than reading `.length` off a truncated string.
+    // Mirrors the `substr`/`length` projection style in list-documents.ts.
+    // Both `substr` and `length` work identically on SQLite/libsql and
+    // Postgres.
     const docs = await db
       .select({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
         title: schema.documents.title,
         icon: schema.documents.icon,
-        content: schema.documents.content,
+        contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
+        contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
       })
@@ -102,8 +118,8 @@ export default defineAction({
         parentId: doc.parentId,
         title: doc.title,
         icon: doc.icon,
-        snippet: makeSnippet(doc.content, query),
-        contentLength: doc.content.length,
+        snippet: makeSnippet(doc.contentPreview, query),
+        contentLength: Number(doc.contentLength) || 0,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,
       })),

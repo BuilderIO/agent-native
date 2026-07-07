@@ -737,6 +737,19 @@ switch (command) {
     break;
   }
 
+  case "visualize-repo": {
+    import("./visualize-repo.js")
+      .then(async (m) => {
+        const code = await m.runVisualizeRepo(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "design": {
     import("./design-connect.js")
       .then(async (m) => {

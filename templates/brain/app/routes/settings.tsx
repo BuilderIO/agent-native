@@ -2,7 +2,7 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useActionMutation,
   useActionQuery,
   useT,
@@ -75,6 +75,7 @@ function sourcePolicyOptions(t: ReturnType<typeof useT>) {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -144,6 +145,7 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
         general={
           <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">
@@ -417,23 +419,6 @@ export default function SettingsRoute() {
                 <CardContent className="space-y-1.5">
                   <Label>{t("settings.languageLabel")}</Label>
                   <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <IconAdjustments className="size-4 text-primary" />
-                    {t("settings.agentTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.agentDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" onClick={() => openAgentSettings()}>
-                    {t("settings.openAgentSettings")}
-                  </Button>
                 </CardContent>
               </Card>
 

@@ -95,9 +95,16 @@ export interface SessionReplayConsoleOptions {
  * `agent-native.network` custom events emitted per recording session
  * (default 2000); once hit, capture stops for the rest of the session and one
  * final truncation-notice event is emitted.
+ *
+ * `captureErrorBodies` (default true) additionally captures a bounded,
+ * redacted response-body snippet for 5xx responses only -- request bodies
+ * and headers are never captured, and non-5xx/network-failure responses
+ * never carry a body. `maxErrorBodyLength` (default 2048) caps that snippet.
  */
 export interface SessionReplayNetworkOptions {
   maxEvents?: number;
+  captureErrorBodies?: boolean;
+  maxErrorBodyLength?: number;
 }
 
 export interface SessionReplayOptions {
@@ -141,7 +148,9 @@ export interface SessionReplayOptions {
   console?: boolean | SessionReplayConsoleOptions;
   /**
    * Capture fetch/XHR requests as `agent-native.network` custom rrweb
-   * events (method, URL, status, timing -- never bodies or headers).
+   * events (method, URL, status, timing). Request bodies and headers are
+   * never captured; response bodies are captured only as a bounded,
+   * redacted snippet for 5xx responses (see `captureErrorBodies`).
    * Defaults to on whenever session replay is enabled. Pass `false` to
    * disable, or an options object to override caps.
    */
@@ -203,6 +212,10 @@ interface NormalizedSessionReplayOptions {
 
 interface NormalizedCaptureOptions {
   maxEvents: number;
+  /** Network-only: capture a bounded 5xx response-body snippet. Unused by console. */
+  captureErrorBodies?: boolean;
+  /** Network-only: cap (chars) for the captured error-body snippet. */
+  maxErrorBodyLength?: number;
 }
 
 const DEFAULT_REPLAY_PATH = "/api/analytics/replay";
@@ -263,6 +276,10 @@ const MAX_CONSOLE_ARGS = 10;
 const MAX_CONSOLE_STACK_LENGTH = 2000;
 const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
 const MAX_CONSOLE_SERIALIZE_ENTRIES = 20;
+/** Default cap (chars) for a captured 5xx response-body snippet. */
+const DEFAULT_MAX_ERROR_BODY_LENGTH = 2048;
+/** Hard timeout for the async response-body read; emit without body past this. */
+const ERROR_BODY_READ_TIMEOUT_MS = 1500;
 
 /**
  * Re-entrancy guard: true while the recorder itself is emitting custom events
@@ -644,10 +661,12 @@ function normalizeOptions(
 
 /**
  * Console/network capture default to ON whenever session replay records;
- * `false` disables a category, an object form overrides its caps.
+ * `false` disables a category, an object form overrides its caps. Network
+ * options may additionally carry `captureErrorBodies`/`maxErrorBodyLength`;
+ * console ignores those fields.
  */
 function normalizeCaptureToggle(
-  value: boolean | { maxEvents?: number } | undefined,
+  value: boolean | SessionReplayNetworkOptions | undefined,
   defaultMaxEvents: number,
 ): NormalizedCaptureOptions | null {
   if (value === false) return null;
@@ -657,7 +676,16 @@ function normalizeCaptureToggle(
     Number.isFinite(overrides.maxEvents)
       ? Math.max(1, Math.floor(overrides.maxEvents))
       : defaultMaxEvents;
-  return { maxEvents };
+  const maxErrorBodyLength =
+    typeof overrides.maxErrorBodyLength === "number" &&
+    Number.isFinite(overrides.maxErrorBodyLength)
+      ? Math.max(0, Math.floor(overrides.maxErrorBodyLength))
+      : DEFAULT_MAX_ERROR_BODY_LENGTH;
+  return {
+    maxEvents,
+    captureErrorBodies: overrides.captureErrorBodies !== false,
+    maxErrorBodyLength,
+  };
 }
 
 function scrubStringValue(key: string, value: string): string {
@@ -1507,6 +1535,36 @@ function isCaptureExcludedUrl(rawUrl: string, ingestEndpoint: string): boolean {
   return false;
 }
 
+/**
+ * Best-effort, synchronous read of a 5xx XHR response body, sliced to `cap`
+ * before redaction runs (caller redacts). Only reads `responseText` when
+ * `responseType` is "" or "text" -- other response types are read via
+ * `JSON.stringify` (guarded) for `"json"`, and skipped entirely otherwise
+ * since arbitrary binary/blob/arraybuffer bodies are not useful error text.
+ */
+function readXhrErrorBody(
+  xhr: XMLHttpRequest,
+  cap: number,
+): string | undefined {
+  try {
+    const responseType = xhr.responseType;
+    if (responseType === "" || responseType === "text") {
+      const text = xhr.responseText;
+      return typeof text === "string" ? text.slice(0, cap) : undefined;
+    }
+    if (responseType === "json") {
+      try {
+        return JSON.stringify(xhr.response)?.slice(0, cap);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function installNetworkCapture(
   state: SessionReplayState,
   captureOptions: NormalizedCaptureOptions,
@@ -1531,6 +1589,11 @@ function installNetworkCapture(
     emitReplayCustomEvent(state, SESSION_REPLAY_NETWORK_EVENT_TAG, payload);
   };
 
+  const errorBodyCap =
+    captureOptions.captureErrorBodies !== false
+      ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
+      : null;
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -1539,6 +1602,7 @@ function installNetworkCapture(
     ok: boolean,
     durationMs: number,
     error?: string,
+    responseBody?: string,
   ) => {
     if (stopped) return;
     try {
@@ -1560,9 +1624,55 @@ function installNetworkCapture(
               ),
             }
           : {}),
+        ...(responseBody
+          ? {
+              responseBody: truncateCaptureText(
+                redactCaptureText(responseBody),
+                errorBodyCap ?? DEFAULT_MAX_ERROR_BODY_LENGTH,
+              ),
+            }
+          : {}),
       });
     } catch {
       // capture must never break the host page
+    }
+  };
+
+  /**
+   * Best-effort bounded read of a 5xx response body. Reads a decoded stream
+   * up to `cap` chars and cancels the reader, or falls back to `.text()`
+   * sliced to `cap` when no readable stream is exposed. Never throws --
+   * opaque/no-body responses (or any read failure) resolve to undefined.
+   */
+  const readBoundedErrorBody = async (
+    response: Response,
+    cap: number,
+  ): Promise<string | undefined> => {
+    try {
+      const reader = response.body?.getReader?.();
+      if (reader) {
+        const decoder = new TextDecoder();
+        let text = "";
+        while (text.length < cap) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) text += decoder.decode(value, { stream: true });
+        }
+        // Fire-and-forget: cancelling an already-exhausted (or still-open but
+        // no-longer-wanted) reader can hang indefinitely on some stream
+        // implementations. We never need the result, so don't await it --
+        // that would defeat the whole point of bounding this read.
+        try {
+          reader.cancel().catch(() => {});
+        } catch {
+          // best-effort; some readers throw synchronously instead
+        }
+        return text.slice(0, cap);
+      }
+      const text = await response.text();
+      return text.slice(0, cap);
+    } catch {
+      return undefined;
     }
   };
 
@@ -1593,8 +1703,10 @@ function installNetworkCapture(
         return originalFetch.call(self, input as RequestInfo | URL, init);
       }
       const startedAt = performance.now();
-      // Call the original exactly as the page did; never read bodies, never
-      // replace the response, propagate rejections untouched.
+      // Call the original exactly as the page did; never read the caller's
+      // response before returning it, never replace the response, propagate
+      // rejections untouched. A 5xx body snippet (if any) is read from a
+      // clone and emitted from a detached promise chain afterward.
       const result = originalFetch.call(self, input as RequestInfo | URL, init);
       if (!result || typeof (result as Promise<Response>).then !== "function") {
         return result;
@@ -1602,14 +1714,62 @@ function installNetworkCapture(
       return result.then(
         (response) => {
           try {
-            recordRequest(
-              "fetch",
-              method,
-              url,
-              response.status,
-              response.ok,
-              performance.now() - startedAt,
-            );
+            const durationMs = performance.now() - startedAt;
+            if (errorBodyCap !== null && response.status >= 500) {
+              // Clone immediately -- before any other code (including this
+              // handler returning) can consume the original body -- so the
+              // clone's stream is guaranteed unconsumed.
+              let clone: Response | null = null;
+              try {
+                clone = response.clone();
+              } catch {
+                clone = null;
+              }
+              if (clone) {
+                const bodyPromise = readBoundedErrorBody(clone, errorBodyCap);
+                const timeoutPromise = new Promise<undefined>((resolve) => {
+                  setTimeout(
+                    () => resolve(undefined),
+                    ERROR_BODY_READ_TIMEOUT_MS,
+                  );
+                });
+                // Detached chain: never rejects, never awaited by the caller.
+                Promise.race([bodyPromise, timeoutPromise])
+                  .then((responseBody) => {
+                    recordRequest(
+                      "fetch",
+                      method,
+                      url,
+                      response.status,
+                      response.ok,
+                      durationMs,
+                      undefined,
+                      responseBody,
+                    );
+                  })
+                  .catch(() => {
+                    // never affect the caller
+                  });
+              } else {
+                recordRequest(
+                  "fetch",
+                  method,
+                  url,
+                  response.status,
+                  response.ok,
+                  durationMs,
+                );
+              }
+            } else {
+              recordRequest(
+                "fetch",
+                method,
+                url,
+                response.status,
+                response.ok,
+                durationMs,
+              );
+            }
           } catch {
             // never affect the caller
           }
@@ -1700,14 +1860,20 @@ function installNetworkCapture(
             "loadend",
             () => {
               const status = typeof this.status === "number" ? this.status : 0;
+              const effectiveStatus = errorMessage ? 0 : status;
+              let responseBody: string | undefined;
+              if (errorBodyCap !== null && !errorMessage && status >= 500) {
+                responseBody = readXhrErrorBody(this, errorBodyCap);
+              }
               recordRequest(
                 "xhr",
                 info.method,
                 info.url,
-                errorMessage ? 0 : status,
+                effectiveStatus,
                 !errorMessage && status >= 200 && status < 300,
                 performance.now() - startedAt,
                 errorMessage,
+                responseBody,
               );
               xhrInfo.delete(this);
             },

@@ -98,22 +98,21 @@ export default defineAction({
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
     const notionPageIdByDocumentId = new Map<string, string>();
-    if (documents.length > 0) {
-      const notionLinks = await db
-        .select({
-          documentId: schema.documentSyncLinks.documentId,
-          remotePageId: schema.documentSyncLinks.remotePageId,
-        })
-        .from(schema.documentSyncLinks)
-        .where(
-          inArray(
-            schema.documentSyncLinks.documentId,
-            documents.map((d) => d.id),
-          ),
-        );
-      for (const link of notionLinks) {
-        notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
+    const databaseByDocumentId = new Map<
+      string,
+      typeof schema.contentDatabases.$inferSelect
+    >();
+    const databaseMembershipByDocumentId = new Map<
+      string,
+      {
+        item: typeof schema.contentDatabaseItems.$inferSelect;
+        database: typeof schema.contentDatabases.$inferSelect;
       }
+    >();
+    const softDeletedDocumentIds = new Set<string>();
+
+    if (documents.length > 0) {
+      const visibleDocumentIds = documents.map((d) => d.id);
 
       const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
       if (userEmail) {
@@ -133,97 +132,105 @@ export default defineAction({
         );
       }
 
-      if (principalClauses.length > 0) {
-        const shareRows = await db
+      // These queries all depend only on the initial `documents` id list
+      // (already fetched above), not on each other's results, so they run
+      // concurrently instead of as sequential round-trips.
+      const [
+        notionLinks,
+        shareRows,
+        databases,
+        databaseMemberships,
+        softDeletedDatabases,
+      ] = await Promise.all([
+        db
           .select({
-            resourceId: schema.documentShares.resourceId,
-            role: schema.documentShares.role,
+            documentId: schema.documentSyncLinks.documentId,
+            remotePageId: schema.documentSyncLinks.remotePageId,
           })
-          .from(schema.documentShares)
+          .from(schema.documentSyncLinks)
+          .where(
+            inArray(schema.documentSyncLinks.documentId, visibleDocumentIds),
+          ),
+        principalClauses.length > 0
+          ? db
+              .select({
+                resourceId: schema.documentShares.resourceId,
+                role: schema.documentShares.role,
+              })
+              .from(schema.documentShares)
+              .where(
+                and(
+                  inArray(schema.documentShares.resourceId, visibleDocumentIds),
+                  or(...principalClauses),
+                ),
+              )
+          : Promise.resolve([] as { resourceId: string; role: ShareRole }[]),
+        db
+          .select()
+          .from(schema.contentDatabases)
+          .where(
+            and(
+              inArray(schema.contentDatabases.documentId, visibleDocumentIds),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          ),
+        db
+          .select({
+            item: schema.contentDatabaseItems,
+            database: schema.contentDatabases,
+          })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
           .where(
             and(
               inArray(
-                schema.documentShares.resourceId,
-                documents.map((d) => d.id),
+                schema.contentDatabaseItems.documentId,
+                visibleDocumentIds,
               ),
-              or(...principalClauses),
+              isNull(schema.contentDatabases.deletedAt),
             ),
-          );
+          ),
+        db
+          .select({
+            id: schema.contentDatabases.id,
+            documentId: schema.contentDatabases.documentId,
+          })
+          .from(schema.contentDatabases)
+          .where(
+            and(
+              inArray(schema.contentDatabases.documentId, visibleDocumentIds),
+              isNotNull(schema.contentDatabases.deletedAt),
+            ),
+          ),
+      ]);
 
-        for (const row of shareRows) {
-          shareRoleByDocumentId.set(
-            row.resourceId,
-            strongerRole(
-              shareRoleByDocumentId.get(row.resourceId) ?? null,
-              row.role,
-            ),
-          );
-        }
+      for (const link of notionLinks) {
+        notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
       }
-    }
 
-    const databases =
-      documents.length > 0
-        ? await db
-            .select()
-            .from(schema.contentDatabases)
-            .where(
-              and(
-                inArray(
-                  schema.contentDatabases.documentId,
-                  documents.map((d) => d.id),
-                ),
-                isNull(schema.contentDatabases.deletedAt),
-              ),
-            )
-        : [];
-    const databaseByDocumentId = new Map(
-      databases.map((database) => [database.documentId, database]),
-    );
-    const databaseMemberships =
-      documents.length > 0
-        ? await db
-            .select({
-              item: schema.contentDatabaseItems,
-              database: schema.contentDatabases,
-            })
-            .from(schema.contentDatabaseItems)
-            .innerJoin(
-              schema.contentDatabases,
-              eq(
-                schema.contentDatabases.id,
-                schema.contentDatabaseItems.databaseId,
-              ),
-            )
-            .where(
-              and(
-                inArray(
-                  schema.contentDatabaseItems.documentId,
-                  documents.map((d) => d.id),
-                ),
-                isNull(schema.contentDatabases.deletedAt),
-              ),
-            )
-        : [];
-    const databaseMembershipByDocumentId = new Map(
-      databaseMemberships.map((row) => [row.item.documentId, row]),
-    );
-
-    const softDeletedDocumentIds = new Set<string>();
-    if (documents.length > 0) {
-      const visibleDocumentIds = documents.map((d) => d.id);
-      const softDeletedDatabases = await db
-        .select({
-          id: schema.contentDatabases.id,
-          documentId: schema.contentDatabases.documentId,
-        })
-        .from(schema.contentDatabases)
-        .where(
-          and(
-            inArray(schema.contentDatabases.documentId, visibleDocumentIds),
-            isNotNull(schema.contentDatabases.deletedAt),
+      for (const row of shareRows) {
+        shareRoleByDocumentId.set(
+          row.resourceId,
+          strongerRole(
+            shareRoleByDocumentId.get(row.resourceId) ?? null,
+            row.role,
           ),
         );
+      }
+
+      for (const database of databases) {
+        databaseByDocumentId.set(database.documentId, database);
+      }
+
+      for (const row of databaseMemberships) {
+        databaseMembershipByDocumentId.set(row.item.documentId, row);
+      }
 
       for (const database of softDeletedDatabases) {
         softDeletedDocumentIds.add(database.documentId);

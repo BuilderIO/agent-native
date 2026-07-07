@@ -407,8 +407,13 @@ export function useAgentDynamicSuggestionsResult(
 
     void load(true);
     const interval = setInterval(() => {
+      // The useEffect deps already include appStateVersion, so app-state
+      // changes trigger an immediate event-driven refresh above. This
+      // interval is only a slow safety net for updates that don't bump
+      // that version — skip ticks while the tab isn't visible.
+      if (document.hidden) return;
       void load(false);
-    }, 2_000);
+    }, 30_000);
 
     return () => {
       cancelled = true;

@@ -34,7 +34,7 @@ description: "आपके उपयोगकर्ता आपके टेम
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -227,7 +227,7 @@ iframe सैंडबॉक्स के अंदर, प्रत्येक
 | `appAction(name, params)`                        | किसी भी होस्ट टेम्पलेट के actions पर कॉल करें                           | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | `/_agent-native/*` के अंतर्गत अनुमत फ़्रेमवर्क एंडपॉइंट को कॉल करें     | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | SQL से पढ़ें (उपयोगकर्ता के लिए ऑटो-स्कोप)                              | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | SQL को लिखें                                                            | `dbExec('INSERT INTO ...')`                               |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions                   | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | रहस्यों के साथ एक सुरक्षित प्रॉक्सी के माध्यम से बाहरी APIs को हिट करें | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | प्रति-एक्सटेंशन डेटा जारी रखें (उपयोगकर्ता/संगठन का दायरा)              | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | मौजूदा आइटमों की सूची बनाएं                                             | `extensionData.list('notes', { scope: 'all' })`           |
@@ -397,7 +397,7 @@ SQL स्थानीय एक्सटेंशन के लिए पंक
 
 - `extensionData` अक्षम होने तक छोटी रनटाइम स्थिति के लिए उपलब्ध है।
 - `appAction` कॉल को `permissions.appActions` में स्पष्ट रूप से सूचीबद्ध किया जाना चाहिए।
-- `dbQuery`, `dbExec`, और `extensionFetch` अभी के लिए अवरुद्ध हैं।
+- `dbQuery` और `extensionFetch` अभी के लिए अवरुद्ध हैं।
 - SQL-समर्थित अपडेट, डिलीट, शेयर और इतिहास actions एक संदेश लौटाता है
   स्थानीय प्रविष्टि फ़ाइल की ओर वापस इंगित करता है।
 
@@ -430,6 +430,8 @@ SQL स्थानीय एक्सटेंशन के लिए पंक
 
 सामान्य नियम: **यदि यह एक उपयोगकर्ता या एक टीम के लिए है, तो यह एक एक्सटेंशन है।** यदि टेम्पलेट के प्रत्येक उपयोगकर्ता को यह मिलना चाहिए, तो इसे एक वास्तविक सुविधा के रूप में शिप करें।
 
+कस्टम डेटा फ़ेचिंग के लिए जो किसी कस्टम विजेट UI के बजाय नेटिव charts और tables को डेटा दे, [डेटा प्रोग्राम](/docs/data-programs) देखें — एक सहेजा गया, रिफ्रेश करने योग्य `run-code` स्क्रिप्ट जिससे dashboard पैनल सीधे बाइंड होते हैं, बिना किसी एक्सटेंशन iframe के।
+
 ## सुरक्षा {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -444,7 +446,7 @@ SQL स्थानीय एक्सटेंशन के लिए पंक
 - **सर्वर-साइड गुप्त इंजेक्शन** `${keys.NAME}` टेम्पलेट के माध्यम से - वास्तविक कुंजी मान कभी भी ब्राउज़र तक नहीं पहुंचता है।
 - **डोमेन-लॉक रहस्य** - प्रत्येक कुंजी एक URL अनुमति सूची से बंधी है; प्रॉक्सी अन्य होस्ट के अनुरोधों को अस्वीकार कर देता है।
 - **निजी-नेटवर्क सुरक्षा** — एक्सटेंशन आंतरिक पते तक नहीं पहुंच सकते।
-- **प्रमाणीकरण आवश्यक** - एक्सटेंशन केवल लॉग-इन उपयोगकर्ताओं के लिए चलते हैं, और `dbQuery` / `dbExec` कॉल ऑटो-स्कोप हैं।
+- **प्रमाणीकरण आवश्यक** - एक्सटेंशन केवल लॉग-इन उपयोगकर्ताओं के लिए चलते हैं, और `dbQuery` कॉल ऑटो-स्कोप हैं।
 
 ## नामकरण के बारे में जानने योग्य कुछ बातें {#naming-back-compat}
 

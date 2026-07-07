@@ -65,6 +65,7 @@ import {
   TooltipTrigger,
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
+import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
@@ -120,6 +121,34 @@ const AgentTerminal = lazy(() =>
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+
+function settingsRouteHashForSection(section?: string | null): string {
+  const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
+  if (
+    normalized.startsWith("secrets") ||
+    normalized.includes("api") ||
+    normalized === "integrations" ||
+    normalized === "email" ||
+    normalized === "browser"
+  ) {
+    return "#connections";
+  }
+  if (
+    normalized === "account" ||
+    normalized === "workspace" ||
+    normalized === "workspace-settings" ||
+    normalized === "organization" ||
+    normalized === "org" ||
+    normalized === "hosting" ||
+    normalized === "database" ||
+    normalized === "uploads" ||
+    normalized === "auth" ||
+    normalized === "demo-mode"
+  ) {
+    return "#workspace";
+  }
+  return "#agent";
+}
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
@@ -686,6 +715,7 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
+  const navigate = useNavigate();
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
@@ -821,6 +851,10 @@ function AgentPanelInner({
         requestKey: prev.requestKey + 1,
       }));
       if (!allowSettingsMode) {
+        navigate({
+          pathname: "/settings",
+          hash: settingsRouteHashForSection(section),
+        });
         switchMode("chat");
         return;
       }
@@ -835,7 +869,7 @@ function AgentPanelInner({
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [allowSettingsMode, switchMode]);
+  }, [allowSettingsMode, navigate, switchMode]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -974,22 +1008,6 @@ function AgentPanelInner({
     (activeMode: PanelMode) => (
       <TooltipProvider delayDuration={200}>
         <div className="flex shrink-0 items-center gap-1">
-          {onCollapse && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={onCollapse}
-                  aria-label={t("agentPanel.collapseSidebar")}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <IconX size={16} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("agentPanel.collapseSidebar")}</TooltipContent>
-            </Tooltip>
-          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -1040,7 +1058,7 @@ function AgentPanelInner({
                 onClick={() => switchMode("resources")}
                 aria-label={t("agentPanel.workspaceMode")}
                 className={cn(
-                  "agent-sidebar-hover-reveal flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
                   activeMode === "resources"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -1056,7 +1074,7 @@ function AgentPanelInner({
         </div>
       </TooltipProvider>
     ),
-    [codeAccessEnabled, codeUnavailableDescription, onCollapse, showCliMode, t],
+    [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
   );
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -1114,7 +1132,7 @@ function AgentPanelInner({
             <button
               onClick={addTab}
               aria-label={t("agentPanel.newChat")}
-              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
             </button>
@@ -1125,7 +1143,7 @@ function AgentPanelInner({
             <button
               onClick={addCliTab}
               aria-label={t("agentPanel.newTerminal")}
-              className="agent-sidebar-hover-reveal flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
             </button>
@@ -1287,6 +1305,18 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {onCollapse && (
+          <IconTooltip content={t("agentPanel.collapseSidebar")}>
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label={t("agentPanel.collapseSidebar")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconX size={14} />
+            </button>
+          </IconTooltip>
+        )}
       </div>
     ),
     [
@@ -1383,7 +1413,13 @@ function AgentPanelInner({
       showHistory,
       toggleHistory,
     }: MultiTabAssistantChatHeaderProps) => (
-      <div className="flex flex-col shrink-0">
+      <div
+        className="agent-sidebar-chat-header flex flex-col shrink-0"
+        data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
+        data-agent-sidebar-chat-header-active={
+          headerMenuOpen || feedbackOpen ? "" : undefined
+        }
+      >
         {/* Top bar: mode buttons + actions */}
         <div
           className={AGENT_PANEL_HEADER_CLASS}
@@ -1617,6 +1653,9 @@ function AgentPanelInner({
       renderModeButtons,
       chatNotice,
       canUseCodeTools,
+      feedbackOpen,
+      headerMenuOpen,
+      onCollapse,
       showTabBar,
       cliTabs,
       activeCliTab,
@@ -1642,14 +1681,17 @@ function AgentPanelInner({
       <style
         dangerouslySetInnerHTML={{
           __html:
-            ".agent-sidebar-hover-reveal{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
-            ".agent-panel-root:hover .agent-sidebar-hover-reveal,.agent-panel-root:focus-within .agent-sidebar-hover-reveal{opacity:1;pointer-events:auto;}" +
+            "@media (hover:hover) and (pointer:fine){" +
+            ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
+            ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
+            "}" +
             ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
             `[data-agent-fullscreen='true'] .agent-running-activity,` +
-            `[data-agent-fullscreen='true'] .agent-composer-area{` +
+            `[data-agent-fullscreen='true'] .agent-composer-area,` +
+            `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
             `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
@@ -1880,21 +1922,36 @@ function ResizeHandle({
       }
     }
 
-    function onMouseUp() {
+    function endDrag() {
       if (!dragging.current) return;
       dragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     }
 
+    // mouseup covers the normal release-inside-the-page case; window blur
+    // covers releasing the button outside the browser window/iframe (e.g.
+    // dragging the sidebar wide and letting go over the OS chrome), which
+    // never delivers a mouseup to this document. Without both, a drag that
+    // ends abnormally — or this effect re-running/unmounting mid-drag —
+    // could leave `document.body.style.userSelect` stuck at "none",
+    // silently breaking text selection/copy everywhere in the app.
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("mouseup", endDrag);
+    window.addEventListener("blur", endDrag);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("blur", endDrag);
       if (cursorActive) document.body.style.cursor = "";
+      // Always clear regardless of `dragging`/`cursorActive` state — this
+      // effect can unmount or re-run (position change, sidebar layout
+      // change) while a drag is in flight, and a stuck "none" here disables
+      // selection app-wide until reload.
+      document.body.style.userSelect = "";
+      dragging.current = false;
     };
   }, [position]);
 
@@ -2251,6 +2308,15 @@ class AgentPanelErrorBoundary extends React.Component<
         >
           Reset agent panel
         </button>
+        <ErrorReportActions
+          appName="Agent panel"
+          title="Agent panel UI error"
+          details={this.state.error.message}
+          issueTitle="Agent panel UI error"
+          className="max-w-[260px]"
+          feedbackClassName="h-7"
+          githubClassName="h-7"
+        />
       </div>
     );
   }
@@ -2869,7 +2935,7 @@ export function AgentSidebar({
       height: "100%",
       width,
       maxWidth: "85vw",
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
       "--agent-sidebar-background":
         "var(--agent-native-lower-surface, hsl(var(--background)))",
@@ -2886,7 +2952,7 @@ export function AgentSidebar({
       position: "fixed",
       inset: 0,
       width: "100%",
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_FULLSCREEN_Z_INDEX,
       background: "hsl(var(--background))",
       display: open ? "flex" : "none",
@@ -2900,7 +2966,7 @@ export function AgentSidebar({
         "var(--agent-native-lower-surface, hsl(var(--background)))",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
-      maxHeight: "100vh",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
       borderLeft:
         !panelOpen || isLeft || showResizeHandle
           ? "none"
@@ -2965,6 +3031,7 @@ export function AgentSidebar({
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
+            allowSettingsMode={false}
           />
         </div>
       </div>

@@ -33,6 +33,9 @@ type WindowListener = (event: unknown) => void;
 
 interface FakeXhr {
   status: number;
+  responseType: string;
+  responseText: string;
+  response: unknown;
   addEventListener(event: string, listener: WindowListener): void;
   dispatch(event: string): void;
   open(method: string, url: string): void;
@@ -46,6 +49,9 @@ interface FakeXhr {
 function createFakeXhrClass(): new () => FakeXhr {
   return class FakeXMLHttpRequest implements FakeXhr {
     status = 0;
+    responseType = "";
+    responseText = "";
+    response: unknown = undefined;
     private listeners = new Map<string, WindowListener[]>();
 
     addEventListener(event: string, listener: WindowListener): void {
@@ -454,6 +460,181 @@ describe("session replay console/network capture", () => {
       ok: false,
       error: "XMLHttpRequest failed",
     });
+  });
+
+  it("captures a redacted, truncated response body for 5xx fetch responses", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const response = new Response(
+      JSON.stringify({ error: "boom", apiKey: "abc123" }),
+      { status: 502 },
+    );
+    fetchMock.mockResolvedValueOnce(response);
+    await startCapture();
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    const result = await wrappedFetch("https://api.example.test/broken");
+
+    // The caller's response body must still be fully readable -- the
+    // response-body capture reads a clone, never the original stream.
+    expect(await result.json()).toEqual({ error: "boom", apiKey: "abc123" });
+
+    await vi.waitFor(() => {
+      expect(networkEvents()).toHaveLength(1);
+      expect(networkEvents()[0].responseBody).toBeDefined();
+    });
+    expect(networkEvents()[0]).toMatchObject({
+      api: "fetch",
+      status: 502,
+      responseBody: '{"error":"boom","apiKey":"<redacted>"}',
+    });
+  });
+
+  it("truncates a captured error body to the configured cap", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const longBody = "x".repeat(5000);
+    fetchMock.mockResolvedValueOnce(new Response(longBody, { status: 500 }));
+    await startCapture({ network: { maxErrorBodyLength: 100 } });
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    await wrappedFetch("https://api.example.test/broken");
+
+    await vi.waitFor(() => {
+      expect(networkEvents()[0]?.responseBody).toBeDefined();
+    });
+    expect((networkEvents()[0].responseBody as string).length).toBe(100);
+  });
+
+  it("does not capture a response body for non-5xx or network-failure statuses", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    fetchMock
+      .mockResolvedValueOnce(new Response("client error body", { status: 404 }))
+      .mockResolvedValueOnce(new Response("ok body", { status: 200 }));
+    await startCapture();
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    await wrappedFetch("https://api.example.test/missing");
+    await wrappedFetch("https://api.example.test/ok");
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(
+      wrappedFetch("https://api.example.test/down"),
+    ).rejects.toThrow();
+
+    // Give any (incorrectly-scheduled) body read a chance to resolve before
+    // asserting absence.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const events = networkEvents();
+    expect(events).toHaveLength(3);
+    for (const event of events) {
+      expect(event.responseBody).toBeUndefined();
+    }
+  });
+
+  it("disables error-body capture when captureErrorBodies is false", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    fetchMock.mockResolvedValueOnce(
+      new Response("server exploded", { status: 500 }),
+    );
+    await startCapture({ network: { captureErrorBodies: false } });
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    await wrappedFetch("https://api.example.test/broken");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(networkEvents()).toHaveLength(1);
+    expect(networkEvents()[0].responseBody).toBeUndefined();
+    expect(networkEvents()[0]).toMatchObject({ status: 500 });
+  });
+
+  it("emits without a body when the body read exceeds the timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock, windowStub } = installBrowser();
+      recordMock.mockReturnValue(vi.fn());
+      // A response whose clone().text()/reader never resolves, simulating a
+      // stalled/slow body read.
+      const hangingBody = new ReadableStream<Uint8Array>({
+        start: () => {
+          // never enqueue or close -- the reader hangs forever.
+        },
+      });
+      const response = new Response(hangingBody, { status: 503 });
+      fetchMock.mockResolvedValueOnce(response);
+      await startCapture();
+
+      const wrappedFetch = windowStub.fetch as typeof fetch;
+      await wrappedFetch("https://api.example.test/stalled");
+
+      // Advance past the 1500ms hard timeout so the race resolves without a
+      // body, then let the microtask queue drain.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(networkEvents()).toHaveLength(1);
+      expect(networkEvents()[0]).toMatchObject({ status: 503 });
+      expect(networkEvents()[0].responseBody).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("captures XHR response bodies for 5xx statuses via responseText", async () => {
+    const { XhrCtor } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    await startCapture();
+
+    const failed = new XhrCtor();
+    failed.open("post", "https://api.example.test/things");
+    failed.send();
+    failed.status = 500;
+    failed.responseType = "";
+    failed.responseText = "Bearer aaa.bbb.ccc failed to authorize";
+    failed.dispatch("loadend");
+
+    expect(networkEvents()[0]).toMatchObject({
+      api: "xhr",
+      status: 500,
+      responseBody: "Bearer <redacted> failed to authorize",
+    });
+  });
+
+  it("captures XHR json responseType error bodies via JSON.stringify", async () => {
+    const { XhrCtor } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    await startCapture();
+
+    const failed = new XhrCtor();
+    failed.open("post", "https://api.example.test/things");
+    failed.send();
+    failed.status = 500;
+    failed.responseType = "json";
+    failed.response = { error: "internal" };
+    failed.dispatch("loadend");
+
+    expect(networkEvents()[0]).toMatchObject({
+      api: "xhr",
+      status: 500,
+      responseBody: '{"error":"internal"}',
+    });
+  });
+
+  it("does not read XHR response bodies for non-5xx statuses", async () => {
+    const { XhrCtor } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    await startCapture();
+
+    const ok = new XhrCtor();
+    ok.open("get", "https://api.example.test/things");
+    ok.send();
+    ok.status = 200;
+    ok.responseText = "fine";
+    ok.dispatch("loadend");
+
+    expect(networkEvents()[0]).toMatchObject({ status: 200 });
+    expect(networkEvents()[0].responseBody).toBeUndefined();
   });
 
   it("never records replay-ingest, analytics-track, or non-network URLs", async () => {
