@@ -1363,7 +1363,35 @@ function findClosingTag(
 // that lands inside a real `<template>` block, this catches it and callers
 // redirect to a real DOM slot instead of silently splicing into markup that
 // will never render or be selectable again.
+//
+// Finding 8: when it fires, callers used to always redirect to the end of
+// <body> (or end of document) — a silent teleport that can land an anchored
+// insert far from where the user was working. `findEnclosingTemplateClose`
+// below returns the ENCLOSING outer template's closeEnd position (the
+// offset immediately after its `</template>`) when `offset` is inside a
+// template interior, so callers can redirect there instead: still a
+// guaranteed-safe real-DOM slot (immediately after a closing tag, a sibling
+// of the template rather than jumping to doc end), just much closer to the
+// anchor the caller actually asked for.
 function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
+  return findEnclosingTemplateClose(html, offset) !== null;
+}
+
+// Exported ONLY for the finding-8 redirect-target unit test below: with
+// findClosingTag's offset-miscalculation bug fixed (see the doc comment
+// above), every insertAt this module's own callers compute through
+// parseHtmlElements-derived positions (anchor.start/end/contentEnd,
+// bodyEl.contentEnd) already lands OUTSIDE template interiors in practice —
+// NON_VISUAL_TAGS like <template> are skipped wholesale, so a template can
+// never itself become part of another element's registered content range.
+// That makes this guard a true defense-in-depth backstop with no reachable
+// integration-level repro through moveNodeBetweenDocuments today; testing
+// the redirect target directly against a synthetic offset is the honest way
+// to pin its behavior instead of contriving a fragile call into the guard.
+export function findEnclosingTemplateClose(
+  html: string,
+  offset: number,
+): { closeEnd: number } | null {
   const templateOpenRe = /<template\b[^>]*>/gi;
   let match: RegExpExecArray | null;
   while ((match = templateOpenRe.exec(html))) {
@@ -1371,10 +1399,12 @@ function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    if (offset > openEnd && offset <= contentEnd) return true;
+    if (offset > openEnd && offset <= contentEnd) {
+      return { closeEnd: close ? close.closeEnd : html.length };
+    }
     templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
   }
-  return false;
+  return null;
 }
 
 function parseHtmlElements(html: string): ParsedElement[] {
@@ -4094,6 +4124,17 @@ export interface MoveNodeBetweenDocumentsResult {
    * Only present when status is "applied".
    */
   movedNodeId?: string;
+  /**
+   * Finding 8: true when the requested anchor placement fell inside a
+   * `<template>` interior and the insert was redirected to a real DOM slot
+   * instead (immediately after the enclosing template's `</template>` when
+   * that could be located, otherwise the pre-existing doc-end/body-end
+   * fallback). Hosts can use this to toast a "landed near, not exactly
+   * where you dropped it" notice instead of the previous fully silent
+   * teleport. Only meaningful when status is "applied" and an anchor was
+   * requested.
+   */
+  anchorRedirected?: boolean;
 }
 
 /**
@@ -4180,6 +4221,7 @@ export function moveNodeBetweenDocuments(
 
   // --- Insert fragment into destHtml ---
   let nextDestHtml: string;
+  let anchorRedirected = false;
 
   if (anchorNodeId) {
     const anchor = destElements.find(
@@ -4203,15 +4245,25 @@ export function moveNodeBetweenDocuments(
             : anchor.contentEnd;
     // Never splice into a <template> interior — it renders nowhere and is
     // unselectable afterward (see isOffsetInsideTemplateInterior doc above).
-    // Redirect to the end of <body> (or end of document) instead of silently
-    // corrupting the anchor's template.
-    if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
+    // Finding 8: redirect to immediately AFTER the ENCLOSING outer
+    // </template> when it can be located — still a guaranteed-safe real-DOM
+    // slot, just a sibling of the template instead of a jump all the way to
+    // the end of <body>/the document. Falls back to the old doc-end/body-end
+    // behavior only if the enclosing template's close somehow can't be
+    // resolved (defense-in-depth for a guard that should always agree with
+    // itself here).
+    const enclosingTemplate = findEnclosingTemplateClose(destHtml, insertAt);
+    if (enclosingTemplate) {
+      insertAt = enclosingTemplate.closeEnd;
+      anchorRedirected = true;
+    } else if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
       const bodyEl = destElements.find((el) => el.tag === "body");
       insertAt = bodyEl
         ? bodyEl.selfClosing
           ? bodyEl.end
           : bodyEl.contentEnd
         : destHtml.length;
+      anchorRedirected = true;
     }
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
@@ -4240,5 +4292,6 @@ export function moveNodeBetweenDocuments(
     destHtml: nextDestHtml,
     status: "applied",
     movedNodeId,
+    ...(anchorRedirected ? { anchorRedirected: true } : {}),
   };
 }

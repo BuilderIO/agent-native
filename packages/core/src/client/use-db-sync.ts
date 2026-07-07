@@ -101,6 +101,46 @@ function isAuthFailure(error: unknown): boolean {
   );
 }
 
+/**
+ * App-state keys that drive immediate UI navigation/interaction and must
+ * never sit behind the invalidation coalesce window (see
+ * `isInteractionCriticalSyncEvent`).
+ */
+const INTERACTION_CRITICAL_APP_STATE_KEYS = [
+  "navigate",
+  "show-questions",
+  "__set_url__",
+];
+
+/**
+ * True for sync events that drive immediate, agent-initiated UI navigation
+ * or interaction rather than passive data invalidation — app-state writes in
+ * general (they back `["app-state"]` queries directly), and specifically the
+ * `navigate` / `show-questions` / `__set_url__` app-state keys that
+ * `invalidateForEvents` special-cases into their own query keys below.
+ *
+ * `useDbSync` batches ordinary invalidation-driving events (action/collab/db
+ * change events) into one flush per `INVALIDATE_COALESCE_MS` so a chatty doc
+ * doesn't refetch on every keystroke. That trade-off is wrong for these
+ * events: agent-driven navigation, `set-url`, and guided-questions prompts
+ * must land as close to instantly as possible, so any batch containing one
+ * of these bypasses the coalesce window and flushes immediately instead.
+ *
+ * Exported as a small pure predicate so this classification is unit-testable
+ * independent of the transport/timer plumbing around it.
+ */
+export function isInteractionCriticalSyncEvent(event: SyncEvent): boolean {
+  return (
+    event.source === "app-state" &&
+    (event.key === "*" ||
+      INTERACTION_CRITICAL_APP_STATE_KEYS.some(
+        (key) =>
+          event.key === key ||
+          (typeof event.key === "string" && event.key.startsWith(`${key}:`)),
+      ))
+  );
+}
+
 async function fetchPollJson<T>(
   pollUrl: string,
   since: number,
@@ -631,11 +671,23 @@ export function useDbSync(
     // full-page editor) even though the end state only needs to be
     // refreshed once. Version bookkeeping stays synchronous (below) so
     // freshness filtering for the NEXT batch is unaffected by the delay.
+    //
+    // This coalesce window is wrong for interaction-critical events (agent
+    // navigation, `set-url`, guided questions — see
+    // `isInteractionCriticalSyncEvent`): those must reach the UI immediately,
+    // not up to INVALIDATE_COALESCE_MS late. So a fresh batch containing one
+    // of those flushes synchronously (queued + new events together,
+    // canceling any pending timer) instead of joining the coalesce window.
+    // Pure invalidation bursts with no interaction-critical members keep the
+    // coalesced behavior.
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
     function flushInvalidateBatch() {
-      invalidateTimer = null;
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        invalidateTimer = null;
+      }
       if (pendingInvalidateEvents.length === 0) return;
       const batch = pendingInvalidateEvents;
       pendingInvalidateEvents = [];
@@ -644,6 +696,10 @@ export function useDbSync(
 
     function queueInvalidateBatch(events: SyncEvent[]) {
       pendingInvalidateEvents.push(...events);
+      if (events.some(isInteractionCriticalSyncEvent)) {
+        flushInvalidateBatch();
+        return;
+      }
       if (invalidateTimer) return;
       invalidateTimer = setTimeout(
         flushInvalidateBatch,

@@ -923,6 +923,51 @@ describe("normalizePoisonedBoardNestedCoords", () => {
       false,
     );
   });
+
+  // Finding 4: detectability — the function itself stays side-effect-free,
+  // but reports enough (fixedNodeCount + a before/after sample) for a caller
+  // to log what happened when the heuristic actually fires.
+  describe("detectability metadata (fixedNodeCount / samples)", () => {
+    it("reports zero fixedNodeCount and no samples when nothing changed", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:30px;top:40px;width:100px;height:80px"></div>',
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(false);
+      expect(result.fixedNodeCount).toBe(0);
+      expect(result.samples).toEqual([]);
+    });
+
+    it("reports fixedNodeCount and a before/after sample for each rebased node", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+          '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px"></div>' +
+          "</div>",
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(true);
+      expect(result.fixedNodeCount).toBe(1);
+      expect(result.samples).toHaveLength(1);
+      expect(result.samples[0]).toMatchObject({
+        nodeId: "b",
+        before: { left: 65887, top: 67311 },
+        after: { left: 151, top: 275 },
+      });
+    });
+
+    it("counts each rebased node once even when both axes are poisoned", () => {
+      const html = wrap(
+        '<div data-agent-native-node-id="a" style="position:absolute;left:200px;top:1500px;width:1119px;height:839px">' +
+          '<div data-agent-native-node-id="b" style="position:absolute;left:65887px;top:67311px;width:420px;height:336px">' +
+          '<div data-agent-native-node-id="c" style="position:absolute;left:66904px;top:67174px;width:60px;height:50px"></div>' +
+          "</div></div>",
+      );
+      const result = normalizePoisonedBoardNestedCoords(html);
+      expect(result.changed).toBe(true);
+      expect(result.fixedNodeCount).toBe(2);
+      expect(result.samples.map((s) => s.nodeId).sort()).toEqual(["b", "c"]);
+    });
+  });
 });
 
 describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensated) shape", () => {

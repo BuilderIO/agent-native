@@ -187,14 +187,31 @@ export const hitTestBridgeScript: string = `"use strict";
       if (offset > size * 0.78) return "after";
       return null;
     }
-    function draggableElementChildren(parent) {
-      return Array.prototype.slice.call(parent.children).filter(function(child) {
-        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child);
-      });
-    }
     function getNodeId(el) {
       if (!el) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.id || "";
+    }
+    function isTemplateCloneElement(el) {
+      var node = el;
+      while (node && node !== document.documentElement) {
+        if (getNodeId(node)) return false;
+        var parent = node.parentElement;
+        if (!parent) return false;
+        var siblings = parent.children;
+        for (var i = 0; i < siblings.length; i += 1) {
+          var sib = siblings[i];
+          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
+            return true;
+          }
+        }
+        node = parent;
+      }
+      return false;
+    }
+    function draggableElementChildren(parent) {
+      return Array.prototype.slice.call(parent.children).filter(function(child) {
+        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child) && !isTemplateCloneElement(child);
+      });
     }
     function freshRuntimeNodeId(prefix) {
       var random = "";
@@ -214,6 +231,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
+      if (isTemplateCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;
       var minted = freshRuntimeNodeId("pending");
@@ -317,6 +335,20 @@ export const hitTestBridgeScript: string = `"use strict";
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
         if (parent && isAutoLayoutElement(parent)) {
+          if (isTemplateCloneElement(cursor)) {
+            var cloneFallback = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY
+            );
+            if (cloneFallback) return cloneFallback;
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: parentFlowAxis(parent),
+              dropMode: "flow-insert"
+            };
+          }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;

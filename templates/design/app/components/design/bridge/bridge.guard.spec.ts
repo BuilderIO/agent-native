@@ -5510,3 +5510,370 @@ it(
     }
   },
 );
+
+// ── Template-clone ANCHOR resolution (drop INTO a clones-only container) ───
+//
+// Companion to the "template-clone reorder rejection" fix above, which only
+// gated the DRAGGED element (isTemplateCloneElement(gestureEl)). That left a
+// gap: a drag ORIGINATING elsewhere that lands on a container whose ONLY
+// children are Alpine x-for clones (e.g. a filter card with three rendered
+// "All/Active/Done" tab clones and no static siblings) could still resolve
+// its ANCHOR to one of those clones — a clone has no counterpart in the
+// static source HTML, so the resulting moveNode always fails on the host
+// (layerMoveFailed toast) even though the drop gesture itself targeted a
+// perfectly valid container. Fixed by filtering clones out of every anchor
+// candidate list (draggableElementChildren) and adding an explicit
+// isTemplateCloneElement check at every remaining "use the raw hit element
+// as anchor" site, falling back to the nearest non-clone sibling, else the
+// container itself with "inside" placement.
+
+it(
+  "editor chrome bridge resolves a drop into a container whose ONLY children are x-for clones to a container-inside anchor, never a clone",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // #filterCard's only children are the <template x-for> marker plus its
+      // three rendered clone instances — exactly the Daylist "All/Active/
+      // Done" filter card shape. #dragme is a separate, real, source-backed
+      // element being dragged INTO the card.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #filterCard { position: absolute; left: 260px; top: 40px; width: 240px; height: 120px; display: flex; flex-direction: column; gap: 4px; background: #fafafa; border: 1px solid #ddd; padding: 8px; box-sizing: border-box; }
+      .tab { display: flex; align-items: center; padding: 8px; background: #eee; height: 28px; box-sizing: border-box; }
+      #dragme { position: absolute; left: 40px; top: 40px; width: 80px; height: 40px; background: #6366f1; color: white; }
+    </style>
+  </head>
+  <body>
+    <div id="filterCard" data-agent-native-node-id="filterCard">
+      <template x-for="f in filters"></template>
+      <div class="tab">All</div>
+      <div class="tab">Active</div>
+      <div class="tab">Done</div>
+    </div>
+    <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const dragBox = (await page.locator("#dragme").boundingBox())!;
+      const cardBox = (await page.locator("#filterCard").boundingBox())!;
+      const startX = dragBox.x + dragBox.width / 2;
+      const startY = dragBox.y + dragBox.height / 2;
+      // Aim at the middle clone ("Active") so the raw hit-test element is
+      // itself a template clone, not the container's padding/background.
+      const targetX = cardBox.x + cardBox.width / 2;
+      const targetY = cardBox.y + cardBox.height / 2;
+
+      await page.mouse.click(startX, startY);
+      await page.waitForTimeout(60);
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 3 });
+      await page.mouse.move(targetX, targetY, { steps: 10 });
+      await page.waitForTimeout(80);
+
+      // The insertion guide must be showing a real anchor (not hidden as a
+      // rejected/no-target drag) while hovering directly over a clone.
+      const guideVisible = await page.evaluate(() => {
+        const guide = document.querySelector<HTMLElement>(
+          "[data-agent-native-insertion-guide]",
+        );
+        return guide
+          ? window.getComputedStyle(guide).display === "block"
+          : false;
+      });
+      expect(guideVisible).toBe(true);
+
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      // Drop must succeed (no rejection cursor/badge — this is a valid
+      // container-drop, not the reject-the-dragged-clone case above).
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as
+        | {
+            anchorSelector?: string;
+            anchorSourceId?: string;
+            placement?: string;
+          }
+        | undefined;
+      expect(structureMessage).toBeTruthy();
+
+      // The anchor must resolve to the container itself (filterCard) — never
+      // to any of the clone <div class="tab"> instances, which carry no
+      // data-agent-native-node-id/selector of their own that could survive
+      // in source HTML.
+      expect(structureMessage!.anchorSourceId).toBe("filterCard");
+      expect(structureMessage!.placement).toBe("inside");
+
+      // The live DOM actually reflects the optimistic move: #dragme landed
+      // inside #filterCard (after the rendered clones, which is correct —
+      // in source HTML the clones don't exist, so "after the clones" IS
+      // "inside the container").
+      const domResult = await page.evaluate(() => {
+        const card = document.getElementById("filterCard")!;
+        const dragged = document.getElementById("dragme")!;
+        return { insideCard: card.contains(dragged) };
+      });
+      expect(domResult.insideCard).toBe(true);
+
+      // Never mints a pending id on any clone.
+      const cloneHasPendingId = await page.evaluate(() =>
+        Array.from(document.querySelectorAll(".tab")).some((el) =>
+          el.hasAttribute("data-an-pending-node-id"),
+        ),
+      );
+      expect(cloneHasPendingId).toBe(false);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge prefers the nearest NON-clone static sibling as anchor when a container mixes clone and static children",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // #list mixes two x-for clones with one real, static, source-backed
+      // sibling (#staticItem). Dropping near a clone must resolve the
+      // anchor to #staticItem, never to either clone.
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #list { position: absolute; left: 260px; top: 40px; width: 240px; display: flex; flex-direction: column; gap: 4px; background: #fafafa; border: 1px solid #ddd; padding: 8px; box-sizing: border-box; }
+      .row { display: flex; align-items: center; padding: 8px; background: #eee; height: 28px; box-sizing: border-box; }
+      #dragme { position: absolute; left: 40px; top: 40px; width: 80px; height: 40px; background: #6366f1; color: white; }
+    </style>
+  </head>
+  <body>
+    <div id="list" data-agent-native-node-id="list">
+      <template x-for="r in rows"></template>
+      <div class="row">Clone One</div>
+      <div class="row">Clone Two</div>
+      <div class="row" id="staticItem" data-agent-native-node-id="staticItem">Static</div>
+    </div>
+    <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const dragBox = (await page.locator("#dragme").boundingBox())!;
+      // Target the FIRST clone row directly — the raw hit-test element is a
+      // clone, so the anchor resolution must fall through to the nearest
+      // non-clone sibling (#staticItem), not use the clone itself.
+      const cloneRowBox = (await page
+        .locator("#list .row")
+        .first()
+        .boundingBox())!;
+      const startX = dragBox.x + dragBox.width / 2;
+      const startY = dragBox.y + dragBox.height / 2;
+      const targetX = cloneRowBox.x + cloneRowBox.width / 2;
+      const targetY = cloneRowBox.y + cloneRowBox.height / 2;
+
+      await page.mouse.click(startX, startY);
+      await page.waitForTimeout(60);
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 3 });
+      await page.mouse.move(targetX, targetY, { steps: 10 });
+      await page.waitForTimeout(80);
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as { anchorSourceId?: string; placement?: string } | undefined;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage!.anchorSourceId).toBe("staticItem");
+      expect(["before", "after"]).toContain(structureMessage!.placement);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge resolves a hover over a container whose ONLY children are x-for clones to a container-inside anchor, never a clone",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #filterCard { display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 240px; box-sizing: border-box; }
+      .tab { display: flex; align-items: center; padding: 8px; height: 28px; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="filterCard" data-agent-native-node-id="filterCard">
+      <template x-for="f in filters"></template>
+      <div class="tab">All</div>
+      <div class="tab">Active</div>
+      <div class="tab">Done</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const cardBox = (await page.locator("#filterCard").boundingBox())!;
+      // Hit-test directly over the middle clone ("Active").
+      const x = cardBox.x + cardBox.width / 2;
+      const y = cardBox.y + cardBox.height / 2;
+
+      const reply = (await page.evaluate(
+        ({ x, y }) =>
+          new Promise((resolve) => {
+            const onMsg = (e: MessageEvent) => {
+              if (e.data?.type === "agent-native:hit-test-result") {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "c1",
+                x,
+                y,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+        { x, y },
+      )) as {
+        anchorNodeId: string;
+        pendingNodeId?: string;
+        placement: string;
+      };
+
+      // Anchor resolves to the container itself, never a clone.
+      expect(reply.anchorNodeId).toBe("filterCard");
+      expect(reply.placement).toBe("inside");
+      expect(reply.pendingNodeId).toBeUndefined();
+
+      const cloneHasPendingId = await page.evaluate(() =>
+        Array.from(document.querySelectorAll(".tab")).some((el) =>
+          el.hasAttribute("data-an-pending-node-id"),
+        ),
+      );
+      expect(cloneHasPendingId).toBe(false);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "hit-test bridge prefers the nearest NON-clone static sibling as anchor when a container mixes clone and static children",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #list { display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 240px; box-sizing: border-box; }
+      .row { display: flex; align-items: center; padding: 8px; height: 28px; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="list" data-agent-native-node-id="list">
+      <template x-for="r in rows"></template>
+      <div class="row">Clone One</div>
+      <div class="row">Clone Two</div>
+      <div class="row" data-agent-native-node-id="staticItem">Static</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const cloneRowBox = (await page
+        .locator("#list .row")
+        .first()
+        .boundingBox())!;
+      const x = cloneRowBox.x + cloneRowBox.width / 2;
+      const y = cloneRowBox.y + cloneRowBox.height / 2;
+
+      const reply = (await page.evaluate(
+        ({ x, y }) =>
+          new Promise((resolve) => {
+            const onMsg = (e: MessageEvent) => {
+              if (e.data?.type === "agent-native:hit-test-result") {
+                window.removeEventListener("message", onMsg);
+                resolve(e.data);
+              }
+            };
+            window.addEventListener("message", onMsg);
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: "c1",
+                x,
+                y,
+                preview: false,
+              },
+              "*",
+            );
+          }),
+        { x, y },
+      )) as { anchorNodeId: string; placement: string };
+
+      expect(reply.anchorNodeId).toBe("staticItem");
+      expect(["before", "after"]).toContain(reply.placement);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

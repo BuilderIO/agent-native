@@ -742,7 +742,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el !== document.body &&
       el !== document.documentElement &&
       el.getAttribute &&
-      el.setAttribute
+      el.setAttribute &&
+      // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
+      // a template clone has no counterpart in source HTML, so no host
+      // persist call could ever durably write data-agent-native-node-id for
+      // it, and Alpine re-renders the clone from scratch on the next data
+      // change anyway (the stamped attribute would vanish). Fail closed
+      // instead of minting a pending id that can never be persisted.
+      !isTemplateCloneElement(el)
     ) {
       pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
       if (!pendingNodeId) {
@@ -5228,12 +5235,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     );
   }
 
+  // Anchor-candidate gate (companion to the dragged-element
+  // isTemplateCloneElement rejection below): a template clone can never be
+  // used as an insertion ANCHOR either — it has no counterpart in the static
+  // source HTML, so before/after placement against it can never resolve on
+  // the host any more than dragging the clone itself could. Filtering clones
+  // out of the candidate list here (rather than only checking the dragged
+  // element) is what fixes drops into a container whose ONLY children are
+  // x-for clones: without this, nearestChildInsertionTarget's "nearest
+  // child" search and reorderTargetForPoint's sibling-scan fallback would
+  // both happily pick a clone as the anchor, and the resulting moveNode
+  // against source HTML would silently fail (layerMoveFailed toast) even
+  // though the drop gesture itself was completely valid.
   function draggableElementChildren(parent: Element): Element[] {
     return Array.prototype.slice.call(parent.children).filter(function (child) {
       return (
         child.nodeType === 1 &&
         !isOverlayElement(child) &&
-        !isLayerInteractionBlocked(child)
+        !isLayerInteractionBlocked(child) &&
+        !isTemplateCloneElement(child)
       );
     });
   }
@@ -5875,11 +5895,21 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       return false;
     }
     var hit = elementFromEditorPoint(clientX, clientY);
+    // Anchor-candidate gate: a hit that resolves directly onto a template
+    // clone (e.g. hovering over one of the rendered `<li>` items inside a
+    // container whose ONLY children are x-for clones) can never anchor a
+    // structural move — see draggableElementChildren's comment above. Falling
+    // through here (instead of using `hit` as the anchor) routes to the
+    // sibling-scan fallback below, which already filters clones out via
+    // draggableElementChildren, so it correctly resolves to either a
+    // non-clone sibling or, when there are none, no anchor at all (caller
+    // falls back to the container itself with "inside" placement).
     if (
       hit &&
       hit !== document.documentElement &&
       !isDraggedOrInsideDragged(hit) &&
-      !isOverlayElement(hit)
+      !isOverlayElement(hit) &&
+      !isTemplateCloneElement(hit)
     ) {
       if (isContainerDropTarget(hit)) {
         var containerRect = hit.getBoundingClientRect();
@@ -5944,7 +5974,25 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var siblings = draggableElementChildren(parent).filter(function (child) {
       return !isDraggedOrInsideDragged(child);
     });
-    if (!siblings.length) return null;
+    if (!siblings.length) {
+      // No non-clone, non-dragged sibling to anchor against — e.g. `parent`'s
+      // only other children are x-for clones (draggableElementChildren
+      // already filtered those out above). Fall back to the parent container
+      // itself with "inside" placement instead of returning null: null here
+      // would make onReorderUp treat this as "no valid drop target" and
+      // silently no-op the whole gesture, even though moving into `parent`
+      // (landing after the rendered clones, which in source HTML is simply
+      // inside the container since clones don't exist there) is a completely
+      // valid and expected drop.
+      return {
+        anchor: parent,
+        placement: "inside",
+        axis: axis,
+        dropMode: isAbsolutePrimitiveContainer(parent)
+          ? "absolute-container"
+          : "flow-insert",
+      };
+    }
     var beforeTarget = null;
     for (var i = 0; i < siblings.length; i += 1) {
       var rect = siblings[i].getBoundingClientRect();
@@ -6133,6 +6181,38 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         };
       }
       if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+        // Anchor-candidate gate: cursor is a plain sibling under `parent`
+        // being used as a before/after anchor — but if it's a template
+        // clone (no counterpart in source HTML), fall back to the nearest
+        // non-clone sibling via nearestChildInsertionTarget, else the
+        // container itself with "inside" placement, exactly like
+        // reorderTargetForPoint's equivalent fallback above.
+        if (isTemplateCloneElement(cursor)) {
+          var cloneFallback = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+            dragged,
+          );
+          if (cloneFallback) {
+            return {
+              anchor: cloneFallback.anchor,
+              placement: cloneFallback.placement,
+              axis: cloneFallback.axis,
+              dropMode: "flow-insert",
+              needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+              conversionTarget: parent,
+            };
+          }
+          return {
+            anchor: parent,
+            placement: "inside",
+            axis: parentFlowAxis(parent),
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+            conversionTarget: parent,
+          };
+        }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
         var childCenter =

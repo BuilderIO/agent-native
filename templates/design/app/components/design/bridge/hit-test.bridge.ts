@@ -309,18 +309,6 @@
     return null;
   }
 
-  function draggableElementChildren(parent: Element): Element[] {
-    return Array.prototype.slice.call(parent.children).filter(function (
-      child: Element,
-    ) {
-      return (
-        child.nodeType === 1 &&
-        !isOverlayElement(child) &&
-        !isLayerInteractionBlocked(child)
-      );
-    });
-  }
-
   function getNodeId(el: Element | null): string {
     if (!el) return "";
     return (
@@ -331,6 +319,70 @@
       el.id ||
       ""
     );
+  }
+
+  // Detects an Alpine `<template x-for>` runtime clone: Alpine keeps the
+  // `<template>` element itself in the live DOM (as a hidden, zero-size
+  // marker) and inserts every rendered instance as a DIRECT SIBLING of that
+  // template, all still children of the same parent — so `ul > template,
+  // li, li, li` is the live shape for `<ul><template x-for>...</template>
+  // rendering 3 items</ul>`. The static SOURCE HTML the host resolves moves
+  // against only ever contains the single template child, never the N
+  // runtime clones, so a hit-test anchor resolved onto a clone — or onto a
+  // container whose only children are clones, if the caller doesn't skip
+  // them — can never resolve on the host and always comes back
+  // `applied:false`. Detected once per hit-test via an ancestor walk (not
+  // just the immediate parent) so nested x-for clones (e.g. a subtask `<li>`
+  // inside a per-task `<ul>` that is itself x-for'd) are also caught,
+  // stopping at the first stable-id ancestor (anything inside a stamped
+  // subtree has a real anchor and is fine).
+  //
+  // keep in sync with editor-chrome.bridge.ts isTemplateCloneElement
+  function isTemplateCloneElement(el: Element | null): boolean {
+    var node: Element | null = el;
+    while (node && node !== document.documentElement) {
+      if (getNodeId(node)) return false;
+      var parent = node.parentElement;
+      if (!parent) return false;
+      var siblings = parent.children;
+      for (var i = 0; i < siblings.length; i += 1) {
+        var sib = siblings[i];
+        if (
+          sib !== node &&
+          sib.tagName &&
+          sib.tagName.toLowerCase() === "template" &&
+          sib.hasAttribute("x-for")
+        ) {
+          return true;
+        }
+      }
+      node = parent;
+    }
+    return false;
+  }
+
+  // Anchor-candidate gate (companion to isTemplateCloneElement above): a
+  // template clone can never be used as an insertion ANCHOR — it has no
+  // counterpart in the static source HTML, so before/after placement
+  // against it can never resolve on the host. Filtering clones out of the
+  // candidate list here is what fixes drops into a container whose ONLY
+  // children are x-for clones: without this, nearestChildInsertionTarget's
+  // "nearest child" search would happily pick a clone as the anchor, and
+  // the resulting move would silently fail on the host (layerMoveFailed
+  // toast) even though the drop gesture itself was completely valid.
+  //
+  // keep in sync with editor-chrome.bridge.ts draggableElementChildren
+  function draggableElementChildren(parent: Element): Element[] {
+    return Array.prototype.slice.call(parent.children).filter(function (
+      child: Element,
+    ) {
+      return (
+        child.nodeType === 1 &&
+        !isOverlayElement(child) &&
+        !isLayerInteractionBlocked(child) &&
+        !isTemplateCloneElement(child)
+      );
+    });
   }
 
   // keep in sync with editor-chrome.bridge.ts freshRuntimeNodeId
@@ -360,6 +412,15 @@
   // getNodeId itself (a pending id is not a stable id until persisted).
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
+    // Defensive guard: resolveHitTarget's anchor-candidate gates (see
+    // isTemplateCloneElement call sites there) already keep template clones
+    // out of `result.anchor`, so this should never fire in practice — but a
+    // pending id stamped on a clone would be dead weight: the clone itself
+    // has no counterpart in source HTML, so no host persist call could ever
+    // write data-agent-native-node-id anywhere durable for it, and Alpine
+    // re-renders the clone from scratch on next data change anyway (the
+    // stamped attribute would vanish). Fail closed instead of minting.
+    if (isTemplateCloneElement(el)) return "";
     var existing = el.getAttribute("data-an-pending-node-id");
     if (existing) return existing;
     var minted = freshRuntimeNodeId("pending");
@@ -383,6 +444,15 @@
   // values of the template's `_x_lookup` map; the x-if instantiation is the
   // template's `_x_currentIfEl`. Both live as DIRECT SIBLINGS of their
   // template in the live DOM while the source only contains the template.
+  //
+  // COUPLING WARNING: `_x_lookup` / `_x_currentIfEl` are Alpine.js PRIVATE
+  // internals (verified against the Alpine 3.x line served by the prototype
+  // CDN pin). If a future Alpine major renames them, the try/catch below
+  // swallows the breakage silently and generated clones would be counted as
+  // source siblings — buildSourceEquivalentSelector could then resolve a
+  // pending node id onto the WRONG source element. When bumping Alpine,
+  // re-verify these fields and the clone-vs-source guard tests in
+  // bridge.guard.spec.ts.
   function alpineGeneratedChildrenOf(parent: Element): Element[] {
     var generated: Element[] = [];
     var children = parent.children;
@@ -531,6 +601,29 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
+        // Anchor-candidate gate: cursor is a plain flex/grid item being used
+        // as a before/after anchor — but if it's a template clone (no
+        // counterpart in source HTML), fall back to the nearest non-clone
+        // sibling via nearestChildInsertionTarget, else the container itself
+        // with "inside" placement. Mirrors editor-chrome.bridge.ts's
+        // reorderTargetForPoint / autoLayoutInsertionTargetForPoint clone
+        // fallback — this is the primary path a cursor hits when hovering
+        // directly over a rendered x-for clone item inside a flex/grid
+        // container (e.g. a filter card whose only children are clones).
+        if (isTemplateCloneElement(cursor)) {
+          var cloneFallback = nearestChildInsertionTarget(
+            parent,
+            clientX,
+            clientY,
+          );
+          if (cloneFallback) return cloneFallback;
+          return {
+            anchor: parent,
+            placement: "inside",
+            axis: parentFlowAxis(parent),
+            dropMode: "flow-insert",
+          };
+        }
         var parentAxis = parentFlowAxis(parent);
         var childRect = cursor.getBoundingClientRect();
         var childCenter =

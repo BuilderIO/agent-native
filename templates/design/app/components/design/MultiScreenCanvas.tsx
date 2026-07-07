@@ -285,6 +285,17 @@ export function isOsFileDrag(event: {
 // DesignEditor's hover callbacks — that must read the CURRENT value without
 // any render round-trip: flipping React state for this at gesture start
 // re-rendered every Screen and measurably stalled the first wheel ticks.
+//
+// Single-canvas-instance assumption: this flag is process-wide, not scoped
+// to a particular MultiScreenCanvas mount. The editor only ever renders one
+// MultiScreenCanvas at a time, so that's fine in practice — but if a second
+// instance were ever mounted concurrently (e.g. a future side-by-side or
+// picture-in-picture view), both would read/write the SAME flag and could
+// stomp each other's gesture state. The unmount cleanup effect below clears
+// it UNCONDITIONALLY (no ownership/identity check), so an unmounting second
+// instance would also incorrectly clear a still-active gesture that belongs
+// to the other, still-mounted instance. Revisit this if that assumption ever
+// changes.
 let wheelCameraGestureActive = false;
 
 /** True while a MultiScreenCanvas wheel/pinch camera gesture is in flight
@@ -1443,6 +1454,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // PERF9-WHEEL: unmounting mid-gesture means the settled commitView
       // never runs — don't leave the module-scoped gesture flag stuck (the
       // muted elements unmount with the canvas, so no style restore needed).
+      // Clears unconditionally (single-canvas-instance assumption — see the
+      // module-scope doc comment on wheelCameraGestureActive above).
       wheelGestureActiveRef.current = false;
       wheelCameraGestureActive = false;
       wheelGestureMutedElementsRef.current = null;

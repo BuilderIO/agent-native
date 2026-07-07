@@ -75,6 +75,7 @@ import {
   type CodeLayerTreeNode,
   type MoveNodeEditIntent,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import { componentNameFor, isComponentInstance } from "@shared/component-model";
 import type { A11yFinding } from "@shared/design-review";
 import {
@@ -272,6 +273,7 @@ import {
 } from "@/components/design/MotionDock";
 import {
   getInitialFrameGeometry,
+  getPrimaryIframeId,
   isWheelCameraGestureActive,
   MultiScreenCanvas,
   OVERVIEW_FRAME_WIDTH,
@@ -403,6 +405,12 @@ const MOTION_DOCK_EXIT_SETTLE_MS = 80;
 const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const BOARD_SURFACE_SIZE = 131_072;
+/** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
+ * anchor-stamp fallback warning) so production consoles stay quiet while
+ * dev builds keep the signal. Real correctness-guard warnings (frame
+ * geometry rejection, poisoned-coord normalization) stay unconditional —
+ * this flag is only for lower-signal "known degraded path taken" notices. */
+const DESIGN_EDITOR_DEBUG_LOGS = import.meta.env.DEV;
 /** Extensions that the localhost bridge allows to be written back to source. */
 const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 /**
@@ -3720,6 +3728,48 @@ function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
   return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
 }
 
+// Tolerant "is this the board's auto-applied default white" check, shared
+// by shouldAdaptAutoTextColorForCrossScreenMove and
+// isStaleAutoTextColorMarker (finding 2) — both need the exact same
+// definition of "still the auto-default", just applied to different
+// questions (safe to adapt vs. safe to keep trusting the marker).
+function isAutoDefaultWhiteColor(
+  inlineColor: string | null | undefined,
+): boolean {
+  const normalized = (inlineColor || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return (
+    normalized === "#ffffff" ||
+    normalized === "#fff" ||
+    normalized === "rgb(255,255,255)" ||
+    normalized === "rgb(255, 255, 255)" ||
+    normalized === "white"
+  );
+}
+
+/**
+ * Finding 2(a): BOARD_TEXT_AUTO_COLOR_MARKER is stamped once at board-text
+ * creation time and never removed by the bridge, so it goes stale the
+ * moment a user explicitly recolors previously-auto-white text (e.g. picks
+ * a brand color) without the marker being cleared in the same edit. Trusting
+ * a stale marker unconditionally (the previous behavior) forced that
+ * deliberately-chosen color back to `inherit` on the next reparent/
+ * cross-screen move. A marker is only trustworthy evidence of "this color is
+ * still auto-applied" when the node's CURRENT inline color is still exactly
+ * the auto-default white — any other color means the user (or some other
+ * edit) changed it after the marker was stamped, so the marker is stale and
+ * must not be honored (callers should also strip it — see
+ * stripStaleAutoTextColorMarkerFromHtml below).
+ */
+export function isStaleAutoTextColorMarker(params: {
+  inlineColor: string | null | undefined;
+  hasAutoMarker: boolean;
+}): boolean {
+  return params.hasAutoMarker && !isAutoDefaultWhiteColor(params.inlineColor);
+}
+
 /**
  * Pure decision: should a moved text node's auto-applied board color be
  * rewritten to `inherit` once it lands in its cross-screen destination?
@@ -3731,12 +3781,15 @@ function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
  * node moves from one document's body into another), so there is no
  * same-parent short-circuit to mirror here.
  *
- * - `hasAutoMarker`: BOARD_TEXT_AUTO_COLOR_MARKER is present on the moved
- *   text node — always safe to adapt regardless of the destination
- *   background, since the color is definitely auto-applied, not user-set.
- * - No marker (pre-marker content, or a node the stamp missed): fall back to
- *   the conservative default-white + light-destination heuristic so a
- *   deliberately-white user color is never touched.
+ * - `hasAutoMarker` AND the color is still the auto-default white: always
+ *   safe to adapt regardless of the destination background — the color is
+ *   definitely still auto-applied, not user-set (finding 2: a marker whose
+ *   color has since diverged from white is STALE and must not short-circuit
+ *   here — falls through to the same conservative heuristic as no marker).
+ * - No marker (pre-marker content, a node the stamp missed, or a stale
+ *   marker whose color moved off white): fall back to the conservative
+ *   default-white + light-destination heuristic so a deliberately-chosen
+ *   color is never touched.
  */
 export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
   inlineColor: string | null | undefined;
@@ -3752,50 +3805,142 @@ export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
   ) {
     return false;
   }
-  if (hasAutoMarker) return true;
-  const isDefaultWhite =
-    normalized === "#ffffff" ||
-    normalized === "#fff" ||
-    normalized === "rgb(255,255,255)" ||
-    normalized === "rgb(255, 255, 255)" ||
-    normalized === "white";
+  const isDefaultWhite = isAutoDefaultWhiteColor(inlineColor);
+  if (hasAutoMarker && isDefaultWhite) return true;
   if (!isDefaultWhite) return false;
   return destinationBackgroundIsLight;
 }
 
-// Walks up from `element` until it finds a non-transparent background-color
-// (inline or from a <style> rule matched via getComputedStyle) and reports
-// whether it's light. Host-side equivalent of containerBackgroundIsLight in
-// editor-chrome.bridge.ts, operating on a DOMParser-parsed detached document
-// instead of a live iframe — getComputedStyle still resolves author
-// stylesheet rules against a parsed document's own tree, just with no
-// layout, which is fine since only backgroundColor is read. An unstyled
-// chain (or a parse/DOM API failure) conservatively reports "light" so the
-// default-white heuristic can still fire and prevent invisible text.
-function destinationBackgroundIsLightForNode(element: Element): boolean {
-  try {
-    const ownerDocument = element.ownerDocument;
-    const view = ownerDocument?.defaultView;
-    if (!view) return true;
-    let cursor: Element | null = element;
-    while (cursor && cursor !== ownerDocument.documentElement) {
-      const bg = view.getComputedStyle(cursor).backgroundColor;
-      const match = /^rgba?\(([^)]+)\)$/.exec((bg || "").trim());
-      if (match) {
-        const parts = match[1]
-          .split(",")
-          .map((part) => parseFloat(part.trim()));
-        const [r, g, b, a = 1] = parts;
-        if (![r, g, b].some((n) => Number.isNaN(n)) && a > 0.01) {
-          return (
-            relativeLuminance({ r, g, b }) >
-            AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD
-          );
-        }
+/**
+ * Pure decision for finding 1: given an ordered chain of background signals
+ * read from an element's ancestor chain (innermost first — same walk order
+ * `collectDestinationBackgroundSignals` below produces), decide whether the
+ * destination background is light.
+ *
+ * Each entry is either a CSS color string (from an inline `background`/
+ * `background-color` declaration, or a live `getComputedStyle().
+ * backgroundColor` read when a live document is available — see call site)
+ * or a `{ darkClassHint: true }` marker for a cheap utility-class signal
+ * (e.g. `bg-black`, `bg-gray-900`, `dark:bg-*`) when no inline/computed
+ * color was found on that same element. The first entry that resolves to a
+ * non-transparent (alpha >= 0.4) color wins; alpha below that threshold is
+ * treated as transparent so the walk keeps climbing instead of trusting a
+ * near-invisible tint. A dark-class hint only counts when no color signal
+ * was present on that element (a real color always wins over a guessed
+ * class). No signal anywhere in the chain conservatively reports "light" so
+ * the default-white heuristic can still fire and prevent invisible text.
+ */
+export function resolveDestinationBackgroundLightness(
+  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
+): boolean {
+  for (const entry of chain) {
+    if ("color" in entry && entry.color) {
+      const rgba = parseCssColorExtended(entry.color);
+      if (rgba && rgba.a >= 0.4) {
+        return (
+          relativeLuminance(rgba) > AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD
+        );
       }
+      continue;
+    }
+    if ("darkClassHint" in entry && entry.darkClassHint) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Cheap, best-effort utility-class signal for "this element's classes look
+// like a dark background" — used only when an element carries no inline or
+// computed background color at all (a real color signal always wins). Not
+// an attempt to parse Tailwind's full config: just the small set of
+// class-name shapes generated designs actually use for dark surfaces
+// (`bg-black`, `bg-gray-900`, `bg-neutral-950`, `dark:bg-slate-900`, etc.).
+const DARK_BACKGROUND_CLASS_RE =
+  /(?:^|:)bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
+
+function elementHasDarkBackgroundClassHint(element: Element): boolean {
+  const className =
+    typeof element.className === "string"
+      ? element.className
+      : (element.getAttribute("class") ?? "");
+  return DARK_BACKGROUND_CLASS_RE.test(className);
+}
+
+/**
+ * Builds the ancestor background-signal chain `resolveDestinationBackgroundLightness`
+ * consumes, walking up from `element`. Prefers a LIVE document's computed
+ * style (real cascade, resolves stylesheet/utility classes correctly —
+ * mirrors the bridge's `containerBackgroundIsLight`) when `liveElement` is
+ * supplied (see `destinationBackgroundIsLightForNode`'s doc for how the
+ * live node is resolved); otherwise falls back to reading INLINE
+ * `background`/`background-color` declarations plus the dark-class-name
+ * heuristic on the detached parsed-doc element, since a DOMParser document
+ * has no `defaultView` in real browsers and can't run `getComputedStyle`.
+ */
+function collectDestinationBackgroundSignals(
+  element: Element,
+  liveElement: Element | null,
+): Array<{ color: string | null } | { darkClassHint: boolean }> {
+  const chain: Array<{ color: string | null } | { darkClassHint: boolean }> =
+    [];
+  if (liveElement) {
+    const liveView = liveElement.ownerDocument?.defaultView;
+    let cursor: Element | null = liveElement;
+    while (
+      liveView &&
+      cursor &&
+      cursor !== liveElement.ownerDocument.documentElement
+    ) {
+      chain.push({ color: liveView.getComputedStyle(cursor).backgroundColor });
       cursor = cursor.parentElement;
     }
-    return true;
+    return chain;
+  }
+  let cursor: Element | null = element;
+  while (cursor && cursor !== element.ownerDocument.documentElement) {
+    const inline = (cursor as HTMLElement).style;
+    const inlineColor = inline?.backgroundColor || inline?.background || null;
+    if (inlineColor) {
+      chain.push({ color: inlineColor });
+    } else {
+      chain.push({ darkClassHint: elementHasDarkBackgroundClassHint(cursor) });
+    }
+    cursor = cursor.parentElement;
+  }
+  return chain;
+}
+
+/**
+ * Resolves whether the destination background around `element` (a node in a
+ * DOMParser-parsed detached document) is light. Prefers reading the LIVE
+ * destination screen iframe's computed style for the corresponding node
+ * when `liveDoc` is supplied — MultiScreenCanvas mounts every visible
+ * screen as a same-origin iframe reachable via
+ * `[data-screen-iframe-id="<screenId>"]` (see `getPrimaryIframeId` in
+ * MultiScreenCanvas.tsx), so the real cascade (including Tailwind utility
+ * classes, `<style>` rules, `dark:` variants, etc.) is available exactly
+ * like the in-iframe bridge's `containerBackgroundIsLight` — that live path
+ * is what makes class-based dark destinations (not just inline-styled ones)
+ * resolve correctly. Falls back to the detached doc's inline-style +
+ * dark-class-hint chain when no live document is available (e.g. the
+ * destination screen isn't currently mounted).
+ */
+function destinationBackgroundIsLightForNode(
+  element: Element,
+  liveDoc?: Document | null,
+): boolean {
+  try {
+    const liveElement =
+      liveDoc && element.hasAttribute("data-agent-native-node-id")
+        ? liveDoc.querySelector(
+            `[data-agent-native-node-id="${CSS.escape(
+              element.getAttribute("data-agent-native-node-id") ?? "",
+            )}"]`,
+          )
+        : null;
+    const chain = collectDestinationBackgroundSignals(element, liveElement);
+    return resolveDestinationBackgroundLightness(chain);
   } catch {
     return true;
   }
@@ -3817,10 +3962,17 @@ function destinationBackgroundIsLightForNode(element: Element): boolean {
  * primitive, carries no color needing adaptation, or the DOM can't be
  * parsed — always best-effort, never a hard requirement for the move to
  * succeed.
+ *
+ * `liveDestDoc` (optional) is the destination screen's LIVE iframe document
+ * when it's currently mounted — see `destinationBackgroundIsLightForNode`'s
+ * doc comment for why callers should prefer passing it when available
+ * (correct resolution for class-based/cascaded dark backgrounds, not just
+ * inline-styled ones).
  */
 export function adaptAutoTextColorForCrossScreenNode(
   content: string,
   destNodeAttrId: string,
+  liveDestDoc?: Document | null,
 ): string {
   if (typeof window === "undefined" || !destNodeAttrId) return content;
   try {
@@ -3836,17 +3988,146 @@ export function adaptAutoTextColorForCrossScreenNode(
     ).toLowerCase();
     if (kind !== "text") return content;
     const el = moved as HTMLElement;
+    const hasAutoMarker = moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+    // Finding 2(a): a marker whose color has since diverged from the
+    // auto-default white is stale — strip it here (in addition to falling
+    // through to the conservative heuristic below) so it can't mislead a
+    // LATER move/commit into re-honoring it once the color happens to be
+    // reset back to white for unrelated reasons.
+    let markerStripped = false;
+    if (
+      isStaleAutoTextColorMarker({
+        inlineColor: el.style.color,
+        hasAutoMarker,
+      })
+    ) {
+      moved.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+      markerStripped = true;
+    }
     const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
       inlineColor: el.style.color,
-      hasAutoMarker: moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER),
-      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(moved),
+      hasAutoMarker: hasAutoMarker && !markerStripped,
+      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(
+        moved,
+        liveDestDoc,
+      ),
     });
-    if (!shouldAdapt) return content;
-    el.style.color = "inherit";
+    if (!shouldAdapt && !markerStripped) return content;
+    if (shouldAdapt) el.style.color = "inherit";
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
   }
+}
+
+/**
+ * Finding 2(b): the other half of the stale-marker fix. Stripping only
+ * happens lazily (finding 2(a), inside adaptAutoTextColorForCrossScreenNode)
+ * when a move/adapt pass actually re-reads the node — a user who sets an
+ * explicit color and never triggers another move/reparent would otherwise
+ * keep carrying a now-stale marker indefinitely. Called from
+ * commitVisualStyles whenever a "color" property is part of the committed
+ * style patch, so the marker is cleared at the moment the user's explicit
+ * choice is actually persisted, not just the next time something happens to
+ * re-check it. No-op (returns `content` unchanged) when the node has no
+ * marker, isn't found, or the DOM can't be parsed.
+ */
+export function clearAutoTextColorMarkerOnExplicitColorCommit(
+  content: string,
+  nodeId: string | null | undefined,
+): string {
+  if (typeof window === "undefined" || !nodeId) return content;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const node = doc.querySelector(
+      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+    );
+    if (!node || !node.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)) {
+      return content;
+    }
+    node.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return content;
+  }
+}
+
+/**
+ * Finding 4: normalizePoisonedBoardNestedCoords (shared/board-file.ts)
+ * heuristically rewrites persisted nested board coords with no built-in
+ * trace of its own (kept side-effect-free so it stays safely callable from
+ * any context — see its doc comment). Every call site that applies its
+ * result and persists it goes through this shared logger instead, so a bad
+ * heuristic firing in the wild is visible: file id, how many nodes were
+ * rebased, and a small before/after sample.
+ */
+function warnIfPoisonedBoardCoordsNormalized(
+  fileId: string,
+  result: ReturnType<typeof normalizePoisonedBoardNestedCoords>,
+): void {
+  if (!result.changed) return;
+  console.warn(
+    "[design] normalized poisoned nested board coordinates on load/reparent",
+    {
+      fileId,
+      fixedNodeCount: result.fixedNodeCount,
+      samples: result.samples,
+    },
+  );
+}
+
+/**
+ * Finding 7: shared predicate behind BOTH of the editor's Radix-overlay
+ * pointer-event shields — `inspectorPopoverOpen` (gates keyboard focus
+ * routing) and `updateIframePointerEvents` (gates the single-screen preview
+ * iframe's `pointer-events`). The two used to have hand-duplicated, subtly
+ * different logic: `inspectorPopoverOpen`'s version correctly falls back to
+ * checking `wrapperEl`'s OWN `data-state` when it has no stateful child at
+ * all, but `updateIframePointerEvents`'s version treated "no stateful
+ * child" as unconditionally open regardless of the wrapper's own
+ * `data-state` — so closing the zoom menu via item-select (which closes
+ * through the reused-wrapper path, flipping `data-state="closed"` on the
+ * wrapper itself with no stateful child left inside) could leave the
+ * preview iframe's pointer-events stuck at `none`. Both call sites now
+ * share this one corrected definition instead of drifting again.
+ *
+ * A wrapper counts as "open" unless:
+ * - it's a first-party tooltip wrapper itself
+ *   (`data-agent-native-tooltip`), or
+ * - its only stateful descendants are all first-party tooltips (the
+ *   Tooltip+DropdownMenu combo case — see the call sites' doc comments), or
+ * - it (or its one stateful descendant, when present) explicitly carries
+ *   `data-state="closed"`.
+ *
+ * With no stateful descendant AND no `data-state` anywhere on the wrapper
+ * itself, there's no signal either way — conservatively treated as open
+ * (matches the previous default-open behavior for that specific case).
+ */
+export function isRadixOverlayOpen(wrapperEl: Element): boolean {
+  if (wrapperEl.hasAttribute("data-agent-native-tooltip")) return false;
+  const isOpenState = (el: Element) =>
+    el.getAttribute("data-state") !== "closed";
+  const stateful = wrapperEl.querySelectorAll("[data-state]");
+  if (stateful.length > 0) {
+    const allTooltips = Array.from(stateful).every((content) =>
+      content.hasAttribute("data-agent-native-tooltip"),
+    );
+    if (allTooltips) return false;
+    if (wrapperEl.hasAttribute("data-state")) {
+      return isOpenState(wrapperEl);
+    }
+    // Multiple stateful descendants (or one non-tooltip descendant among
+    // several): open if ANY non-tooltip stateful descendant is open.
+    return Array.from(stateful).some(
+      (content) =>
+        !content.hasAttribute("data-agent-native-tooltip") &&
+        isOpenState(content),
+    );
+  }
+  if (wrapperEl.hasAttribute("data-state")) {
+    return isOpenState(wrapperEl);
+  }
+  return true;
 }
 
 function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
@@ -7260,16 +7541,25 @@ export function geometrySnapshotsEqual(
  * fix): while the overview zoom scalar was corrupted, ANY frame interaction
  * translated pointer deltas through the garbage scale and wrote absurd
  * canvasFrames/screenMetadata (observed in the wild: a 120x14976 screen
- * frame) that survived reload. Every canvasFrames persist path now refuses
- * per-frame geometry that cannot be real: non-finite fields, non-positive
- * dimensions, a dimension beyond MAX_SANE_FRAME_DIMENSION_PX, or a
- * width:height aspect beyond MAX_SANE_FRAME_ASPECT_RATIO — falling back to
- * that frame's previously persisted geometry (or dropping the entry when
- * none exists) instead of shredding the stored layout. x/y positions are
- * deliberately NOT range-bounded (frames legitimately sit anywhere on the
- * ±65k board surface); only non-finite positions are refused.
+ * frame, ±65536-band poisoned coords) that survived reload. Every
+ * canvasFrames persist path now refuses per-frame geometry that cannot be
+ * real: non-finite fields, non-positive dimensions, a dimension beyond
+ * MAX_SANE_FRAME_DIMENSION_PX, or a width:height aspect beyond
+ * MAX_SANE_FRAME_ASPECT_RATIO — falling back to that frame's previously
+ * persisted geometry (or dropping the entry when none exists) instead of
+ * shredding the stored layout. x/y positions are deliberately NOT
+ * range-bounded (frames legitimately sit anywhere on the ±65k board
+ * surface); only non-finite positions are refused.
+ *
+ * MAX_SANE_FRAME_DIMENSION_PX is a truly-insane-only backstop, not the
+ * primary corruption guard — the aspect-ratio check (MAX_SANE_FRAME_ASPECT_RATIO)
+ * and the poisoned-coordinate checks are what actually catch the observed
+ * corruption shape (garbage-scale drags produce absurd ASPECT ratios, not
+ * merely large-but-plausible dimensions). A legitimately tall scrolling page
+ * frame (e.g. 1440x30000, aspect ~20.8 — well under the ratio cap) is real
+ * content and must not be silently reverted just for being long.
  */
-export const MAX_SANE_FRAME_DIMENSION_PX = 20000;
+export const MAX_SANE_FRAME_DIMENSION_PX = 100000;
 export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
 
 export function isSaneCanvasFrameGeometryForPersist(
@@ -7323,6 +7613,19 @@ export function sanitizeCanvasFrameGeometryForPersist(
     rejectedFrameIds.push(frameId);
     if (sanitized === null) sanitized = { ...nextById };
     const previous = previousById[frameId];
+    // Detectability: a guard revert here is otherwise silent — the caller
+    // sees a normal-looking geometryById back and has no way to notice the
+    // frame's edit was discarded. Surface the offending frame id and its
+    // rejected/fallback dimensions so a bad heuristic (or a real corruption
+    // case slipping past the aspect/finite checks) is visible in the wild.
+    console.warn(
+      "[design] rejected insane canvas frame geometry on persist — reverted to previous geometry",
+      {
+        frameId,
+        rejected: geometry,
+        revertedTo: previous ?? null,
+      },
+    );
     if (previous && isSaneCanvasFrameGeometryForPersist(previous)) {
       sanitized[frameId] = { ...previous };
     } else {
@@ -9693,6 +9996,7 @@ export default function DesignEditor() {
     if (!boardFileId || !boardFileContent || !canEditDesign) return;
     const normalized = normalizePoisonedBoardNestedCoords(boardFileContent);
     if (!normalized.changed) return;
+    warnIfPoisonedBoardCoordsNormalized(boardFileId, normalized);
     queueFileContentSave(boardFileId, normalized.html);
   }, [boardFileContent, boardFileId, canEditDesign, queueFileContentSave]);
 
@@ -11747,32 +12051,17 @@ export default function DesignEditor() {
   //    selector cannot distinguish from a real open menu — so the shield
   //    stayed up for as long as the mouse lingered over the trigger.
   //    Fixed by excluding wrappers whose only open content is a tooltip.
+  //
+  // The open/closed decision itself is the shared isRadixOverlayOpen
+  // predicate (finding 7) — updateIframePointerEvents below uses the exact
+  // same predicate so the two shields can't drift apart again.
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
-    const isOpenWrapper = (el: Element) =>
-      el.getAttribute("data-state") !== "closed";
-    const isTooltipOnly = (wrapper: Element) => {
-      const contents = wrapper.querySelectorAll("[data-state]");
-      if (contents.length === 0) return false;
-      return Array.from(contents).every((content) =>
-        content.hasAttribute("data-agent-native-tooltip"),
-      );
-    };
     const update = () => {
       const wrappers = document.body.querySelectorAll(`[${ATTR}]`);
       setInspectorPopoverOpen(
-        Array.from(wrappers).some((wrapper) => {
-          if (wrapper.hasAttribute("data-agent-native-tooltip")) return false;
-          if (isTooltipOnly(wrapper)) return false;
-          // The wrapper itself, or its immediate popper content child,
-          // carries data-state="open"|"closed" depending on Radix version.
-          if (wrapper.hasAttribute("data-state")) {
-            return isOpenWrapper(wrapper);
-          }
-          const stateful = wrapper.querySelector("[data-state]");
-          return stateful ? isOpenWrapper(stateful) : true;
-        }),
+        Array.from(wrappers).some((wrapper) => isRadixOverlayOpen(wrapper)),
       );
     };
     const observer = new MutationObserver(update);
@@ -15865,12 +16154,27 @@ export default function DesignEditor() {
       // T16: if this commit set fontFamily to a known Google Font not
       // already loaded in this screen, inject its <link> into <head>.
       const fontFamilyValue = Object.fromEntries(entries).fontFamily;
-      const resolvedNextContent = fontFamilyValue
+      const resolvedNextContentAfterFontLink = fontFamilyValue
         ? ensureGoogleFontLinkInHtml(
             resolvedNextContentBeforeFontLink,
             fontFamilyValue,
           )
         : resolvedNextContentBeforeFontLink;
+
+      // Finding 2(b): an explicit "color" commit on a node that still carries
+      // BOARD_TEXT_AUTO_COLOR_MARKER means the user just deliberately chose a
+      // color — the marker no longer describes an auto-applied default and
+      // must not survive to mislead a later reparent/cross-screen move (see
+      // isStaleAutoTextColorMarker / clearAutoTextColorMarkerOnExplicitColorCommit).
+      const committedNodeId =
+        targetNode?.dataAttributes["data-agent-native-node-id"];
+      const resolvedNextContent =
+        "color" in Object.fromEntries(entries) && committedNodeId
+          ? clearAutoTextColorMarkerOnExplicitColorCommit(
+              resolvedNextContentAfterFontLink,
+              committedNodeId,
+            )
+          : resolvedNextContentAfterFontLink;
 
       const nextProjection = buildCodeLayerProjection(resolvedNextContent);
       const resolvedNode = selectedElement
@@ -19922,10 +20226,14 @@ export default function DesignEditor() {
         // surface-offset fingerprint (e.g. the position pair above could not
         // be resolved and the rebase was skipped), normalize the final
         // content so a nested board child can never persist off-world.
-        const nextContent =
-          boardFileId && sourceScreenId === boardFileId
-            ? normalizePoisonedBoardNestedCoords(rebasedContent).html
-            : rebasedContent;
+        const nextContent = (() => {
+          if (!boardFileId || sourceScreenId !== boardFileId) {
+            return rebasedContent;
+          }
+          const normalized = normalizePoisonedBoardNestedCoords(rebasedContent);
+          warnIfPoisonedBoardCoordsNormalized(sourceScreenId, normalized);
+          return normalized.html;
+        })();
 
         applyFileContentUpdate(sourceScreenId, nextContent, {
           skipPreview: true,
@@ -19983,6 +20291,15 @@ export default function DesignEditor() {
         );
         return;
       }
+      // Finding 8: the requested anchor placement landed inside a
+      // <template> interior and was redirected to a real DOM slot right
+      // after the enclosing template instead — let the user know the drop
+      // wasn't silently discarded, just relocated nearby.
+      if (result.anchorRedirected) {
+        toast(t("designEditor.toasts.layerMoveRedirected"), {
+          duration: 4000,
+        });
+      }
 
       const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
       const sourcePosition = getAbsolutePositioningForNodeInHtml(
@@ -20004,10 +20321,15 @@ export default function DesignEditor() {
               computeReparentedChildPosition(sourcePosition, targetPosition),
             )
           : result.destHtml;
-      const nextDestContent =
-        boardFileId && targetScreenId === boardFileId
-          ? normalizePoisonedBoardNestedCoords(rebasedDestContent).html
-          : rebasedDestContent;
+      const nextDestContent = (() => {
+        if (!boardFileId || targetScreenId !== boardFileId) {
+          return rebasedDestContent;
+        }
+        const normalized =
+          normalizePoisonedBoardNestedCoords(rebasedDestContent);
+        warnIfPoisonedBoardCoordsNormalized(targetScreenId, normalized);
+        return normalized.html;
+      })();
 
       recordContentHistoryEntry({
         changes: [
@@ -20161,16 +20483,20 @@ export default function DesignEditor() {
           // template instance or no longer matches uniquely) — this drop
           // falls through to absolute placement below with no anchor at
           // all. Surface it instead of failing quietly; fallback behavior
-          // itself is intentionally unchanged.
-          console.warn(
-            "[design] cross-screen drop: could not stamp pending anchor node id — falling back to absolute placement",
-            {
-              targetScreenId,
-              targetAnchorSelector,
-              targetAnchorPendingNodeId,
-              status: stamped.result.status,
-            },
-          );
+          // itself is intentionally unchanged. Dev-only: this is a known,
+          // handled degraded path (not a correctness bug), so keep
+          // production consoles quiet — see DESIGN_EDITOR_DEBUG_LOGS.
+          if (DESIGN_EDITOR_DEBUG_LOGS) {
+            console.warn(
+              "[design] cross-screen drop: could not stamp pending anchor node id — falling back to absolute placement",
+              {
+                targetScreenId,
+                targetAnchorSelector,
+                targetAnchorPendingNodeId,
+                status: stamped.result.status,
+              },
+            );
+          }
         }
       }
 
@@ -20226,6 +20552,15 @@ export default function DesignEditor() {
         );
         return;
       }
+      // Finding 8: see the same-screen move's identical handling above —
+      // the anchor placement was redirected out of a <template> interior to
+      // right after the enclosing template's close instead of failing or
+      // teleporting to doc end.
+      if (result.anchorRedirected) {
+        toast(t("designEditor.toasts.layerMoveRedirected"), {
+          duration: 4000,
+        });
+      }
 
       // Hit-test anchors are emitted only for auto-layout insertion targets. If
       // there is no anchor, preserve absolute mode and rebase left/top to the
@@ -20245,9 +20580,13 @@ export default function DesignEditor() {
       // adaptAutoTextColorForNest; this is the cross-screen mirror, applied
       // host-side now that the node has actually been re-parented into
       // destContent.
+      const liveDestIframe = document.querySelector<HTMLIFrameElement>(
+        `[data-screen-iframe-id="${CSS.escape(getPrimaryIframeId(targetScreenId))}"]`,
+      );
       const stylePreservedDest = adaptAutoTextColorForCrossScreenNode(
         styleSnapshotDest,
         destNodeAttrId,
+        liveDestIframe?.contentDocument ?? null,
       );
       const nextDestContent = targetAnchorAttrId
         ? targetDropMode === "absolute-container"
@@ -22457,29 +22796,18 @@ export default function DesignEditor() {
       const iframe = getPreviewIframe();
       if (!iframe) return;
       // Same tooltip-vs-menu ambiguity as the inspectorPopoverOpen shield
-      // above (see its doc comment): a bare `[data-radix-popper-content-
-      // wrapper]` presence check also matches Tooltip's Popper-based portal,
-      // so merely hovering a tooltip-wrapped trigger (e.g. the zoom
-      // control's Tooltip+DropdownMenu combo) disabled the preview iframe's
-      // pointer events even with no real menu/popover open. Exclude wrappers
-      // whose only open content is a first-party tooltip
-      // (data-agent-native-tooltip, packages/toolkit/src/ui/tooltip.tsx).
+      // above (see its doc comment) — and, as of finding 7, the exact same
+      // isRadixOverlayOpen predicate, so the two shields can't diverge
+      // again. (Previously this path hand-duplicated a slightly different,
+      // buggier version that never checked a closed wrapper's own
+      // data-state, which could leave this iframe's pointer-events stuck at
+      // "none" after closing the zoom menu via item-select.)
       const wrappers = document.body.querySelectorAll(
         "[data-radix-popper-content-wrapper]",
       );
-      const hasOpenPopperOverlay = Array.from(wrappers).some((wrapper) => {
-        if (wrapper.hasAttribute("data-agent-native-tooltip")) return false;
-        const stateful = wrapper.querySelectorAll("[data-state]");
-        if (
-          stateful.length > 0 &&
-          Array.from(stateful).every((content) =>
-            content.hasAttribute("data-agent-native-tooltip"),
-          )
-        ) {
-          return false;
-        }
-        return true;
-      });
+      const hasOpenPopperOverlay = Array.from(wrappers).some((wrapper) =>
+        isRadixOverlayOpen(wrapper),
+      );
       const hasOpenOverlay =
         hasOpenPopperOverlay ||
         Boolean(

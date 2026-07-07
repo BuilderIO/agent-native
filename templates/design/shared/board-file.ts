@@ -811,18 +811,35 @@ function rebaseNestedBoardCoord(args: {
  * Applied on board-content load/adopt (DesignEditor) so designs corrupted by
  * the historic nest-on-drop bugs self-heal the next time an editor opens
  * them, and as a post-reparent safety net.
+ *
+ * Detectability (finding 4): this repair is a heuristic rewrite of
+ * already-persisted content with no built-in trace — a bad heuristic could
+ * silently mis-rebase real content and nobody would know. The return value
+ * includes `fixedNodeCount` and a small `samples` list (each node's original
+ * vs. rebased left/top) so callers can log what actually happened; this
+ * function itself stays side-effect-free (no console usage) so it remains
+ * safely callable from any context (including the post-reparent safety-net
+ * call sites, not just the load effect) — logging is the caller's job.
  */
+const NORMALIZE_POISONED_COORDS_SAMPLE_LIMIT = 5;
+
 export function normalizePoisonedBoardNestedCoords(html: string): {
   html: string;
   changed: boolean;
+  fixedNodeCount: number;
+  samples: Array<{
+    nodeId: string | null;
+    before: { left: number | null; top: number | null };
+    after: { left: number | null; top: number | null };
+  }>;
 } {
   if (!html || !html.includes("data-agent-native-node-id")) {
-    return { html, changed: false };
+    return { html, changed: false, fixedNodeCount: 0, samples: [] };
   }
   // Cheap pre-scan: a poisoned coordinate needs at least 5 digits
   // (|value| >= 65536 - 16384 = 49152).
   if (!/(?:left|top)\s*:\s*-?\d{5,}/i.test(html)) {
-    return { html, changed: false };
+    return { html, changed: false, fixedNodeCount: 0, samples: [] };
   }
 
   const bodyStart = html.indexOf("<body");
@@ -835,6 +852,12 @@ export function normalizePoisonedBoardNestedCoords(html: string): {
   let out = "";
   let cursor = 0;
   let changed = false;
+  let fixedNodeCount = 0;
+  const samples: Array<{
+    nodeId: string | null;
+    before: { left: number | null; top: number | null };
+    after: { left: number | null; top: number | null };
+  }> = [];
 
   BOARD_HTML_TAG_RE.lastIndex = walkStart;
   let match: RegExpExecArray | null;
@@ -885,6 +908,8 @@ export function normalizePoisonedBoardNestedCoords(html: string): {
         (sum, frame) => sum + (frame.top ?? 0),
         0,
       );
+      const beforeLeft = left;
+      const beforeTop = top;
       let nextStyle = style;
       if (leftPoisoned && left !== null) {
         left = rebaseNestedBoardCoord({
@@ -905,6 +930,18 @@ export function normalizePoisonedBoardNestedCoords(html: string): {
         nextStyle = replaceInlineStylePx(nextStyle, "top", top);
       }
       if (nextStyle !== style) {
+        fixedNodeCount += 1;
+        if (samples.length < NORMALIZE_POISONED_COORDS_SAMPLE_LIMIT) {
+          const nodeIdMatch =
+            /\bdata-agent-native-node-id\s*=\s*("([^"]*)"|'([^']*)')/.exec(
+              attrs,
+            );
+          samples.push({
+            nodeId: nodeIdMatch?.[2] ?? nodeIdMatch?.[3] ?? null,
+            before: { left: beforeLeft, top: beforeTop },
+            after: { left, top },
+          });
+        }
         const quote = styleMatch[2]?.startsWith("'") ? "'" : '"';
         const rewrittenToken =
           token.slice(0, styleMatch.index ?? 0) +
@@ -925,8 +962,13 @@ export function normalizePoisonedBoardNestedCoords(html: string): {
     }
   }
 
-  if (!changed) return { html, changed: false };
-  return { html: out + html.slice(cursor), changed: true };
+  if (!changed) return { html, changed: false, fixedNodeCount: 0, samples: [] };
+  return {
+    html: out + html.slice(cursor),
+    changed: true,
+    fixedNodeCount,
+    samples,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   isSaneCanvasFrameGeometryForPersist,
@@ -77,6 +77,25 @@ describe("isSaneCanvasFrameGeometryForPersist", () => {
       isSaneCanvasFrameGeometryForPersist({ width: 1280, height: 19000 }),
     ).toBe(true);
   });
+
+  it("accepts a very tall but sane-aspect scrolling page beyond the old 20000px cap", () => {
+    // 1440 x 30000 → aspect ~20.8, well under MAX_SANE_FRAME_ASPECT_RATIO (50).
+    // The old 20000px absolute dimension ceiling used to silently revert this
+    // even though it's ordinary long-page content, not corruption.
+    expect(30000 / 1440).toBeLessThan(MAX_SANE_FRAME_ASPECT_RATIO);
+    expect(
+      isSaneCanvasFrameGeometryForPersist({ width: 1440, height: 30000 }),
+    ).toBe(true);
+  });
+
+  it("still refuses truly insane dimensions beyond the raised 100000px ceiling", () => {
+    expect(
+      isSaneCanvasFrameGeometryForPersist({
+        width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+        height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("sanitizeCanvasFrameGeometryForPersist", () => {
@@ -150,5 +169,38 @@ describe("sanitizeCanvasFrameGeometryForPersist", () => {
     sanitizeCanvasFrameGeometryForPersist(next, previous);
     expect(next).toEqual(nextCopy);
     expect(previous).toEqual(previousCopy);
+  });
+
+  it("emits a console.warn with the offending frame id and dimensions when a revert fires (detectability)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const next = {
+        "screen-1": { x: 10, y: 20, width: 120, height: 14976 },
+      };
+      sanitizeCanvasFrameGeometryForPersist(next, previous);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const [message, details] = warnSpy.mock.calls[0];
+      expect(String(message)).toContain("canvas frame geometry");
+      expect(details).toMatchObject({
+        frameId: "screen-1",
+        rejected: next["screen-1"],
+        revertedTo: previous["screen-1"],
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does not warn when nothing is rejected", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const next = {
+        "screen-1": { x: 10, y: 20, width: 1280, height: 800 },
+      };
+      sanitizeCanvasFrameGeometryForPersist(next, previous);
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

@@ -5,6 +5,7 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
+  findEnclosingTemplateClose,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
@@ -1516,6 +1517,59 @@ describe("moveNodeBetweenDocuments", () => {
       `data-agent-native-node-id="move-me"`,
     );
     expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+  });
+
+  // Finding 8: the template-interior guard (isOffsetInsideTemplateInterior /
+  // findEnclosingTemplateClose) used to always redirect a caught offset to
+  // the end of <body>/the document (a silent teleport, potentially far from
+  // where the user actually dropped). It now redirects to immediately AFTER
+  // the ENCLOSING outer </template> instead — still guaranteed-safe (a real
+  // DOM slot right after a closing tag), just much closer to the anchor.
+  //
+  // This is tested directly against findEnclosingTemplateClose (exported
+  // for exactly this purpose — see its doc comment) rather than through
+  // moveNodeBetweenDocuments: with findClosingTag's offset-miscalculation
+  // bug already fixed, every real insertAt this module computes lands
+  // outside template interiors in practice, so the guard has no reachable
+  // integration-level repro today — it is a true defense-in-depth backstop.
+  // The sibling "never lands inside a nested <template>" tests above still
+  // cover the end-to-end anchored/no-anchor paths.
+  describe("findEnclosingTemplateClose (finding 8 redirect target)", () => {
+    it("returns null when the offset is outside any template", () => {
+      const html = `<body><template x-if="a"><div>X</div></template><div>Real</div></body>`;
+      const realIdx = html.indexOf("<div>Real</div>");
+      expect(findEnclosingTemplateClose(html, realIdx)).toBeNull();
+    });
+
+    it("returns the OUTER template's closeEnd for an offset inside a nested template interior", () => {
+      const html =
+        `<body>` +
+        `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+        `<div>Trailing</div>` +
+        `</body>`;
+      const innerOffset = html.indexOf("<li>Task</li>");
+      const outerTemplateCloseEnd =
+        html.lastIndexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result).not.toBeNull();
+      expect(result?.closeEnd).toBe(outerTemplateCloseEnd);
+      // The redirect target is right after the outer template's close, NOT
+      // doc end — well before "Trailing" and far short of html.length.
+      expect(result?.closeEnd).toBeLessThan(html.indexOf("Trailing"));
+      expect(result?.closeEnd).toBeLessThan(html.length);
+    });
+
+    it("returns the enclosing template's closeEnd for a single-level (non-nested) template", () => {
+      const html = `<body><template x-if="true"><li>Task</li></template><div>Real</div></body>`;
+      // Offset strictly inside the <li> element's own tag (not exactly at
+      // the template's openEnd boundary, which the guard treats as "at",
+      // not "inside").
+      const innerOffset = html.indexOf("Task");
+      const templateCloseEnd =
+        html.indexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result?.closeEnd).toBe(templateCloseEnd);
+    });
   });
 
   it("re-parses correctly after a triple-nested same-tag NON_VISUAL_TAGS scenario (template^3)", () => {

@@ -516,7 +516,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
       var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
       var pendingNodeId = "";
-      if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute) {
+      if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
+      // a template clone has no counterpart in source HTML, so no host
+      // persist call could ever durably write data-agent-native-node-id for
+      // it, and Alpine re-renders the clone from scratch on the next data
+      // change anyway (the stamped attribute would vanish). Fail closed
+      // instead of minting a pending id that can never be persisted.
+      !isTemplateCloneElement(el)) {
         pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
         if (!pendingNodeId) {
           pendingNodeId = freshRuntimeNodeId("pending");
@@ -3626,7 +3632,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function draggableElementChildren(parent) {
       return Array.prototype.slice.call(parent.children).filter(function(child) {
-        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child);
+        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child) && !isTemplateCloneElement(child);
       });
     }
     function isFlowReorderCandidate(el) {
@@ -4037,7 +4043,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       }
       var hit = elementFromEditorPoint(clientX, clientY);
-      if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit)) {
+      if (hit && hit !== document.documentElement && !isDraggedOrInsideDragged(hit) && !isOverlayElement(hit) && !isTemplateCloneElement(hit)) {
         if (isContainerDropTarget(hit)) {
           var containerRect = hit.getBoundingClientRect();
           var edgeAxis = hit.parentElement ? parentFlowAxis(hit.parentElement) : parentFlowAxis(hit);
@@ -4088,7 +4094,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       var siblings = draggableElementChildren(parent).filter(function(child) {
         return !isDraggedOrInsideDragged(child);
       });
-      if (!siblings.length) return null;
+      if (!siblings.length) {
+        return {
+          anchor: parent,
+          placement: "inside",
+          axis,
+          dropMode: isAbsolutePrimitiveContainer(parent) ? "absolute-container" : "flow-insert"
+        };
+      }
       var beforeTarget = null;
       for (var i = 0; i < siblings.length; i += 1) {
         var rect = siblings[i].getBoundingClientRect();
@@ -4183,6 +4196,32 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
         if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+          if (isTemplateCloneElement(cursor)) {
+            var cloneFallback = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY,
+              dragged
+            );
+            if (cloneFallback) {
+              return {
+                anchor: cloneFallback.anchor,
+                placement: cloneFallback.placement,
+                axis: cloneFallback.axis,
+                dropMode: "flow-insert",
+                needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+                conversionTarget: parent
+              };
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: parentFlowAxis(parent),
+              dropMode: "flow-insert",
+              needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+              conversionTarget: parent
+            };
+          }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
