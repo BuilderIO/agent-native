@@ -1,10 +1,11 @@
+import crypto from "node:crypto";
+
 import { defineAction } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -76,6 +77,19 @@ function normalizeBridgeUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function stableConnectionId(
+  devServerUrl: string,
+  rootPath: string | undefined,
+  ownerEmail: string,
+) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${ownerEmail}\n${devServerUrl}\n${rootPath ?? ""}`)
+    .digest("base64url")
+    .slice(0, 16);
+  return `localhost_${hash}`;
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -128,7 +142,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     const now = new Date().toISOString();
-    const id = args.id ?? nanoid();
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
     const bridgeUrl = args.bridgeUrl
@@ -152,6 +165,9 @@ export default defineAction({
       routes,
       generatedAt: args.routeManifest?.generatedAt ?? now,
     };
+    const id =
+      args.id ??
+      stableConnectionId(devServerUrl, routeManifest.rootPath, ownerEmail);
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({

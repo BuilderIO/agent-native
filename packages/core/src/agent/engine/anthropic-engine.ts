@@ -227,7 +227,17 @@ class AnthropicEngine implements AgentEngine {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
-        ...(statusCode === 401 ? { errorCode: "http_401", statusCode } : {}),
+        // Forward the provider HTTP status for EVERY known status, not just
+        // 401. The Anthropic SDK reports empty-body failures as a bare
+        // "429 status code (no body)" message, so without a structured
+        // statusCode/errorCode `isRetryableError` couldn't classify a rate
+        // limit (it matches "529"/"502" substrings but not "429") and the
+        // run failed hard instead of backing off + retrying like the Builder
+        // gateway path does. `http_429`/`http_529` also let the run-level
+        // continuation logic auto-resume a rate-limited turn.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : {}),
       };
       throw err;
     }

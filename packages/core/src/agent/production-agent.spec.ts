@@ -5442,6 +5442,19 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(true);
   });
 
+  it("retries on the http_429 errorCode", () => {
+    const err = new EngineError("429 status code (no body)", {
+      errorCode: "http_429",
+    });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("retries on a bare '429 status code (no body)' message with no structured status", () => {
+    // The Anthropic/AI-SDK empty-body rate-limit format historically slipped
+    // past retries because the keyword list matched "529"/"502" but not 429.
+    expect(isRetryableError(new Error("429 status code (no body)"))).toBe(true);
+  });
+
   it("retries on HTTP 529 (Anthropic overloaded) from statusCode field", () => {
     const err = new EngineError("overloaded", { statusCode: 529 });
     expect(isRetryableError(err)).toBe(true);
@@ -5754,13 +5767,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── Opt-in foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ──────
-  // Default-OFF: with the eligibility flag omitted/false, a foreground run
-  // must behave exactly as before (never chains; the client's auto_continue
-  // re-POST is the only continuation path). The first test in this describe
-  // ("does NOT chain a foreground run") pins the omitted-flag default.
+  // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
+  // The boolean passed to shouldChainBackgroundContinuation is the already
+  // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
 
-  it("does NOT chain a foreground run when the self-chain flag is explicitly false (default)", () => {
+  it("does NOT chain a foreground run when the resolved self-chain gate is false", () => {
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: false,

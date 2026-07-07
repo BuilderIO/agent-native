@@ -50,6 +50,29 @@ function backgroundSseResponse(events: unknown[], runId: string): Response {
   );
 }
 
+function foregroundSelfChainSseResponse(
+  events: unknown[],
+  runId: string,
+): Response {
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body.join("")));
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "X-Run-Id": runId,
+        "X-Dispatch-Mode": "foreground-self-chain",
+      },
+    },
+  );
+}
+
 function emptySseResponse(runId = "run-empty"): Response {
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -5382,6 +5405,79 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     expect(postCount).toBe(2);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working continued");
+  });
+
+  it("follows server state instead of self-posting when foreground self-chain is enabled", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return foregroundSelfChainSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-fg-self-1",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-fg-self-2",
+          threadId: "thread-fg-self",
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-fg-self-2/events")) {
+        return backgroundSseResponse(
+          [{ type: "text", text: " continued" }, { type: "done" }],
+          "run-fg-self-2",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-fg-self",
+      threadId: "thread-fg-self",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a self-chained task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toContain("Working continued");
   });

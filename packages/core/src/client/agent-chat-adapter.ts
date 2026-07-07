@@ -133,16 +133,17 @@ const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
 // ── Background follow mode ──────────────────────────────────────────────────
-// For background-dispatched runs (dispatchMode starts with "background") the
-// SERVER is the sole recovery brain: it chains continuation chunks itself
-// (fresh runId, same turnId), pre-inserts the successor run row BEFORE the old
-// chunk completes (so /runs/active shows an active run continuously across
-// chunk boundaries), and a server sweep reaps lost handoffs into loud terminal
-// errors. The client therefore never POSTs synthetic continuations for these
-// runs — it demotes itself to a READER of server state: poll /runs/active,
-// (re)attach to whichever run of this turn is live, and fold its events into
-// the same assistant message. Read-only, so multiple tabs following the same
-// run are safe (no localStorage/Web-Locks claim needed).
+// For server-continued runs (dispatchMode starts with "background" or equals
+// "foreground-self-chain") the SERVER is the sole recovery brain: it chains
+// continuation chunks itself (fresh runId, same turnId), pre-inserts the
+// successor run row BEFORE the old chunk completes (so /runs/active shows an
+// active run continuously across chunk boundaries), and a server sweep reaps
+// lost handoffs into loud terminal errors. The client therefore never POSTs
+// synthetic continuations for these runs — it demotes itself to a READER of
+// server state: poll /runs/active, (re)attach to whichever run of this turn is
+// live, and fold its events into the same assistant message. Read-only, so
+// multiple tabs following the same run are safe (no localStorage/Web-Locks
+// claim needed).
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
@@ -1687,11 +1688,13 @@ export function createAgentChatAdapter(
         if (mode) currentRunDispatchMode = mode;
       };
 
-      // Mode switch for recovery ownership: background-dispatched runs are
-      // recovered by the SERVER (chained continuations, sweeps); the client
-      // only follows. Foreground (null/"foreground"/unknown) keeps the full
-      // client-side continuation machinery unchanged.
+      // Mode switch for recovery ownership: background-dispatched runs and
+      // foreground-self-chain runs are recovered by the SERVER (chained
+      // continuations, sweeps); the client only follows. Plain foreground
+      // (null/"foreground"/unknown) keeps the full client-side continuation
+      // machinery unchanged.
       const isBackgroundDispatch = () =>
+        currentRunDispatchMode === "foreground-self-chain" ||
         currentRunDispatchMode?.startsWith("background") === true;
 
       const rememberRunSeq = (seq: number) => {

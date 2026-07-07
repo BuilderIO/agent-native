@@ -9,23 +9,22 @@ import { cn } from "./utils.js";
 export const DEFAULT_KEEP_TAB_OPEN_AFTER_MS = 30_000;
 
 /**
- * Subtle, non-blocking notice that a long-running FOREGROUND agent turn
- * depends on this tab staying open.
+ * Subtle, non-blocking notice that a long-running client-continued foreground
+ * agent turn depends on this tab staying open.
  *
  * On hosted deployments a foreground turn runs in ~40s chunks and the CLIENT
- * re-POSTs `auto_continue` to start each next chunk — close the tab
- * mid-turn and the work silently stops at the next chunk boundary. Only
- * server-driven runs (`dispatchMode` starting with "background": the durable
- * background worker, or a server self-chained continuation) survive a closed
- * tab, and for those this notice never shows.
+ * may need to re-POST `auto_continue` to start each next chunk. Server-owned
+ * runs (`dispatchMode` starting with "background" or equal to
+ * "foreground-self-chain") survive a closed tab, and for those this notice
+ * never shows.
  *
  * Visibility rules (show only while the condition is true — no new
  * always-visible chrome):
- *   - a foreground-dispatched run for this thread has been continuously
+ *   - a client-continued foreground run for this thread has been continuously
  *     running for `showAfterMs` (default 30s — approaching the hosted ~40s
  *     chunk boundary where the client-driven continuation starts), and
- *   - the run is NOT background-dispatched (hidden immediately when the
- *     server owns recovery), and
+ *   - the run is not server-continued (hidden immediately when the server owns
+ *     recovery), and
  *   - this is a production client bundle (`hosted` auto-detect): local dev
  *     runs a turn unbounded in a single chunk that survives a closed tab,
  *     so the notice would be wrong there.
@@ -78,6 +77,13 @@ function isDevClientBundle(): boolean {
   }
 }
 
+function isServerContinuedDispatch(dispatchMode: string | null): boolean {
+  return (
+    dispatchMode === "foreground-self-chain" ||
+    dispatchMode?.startsWith("background") === true
+  );
+}
+
 export function KeepTabOpenNotice({
   threadId,
   enabled = true,
@@ -93,10 +99,9 @@ export function KeepTabOpenNotice({
     apiUrl,
     pollIntervalMs: NOTICE_POLL_INTERVAL_MS,
   });
-  const isBackgroundDispatch =
-    state.dispatchMode?.startsWith("background") === true;
+  const isServerContinued = isServerContinuedDispatch(state.dispatchMode);
   const foregroundRunning =
-    state.status === "running" && Boolean(state.runId) && !isBackgroundDispatch;
+    state.status === "running" && Boolean(state.runId) && !isServerContinued;
 
   const [visible, setVisible] = useState(false);
   const runningSinceRef = useRef<number | null>(null);
@@ -109,7 +114,7 @@ export function KeepTabOpenNotice({
   }, [threadId]);
 
   useEffect(() => {
-    if (!effectiveHosted || isBackgroundDispatch) {
+    if (!effectiveHosted || isServerContinued) {
       // Server-owned turn (or non-hosted client): the tab is not load-bearing.
       // Hide immediately and reset — no linger.
       runningSinceRef.current = null;
@@ -143,7 +148,7 @@ export function KeepTabOpenNotice({
   }, [
     effectiveHosted,
     foregroundRunning,
-    isBackgroundDispatch,
+    isServerContinued,
     showAfterMs,
     visible,
   ]);

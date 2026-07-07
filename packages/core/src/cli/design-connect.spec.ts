@@ -921,6 +921,14 @@ describe("design connect bridge endpoints", () => {
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);
         expect(captured?.["devServerUrl"]).toBe(manifest.devServerUrl);
         expect(captured?.["bridgeUrl"]).toBe(manifest.bridgeUrl);
+        const registeredOperations = (
+          captured?.["capabilities"] as Array<{ operation?: string }>
+        ).map((capability) => capability.operation);
+        expect(
+          manifest.capabilities.map((capability) => capability.operation),
+        ).toContain("listFiles");
+        expect(registeredOperations).not.toContain("listFiles");
+        expect(registeredOperations).toContain("readFile");
       } finally {
         await new Promise<void>((resolve) =>
           captureServer.close(() => resolve()),
