@@ -12419,7 +12419,7 @@ function DatabaseBulkFilesValueEditor({
     >
       <textarea
         autoFocus
-        aria-label="Edit files for selected rows"
+        aria-label={dbText("editFilesForSelectedRows")}
         value={value}
         placeholder={dbText("oneFileOrMediaLinkPerLine")}
         rows={4}

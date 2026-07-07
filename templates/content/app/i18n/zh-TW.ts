@@ -689,6 +689,7 @@ const messages = {
     nextMonth: "下個月",
     nextTimelineRange: "下一個時間線範圍",
     noRowsMatchThisView: "沒有行匹配此檢視",
+    editFilesForSelectedRows: "編輯所選行的檔案",
     oneFileOrMediaLinkPerLine: "每行一個檔案或媒體連結",
     previewPageTitle: "預覽頁面標題",
     previousDatabasePage: "上一頁面資料庫頁面",
