@@ -26,7 +26,7 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -45,6 +45,7 @@ const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
+const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -55.0;
 // When the mic is captured alongside system audio, ScreenCaptureKit lays the
 // two sources out as the left/right channels of a single stereo track, which
 // plays back stuck on one speaker. Force the input to stereo (mono sources
@@ -73,6 +74,7 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+const FFMPEG_AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
 const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "ffmpeg",
     "/opt/homebrew/bin/ffmpeg",
@@ -209,6 +211,10 @@ pub(crate) enum NativeFullscreenBackend {
         /// silent second while ScreenCaptureKit's mic pipeline spins up.
         /// `None` when the recording has no microphone input.
         mic_ready: Option<Arc<AtomicBool>>,
+        /// Number of microphone sample buffers observed before/after attach.
+        /// This is diagnostic only; it lets the tray log distinguish "SCK
+        /// never saw mic samples" from "samples existed but encoded silent".
+        mic_sample_count: Option<Arc<AtomicU64>>,
     },
 }
 
@@ -298,6 +304,7 @@ impl SCRecordingOutputDelegate for FinishDelegate {
     }
 }
 
+#[derive(Clone)]
 struct PreparedRecordingFile {
     path: PathBuf,
     mime_type: String,
@@ -839,21 +846,34 @@ pub async fn native_fullscreen_recording_begin(
             );
         }
 
-        // Grab the mic-ready flag without holding the lock during the wait.
-        let mic_ready = {
+        // Grab the mic-ready diagnostics without holding the lock during the wait.
+        let mic_state = {
             let guard = state.inner.lock().map_err(|e| e.to_string())?;
             guard.as_ref().and_then(|s| match s.backend.as_ref() {
-                Some(NativeFullscreenBackend::ScreenCaptureKit { mic_ready, .. }) => {
-                    mic_ready.clone()
-                }
+                Some(NativeFullscreenBackend::ScreenCaptureKit {
+                    mic_ready,
+                    mic_sample_count,
+                    ..
+                }) => mic_ready
+                    .as_ref()
+                    .map(|ready| (Arc::clone(ready), mic_sample_count.clone())),
                 _ => None,
             })
         };
-        if let Some(ready) = mic_ready {
+        let mut mic_ready_before_attach: Option<bool> = None;
+        let mut mic_samples_before_attach: Option<u64> = None;
+        let mut mic_warm_wait_ms: Option<u128> = None;
+        if let Some((ready, sample_count)) = mic_state {
+            let wait_started = Instant::now();
             let deadline = Instant::now() + Duration::from_millis(MIC_WARM_TIMEOUT_MS);
             while !ready.load(Ordering::Relaxed) && Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(15)).await;
             }
+            mic_ready_before_attach = Some(ready.load(Ordering::Relaxed));
+            mic_samples_before_attach = sample_count
+                .as_ref()
+                .map(|samples| samples.load(Ordering::Relaxed));
+            mic_warm_wait_ms = Some(wait_started.elapsed().as_millis());
         }
 
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -869,6 +889,20 @@ pub async fn native_fullscreen_recording_begin(
             stream
                 .add_recording_output(recording)
                 .map_err(|e| format!("add recording output failed: {e:?}"))?;
+        }
+        if mic_ready_before_attach.is_some() || mic_samples_before_attach.is_some() {
+            eprintln!(
+                "[clips-tray] ScreenCaptureKit recording output attached: mic_ready_before_attach={} mic_samples_before_attach={} mic_warm_wait_ms={}",
+                mic_ready_before_attach
+                    .map(|ready| ready.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                mic_samples_before_attach
+                    .map(|samples| samples.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                mic_warm_wait_ms
+                    .map(|ms| ms.to_string())
+                    .unwrap_or_else(|| "n/a".to_string())
+            );
         }
         // Rebaseline the duration clock: the warm phase ran during the
         // countdown, so `started_at` (set at warm time) is several seconds
@@ -1769,20 +1803,23 @@ pub(crate) fn start_screencapturekit_backend_at(
     let mut stream = SCStream::new(&filter, &config);
     // Observe the microphone stream so `begin` can wait for the first sample
     // before attaching the recording output (avoids the silent-mic head).
-    let mic_ready = if capture_microphone_in_recording {
+    let (mic_ready, mic_sample_count) = if capture_microphone_in_recording {
         let flag = Arc::new(AtomicBool::new(false));
+        let sample_count = Arc::new(AtomicU64::new(0));
         let flag_cb = Arc::clone(&flag);
+        let sample_count_cb = Arc::clone(&sample_count);
         stream.add_output_handler(
             move |_sample, of_type| {
                 if matches!(of_type, SCStreamOutputType::Microphone) {
+                    sample_count_cb.fetch_add(1, Ordering::Relaxed);
                     flag_cb.store(true, Ordering::Relaxed);
                 }
             },
             SCStreamOutputType::Microphone,
         );
-        Some(flag)
+        (Some(flag), Some(sample_count))
     } else {
-        None
+        (None, None)
     };
     if !defer_recording_output {
         stream
@@ -1803,6 +1840,7 @@ pub(crate) fn start_screencapturekit_backend_at(
             recording,
             finish,
             mic_ready,
+            mic_sample_count,
         },
         Some(width),
         Some(height),
@@ -3674,6 +3712,138 @@ pub(crate) fn mp4_has_audio_track(path: &Path) -> Option<bool> {
     Some(false)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct AudioSignalProbe {
+    mean_volume_db: Option<f64>,
+    max_volume_db: Option<f64>,
+}
+
+impl AudioSignalProbe {
+    fn has_audible_signal(self) -> bool {
+        self.max_volume_db
+            .map(|value| value.is_finite() && value >= AUDIO_SIGNAL_MIN_MAX_VOLUME_DB)
+            .unwrap_or(false)
+    }
+
+    fn summary(self) -> String {
+        fn fmt(value: Option<f64>) -> String {
+            match value {
+                Some(value) if value.is_finite() => format!("{value:.1} dB"),
+                Some(value) if value.is_infinite() && value.is_sign_negative() => "-inf dB".into(),
+                Some(_) => "non-finite".into(),
+                None => "unknown".into(),
+            }
+        }
+        format!(
+            "mean_volume={} max_volume={} floor={:.1} dB",
+            fmt(self.mean_volume_db),
+            fmt(self.max_volume_db),
+            AUDIO_SIGNAL_MIN_MAX_VOLUME_DB
+        )
+    }
+}
+
+fn parse_ffmpeg_volume_db(stderr: &str, label: &str) -> Option<f64> {
+    stderr.lines().rev().find_map(|line| {
+        let (_, value) = line.split_once(label)?;
+        let value = value.trim().strip_suffix(" dB").unwrap_or(value.trim());
+        if value == "-inf" {
+            Some(f64::NEG_INFINITY)
+        } else {
+            value.parse::<f64>().ok()
+        }
+    })
+}
+
+fn audio_signal_probe_with_ffmpeg(
+    ffmpeg_path: &str,
+    source: &Path,
+) -> Result<AudioSignalProbe, String> {
+    let child = Command::new(ffmpeg_path)
+        .arg("-hide_banner")
+        .arg("-nostdin")
+        .arg("-i")
+        .arg(source)
+        .arg("-map")
+        .arg("0:a:0")
+        .arg("-af")
+        .arg("volumedetect")
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("ffmpeg audio probe spawn failed: {e}"))?;
+    let stderr = wait_for_child_collect_stderr(
+        child,
+        FFMPEG_AUDIO_PROBE_TIMEOUT,
+        "ffmpeg",
+        "checking recording audio",
+    )?;
+    Ok(AudioSignalProbe {
+        mean_volume_db: parse_ffmpeg_volume_db(&stderr, "mean_volume:"),
+        max_volume_db: parse_ffmpeg_volume_db(&stderr, "max_volume:"),
+    })
+}
+
+fn describe_audio_signal_probe(probe: Result<AudioSignalProbe, String>) -> String {
+    match probe {
+        Ok(probe) => probe.summary(),
+        Err(err) => format!("probe failed: {err}"),
+    }
+}
+
+fn verify_prepared_audio_signal(
+    ffmpeg_path: &str,
+    candidate: &Path,
+    original: &PreparedRecordingFile,
+    source_path: &Path,
+    label: &str,
+) -> Result<Option<PreparedRecordingFile>, String> {
+    let candidate_probe = match audio_signal_probe_with_ffmpeg(ffmpeg_path, candidate) {
+        Ok(probe) => probe,
+        Err(err) => {
+            eprintln!(
+                "[clips-tray] audio signal probe failed for {label}; accepting candidate: {err}"
+            );
+            return Ok(None);
+        }
+    };
+    if candidate_probe.has_audible_signal() {
+        eprintln!(
+            "[clips-tray] audio signal probe ok for {label}: {}",
+            candidate_probe.summary()
+        );
+        return Ok(None);
+    }
+
+    let source_probe = audio_signal_probe_with_ffmpeg(ffmpeg_path, source_path);
+    let source_has_signal = source_probe
+        .as_ref()
+        .ok()
+        .copied()
+        .map(AudioSignalProbe::has_audible_signal)
+        .unwrap_or(false);
+    let source_summary = describe_audio_signal_probe(source_probe);
+    if source_has_signal {
+        eprintln!(
+            "[clips-tray] AUDIO QUIET AFTER PREPARE: {label} is effectively silent ({}) but original has signal ({source_summary}) — uploading original instead",
+            candidate_probe.summary()
+        );
+        return Ok(Some(original.clone()));
+    }
+
+    eprintln!(
+        "[clips-tray] AUDIO CAPTURE TOO QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary})",
+        candidate_probe.summary()
+    );
+    Err(format!(
+        "Recorded file contains an audio track, but the captured audio is too quiet to publish ({})",
+        candidate_probe.summary()
+    ))
+}
+
 fn prepare_recording_file(
     app: &AppHandle,
     path: &Path,
@@ -3749,6 +3919,16 @@ fn prepare_recording_file(
                                 );
                                 return Ok(original);
                             }
+                            if let Some(fallback) = verify_prepared_audio_signal(
+                                ffmpeg_path,
+                                &normalized_path,
+                                &original,
+                                path,
+                                "audio-normalized recording",
+                            )? {
+                                let _ = std::fs::remove_file(&normalized_path);
+                                return Ok(fallback);
+                            }
                             eprintln!(
                                 "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
                                 source_bytes, normalized_bytes
@@ -3781,7 +3961,7 @@ fn prepare_recording_file(
         return Ok(original);
     }
 
-    if let Some(ffmpeg_path) = ffmpeg_path {
+    if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
         let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
@@ -3794,7 +3974,7 @@ fn prepare_recording_file(
             let compressed_path = compressed_recording_path(path);
             let _ = std::fs::remove_file(&compressed_path);
             match transcode_with_ffmpeg(
-                &ffmpeg_path,
+                ffmpeg_path,
                 path,
                 &compressed_path,
                 preset,
@@ -3825,6 +4005,26 @@ fn prepare_recording_file(
                             preset.label
                         );
                         continue;
+                    }
+                    if has_audio {
+                        if let Some(fallback) = verify_prepared_audio_signal(
+                            &ffmpeg_path,
+                            &compressed_path,
+                            &original,
+                            path,
+                            preset.label,
+                        )? {
+                            let _ = std::fs::remove_file(&compressed_path);
+                            if fallback.bytes <= max_upload_bytes() {
+                                return Ok(fallback);
+                            }
+                            eprintln!(
+                                "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent compressed preset {}",
+                                format_mb(fallback.bytes),
+                                preset.label
+                            );
+                            continue;
+                        }
                     }
                     smallest_attempt_bytes = Some(
                         smallest_attempt_bytes
@@ -3917,6 +4117,28 @@ fn prepare_recording_file(
                              rather than uploading a silent smaller file"
                         );
                         continue;
+                    }
+                    if has_audio {
+                        if let Some(ffmpeg_probe_path) = ffmpeg_path.as_deref() {
+                            if let Some(fallback) = verify_prepared_audio_signal(
+                                ffmpeg_probe_path,
+                                &compressed_path,
+                                &original,
+                                path,
+                                preset,
+                            )? {
+                                let _ = std::fs::remove_file(&compressed_path);
+                                if fallback.bytes <= max_upload_bytes() {
+                                    return Ok(fallback);
+                                }
+                                eprintln!(
+                                    "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent avconvert preset {}",
+                                    format_mb(fallback.bytes),
+                                    preset
+                                );
+                                continue;
+                            }
+                        }
                     }
                     smallest_attempt_bytes = Some(
                         smallest_attempt_bytes
@@ -4324,19 +4546,25 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
 }
 
 fn wait_for_transcode_child(
-    mut child: Child,
+    child: Child,
     timeout: Duration,
     tool_name: &str,
 ) -> Result<(), String> {
+    wait_for_child_collect_stderr(child, timeout, tool_name, "compressing recording").map(|_| ())
+}
+
+fn wait_for_child_collect_stderr(
+    mut child: Child,
+    timeout: Duration,
+    tool_name: &str,
+    action: &str,
+) -> Result<String, String> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child
             .try_wait()
             .map_err(|e| format!("{tool_name} wait failed: {e}"))?
         {
-            if status.success() {
-                return Ok(());
-            }
             let mut stderr = String::new();
             if let Some(mut pipe) = child.stderr.take() {
                 let _ = pipe.read_to_string(&mut stderr);
@@ -4350,12 +4578,16 @@ fn wait_for_transcode_child(
                 .rev()
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Err(format!("{tool_name} exited with {status}: {}", tail.trim()));
+            return if status.success() {
+                Ok(stderr)
+            } else {
+                Err(format!("{tool_name} exited with {status}: {}", tail.trim()))
+            };
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("{tool_name} timed out while compressing recording"));
+            return Err(format!("{tool_name} timed out while {action}"));
         }
         std::thread::sleep(Duration::from_millis(250));
     }

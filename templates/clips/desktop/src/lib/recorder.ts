@@ -1726,6 +1726,7 @@ async function startNativeFullscreenRecording(
   let nativeTranscriptFailureSaved = false;
   const wantsSystemAudio = params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  let micDeviceLabel: string | null = params.micLabel || null;
   const saveTranscriptFailure = async (failureReason: string) => {
     if (!wantsRecordedAudio || nativeTranscriptFailureSaved || !id) return;
     nativeTranscriptFailureSaved = true;
@@ -1735,6 +1736,25 @@ async function startNativeFullscreenRecording(
       failureReason,
       params.authToken,
     );
+  };
+  const startNativeTranscriptionBeforeRecording = async () => {
+    if (localOnly || !wantsRecordedAudio || transcriptionCapture) return;
+    transcriptionCapture = await startTranscriptionCapture(
+      {
+        deviceId: params.micId,
+        label: micDeviceLabel,
+      },
+      wantsSystemAudio,
+    );
+    if (
+      wantsRecordedAudio &&
+      !transcriptionCapture &&
+      shouldSaveLocalTranscriptionStartupFailure()
+    ) {
+      void saveTranscriptFailure(
+        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
+      );
+    }
   };
 
   try {
@@ -1786,7 +1806,6 @@ async function startNativeFullscreenRecording(
     // be stale or empty (device list locked when picked, or a rotated deviceId
     // salt after an app update), so a one-shot getUserMedia gives the exact
     // current device name.
-    let micDeviceLabel = params.micLabel || null;
     if (wantsAudio && params.micId) {
       try {
         const probe = await navigator.mediaDevices.getUserMedia({
@@ -1860,6 +1879,12 @@ async function startNativeFullscreenRecording(
       const warmAndId = (async () => {
         const createRes = await recordingPromise;
         uploadMode = createRes.uploadMode;
+        id = createRes.id;
+        // Start the live transcription mic tap before SCK attaches its
+        // recording output. On macOS, opening AVAudioEngine after SCK has
+        // started writing can reconfigure the shared input device and leave
+        // SCK's microphone leg near-silent while Whisper still hears audio.
+        await startNativeTranscriptionBeforeRecording();
         await warmMic(createRes.id);
         return createRes.id;
       })();
@@ -1889,6 +1914,12 @@ async function startNativeFullscreenRecording(
     localCameraExport?.start(2_000);
   } catch (err) {
     await localCameraExport?.cancel().catch(() => {});
+    await transcriptionCapture?.cancel().catch((cancelErr) => {
+      console.warn(
+        "[clips-recorder] native transcription cancel after start failure failed:",
+        cancelErr,
+      );
+    });
     // Tear down any capture started by the warm phase — on a countdown cancel
     // (or a `begin` failure) the SCStream is already running with the mic live,
     // and without this it would keep capturing after the aborted start.
@@ -2291,36 +2322,12 @@ async function startNativeFullscreenRecording(
   emitState();
 
   if (!localOnly) {
-    await showRegionGuidesForRecording(true);
-    transcriptionCapture = wantsRecordedAudio
-      ? await startTranscriptionCapture(
-          {
-            deviceId: params.micId,
-            label: params.micLabel,
-          },
-          wantsSystemAudio,
-        )
-      : null;
-    // Stop/Cancel can fire during the await above — at that point stop()/cancel()
-    // ran while transcriptionCapture was still null, so it never tore this down.
-    // Cancel the freshly-started session here so it doesn't keep running.
-    if (stopped && transcriptionCapture) {
-      void transcriptionCapture.cancel().catch(() => {});
-      transcriptionCapture = null;
-    } else if (pausedAt != null && transcriptionCapture) {
+    if (pausedAt != null && transcriptionCapture) {
       // The user paused while the engine was still starting; honor it now.
       console.log(
         "[clips-recorder] native: paused during startup, pausing transcription",
       );
       void transcriptionCapture.pause().catch(() => {});
-    } else if (
-      wantsRecordedAudio &&
-      !transcriptionCapture &&
-      shouldSaveLocalTranscriptionStartupFailure()
-    ) {
-      void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
-      );
     }
   }
 
