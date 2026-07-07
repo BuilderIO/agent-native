@@ -1521,6 +1521,36 @@ interface FileContentSaveRequest {
   id: string;
   content: string;
   syncCollab: boolean;
+  /**
+   * Optimistic-concurrency guard forwarded to update-file's
+   * `expectedVersionHash` param — the last content hash this client knows
+   * the server/collab doc holds for this file. Populated by callers when
+   * known (lastAckedFileContentHashRef); omitted when unknown so update-file
+   * keeps its legacy unguarded-write behavior.
+   */
+  expectedVersionHash?: string;
+}
+
+/**
+ * Pure decision helper (exported for unit testing) for the pagehide/unload
+ * keepalive: should it be sent at all?
+ *
+ * The keepalive posts a raw, unguarded full-document `content` write with
+ * `keepalive: true` — there is no round trip to react to a server rejection,
+ * so an unload-time write that races a live collaboration doc can silently
+ * clobber newer content with a stale tab-close snapshot. When collab is
+ * live (this pending save's `syncCollab` is false) and we don't have a known
+ * acked hash to guard the write with, skip sending the keepalive entirely:
+ * the collab layer (Yjs doc + other connected clients) already holds the
+ * true current content, and an unguarded overwrite risks losing it. Every
+ * other combination (collab not live, or a hash IS known) keeps sending the
+ * keepalive as before.
+ */
+export function shouldSendKeepalive(
+  hashKnown: boolean,
+  collabLive: boolean,
+): boolean {
+  return hashKnown || !collabLive;
 }
 
 function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
@@ -1777,10 +1807,22 @@ function byteLength(value: string): number {
 
 function sendFileContentSaveKeepalive(pending: FileContentSaveRequest): void {
   if (typeof window === "undefined") return;
+  // pending.syncCollab is set to `!(ydoc && isSynced)` at every call site
+  // (see queueFileContentSave / saveFileContent callers), so `syncCollab ===
+  // false` reliably means a live collab doc was connected when this save was
+  // queued — that ydoc-presence flag is exactly the "is collab live" signal
+  // this decision needs. See shouldSendKeepalive's doc comment for why an
+  // unguarded write is skipped entirely in that case when no hash is known.
+  const collabLive = pending.syncCollab === false;
+  const hashKnown = pending.expectedVersionHash !== undefined;
+  if (!shouldSendKeepalive(hashKnown, collabLive)) return;
   const body = JSON.stringify({
     id: pending.id,
     content: pending.content,
     syncCollab: pending.syncCollab,
+    ...(pending.expectedVersionHash
+      ? { expectedVersionHash: pending.expectedVersionHash }
+      : {}),
   });
   if (byteLength(body) > KEEPALIVE_FILE_SAVE_MAX_BYTES) return;
   ensureEmbedAuthFetchInterceptor();
@@ -8105,11 +8147,13 @@ export default function DesignEditor() {
    * successful update-file save and whenever a server-acknowledged content
    * sync arrives (apply-source-edit's onApplied host-sync passes updatedAt).
    * `saveFileContent` sends its hash as update-file's expectedVersionHash on
-   * syncCollab saves (the path where the server would char-diff a stale full
-   * document into the collab text), so a residual stale write fails loud and
-   * rolls back instead of silently merging into corruption. Not sent on
-   * collab-live saves (syncCollab: false): there this client's own ydoc push
-   * is the source of truth and would race its own hash.
+   * every save when a hash is known (both syncCollab true AND false), so a
+   * residual stale write either fails loud (syncCollab true — the server
+   * would otherwise char-diff a stale full document into the collab text)
+   * or is silently skipped server-side without stamping stale content over a
+   * live collab doc (syncCollab false — see update-file's skippedStaleMirror
+   * contract). When no hash is known yet, it's omitted as before and the
+   * write proceeds unguarded.
    */
   const lastAckedFileContentHashRef = useRef<Record<string, string>>({});
   const latestFileSaveForUnloadRef = useRef<
@@ -8141,20 +8185,34 @@ export default function DesignEditor() {
           try {
             // Resolve the optimistic-concurrency hash at SEND time (after any
             // earlier chained save for this file has landed and refreshed the
-            // acked hash), not at queue time. Only guarded on syncCollab saves
-            // — see lastAckedFileContentHashRef's doc comment.
-            const expectedVersionHash = pending.syncCollab
-              ? lastAckedFileContentHashRef.current[pending.id]
-              : undefined;
-            await updateFileMutation.mutateAsync({
+            // acked hash), not at queue time. Attached whenever a hash is
+            // known, on BOTH syncCollab true and false saves — see
+            // lastAckedFileContentHashRef's doc comment. Never invent a hash
+            // when one isn't known yet; omit as before.
+            const expectedVersionHash =
+              pending.expectedVersionHash ??
+              lastAckedFileContentHashRef.current[pending.id];
+            const result = await updateFileMutation.mutateAsync({
               id: pending.id,
               content: pending.content,
               syncCollab: pending.syncCollab,
               ...(expectedVersionHash ? { expectedVersionHash } : {}),
             } as any);
-            lastAckedFileContentHashRef.current[pending.id] = sourceContentHash(
-              pending.content,
-            );
+            // skippedStaleMirror: the server intentionally left the SQL
+            // mirror column untouched because our expectedVersionHash no
+            // longer matched the live collab text (a live editor moved past
+            // the base this write was computed from). The mirror was NOT
+            // updated to pending.content, so recording pending.content's hash
+            // as "acked" here would be wrong — it would make a later guarded
+            // save believe the server holds content it doesn't. Leave the
+            // previously-acked hash in place instead; the DB-reconcile effect
+            // (activeFile watcher) will pick up the true live content and
+            // refresh the acked hash from that.
+            if (!(result as { skippedStaleMirror?: boolean } | undefined)
+              ?.skippedStaleMirror) {
+              lastAckedFileContentHashRef.current[pending.id] =
+                sourceContentHash(pending.content);
+            }
             setPatchProof((prev) =>
               prev && prev.fileId === pending.id && prev.status === "queued"
                 ? { ...prev, status: "applied" }
@@ -24990,12 +25048,24 @@ ${serializedHtml}
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
   // There is no update-breakpoint action, so a width change is expressed
-  // through the existing action surface as remove + add (breakpoint ids are
-  // width-derived definitions, not referenced by scoped overrides — those
-  // are plain max-width media rules in the document, keyed by px value). If
-  // the changed breakpoint was the active edit target, re-target the new
-  // width once the add resolves so the user stays in the scope they were
-  // editing.
+  // through the existing action surface as add + (re-target) + remove
+  // (breakpoint ids are width-derived definitions, not referenced by scoped
+  // overrides — those are plain max-width media rules in the document, keyed
+  // by px value).
+  //
+  // Order matters: ADD the new width first, re-target the active edit scope
+  // to it if the changed breakpoint was active, and only THEN remove the old
+  // breakpoint. This is deliberately the reverse of remove-then-add. Under
+  // the old remove-first order, if the changed breakpoint was the active
+  // edit target and the add failed (or was merely slow), edits stayed scoped
+  // to an orphaned width — a @media bound that no longer existed as a
+  // breakpoint, with no frame rendering it. Adding first means a failed add
+  // aborts before anything is removed: the old breakpoint stays fully intact
+  // (in the set and, if it was active, still targeted), so there is no
+  // window where the edit scope points at a width with no backing
+  // breakpoint. `add-breakpoint` silently ignores duplicate widths and
+  // assigns the new breakpoint its own id, so there's no transient
+  // duplicate-width conflict with the old breakpoint still present.
   const handleBreakpointChangeWidth = useCallback(
     (breakpointId: string, widthPx: number) => {
       if (!id) return;
@@ -25013,19 +25083,29 @@ ${serializedHtml}
       const label = breakpointLabelForWidth(widthPx);
       void (async () => {
         try {
-          await removeBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId,
-          });
           await addBreakpointMutation.mutateAsync({
             designId: id,
             label,
             widthPx,
           });
-          if (wasActive) handleBreakpointBarSelect(widthPx);
         } catch {
+          // Add failed: abort before touching the old breakpoint. The old
+          // width stays in the set and, if it was the active edit target,
+          // stays targeted — no orphaned scope.
+          return;
+        }
+        if (wasActive) handleBreakpointBarSelect(widthPx);
+        try {
+          await removeBreakpointMutation.mutateAsync({
+            designId: id,
+            breakpointId,
+          });
+        } catch {
+          // The new width is already added (and, if applicable, already the
+          // active target); the old breakpoint lingering in the set on a
+          // failed remove is a harmless extra frame, not an orphaned scope.
           // Server state stays the source of truth; the design query refetch
-          // reconciles whatever half of the swap landed.
+          // reconciles it.
         }
       })();
     },

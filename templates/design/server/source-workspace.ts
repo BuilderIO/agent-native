@@ -56,6 +56,16 @@ const _writeLocks = new Map<string, Promise<void>>();
 // valid at check time, then both proceed to write — the check alone doesn't
 // prevent the interleave, only serializing the whole read-check-write section
 // per file id does. See actions/update-file.ts's content-write path.
+//
+// IN-PROCESS ONLY: `_writeLocks` is a plain JS `Map`, so this only serializes
+// writes within a single Node.js process/worker. Multi-instance / horizontally
+// scaled hosted deployments (several server processes/pods behind a load
+// balancer) do NOT share this lock — two requests routed to DIFFERENT
+// processes can still race past each other, since each process has its own
+// independent `_writeLocks` Map. A real cross-process guard would need
+// something like a Postgres/SQL advisory lock (e.g. `pg_advisory_lock`) or a
+// distributed lock service, keyed by file id, shared across all instances.
+// This is a known, tracked follow-up — not implemented here.
 export async function withSourceFileWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,

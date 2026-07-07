@@ -25,6 +25,24 @@ function rowsAffected(result: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Returns `{ id, updated: true }` on success, matching the pre-existing
+ * contract — callers that only check `result.updated === true` see no
+ * behavior change.
+ *
+ * `skippedStaleMirror?: true` is added to the result ONLY in the narrow
+ * SQL-mirror-only staleness case: `content` was provided, `syncCollab` was
+ * explicitly `false`, a live collaboration document exists for this file,
+ * and the caller's `expectedVersionHash` no longer matches that live text.
+ * In that case the content column is intentionally left untouched (the live
+ * collab document remains the source of truth) while any `filename`/
+ * `fileType` updates in the same call still apply, and the action returns
+ * success instead of throwing. The field is omitted (not `false`) in every
+ * other case, so existing callers that don't check for it observe no
+ * difference. When `expectedVersionHash` is omitted entirely, or the hash
+ * matches, or `syncCollab` is left at its default `true`, or no collab state
+ * exists yet for the file, this skip path never triggers.
+ */
 export default defineAction({
   description:
     "Update an existing file in a design project. " +
@@ -128,10 +146,28 @@ export default defineAction({
     // VALUE they write, but the write itself is still serialized under the
     // same lock so it can't interleave with a concurrent guarded writer's own
     // read-check-write.
+    let skippedStaleMirror = false;
+
     await withSourceFileWriteLock(id, async () => {
+      // SQL-mirror-only skip path: when the caller explicitly opted OUT of
+      // collab sync (syncCollab: false) and supplied an expectedVersionHash
+      // that no longer matches the LIVE collab text, and a live collab doc
+      // actually exists for this file, the caller's `content` was computed
+      // from a base that a live editor has since moved past. Overwriting the
+      // SQL mirror column with that stale content here would silently regress
+      // it out from under the live document (which stays the source of
+      // truth) the next time it's read back out of SQL. Skip the content
+      // write instead of throwing: filename/fileType updates in the same call
+      // still proceed, and the caller gets `skippedStaleMirror: true` back
+      // instead of a thrown error, because they explicitly said they weren't
+      // trying to sync into collab in the first place. Every other
+      // expectedVersionHash combination (syncCollab true/default, or no live
+      // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+      let skipContentWrite = false;
       if (expectedVersionHash !== undefined && content !== undefined) {
+        const collabExists = await hasCollabState(id);
         let liveContent: string;
-        if (await hasCollabState(id)) {
+        if (collabExists) {
           liveContent = await getText(id, "content");
         } else {
           const [current] = await db
@@ -142,14 +178,19 @@ export default defineAction({
           liveContent = current?.content ?? "";
         }
         if (sourceContentHash(liveContent) !== expectedVersionHash) {
-          throw new Error(
-            "File changed since it was read. Re-read the file and retry.",
-          );
+          if (syncCollab === false && collabExists) {
+            skipContentWrite = true;
+            skippedStaleMirror = true;
+          } else {
+            throw new Error(
+              "File changed since it was read. Re-read the file and retry.",
+            );
+          }
         }
       }
 
       const updates: Record<string, unknown> = { updatedAt: now };
-      if (content !== undefined) updates.content = content;
+      if (content !== undefined && !skipContentWrite) updates.content = content;
       if (filename !== undefined) updates.filename = filename;
       if (fileType !== undefined) updates.fileType = fileType;
 
@@ -233,12 +274,19 @@ export default defineAction({
       }
     });
 
-    // Update the parent design's updatedAt timestamp
+    // Update the parent design's updatedAt timestamp. This still runs even
+    // when the content write was skipped (skippedStaleMirror): filename/
+    // fileType may have changed in the same call, and even a content-only
+    // call that hit the skip path still represents a real request the design
+    // was touched by, matching this action's existing unconditional-bump
+    // contract for every other call shape.
     await db
       .update(schema.designs)
       .set({ updatedAt: now })
       .where(eq(schema.designs.id, file.designId));
 
-    return { id, updated: true };
+    return skippedStaleMirror
+      ? { id, updated: true, skippedStaleMirror: true }
+      : { id, updated: true };
   },
 });

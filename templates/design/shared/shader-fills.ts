@@ -224,9 +224,14 @@ export function validateGlslSource(glsl: string): ShaderValidationResult {
   if (!/gl_FragColor/.test(glsl)) {
     errors.push("GLSL source must write gl_FragColor");
   }
-  if (/<\/script/i.test(glsl)) {
-    errors.push("GLSL source must not contain a closing script tag");
-  }
+  // An opening `<script` tag is a real injection vector (it starts a brand
+  // new, arbitrary script rather than merely closing the current block), so
+  // it stays a hard rejection. A closing `</script` on its own — e.g. inside
+  // a GLSL line comment describing script-tag breakouts — is no longer
+  // rejected here: serializeShaderScriptBlock escapes it
+  // (escapeShaderScriptBreakout) before embedding, and parseShaderBlockBody
+  // reverses that escape, so the literal sequence never reaches the emitted
+  // HTML unescaped.
   if (/<script/i.test(glsl)) {
     errors.push("GLSL source must not contain an opening script tag");
   }
@@ -400,9 +405,49 @@ export function serializeManifestComment(
 }
 
 /**
+ * Escape/unescape pair guarding against a `</script` breakout inside a
+ * serialized GLSL body.
+ *
+ * `def.glsl` is caller-controlled (agent/user-edited GLSL source) and is
+ * embedded RAW inside a `<script type="application/x-agent-native-shader">`
+ * block. `validateGlslSource` already rejects a literal `</script` at the
+ * point a shader definition is validated/applied — but `serializeShaderScriptBlock`
+ * is also reachable with defs that were constructed without going through
+ * that validation (e.g. directly in tests, or future callers), and stored
+ * legacy content may already contain the substring. Escaping here is
+ * defense in depth: even if an unescaped `</script` reaches this function,
+ * the emitted HTML never contains a literal closing-script-tag sequence
+ * inside the block body, so the surrounding document can't be corrupted.
+ *
+ * Approach: replace `</script` (case-insensitive) with `<\/script` — the
+ * same backslash-escape idiom used for embedding JS strings inside
+ * `<script>` blocks. It's a minimal, transform-invariant edit (inserts one
+ * `\` character) that is trivial to reverse exactly on parse.
+ */
+export function escapeShaderScriptBreakout(glsl: string): string {
+  return glsl.replace(
+    /<\/script/gi,
+    (match) => match.slice(0, 1) + "\\" + match.slice(1),
+  );
+}
+
+/** Reverse {@link escapeShaderScriptBreakout} — restores the original GLSL. */
+export function unescapeShaderScriptBreakout(glsl: string): string {
+  return glsl.replace(
+    /<\\\/script/gi,
+    (match) => match.slice(0, 1) + match.slice(2),
+  );
+}
+
+/**
  * Split a script-block body into { uniforms, glsl }. Missing/malformed
  * manifests degrade to an empty manifest with the full body as GLSL — the
  * shader still renders, it just has no knobs.
+ *
+ * The raw captured body may contain an escaped `</script` breakout marker
+ * (see {@link escapeShaderScriptBreakout}); it is unescaped here, after
+ * manifest-comment splitting, so callers always get back the original,
+ * editable GLSL source.
  */
 export function parseShaderBlockBody(body: string): {
   uniforms: GlslUniformManifest;
@@ -410,7 +455,12 @@ export function parseShaderBlockBody(body: string): {
 } {
   const match = MANIFEST_COMMENT_RE.exec(body);
   if (!match) {
-    return { uniforms: {}, glsl: body.replace(/^[ \t]*\r?\n/, "").trim() };
+    return {
+      uniforms: {},
+      glsl: unescapeShaderScriptBreakout(
+        body.replace(/^[ \t]*\r?\n/, "").trim(),
+      ),
+    };
   }
   let uniforms: GlslUniformManifest = {};
   try {
@@ -421,10 +471,12 @@ export function parseShaderBlockBody(body: string): {
   } catch {
     uniforms = {};
   }
-  const glsl = body
-    .slice(match.index + match[0].length)
-    .replace(/^[ \t]*\r?\n/, "")
-    .trim();
+  const glsl = unescapeShaderScriptBreakout(
+    body
+      .slice(match.index + match[0].length)
+      .replace(/^[ \t]*\r?\n/, "")
+      .trim(),
+  );
   return { uniforms, glsl };
 }
 
@@ -443,7 +495,7 @@ export function serializeShaderScriptBlock(def: GlslShaderDef): string {
     ` data-shader-mode="${def.mode}">\n` +
     serializeManifestComment(def.uniforms) +
     "\n" +
-    def.glsl.trim() +
+    escapeShaderScriptBreakout(def.glsl.trim()) +
     "\n</script>"
   );
 }

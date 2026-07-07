@@ -629,3 +629,104 @@ describe("compile — spring easing → CSS linear()", () => {
     expect(parsed.keyframes[1].ease).toBe("cubic-bezier(0.42, 0, 0.58, 1)");
   });
 });
+
+// ─── At-cap tolerance: 64 tracks × 128 keyframes each ────────────────────────
+//
+// apply-motion-edit.ts rejects requests above 64 tracks / 128 keyframes per
+// track / 120000ms duration (DoS guards), but compile() itself must not
+// assume any smaller bound — it should tolerate a timeline sitting EXACTLY at
+// those caps and still produce valid, non-throwing CSS in reasonable time.
+// compile() iterates tracks once and sorts each track's keyframes once
+// (O(tracks * keyframes log keyframes)), so 64 * 128 is trivially fast; this
+// test is a correctness + no-blowup smoke check, not a perf benchmark.
+
+const MAX_MOTION_TRACKS = 64;
+const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
+const MAX_MOTION_DURATION_MS = 120_000;
+
+function atCapTimeline(): MotionTimeline {
+  const properties = ["opacity", "transform"];
+  const tracks: MotionTimeline["tracks"] = Array.from(
+    { length: MAX_MOTION_TRACKS },
+    (_, trackIndex) => ({
+      targetNodeId: `node-${trackIndex}`,
+      property: properties[trackIndex % properties.length],
+      keyframes: Array.from(
+        { length: MAX_MOTION_KEYFRAMES_PER_TRACK },
+        (_, kfIndex) => ({
+          t: kfIndex / (MAX_MOTION_KEYFRAMES_PER_TRACK - 1),
+          value:
+            properties[trackIndex % properties.length] === "opacity"
+              ? String(kfIndex % 2)
+              : `translateY(${kfIndex}px)`,
+        }),
+      ),
+    }),
+  );
+  return {
+    id: "at-cap-timeline",
+    designId: "d1",
+    sourceRef: null,
+    filePath: null,
+    tracks,
+    durationMs: MAX_MOTION_DURATION_MS,
+    defaultEase: "ease",
+    compiledHash: null,
+    createdAt: "2024-01-01T00:00:00.000Z",
+    updatedAt: "2024-01-01T00:00:00.000Z",
+  };
+}
+
+describe("compile — at-cap tolerance (64 tracks × 128 keyframes)", () => {
+  it("compiles a timeline at exactly the DoS-guard caps without throwing", () => {
+    const timeline = atCapTimeline();
+    expect(() => compile(timeline)).not.toThrow();
+  });
+
+  it("produces valid, well-formed CSS output (balanced blocks, all tracks present)", () => {
+    const { css, hash } = compile(atCapTimeline());
+    expect(typeof css).toBe("string");
+    expect(css.length).toBeGreaterThan(0);
+    expect(typeof hash).toBe("string");
+
+    // One @keyframes block per track.
+    const kfMatches = css.match(/@keyframes/g) ?? [];
+    expect(kfMatches).toHaveLength(MAX_MOTION_TRACKS);
+
+    // One element rule per distinct target node id.
+    for (let i = 0; i < MAX_MOTION_TRACKS; i++) {
+      expect(css).toContain(`[data-agent-native-node-id="node-${i}"]`);
+    }
+
+    // Balanced braces — a structurally sound stylesheet.
+    const opens = (css.match(/\{/g) ?? []).length;
+    const closes = (css.match(/\}/g) ?? []).length;
+    expect(opens).toBe(closes);
+
+    expect(css).toContain("prefers-reduced-motion");
+  });
+
+  it("compiles in reasonable time (no O(n^2) blowup at cap size)", () => {
+    const timeline = atCapTimeline();
+    const start = performance.now();
+    compile(timeline);
+    const elapsedMs = performance.now() - start;
+    // Generous ceiling — this is a smoke check against accidental quadratic
+    // blowup, not a tight perf budget. 64 * 128 = 8192 keyframe entries.
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
+  it("is deterministic at cap size — same input produces identical output", () => {
+    const timeline = atCapTimeline();
+    const r1 = compile(timeline);
+    const r2 = compile(timeline);
+    expect(r1.css).toBe(r2.css);
+    expect(r1.hash).toBe(r2.hash);
+  });
+
+  it("round-trips at cap size through parse() without dropping tracks", () => {
+    const { css } = compile(atCapTimeline());
+    const parsed = parse(css);
+    expect(parsed).toHaveLength(MAX_MOTION_TRACKS);
+  });
+});

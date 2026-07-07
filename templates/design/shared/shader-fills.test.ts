@@ -6,6 +6,7 @@ import {
   clearNodeShader,
   defaultUniformValues,
   ensureShaderRuntime,
+  escapeShaderScriptBreakout,
   getShaderFromHtml,
   htmlHasShaderReferences,
   isSafeShaderFallbackColor,
@@ -25,6 +26,7 @@ import {
   SHADER_RUNTIME_ATTR,
   SHADER_RUNTIME_SOURCE,
   SHADER_SCRIPT_TYPE,
+  unescapeShaderScriptBreakout,
   upsertShaderInHtml,
   validateGlslSource,
   validateShaderDef,
@@ -103,11 +105,23 @@ describe("validateGlslSource", () => {
     expect(noFrag.errors.join(" ")).toMatch(/gl_FragColor/);
   });
 
-  it("rejects script-tag injection attempts", () => {
+  it("rejects opening script-tag injection attempts", () => {
     const bad = validateGlslSource(
       SIMPLE_GLSL + "\n// </script><script>alert(1)</script>",
     );
     expect(bad.valid).toBe(false);
+    expect(bad.errors.join(" ")).toMatch(/opening script tag/);
+  });
+
+  it("allows a bare closing </script> in a comment (escaped on serialize)", () => {
+    // No opening <script> tag here — just a closing marker, e.g. as part of
+    // a comment describing a breakout attempt. This is no longer rejected at
+    // the string-validation level because serializeShaderScriptBlock escapes
+    // it before embedding (see the "shader script breakout" describe block).
+    const result = validateGlslSource(
+      SIMPLE_GLSL + "\n// this is a </script> breakout attempt",
+    );
+    expect(result.valid).toBe(true);
   });
 });
 
@@ -265,6 +279,141 @@ describe("shader block serialization", () => {
     const removed = removeShaderFromHtml(html, def.id);
     expect(listShadersInHtml(removed)).toHaveLength(0);
     expect(getShaderFromHtml(removed, def.id)).toBeUndefined();
+  });
+});
+
+// ─── </script> breakout hardening ────────────────────────────────────────────
+//
+// def.glsl is caller-controlled and embedded raw inside a
+// <script type="application/x-agent-native-shader"> block. A literal
+// </script> substring in the GLSL (e.g. inside a line comment) would
+// otherwise prematurely close the script block when the HTML is rendered,
+// exported, or shared — corrupting everything that follows it in the
+// document. serializeShaderScriptBlock escapes the marker before embedding;
+// parseShaderBlockBody reverses the escape so callers always get the
+// original GLSL back.
+
+const GLSL_WITH_BREAKOUT_COMMENT =
+  SIMPLE_GLSL + "\n// this is a </script> breakout attempt";
+
+describe("escapeShaderScriptBreakout / unescapeShaderScriptBreakout", () => {
+  it("escapes a bare </script marker by inserting a backslash", () => {
+    expect(escapeShaderScriptBreakout("a </script> b")).toBe("a <\\/script> b");
+  });
+
+  it("is case-insensitive", () => {
+    expect(escapeShaderScriptBreakout("a </SCRIPT> b")).toBe("a <\\/SCRIPT> b");
+  });
+
+  it("escapes multiple occurrences", () => {
+    const glsl = "// </script> once\n// </script> twice";
+    const escaped = escapeShaderScriptBreakout(glsl);
+    expect(/<\/script/i.test(escaped)).toBe(false);
+    expect(unescapeShaderScriptBreakout(escaped)).toBe(glsl);
+  });
+
+  it("round-trips arbitrary GLSL that has no breakout marker unchanged", () => {
+    expect(
+      unescapeShaderScriptBreakout(escapeShaderScriptBreakout(SIMPLE_GLSL)),
+    ).toBe(SIMPLE_GLSL);
+  });
+
+  it("round-trips GLSL containing the breakout marker exactly", () => {
+    const escaped = escapeShaderScriptBreakout(GLSL_WITH_BREAKOUT_COMMENT);
+    expect(unescapeShaderScriptBreakout(escaped)).toBe(
+      GLSL_WITH_BREAKOUT_COMMENT,
+    );
+  });
+});
+
+describe("shader script breakout hardening (serialize/parse)", () => {
+  it("serializeShaderScriptBlock never emits a literal </script inside the body", () => {
+    const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
+    const block = serializeShaderScriptBlock(def);
+
+    // Strip the block's own two legitimate opening/closing script tags
+    // before checking the body — only the BODY must be free of the marker.
+    const bodyStart = block.indexOf(">") + 1;
+    const bodyEnd = block.lastIndexOf("</script>");
+    const body = block.slice(bodyStart, bodyEnd);
+    expect(/<\/script/i.test(body)).toBe(false);
+  });
+
+  it("upsertShaderInHtml keeps trailing document content intact and un-corrupted", () => {
+    const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
+    const docWithTrailingContent = `${DOC.replace(
+      "</body>",
+      "",
+    )}<footer id="trailing-marker">Trailing content after shader block</footer></body>
+</html>`;
+
+    const html = upsertShaderInHtml(docWithTrailingContent, def);
+
+    // The trailing content must still be present, verbatim, as real markup
+    // (not turned into visible/escaped text by a premature script close).
+    expect(html).toContain(
+      '<footer id="trailing-marker">Trailing content after shader block</footer>',
+    );
+    // Only the shader block's own legitimate open/close script tags exist —
+    // no extra </script> was introduced by the unescaped breakout marker.
+    expect(html.match(/<\/script>/gi)).toHaveLength(1);
+  });
+
+  it("round-trip: getShaderFromHtml recovers the ORIGINAL unescaped GLSL exactly", () => {
+    const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
+    const html = upsertShaderInHtml(DOC, def);
+    const recovered = getShaderFromHtml(html, def.id);
+    expect(recovered?.glsl).toBe(GLSL_WITH_BREAKOUT_COMMENT);
+  });
+
+  it("listShadersInHtml returns exactly one shader def, with trailing HTML intact", () => {
+    const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
+    const docWithTrailingContent = `${DOC.replace(
+      "</body>",
+      "",
+    )}<div id="after">still here</div></body>
+</html>`;
+    const html = upsertShaderInHtml(docWithTrailingContent, def);
+
+    const defs = listShadersInHtml(html);
+    expect(defs).toHaveLength(1);
+    expect(defs[0].glsl).toBe(GLSL_WITH_BREAKOUT_COMMENT);
+    expect(html).toContain('<div id="after">still here</div>');
+  });
+
+  it("defense in depth: a hand-crafted UNESCAPED </script in a stored block does not throw and does not corrupt sibling parsing", () => {
+    // Simulates legacy/hand-edited content written before this fix (or a
+    // malicious direct DB edit) that still contains a raw, unescaped
+    // </script inside the shader body. SHADER_BLOCK_RE's lazy match
+    // terminates at the FIRST </script it sees, so this shader's GLSL is
+    // simply truncated at that point (existing regex behavior — not a
+    // crash) and any legacy unescaped content self-heals on next save
+    // (which re-serializes through the new escaping path). What matters is
+    // that this never throws and never corrupts parsing of a SIBLING
+    // shader block or surrounding document content.
+    const corruptedBlock =
+      `<script type="${SHADER_SCRIPT_TYPE}" data-shader-id="an-shader-corrupt1">\n` +
+      serializeManifestComment(makeDef().uniforms) +
+      "\n" +
+      SIMPLE_GLSL +
+      "\n// </script> unescaped breakout\n" +
+      "</script>";
+    const siblingDef = makeDef({ id: "an-shader-sibling1", name: "Sibling" });
+    const html =
+      `<html><body>${corruptedBlock}\n` +
+      serializeShaderScriptBlock(siblingDef) +
+      `\n<div id="tail">tail content</div></body></html>`;
+
+    expect(() => listShadersInHtml(html)).not.toThrow();
+    const defs = listShadersInHtml(html);
+
+    // The corrupted block's GLSL truncates at the first </script — it does
+    // not crash, and it does not swallow or corrupt the sibling shader or
+    // the trailing document content.
+    const sibling = defs.find((d) => d.id === "an-shader-sibling1");
+    expect(sibling).toBeDefined();
+    expect(sibling?.glsl).toBe(SIMPLE_GLSL);
+    expect(html).toContain('<div id="tail">tail content</div>');
   });
 });
 

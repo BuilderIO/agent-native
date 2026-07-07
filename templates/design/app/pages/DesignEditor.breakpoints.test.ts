@@ -349,7 +349,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(escape).toContain("handleBreakpointBarSelect(undefined)");
   });
 
-  it("BP-DEEP v2 item 6: change-width swaps through remove + add and re-targets when active", () => {
+  it("BP-DEEP v2 item 6: change-width swaps through add + re-target + remove (add-first, orphan-proof)", () => {
     const handler = source.slice(
       source.indexOf("const handleBreakpointChangeWidth"),
       source.indexOf("const handleOverviewAddBreakpoint"),
@@ -359,6 +359,46 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(handler).toContain(
       "if (wasActive) handleBreakpointBarSelect(widthPx)",
     );
+    // Orphan-proof ordering: the add call must appear before the remove call
+    // (add-then-remove, not remove-then-add), so a failed/slow add never
+    // leaves the active edit scope pointed at a width with no backing
+    // breakpoint.
+    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
+    const removeIndex = handler.indexOf("removeBreakpointMutation.mutateAsync");
+    expect(addIndex).toBeGreaterThanOrEqual(0);
+    expect(removeIndex).toBeGreaterThan(addIndex);
+    // The re-target call must happen between add and remove, so the UI's
+    // edit scope follows the new width before the old breakpoint is torn
+    // down (success path: active target follows the width change).
+    const retargetIndex = handler.indexOf(
+      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+    );
+    expect(retargetIndex).toBeGreaterThan(addIndex);
+    expect(retargetIndex).toBeLessThan(removeIndex);
+  });
+
+  it("BP-DEEP v2 item 6: an add failure aborts before touching the old breakpoint (failure path — old breakpoint stays intact and targeted)", () => {
+    const handler = source.slice(
+      source.indexOf("const handleBreakpointChangeWidth"),
+      source.indexOf("const handleOverviewAddBreakpoint"),
+    );
+    // The add call is wrapped in its own try/catch that returns early,
+    // before the re-target or remove calls run — so a rejected add never
+    // reaches handleBreakpointBarSelect or removeBreakpointMutation, leaving
+    // the old breakpoint (and, if it was active, the active target) fully
+    // intact.
+    const tryIndex = handler.indexOf("try {");
+    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
+    const catchIndex = handler.indexOf("} catch {", addIndex);
+    const returnIndex = handler.indexOf("return;", catchIndex);
+    const retargetIndex = handler.indexOf(
+      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+    );
+    expect(tryIndex).toBeGreaterThanOrEqual(0);
+    expect(tryIndex).toBeLessThan(addIndex);
+    expect(catchIndex).toBeGreaterThan(addIndex);
+    expect(returnIndex).toBeGreaterThan(catchIndex);
+    expect(returnIndex).toBeLessThan(retargetIndex);
   });
 
   it("gates overview side-by-side frames on the show-all toggle", () => {

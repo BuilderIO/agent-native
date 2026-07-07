@@ -17,6 +17,10 @@
 
 import { defineAction } from "@agent-native/core";
 import {
+  agentEnterDocument,
+  agentLeaveDocument,
+} from "@agent-native/core/collab";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -27,6 +31,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
@@ -42,6 +51,21 @@ import {
   readTimelinePlaybackMode,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
+
+// ─── DoS-guard caps ──────────────────────────────────────────────────────────
+//
+// Mirrors the style of other hard resource caps in this template (e.g.
+// MAX_SHADERS_PER_ARTBOARD in shared/shader-safety.ts): a small, exported
+// constant plus a clear thrown Error (never a silent clamp) so callers see
+// exactly which limit was exceeded and by how much.
+
+/** Max tracks per timeline/screen — keeps compile() bounded and DOM-safe. */
+export const MAX_MOTION_TRACKS = 64;
+/** Max keyframes per track — keeps @keyframes blocks bounded. */
+export const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
+/** Max total timeline duration, ms (120s) — guards against runaway timelines. */
+export const MAX_MOTION_DURATION_MS = 120_000;
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -91,7 +115,10 @@ const trackSchema = z.object({
   keyframes: z
     .array(keyframeSchema)
     .min(1)
-    .describe("At least one keyframe is required per track."),
+    .describe(
+      "At least one keyframe is required per track " +
+        `(max ${MAX_MOTION_KEYFRAMES_PER_TRACK} per track).`,
+    ),
   delayMs: z
     .number()
     .min(0)
@@ -175,30 +202,47 @@ export function assertValidMotionEase(ease: string, field: string): string {
   return ease;
 }
 
+/**
+ * Persist the patched HTML through the same collab-aware seam as
+ * apply-visual-edit.ts / remove-motion-timeline.ts: `writeInlineSourceFile`
+ * re-reads the live (collab-authoritative, else SQL) text immediately before
+ * its own write and rejects if it no longer matches `expectedVersionHash` —
+ * closing the race window where a concurrent editor's change lands between
+ * the base read that produced `content` and this persist call. It also bumps
+ * `schema.designs.updatedAt` internally, so no separate designs-row bump is
+ * needed here (unlike the old raw-SQL `persistFileContent`).
+ */
 async function persistFileContent(
-  fileId: string,
-  designId: string,
+  file: {
+    id: string;
+    designId: string;
+    filename: string;
+    fileType: string;
+  },
   content: string,
-  now: string,
+  expectedVersionHash: string,
 ): Promise<string> {
-  const db = getDb();
-  await db
-    .update(schema.designFiles)
-    .set({ content, updatedAt: now })
-    .where(eq(schema.designFiles.id, fileId));
-
-  // Keep SQL as the source of truth for this atomic write. The editor adopts
-  // the returned HTML content without re-saving it; applying the whole document
-  // through an existing collab text snapshot can merge against stale iframe
-  // state and duplicate the managed motion stylesheet.
-  // guard:allow-unscoped — editor access on this design is asserted in run()
-  // before this helper is invoked; this only bumps the addressed design row.
-  await db
-    .update(schema.designs)
-    .set({ updatedAt: now })
-    .where(eq(schema.designs.id, designId));
-
-  return now;
+  agentEnterDocument(file.id);
+  try {
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: file.fileType,
+      content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const result = await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content,
+      expectedVersionHash,
+    });
+    return result.updatedAt;
+  } finally {
+    agentLeaveDocument(file.id);
+  }
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -245,17 +289,29 @@ export default defineAction({
       )
       .describe(
         "Animation tracks. Each track targets one DOM element by " +
-          "data-agent-native-node-id and animates one CSS property.",
+          "data-agent-native-node-id and animates one CSS property. " +
+          `Max ${MAX_MOTION_TRACKS} tracks per timeline.`,
       ),
     durationMs: z
       .number()
       .int()
       .positive()
+      .max(
+        MAX_MOTION_DURATION_MS,
+        `Total animation duration must be at most ${MAX_MOTION_DURATION_MS}ms (${
+          MAX_MOTION_DURATION_MS / 1000
+        }s).`,
+      )
       // Keep in sync with the MotionDock default (DesignEditor
       // motionDurationMs) and get-motion-timeline's CSS-recovery fallback so
       // an omitted duration means the same thing on every surface.
       .default(1000)
-      .describe("Total animation duration in milliseconds."),
+      .describe(
+        "Total animation duration in milliseconds. " +
+          `Capped at ${MAX_MOTION_DURATION_MS}ms (${
+            MAX_MOTION_DURATION_MS / 1000
+          }s) to guard against runaway/DoS timelines.`,
+      ),
     playbackMode: z
       .enum(["loop", "once", "ping-pong"])
       .optional()
@@ -320,6 +376,7 @@ export default defineAction({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
         filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -340,13 +397,63 @@ export default defineAction({
 
     const fileId = file.id;
     const resolvedSourceRef = sourceRef ?? fileId;
-    const currentContent =
-      currentContentInput !== undefined
-        ? currentContentInput
-        : (file.content ?? "");
+
+    // The EDITABLE base for compiling/injecting CSS: prefer the caller's
+    // in-flight editor snapshot when supplied (currentContentInput), else the
+    // LIVE collab-authoritative content for this file (not the raw SQL row —
+    // a live editor's Y.Text may be ahead of the last SQL snapshot). Either
+    // way, `baseVersionHash` is computed from the EXACT string chosen as the
+    // base, at this same point in time, so it faithfully represents "what
+    // this transform's base was" for the persist's optimistic-concurrency
+    // check below — never a fresh re-hash of already-transformed content
+    // (that would trivially match itself and prove nothing raced).
+    let currentContent: string;
+    let baseVersionHash: string;
+    if (currentContentInput !== undefined) {
+      // Caller supplied their own editor snapshot as the patch base. It may
+      // already be stale relative to the live doc — that's fine.
+      // writeInlineSourceFile's own guard (via readLiveSourceFile at write
+      // time) correctly rejects the write if this base no longer matches
+      // live state, exactly as designed for every other caller-supplied-base
+      // action (see apply-component-prop-edit.ts / apply-shader-fill.ts).
+      currentContent = currentContentInput;
+      baseVersionHash = sourceContentHash(currentContent);
+    } else {
+      const workspaceFileForRead: SourceWorkspaceFile = {
+        id: file.id,
+        designId: file.designId,
+        filename: file.filename,
+        fileType: file.fileType,
+        content: file.content,
+        createdAt: null,
+        updatedAt: null,
+      };
+      const live = await readLiveSourceFile(workspaceFileForRead);
+      currentContent = live.content;
+      baseVersionHash = live.versionHash;
+    }
 
     // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
     const inputTracks = tracks as MotionTrack[];
+
+    // DoS guards: reject (never silently clamp) before any compilation work
+    // so an over-limit request fails fast with a clear, actionable error.
+    if (inputTracks.length > MAX_MOTION_TRACKS) {
+      throw new Error(
+        `Too many motion tracks: ${inputTracks.length} exceeds the ` +
+          `${MAX_MOTION_TRACKS}-track limit per timeline. Split the ` +
+          "animation across multiple timelines/screens or remove unused tracks.",
+      );
+    }
+    for (const track of inputTracks) {
+      if (track.keyframes.length > MAX_MOTION_KEYFRAMES_PER_TRACK) {
+        throw new Error(
+          `Too many keyframes on track "${track.targetNodeId}"/"${track.property}": ` +
+            `${track.keyframes.length} exceeds the ${MAX_MOTION_KEYFRAMES_PER_TRACK}-keyframe ` +
+            "limit per track.",
+        );
+      }
+    }
 
     // Reject CSS-injection vectors in caller-supplied track properties,
     // keyframe values, and easing strings before they are compiled into the
@@ -505,8 +612,21 @@ export default defineAction({
     // Written after the row so a SQL failure here leaves the timeline row
     // accurate (correct tracks + hash) and the stale HTML can be recompiled on
     // the next apply-motion-edit call via compiledHash drift detection.
+    // Goes through the collab-aware writeInlineSourceFile seam, conditioned on
+    // baseVersionHash (the hash of the SAME base string used above to compile
+    // patchedContent), so a concurrent editor's write between that base read
+    // and this persist is rejected loud rather than silently overwritten.
     const updatedAt = contentPatched
-      ? await persistFileContent(fileId, designId, patchedContent, now)
+      ? await persistFileContent(
+          {
+            id: fileId,
+            designId,
+            filename: file.filename,
+            fileType: file.fileType,
+          },
+          patchedContent,
+          baseVersionHash,
+        )
       : now;
 
     return {
