@@ -14,6 +14,7 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -635,6 +636,8 @@ export default function RecordingPage() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    const storedButUnservableFailure =
+      isStoredButUnservableFinalizeError(rawFailureReason);
     const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
@@ -646,13 +649,16 @@ export default function RecordingPage() {
     const isFailure =
       explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
     const displayReason = explicitFailure
-      ? (rawFailureReason ?? t("recordingPage.retryLibrary"))
+      ? storedButUnservableFailure
+        ? t("recordingPage.clipDataPreserved")
+        : (rawFailureReason ?? t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
           ? t("recordingPage.processingStuck", { status: recording.status })
           : t("recordingPage.uploadingAssembling");
     const storageSetupFailure = waitingForStorage;
+    const canRetryFinalize = storageSetupFailure || storedButUnservableFailure;
     const label = storageSetupFailure
       ? loomStorageSetupFailure
         ? t("recordingPage.connectStorageImportLoom")
@@ -744,7 +750,7 @@ export default function RecordingPage() {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => {
-              if (storageSetupFailure) {
+              if (canRetryFinalize) {
                 void retryFinalizeAfterStorage();
                 return;
               }
@@ -755,7 +761,7 @@ export default function RecordingPage() {
             size="sm"
             disabled={retryingFinalize}
           >
-            {storageSetupFailure
+            {canRetryFinalize
               ? loomStorageSetupFailure
                 ? t("recordingPage.retryImport")
                 : t("recordingPage.retryUpload")

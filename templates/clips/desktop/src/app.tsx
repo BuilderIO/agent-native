@@ -57,6 +57,7 @@ import {
   MACOS_CAPTURE_PERMISSION_MESSAGE,
   MACOS_SCREEN_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
+  MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
@@ -78,6 +79,7 @@ import {
   saveBool,
   saveString,
 } from "./lib/storage";
+import { installAndRestart, isUpdatePendingRestart } from "./lib/updater";
 import { normalizeServerUrl } from "./lib/url";
 import {
   installDesktopVoiceDictation,
@@ -1976,7 +1978,16 @@ export function App() {
       return;
     }
     if (isHardCapturePermissionError(message)) {
-      setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+      // If an update has finished downloading and is waiting to install, the
+      // safe next step is to restart (which applies the update and gives the
+      // process a clean binary + permission state). Prefer that hint over the
+      // "grant permissions" banner, which is misleading when the readiness
+      // checkmarks are already green.
+      setRecError(
+        isUpdatePendingRestart()
+          ? MACOS_UPDATE_RESTART_MESSAGE
+          : MACOS_CAPTURE_PERMISSION_MESSAGE,
+      );
       return;
     }
     if (isStorageSetupFailureMessage(message)) {
@@ -2414,8 +2425,10 @@ export function App() {
             : "Start local recording"}
       </button>
       {recError ? (
-        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
-        recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
+        recError === MACOS_UPDATE_RESTART_MESSAGE ? (
+          <UpdateRestartBanner message={recError} />
+        ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+          recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
@@ -2573,6 +2586,30 @@ function PermissionRecoveryBanner({
         ))}
         <button type="button" className="permission-retry" onClick={onRetry}>
           Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function UpdateRestartBanner({ message }: { message: string }) {
+  return (
+    <div className="error-banner permission-banner">
+      <div className="permission-copy">
+        <div className="permission-title">Restart to finish updating</div>
+        <div>{message}</div>
+      </div>
+      <div className="permission-actions">
+        <button
+          type="button"
+          className="permission-retry"
+          onClick={() => {
+            installAndRestart().catch((err) => {
+              console.error("[clips-updater] relaunch failed:", err);
+            });
+          }}
+        >
+          Restart Clips
         </button>
       </div>
     </div>
