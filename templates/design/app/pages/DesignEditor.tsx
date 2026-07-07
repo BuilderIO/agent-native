@@ -278,6 +278,7 @@ import {
   type VectorEditOverlayState,
 } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
@@ -26376,6 +26377,10 @@ ${serializedHtml}
                       }}
                     />
                   )}
+                  {/* Figma-style notice for viewers who can't edit this
+                      design. Only shown once accessRole has actually
+                      resolved to "viewer" to avoid flashing during load. */}
+                  {designAccessRole === "viewer" && <ReadOnlyDesignBanner />}
                   {/* Full-app building status/controls. Renders only for
                       designs backed by a fusion app (see readFusionApp) and
                       only while the flag is on — the fusion actions the
