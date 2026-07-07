@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { propertyTypeForSourceField } from "./add-content-database-source-field-property.js";
+import {
+  propertyTypeForSourceField,
+  sourceFieldPropertyOptions,
+} from "./add-content-database-source-field-property.js";
 
 describe("propertyTypeForSourceField", () => {
   it("maps constrained Builder tag lists to multi-select", () => {
@@ -24,5 +27,22 @@ describe("propertyTypeForSourceField", () => {
         required: false,
       }),
     ).toBe("text");
+  });
+
+  it("generates unique option ids for distinct Builder choices with matching slugs", () => {
+    expect(
+      sourceFieldPropertyOptions({
+        type: "multi_select",
+        metadata: {
+          name: "topics",
+          type: "list",
+          inputType: "tags",
+          required: false,
+          options: ["Governance & Security", "Governance Security"],
+        },
+        rows: [],
+        sourceFieldKey: "data.topics",
+      }).options?.map((option) => option.id),
+    ).toEqual(["governance-security", "governance-security-2"]);
   });
 });

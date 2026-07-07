@@ -541,12 +541,12 @@ it("creates a multi-select property with Builder options for constrained tag fie
     {
       itemId,
       documentId: rowDocumentId,
-      value: ["Headless CMS", "Governance &amp; Security"],
+      value: ["headless-cms", "governance-amp-security"],
     },
   ]);
   expect(await tagValue(rowDocumentId, result.property.definition.id)).toEqual([
-    "Headless CMS",
-    "Governance &amp; Security",
+    "headless-cms",
+    "governance-amp-security",
   ]);
 });
 
