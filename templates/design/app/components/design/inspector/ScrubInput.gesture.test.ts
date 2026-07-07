@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 import {
   getScrubStepFromEvent,
   normalizeScrubNumber,
+  roundScrubDragValue,
   startScrubDrag,
   updateScrubDrag,
   type ScrubDragState,
@@ -36,7 +37,7 @@ import type { ScrubInputChangeMeta } from "./ScrubInput";
  */
 function simulateScrubGesture(
   moves: number[],
-  options: { step?: number; startValue?: number } = {},
+  options: { step?: number; startValue?: number; unit?: string } = {},
 ) {
   const step = options.step ?? 1;
   const calls: Array<{ value: number; meta: ScrubInputChangeMeta }> = [];
@@ -62,7 +63,10 @@ function simulateScrubGesture(
       value +
       tick.deltaX *
         getScrubStepFromEvent({ shiftKey: false, altKey: false }, step);
-    value = normalizeScrubNumber(next);
+    // Mirrors ScrubInput.tsx's handlePointerMove: px-type fields snap to a
+    // whole number on every scrub tick, before normalizeScrubNumber's own
+    // min/max/precision clamp.
+    value = normalizeScrubNumber(roundScrubDragValue(next, options.unit));
     lastScrubValue = value;
     onChange(value, { source: "scrub", phase: "preview" });
   }
@@ -117,6 +121,61 @@ describe("ScrubInput gesture lifecycle — phase", () => {
     const commitCalls = calls.filter((c) => c.meta.phase === "commit");
     expect(commitCalls).toHaveLength(1);
     expect(calls[calls.length - 1]?.meta.phase).toBe("commit");
+  });
+});
+
+// ─── Scrub-drag integer snapping (STEVE TEST BATCH 4 #3) ──────────────────────
+//
+// Px-type fields (e.g. padding) must snap every scrub tick — and the final
+// commit — to a whole number, even at a sub-1 step/threshold ratio that would
+// otherwise accumulate fractional pixels. Typed input and keyboard nudges are
+// untouched (see scrub-input-utils.test.ts for that guard at the pure-helper
+// level); this exercises the same rounding through the full pointer gesture.
+describe("ScrubInput gesture lifecycle — px scrub snaps to whole numbers", () => {
+  it("every preview tick and the final commit are integers for a px field", () => {
+    const { calls } = simulateScrubGesture([0, 3, 7, 12, 20], {
+      unit: "px",
+      startValue: 10,
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(Number.isInteger(call.value)).toBe(true);
+    }
+  });
+
+  it("rounds a fine (alt-modified, sub-1px effective) drag to whole pixels", () => {
+    // step=1 with a 1px cumulative delta would be a no-op sub-pixel move for
+    // a fractional-precision field; for px it must still resolve to a whole
+    // number once it does move.
+    const { calls } = simulateScrubGesture([0, 3, 4, 5, 6], {
+      unit: "px",
+      startValue: 0,
+      step: 0.25,
+    });
+    for (const call of calls) {
+      expect(Number.isInteger(call.value)).toBe(true);
+    }
+  });
+
+  it("does not round a non-px (unitless, e.g. line-height) field", () => {
+    const { calls } = simulateScrubGesture([0, 3, 7], {
+      startValue: 1.4,
+      step: 0.1,
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    // At least one tick should retain a fractional value — line-height must
+    // stay free to land on non-integers.
+    expect(calls.some((c) => !Number.isInteger(c.value))).toBe(true);
+  });
+
+  it("does not round a non-px unit field (deg)", () => {
+    const { calls } = simulateScrubGesture([0, 3, 7], {
+      unit: "deg",
+      startValue: 0.15,
+      step: 0.1,
+    });
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.some((c) => !Number.isInteger(c.value))).toBe(true);
   });
 });
 

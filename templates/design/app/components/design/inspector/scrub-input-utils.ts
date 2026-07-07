@@ -114,6 +114,35 @@ export function normalizeScrubNumber(
   return Object.is(next, -0) ? 0 : next;
 }
 
+/**
+ * Whether a field's unit should snap to whole numbers while the user is
+ * actively pointer-dragging (scrubbing) it. Px-type fields (padding, gap,
+ * position, size, radius, etc.) read as integers in Figma-style editors even
+ * though the underlying `precision` option (which also governs *typed* input
+ * and keyboard nudges) allows one decimal place so a typed "12.5" still
+ * commits legally. Scoped to "px" specifically — unitless fields like
+ * line-height (precision-based, fractional by design) and other units (deg,
+ * %) are untouched.
+ */
+export function scrubSnapsToInteger(unit: string | undefined): boolean {
+  return unit === "px";
+}
+
+/**
+ * Rounds a live scrub-drag value to a whole number when the field's unit
+ * calls for integer-only scrubbing (see `scrubSnapsToInteger`), applied
+ * *before* `normalizeScrubNumber`'s own min/max/precision clamp so a
+ * following precision clamp (if any) can't reintroduce a fraction. Only the
+ * pointer-drag scrub gesture should call this — typed input and keyboard
+ * nudges keep their existing `precision`-based rounding untouched.
+ */
+export function roundScrubDragValue(
+  value: number,
+  unit: string | undefined,
+): number {
+  return scrubSnapsToInteger(unit) ? Math.round(value) : value;
+}
+
 export function formatScrubValue(
   value: number,
   options: Pick<ScrubExpressionOptions, "precision" | "unit"> = {},

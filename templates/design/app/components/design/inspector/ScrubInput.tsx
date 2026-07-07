@@ -23,6 +23,7 @@ import {
   getScrubStepFromEvent,
   normalizeScrubNumber,
   parseScrubExpression,
+  roundScrubDragValue,
   startScrubDrag,
   updateScrubDrag,
   type ScrubExpressionOptions,
@@ -270,7 +271,13 @@ export function ScrubInput({
           { altKey: event.altKey, shiftKey: event.shiftKey },
           step,
         );
-    lastScrubValueRef.current = setNextValue(next, {
+    // Px-type fields snap to whole numbers while scrubbing (see
+    // roundScrubDragValue) even though `precision` — which also governs typed
+    // input and keyboard nudges — allows a decimal. Rounding here, before
+    // setNextValue's own normalizeScrubNumber pass, keeps every subsequent
+    // incremental delta measured from an already-whole value instead of
+    // drifting on fractional leftovers.
+    lastScrubValueRef.current = setNextValue(roundScrubDragValue(next, unit), {
       source: "scrub",
       phase: "preview",
     });

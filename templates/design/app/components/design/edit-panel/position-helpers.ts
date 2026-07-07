@@ -181,3 +181,27 @@ export function colorHasVisibleAlpha(value: string | undefined): boolean {
   if (!parsed) return Boolean(value && value !== "transparent");
   return parsed.a > 0;
 }
+
+/**
+ * True when every value in a 4-sided/4-cornered box (padding top/right/
+ * bottom/left, border-radius corners, etc.) is equal — used only to *seed*
+ * a linked/unlinked (or uniform/independent) progressive-disclosure toggle
+ * once per selection.
+ *
+ * Deliberately NOT meant to be read reactively on every render: computing
+ * this from live per-render values and feeding it into a `useEffect` that
+ * force-flips the toggle mid-gesture is exactly the bug this helper's
+ * introduction fixed (STEVE TEST BATCH 4 #4) — scrubbing one axis of a
+ * linked padding field (e.g. left/right while top/bottom stay put) makes
+ * this false on the very first drag tick, and a reactive effect would
+ * collapse the linked 2-field view into the unlinked 4-field view *during*
+ * the gesture, destroying the drag. Call this only inside a `useState`
+ * initializer on a component keyed per-selection (`elementIdentityKey`), so
+ * it re-seeds on selection change and never re-fires within one gesture.
+ */
+export function fourValuesEqual(
+  values: readonly [number, number, number, number],
+): boolean {
+  const [a, b, c, d] = values;
+  return a === b && a === c && a === d;
+}

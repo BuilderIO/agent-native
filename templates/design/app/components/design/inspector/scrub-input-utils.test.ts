@@ -4,7 +4,9 @@ import {
   formatScrubValue,
   getScrubStepFromEvent,
   parseScrubExpression,
+  roundScrubDragValue,
   SCRUB_DRAG_THRESHOLD_PX,
+  scrubSnapsToInteger,
   startScrubDrag,
   updateScrubDrag,
 } from "./scrub-input-utils";
@@ -140,5 +142,51 @@ describe("startScrubDrag / updateScrubDrag", () => {
     drag = updateScrubDrag(drag, 5).state; // now hasDragged
     const tiny = updateScrubDrag(drag, 6); // 1px, under the raw threshold
     expect(tiny.deltaX).toBe(1);
+  });
+});
+
+// ─── Scrub-drag integer snapping (STEVE TEST BATCH 4 #3) ──────────────────────
+//
+// Value scrubbing (pointer-drag on a field's label, e.g. padding) must snap to
+// whole numbers even though the same field's `precision` option allows a
+// decimal for *typed* input (typing "12.5" must stay legal) and keyboard
+// arrow-nudges (unchanged). Scoped to unit === "px" — unitless fields like
+// line-height are fractional by design and must not snap.
+
+describe("scrubSnapsToInteger", () => {
+  it("snaps px-unit fields", () => {
+    expect(scrubSnapsToInteger("px")).toBe(true);
+  });
+
+  it("does not snap unitless fields (e.g. line-height)", () => {
+    expect(scrubSnapsToInteger(undefined)).toBe(false);
+  });
+
+  it("does not snap other units (deg, %)", () => {
+    expect(scrubSnapsToInteger("deg")).toBe(false);
+    expect(scrubSnapsToInteger("%")).toBe(false);
+  });
+});
+
+describe("roundScrubDragValue", () => {
+  it("rounds fractional px scrub values to the nearest integer", () => {
+    expect(roundScrubDragValue(12.3, "px")).toBe(12);
+    expect(roundScrubDragValue(12.5, "px")).toBe(13);
+    expect(roundScrubDragValue(12.7, "px")).toBe(13);
+    expect(roundScrubDragValue(-4.6, "px")).toBe(-5);
+  });
+
+  it("leaves already-whole px values unchanged", () => {
+    expect(roundScrubDragValue(12, "px")).toBe(12);
+  });
+
+  it("leaves non-px fields untouched (line-height stays fractional)", () => {
+    expect(roundScrubDragValue(1.25, undefined)).toBe(1.25);
+    expect(roundScrubDragValue(0.1, undefined)).toBeCloseTo(0.1);
+  });
+
+  it("leaves other-unit fields untouched (deg, %)", () => {
+    expect(roundScrubDragValue(45.5, "deg")).toBe(45.5);
+    expect(roundScrubDragValue(33.3, "%")).toBe(33.3);
   });
 });

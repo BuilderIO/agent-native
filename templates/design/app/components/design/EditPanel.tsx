@@ -207,6 +207,7 @@ import {
   compactCssValue,
   cssColorOrFallback,
   cssLengthNumber,
+  fourValuesEqual,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -321,6 +322,7 @@ export {
   type FillLayerArrays,
 };
 export {
+  fourValuesEqual,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -1914,9 +1916,23 @@ function CornerRadiusControl({
   // uniform), partially-mixed means at least one element has differing corners.
   const cornersDiffer = anyCornerMixed
     ? !allCornersMixed
-    : corners.topLeft !== corners.topRight ||
-      corners.topLeft !== corners.bottomRight ||
-      corners.topLeft !== corners.bottomLeft;
+    : !fourValuesEqual([
+        corners.topLeft,
+        corners.topRight,
+        corners.bottomRight,
+        corners.bottomLeft,
+      ]);
+  // Seeds the toggle once per selection (this component is remounted per
+  // element via `key={elementIdentityKey(element)}` at its call site) and is
+  // otherwise a pure user-controlled toggle (see toggleIndependentCorners
+  // below). Do NOT add back a useEffect that re-derives this from
+  // `cornersDiffer` on every render: commitRadius below applies the 4 corner
+  // longhands + shorthand as separate onStyleChange calls, so a scrub
+  // gesture that re-invokes commitRadius on every drag tick can hit an
+  // intermediate render where one longhand has updated and another hasn't —
+  // `cornersDiffer` spikes true for that frame and a reactive effect would
+  // force-expand the per-corner view mid-drag, same class of bug as the
+  // padding auto-unlink fix above (STEVE TEST BATCH 4 #4 audit).
   const [showIndependentCorners, setShowIndependentCorners] =
     useState(cornersDiffer);
   const radiusMixed =
@@ -1947,10 +1963,6 @@ function CornerRadiusControl({
     }
     setShowIndependentCorners(!showIndependentCorners);
   };
-
-  useEffect(() => {
-    if (cornersDiffer) setShowIndependentCorners(true);
-  }, [cornersDiffer]);
 
   return (
     <>
@@ -3206,15 +3218,23 @@ function FlexContainerControls({
     bottom: parseNumericValue(styles.paddingBottom || "0"),
     left: parseNumericValue(styles.paddingLeft || "0"),
   };
-  const allPaddingEqual =
-    padding.top === padding.right &&
-    padding.top === padding.bottom &&
-    padding.top === padding.left;
+  const allPaddingEqual = fourValuesEqual([
+    padding.top,
+    padding.right,
+    padding.bottom,
+    padding.left,
+  ]);
+  // Seeds the linked/unlinked view once per selection (this component is
+  // remounted per element via the `key={elementIdentityKey(element)}` at its
+  // call site, matching CornerRadiusControl's pattern) and is otherwise a
+  // pure user-controlled toggle (see onPaddingLinkedChange below). Do NOT add
+  // a useEffect that re-derives this from `allPaddingEqual` on every render:
+  // that previously auto-unlinked as soon as the four sides became unequal,
+  // which fires mid-drag the instant a user scrubs one axis of the linked
+  // horizontal/vertical fields (e.g. changing left/right while top/bottom
+  // stay put) — collapsing the linked 2-field view into the unlinked 4-field
+  // view *during* the gesture and destroying the drag (STEVE TEST BATCH 4 #4).
   const [paddingLinked, setPaddingLinked] = useState(allPaddingEqual);
-
-  useEffect(() => {
-    if (!allPaddingEqual && paddingLinked) setPaddingLinked(false);
-  }, [allPaddingEqual, paddingLinked]);
 
   const autoLayoutValue: AutoLayoutMatrixValue = {
     direction: flexDirection,
@@ -3654,7 +3674,13 @@ function LayoutContextProperties({
   // normal-flow option resets to `display:block`.
   return (
     <PanelSection title={t("editPanel.sections.autoLayout")}>
+      {/* Selection-stable key so per-selection UI state (paddingLinked, which
+          must not silently flip while the user is mid-scrub — see the
+          FlexContainerControls comment) resets on selection change instead of
+          leaking to the next element — same pattern as CornerRadiusControl /
+          ExportSettingsPanel. */}
       <FlexContainerControls
+        key={elementIdentityKey(element)}
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}

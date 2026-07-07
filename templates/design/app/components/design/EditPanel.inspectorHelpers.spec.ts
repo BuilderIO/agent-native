@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   authoredStyleValue,
   deriveLockedAspectSize,
+  fourValuesEqual,
   isLayerHiddenBySize,
   isTextElement,
   mixedElementFromSelection,
@@ -442,5 +443,46 @@ describe("mixedElementFromSelection", () => {
     const b = makeElement({ tagName: "div", primitiveKind: "text" });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.primitiveKind).toBe("text");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fourValuesEqual — backs FlexContainerControls' paddingLinked and
+// CornerRadiusControl's showIndependentCorners seed (STEVE TEST BATCH 4 #4).
+// Both consumers must seed their linked/uniform toggle ONLY from a
+// `useState` initializer on a component keyed per-selection, never from a
+// reactive useEffect — see the callers in EditPanel.tsx for the full story
+// on why a reactive re-derivation collapses the linked view mid-scrub.
+// ---------------------------------------------------------------------------
+
+describe("fourValuesEqual", () => {
+  it("is true when all four sides/corners match", () => {
+    expect(fourValuesEqual([16, 16, 16, 16])).toBe(true);
+    expect(fourValuesEqual([0, 0, 0, 0])).toBe(true);
+  });
+
+  it("is false as soon as any one value differs", () => {
+    expect(fourValuesEqual([16, 16, 16, 8])).toBe(false);
+    expect(fourValuesEqual([8, 16, 16, 16])).toBe(false);
+    expect(fourValuesEqual([16, 8, 16, 16])).toBe(false);
+    expect(fourValuesEqual([16, 16, 8, 16])).toBe(false);
+  });
+
+  it("reflects the padding-scrub scenario: editing one linked axis makes it false", () => {
+    // Starting state: all four sides equal (16), paddingLinked seeds true.
+    const initial: [number, number, number, number] = [16, 16, 16, 16];
+    expect(fourValuesEqual(initial)).toBe(true);
+
+    // First scrub tick on the horizontal PaddingField sets left=right=17,
+    // leaving top/bottom at 16 — this is the exact tick that used to flip
+    // paddingLinked to false via the removed reactive useEffect.
+    const afterOneScrubTick: [number, number, number, number] = [
+      16, 17, 16, 17,
+    ];
+    expect(fourValuesEqual(afterOneScrubTick)).toBe(false);
+    // The regression test that matters is *behavioral*, not this predicate:
+    // FlexContainerControls must not re-run useState's initializer from this
+    // (React only calls it once per mount), so paddingLinked stays true for
+    // the rest of the gesture even though fourValuesEqual now reports false.
   });
 });
