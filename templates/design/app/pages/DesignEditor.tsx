@@ -2225,6 +2225,21 @@ export function formatPendingVisualStylePrompt(args: {
     .join("\n");
 }
 
+export function resolveOverviewScreenSourceType(
+  screen:
+    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | null
+    | undefined,
+  fallbackSourceType: DesignSourceType = "inline",
+): DesignSourceType {
+  if (!screen) return fallbackSourceType;
+  return (
+    normalizeDesignSourceType(screen.sourceType) ??
+    (screen.bridgeUrl ? "localhost" : undefined) ??
+    fallbackSourceType
+  );
+}
+
 export function shouldShowPendingVisualStyleApply(args: {
   edits: readonly PendingVisualStyleEdit[];
   liveEdits?: readonly PendingLiveNonStyleEdit[];
@@ -12080,10 +12095,10 @@ export default function DesignEditor() {
       "inline",
     [designDataJson.sourceMode, designDataJson.sourceType],
   );
-  const activeCanvasSourceType =
-    normalizeDesignSourceType(activeOverviewScreen?.sourceType) ??
-    (activeOverviewScreen?.bridgeUrl ? "localhost" : undefined) ??
-    designSourceType;
+  const activeCanvasSourceType = resolveOverviewScreenSourceType(
+    activeOverviewScreen,
+    designSourceType,
+  );
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —
   // `null` in every other case leaves the overlay unmounted (see
@@ -22040,7 +22055,7 @@ export default function DesignEditor() {
       new Map<string, unknown>(
         overviewScreens.map((screen) => [
           screen.id,
-          screen.sourceType ?? designSourceType,
+          resolveOverviewScreenSourceType(screen, designSourceType),
         ]),
       ),
     [designSourceType, overviewScreens],
@@ -22051,9 +22066,10 @@ export default function DesignEditor() {
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
         screenSourceTypes: pendingVisualStyleScreenSourceTypes,
-        fallbackSourceType: designSourceType,
+        fallbackSourceType: activeCanvasSourceType ?? designSourceType,
       }),
     [
+      activeCanvasSourceType,
       designSourceType,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,

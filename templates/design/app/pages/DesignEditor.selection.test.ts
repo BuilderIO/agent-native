@@ -54,6 +54,7 @@ import {
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
+  resolveOverviewScreenSourceType,
   shouldShowPendingVisualStyleApply,
   shouldUseOverviewRuntimeReplacement,
   shouldMirrorSelectedElementToAgentChat,
@@ -532,6 +533,40 @@ describe("DesignEditor pending visual style edits", () => {
           },
         ],
         screenSourceTypes: new Map([["local-home", "localhost"]]),
+      }),
+    ).toBe(true);
+  });
+
+  it("infers localhost source type from bridgeUrl when building apply CTA state", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        { sourceType: undefined, bridgeUrl: "http://127.0.0.1:7336" },
+        "inline",
+      ),
+    ).toBe("localhost");
+    expect(
+      shouldShowPendingVisualStyleApply({
+        edits: [
+          {
+            screenId: "local-home",
+            filename: "localhost-home.html",
+            screenName: "Home",
+            selector: ".hero",
+            classes: [],
+            styles: { color: "rgb(37, 99, 235)" },
+            originalStyles: { color: "" },
+            updatedAt: 1,
+          },
+        ],
+        screenSourceTypes: new Map([
+          [
+            "local-home",
+            resolveOverviewScreenSourceType(
+              { bridgeUrl: "http://127.0.0.1:7336" },
+              "inline",
+            ),
+          ],
+        ]),
       }),
     ).toBe(true);
   });
