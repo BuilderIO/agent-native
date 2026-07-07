@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   appendFinalTranscript,
   onFinalTranscript,
+  resetTranscriptionTimeline,
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
@@ -45,6 +46,8 @@ export interface TranscriptionCapture {
   pause(): Promise<void>;
   /** Restart the audio engine after a `pause()`. */
   resume(): Promise<void>;
+  /** Rebase timestamped segments to the actual recording start. */
+  resetTimeline(): Promise<void>;
 }
 
 interface SpeechRecognitionResultLike {
@@ -275,6 +278,9 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
         );
       }
     },
+    async resetTimeline() {
+      // Web Speech does not emit timestamped segments.
+    },
   };
 }
 
@@ -431,6 +437,9 @@ export async function startTranscriptionCapture(
       if (disposed) return;
       desiredPaused = false;
       await applyAudioState();
+    },
+    async resetTimeline() {
+      await resetTranscriptionTimeline(engine);
     },
   };
 }

@@ -1909,8 +1909,14 @@ async function startNativeFullscreenRecording(
       recordingId: id,
       ...captureAudioParams,
     });
-    // Capture is now live — stamp the timer baseline before any further awaits
-    // so the toolbar clock and toolbar-enable line up with the real start.
+    await transcriptionCapture?.resetTimeline().catch((err) => {
+      console.warn(
+        "[clips-recorder] transcription timeline reset failed:",
+        err,
+      );
+    });
+    // Capture is now live — after rebasing the transcript timeline, stamp the
+    // timer baseline so the toolbar clock lines up with the real start.
     startedAt = Date.now();
     localCameraExport?.start(2_000);
   } catch (err) {

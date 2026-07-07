@@ -1,9 +1,6 @@
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { resolveCredential } from "@agent-native/core/credentials";
-import {
-  getInitializedDataProgramsAppId,
-  runDataProgram,
-} from "@agent-native/core/data-programs";
+import { runDataProgram } from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import { getUserSegmentation, queryEvents } from "./amplitude";
@@ -27,6 +24,8 @@ export const DASHBOARD_PANEL_SOURCES = [
 ] as const;
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
+
+const ANALYTICS_DATA_PROGRAM_APP_ID = "analytics";
 
 export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
@@ -360,7 +359,7 @@ async function runProgramPanel(
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
     programId: descriptor.programId,
-    appId: getInitializedDataProgramsAppId(),
+    appId: ANALYTICS_DATA_PROGRAM_APP_ID,
     params: descriptor.params,
     ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
     triggeredBy: "panel_view",

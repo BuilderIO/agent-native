@@ -319,7 +319,7 @@ export function createDataProgramActions(
         userEmail: ctx?.userEmail,
         orgId: ctx?.orgId ?? undefined,
       });
-      const archived = await archiveDataProgram(args.programId);
+      const archived = await archiveDataProgram(args.programId, appId);
       return { archived };
     },
   });

@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/data-programs", () => ({
   runDataProgram: mocks.runDataProgram,
-  getInitializedDataProgramsAppId: vi.fn(() => "test-app"),
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
@@ -106,7 +105,7 @@ describe("dashboard-panel-query: program source", () => {
       });
       expect(mocks.runDataProgram).toHaveBeenCalledWith({
         programId: "dp_risk_cohort",
-        appId: "test-app",
+        appId: "analytics",
         params: { riskStatuses: ["at_risk"] },
         ctx: { userEmail: "alice@example.com", orgId: "org_1" },
         triggeredBy: "panel_view",

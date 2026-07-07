@@ -270,6 +270,37 @@ describe("data-programs/store", () => {
       expect(await archiveDataProgram("dp_does_not_exist")).toBe(false);
     });
 
+    it("archiveDataProgram scopes deletes by appId when provided", async () => {
+      const {
+        ensureDataProgramTables,
+        upsertDataProgram,
+        archiveDataProgram,
+        getDataProgram,
+      } = await loadStore();
+      await ensureDataProgramTables();
+
+      const row = await upsertDataProgram({
+        appId,
+        name: "app-scoped-delete",
+        title: "App-scoped delete",
+        code: "emit([])",
+        ownerEmail: owner,
+      });
+
+      await expect(archiveDataProgram(row.id, "other-app")).resolves.toBe(
+        false,
+      );
+      await expect(getDataProgram(row.id)).resolves.toMatchObject({
+        archivedAt: null,
+      });
+
+      await expect(archiveDataProgram(row.id, appId)).resolves.toBe(true);
+      await expect(getDataProgram(row.id)).resolves.toMatchObject({
+        appId,
+        archivedAt: expect.any(String),
+      });
+    });
+
     it("enforces MAX_ACTIVE_PROGRAMS_PER_APP on create (not on update)", async () => {
       const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
       await ensureDataProgramTables();

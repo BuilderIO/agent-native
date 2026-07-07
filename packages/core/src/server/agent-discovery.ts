@@ -427,6 +427,9 @@ function isLoopbackUrl(value: string | undefined): boolean {
 }
 
 function hasPublicRuntimeUrl(): boolean {
+  // Intentionally omit generic `URL` / `DEPLOY_URL` here. Platforms that set
+  // those also expose a stronger hosted signal (for example `NETLIFY`), while
+  // local shells and unrelated tools can use generic URL vars for other work.
   const keys = [
     "WORKSPACE_GATEWAY_URL",
     "VITE_WORKSPACE_GATEWAY_URL",
@@ -435,8 +438,6 @@ function hasPublicRuntimeUrl(): boolean {
     "VITE_WORKSPACE_OAUTH_ORIGIN",
     "BETTER_AUTH_URL",
     "VITE_BETTER_AUTH_URL",
-    "URL",
-    "DEPLOY_URL",
     "VERCEL_URL",
     "VERCEL_PROJECT_PRODUCTION_URL",
   ];

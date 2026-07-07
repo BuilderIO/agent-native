@@ -840,8 +840,13 @@ function appendVerifiedParamToLocation(location: string): string {
   return `${beforeHash}${sep}verified=1${hash}`;
 }
 
-async function ensureEmailVerifiedForRedirect(request: Request): Promise<void> {
-  const email = decodeEmailVerificationTokenEmail(request);
+async function ensureEmailVerifiedForRedirect(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const email =
+    (await emailFromVerificationResponseSession(response)) ??
+    decodeEmailVerificationTokenEmail(request);
   if (!email) return;
   try {
     const db = getDbExec();
@@ -852,6 +857,23 @@ async function ensureEmailVerifiedForRedirect(request: Request): Promise<void> {
   } catch {
     // Better Auth already handled the verification route. This repair is
     // best-effort so response cookies/redirects are never lost to DB noise.
+  }
+}
+
+async function emailFromVerificationResponseSession(
+  response: Response,
+): Promise<string | null> {
+  const sessionToken = extractSessionTokenFromSetCookies(response);
+  if (!sessionToken) return null;
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [sessionToken],
+    });
+    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+  } catch {
+    return null;
   }
 }
 
@@ -3075,7 +3097,10 @@ async function mountBetterAuthRoutes(
           !/[?&]verified=/.test(loc) &&
           !verifyEmailRedirectHasError(loc, authRequest.url)
         ) {
-          await ensureEmailVerifiedForRedirect(authRequest);
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
+            response as Response,
+          );
           response.headers.set("location", appendVerifiedParamToLocation(loc));
         }
       }

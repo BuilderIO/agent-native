@@ -79,7 +79,7 @@ A data program is the middle ground: write the fetch/join/aggregate logic once a
 | A one-time chat question you'll never look at again                                                                                                                     | Plain `run-code` or `provider-api-request` — answer it directly, don't persist anything |
 | An extension needs a small, per-user interactive widget with its own UI                                                                                                 | [Extensions](/docs/extensions) — a data program has no UI of its own                    |
 | A cohort needs an arbitrary property filter, an IN-search over custom values, or a join across two providers, **and** someone will want to see it again with fresh data | A data program                                                                          |
-| A dashboard panel should show that joined/aggregated result and refresh on a schedule                                                                                   | A data program bound to a `"program"` panel                                             |
+| A dashboard panel should show that joined/aggregated result and refresh by cache policy                                                                                 | A data program bound to a `"program"` panel                                             |
 
 A comparison against the other run-code-shaped options:
 

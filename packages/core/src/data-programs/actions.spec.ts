@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  archiveDataProgram: vi.fn(),
+  assertAccess: vi.fn(),
   runDataProgram: vi.fn(),
   hashDataProgramParams: vi.fn(
     (
@@ -25,7 +27,7 @@ vi.mock("./execute.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
-  archiveDataProgram: vi.fn(),
+  archiveDataProgram: mocks.archiveDataProgram,
   getDataProgram: mocks.getDataProgram,
   getLatestRun: mocks.getLatestRun,
   listDataPrograms: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../sharing/access.js", () => ({
-  assertAccess: vi.fn(),
+  assertAccess: mocks.assertAccess,
   resolveAccess: mocks.resolveAccess,
 }));
 
@@ -129,5 +131,23 @@ describe("data-programs/actions", () => {
         truncated: true,
       }),
     );
+  });
+
+  it("scopes delete-data-program archives to the current app", async () => {
+    mocks.archiveDataProgram.mockResolvedValue(true);
+
+    const result = await makeActions()["delete-data-program"].run(
+      { programId: "dp_1" },
+      { userEmail: "alice@example.com", orgId: "org_1", caller: "frontend" },
+    );
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "data_program",
+      "dp_1",
+      "editor",
+      { userEmail: "alice@example.com", orgId: "org_1" },
+    );
+    expect(mocks.archiveDataProgram).toHaveBeenCalledWith("dp_1", "analytics");
+    expect(result).toEqual({ archived: true });
   });
 });

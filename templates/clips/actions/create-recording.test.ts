@@ -42,7 +42,7 @@ describe("create-recording schema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("keeps streaming opt-out optional for default-on recorder clients", () => {
+  it("keeps streaming opt-in optional for buffered-default recorder clients", () => {
     const parsed = createRecordingSchema.safeParse({
       hasCamera: true,
       hasAudio: true,

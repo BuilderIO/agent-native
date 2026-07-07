@@ -2224,12 +2224,17 @@ describe("server/auth", () => {
       );
     });
 
-    it("repairs verified email rows before showing a successful verified redirect", async () => {
+    it("repairs verified email rows from a successful verification session before showing verified redirect", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      const mockExecute = vi.fn(async (query: { sql: string }) => {
+        if (query.sql.includes('FROM "session"')) {
+          return { rows: [{ email: "SessionUser@Example.COM" }] };
+        }
+        return { rows: [] };
+      });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isPostgres: () => false,
@@ -2242,7 +2247,11 @@ describe("server/auth", () => {
           handler: async () =>
             new Response(null, {
               status: 302,
-              headers: { location: "/_agent-native/sign-in#done" },
+              headers: {
+                location: "/_agent-native/sign-in#done",
+                "set-cookie":
+                  "better-auth.session_token=session_123; Path=/; HttpOnly",
+              },
             }),
           api: {
             getSession: vi.fn(async () => null),
@@ -2304,8 +2313,12 @@ describe("server/auth", () => {
         "/_agent-native/sign-in?verified=1#done",
       );
       expect(mockExecute).toHaveBeenCalledWith({
+        sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+        args: ["session_123"],
+      });
+      expect(mockExecute).toHaveBeenCalledWith({
         sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
-        args: ["user@example.com"],
+        args: ["sessionuser@example.com"],
       });
     });
 

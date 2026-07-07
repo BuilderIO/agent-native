@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe("streaming upload mode", () => {
-  it("allows requested video streaming by default", () => {
+  it("keeps requested video streaming disabled by default", () => {
     delete process.env.CLIPS_DISABLE_STREAMING_UPLOAD;
     delete process.env.CLIPS_ENABLE_STREAMING_UPLOAD;
 
@@ -31,20 +31,21 @@ describe("streaming upload mode", () => {
         client: "desktop-native",
         mimeType: "video/mp4",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldEnableStreamingUpload({
         client: undefined,
         mimeType: "video/webm",
       }),
-    ).toBe(true);
-    expect(shouldEnableStreamingUpload({ mimeType: undefined })).toBe(true);
+    ).toBe(false);
+    expect(shouldEnableStreamingUpload({ mimeType: undefined })).toBe(false);
   });
 
   it("honors explicit enable and disable flags", () => {
     process.env.CLIPS_ENABLE_STREAMING_UPLOAD = "true";
     delete process.env.CLIPS_DISABLE_STREAMING_UPLOAD;
     expect(shouldEnableStreamingUpload({ mimeType: "video/webm" })).toBe(true);
+    expect(shouldEnableStreamingUpload({ mimeType: "audio/webm" })).toBe(false);
 
     process.env.CLIPS_DISABLE_STREAMING_UPLOAD = "true";
     expect(isStreamingUploadDisabled()).toBe(true);

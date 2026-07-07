@@ -186,6 +186,13 @@ export async function stopTranscriptionEngine(
   );
 }
 
+export async function resetTranscriptionTimeline(
+  engine: TranscriptionEngine,
+): Promise<void> {
+  if (engine !== "whisper") return;
+  await invoke("audio_transcription_reset_timeline");
+}
+
 // ---------------------------------------------------------------------------
 // Event subscriptions
 // ---------------------------------------------------------------------------

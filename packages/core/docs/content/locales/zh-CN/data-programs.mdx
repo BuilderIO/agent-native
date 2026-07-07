@@ -79,7 +79,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 | 你以后再也不会看的一次性聊天问题                                                                           | 直接用普通 `run-code` 或 `provider-api-request` 回答，不要持久化任何东西 |
 | 扩展需要一个带有自己 UI 的小型、按用户交互的组件                                                           | [扩展（Extensions）](/docs/extensions)——数据程序没有自己的 UI            |
 | 群组需要任意属性过滤、对自定义值的 IN 搜索，或跨两个 provider 的连接，**并且**有人会想用最新数据再次查看它 | 数据程序                                                                 |
-| dashboard 面板需要展示这个连接/聚合结果，并按计划刷新                                                      | 绑定到 `"program"` 面板的数据程序                                        |
+| dashboard 面板需要展示这个连接/聚合结果，并按缓存策略刷新                                                  | 绑定到 `"program"` 面板的数据程序                                        |
 
 与其他 run-code 形态选项的对比：
 

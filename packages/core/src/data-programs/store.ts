@@ -423,18 +423,25 @@ export async function listDataPrograms(
 }
 
 /** Soft-archive: sets `archivedAt`. NEVER hard-deletes — panels/history may still reference the id. */
-export async function archiveDataProgram(id: string): Promise<boolean> {
+export async function archiveDataProgram(
+  id: string,
+  appId?: string,
+): Promise<boolean> {
   await ensureDataProgramTables();
   const db = getDb();
-  const existing = await getDataProgram(id);
+  const existing = await getDataProgram(id, appId);
   if (!existing) return false;
+  const where = appId
+    ? and(eq(dataPrograms.id, id), eq(dataPrograms.appId, appId))
+    : eq(dataPrograms.id, id);
+  const now = new Date().toISOString();
   await db
     .update(dataPrograms)
     .set({
-      archivedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      archivedAt: now,
+      updatedAt: now,
     })
-    .where(eq(dataPrograms.id, id));
+    .where(where);
   return true;
 }
 

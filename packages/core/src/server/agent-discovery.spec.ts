@@ -147,6 +147,17 @@ describe("agent discovery", () => {
     expect(slides?.url).toBe("http://localhost:8086");
   });
 
+  it("does not treat generic URL env vars alone as hosted runtime signals", () => {
+    process.env.URL = "https://branch-preview.example.test";
+    process.env.DEPLOY_URL = "https://deploy-preview.example.test";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
   it("ignores stale hidden first-party remote-agent resources", async () => {
     resourceListMock.mockResolvedValue([
       { id: "dispatch-resource", path: "remote-agents/dispatch.json" },

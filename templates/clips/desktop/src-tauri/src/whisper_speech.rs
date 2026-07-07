@@ -88,6 +88,15 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::reset_timeline();
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -119,6 +128,11 @@ mod macos {
         source: &'static str,
         /// Per-segment real timestamps (empty for the SFSpeech fallback path).
         segments: Vec<Segment>,
+    }
+
+    struct StreamTimeline {
+        stream_start: Instant,
+        buffer_start: Instant,
     }
 
     /// Process-wide whisper context, loaded once and reused across meetings.
@@ -198,11 +212,15 @@ mod macos {
         /// Capture start — t=0 of the meeting timeline. Mic and system streams
         /// start within a few ms of each other, so their segment timestamps
         /// share one timeline.
-        stream_start: Instant,
-        /// When the CURRENT buffer began (reset on each finalize/clear). Whisper
-        /// timestamps are relative to the buffer, so this is the offset onto the
-        /// meeting timeline.
-        buffer_start: Mutex<Instant>,
+        ///
+        /// Native recordings can warm this capture before the countdown ends;
+        /// they reset this timeline when ScreenCaptureKit actually attaches the
+        /// recording output so transcript timestamps stay video-relative.
+        timeline: Mutex<StreamTimeline>,
+        /// Incremented when the timeline and buffer are reset. The worker has
+        /// local counters that must be reset after the realtime callback clears
+        /// the shared sample buffer.
+        reset_generation: AtomicU32,
     }
 
     impl WhisperStream {
@@ -223,8 +241,11 @@ mod macos {
                 running: Arc::new(AtomicBool::new(true)),
                 done: done.clone(),
                 app,
-                stream_start,
-                buffer_start: Mutex::new(stream_start),
+                timeline: Mutex::new(StreamTimeline {
+                    stream_start,
+                    buffer_start: stream_start,
+                }),
+                reset_generation: AtomicU32::new(0),
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -254,9 +275,14 @@ mod macos {
 
         /// Offset (ms) of the current buffer onto the meeting timeline.
         fn offset_ms(&self) -> i64 {
-            self.buffer_start
+            self.timeline
                 .lock()
-                .map(|b| b.duration_since(self.stream_start).as_millis() as i64)
+                .map(|timeline| {
+                    timeline
+                        .buffer_start
+                        .saturating_duration_since(timeline.stream_start)
+                        .as_millis() as i64
+                })
                 .unwrap_or(0)
         }
 
@@ -264,9 +290,23 @@ mod macos {
         /// on finalize) so the next utterance's whisper timestamps offset
         /// correctly onto the meeting timeline.
         fn reset_buffer_start(&self) {
-            if let Ok(mut b) = self.buffer_start.lock() {
-                *b = Instant::now();
+            if let Ok(mut timeline) = self.timeline.lock() {
+                timeline.buffer_start = Instant::now();
             }
+        }
+
+        /// Rebase timestamps to "now" and discard any audio captured while the
+        /// recorder was warming up/counting down.
+        fn reset_timeline(&self) {
+            if let Ok(mut buf) = self.buf.lock() {
+                buf.clear();
+            }
+            let now = Instant::now();
+            if let Ok(mut timeline) = self.timeline.lock() {
+                timeline.stream_start = now;
+                timeline.buffer_start = now;
+            }
+            self.reset_generation.fetch_add(1, Ordering::SeqCst);
         }
 
         /// Clean an inference result and, if it survives, emit it on `event`
@@ -389,9 +429,20 @@ mod macos {
         // threshold. Whisper hallucinates filler ("you", "thank you") on
         // silent audio, so we NEVER run inference on a buffer with no voice.
         let mut had_voice = false;
+        let mut seen_reset_generation = stream.reset_generation.load(Ordering::SeqCst);
 
         while stream.running.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(250));
+
+            let reset_generation = stream.reset_generation.load(Ordering::SeqCst);
+            if reset_generation != seen_reset_generation {
+                seen_reset_generation = reset_generation;
+                last_len = 0;
+                last_voice = Instant::now();
+                last_infer = Instant::now() - Duration::from_secs(10);
+                had_voice = false;
+                continue;
+            }
 
             // Clone the raw buffer (cheap relative to inference), then resample
             // to 16 kHz here on the worker rather than on the audio thread.
@@ -401,6 +452,9 @@ mod macos {
             };
             let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
             let samples = resample_to_16k(&raw, src_rate);
+            if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
+                continue;
+            }
             let len = samples.len();
 
             // Track voice activity over the newly-arrived region.
@@ -658,6 +712,26 @@ mod macos {
             if capture_system { " + system" } else { "" }
         );
         Ok(())
+    }
+
+    pub fn reset_timeline() {
+        let session = match session_slot().lock() {
+            Ok(slot) => slot.as_ref().map(|session| {
+                (
+                    session.mic.clone(),
+                    session.sys.as_ref().map(|stream| stream.clone()),
+                )
+            }),
+            Err(_) => None,
+        };
+        let Some((mic, sys)) = session else {
+            return;
+        };
+        mic.reset_timeline();
+        if let Some(sys) = sys {
+            sys.reset_timeline();
+        }
+        eprintln!("[whisper] transcription timeline reset");
     }
 
     pub fn stop(_app: &AppHandle) {

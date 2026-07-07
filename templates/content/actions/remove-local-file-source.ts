@@ -79,6 +79,14 @@ export default defineAction({
       ? await removeContentLocalFileRoots(sourceRootPath)
       : await removeImportedLocalSourceDocuments(sourceRootPath);
 
+    if (result.removed === 0 && result.roots.length === 0) {
+      throw new Error(
+        sourceRootPath
+          ? "No matching local file source was found."
+          : "No local file sources were found to remove.",
+      );
+    }
+
     invalidateLocalFileDocumentsCache();
     await writeAppState("refresh-signal", { ts: Date.now() });
 
