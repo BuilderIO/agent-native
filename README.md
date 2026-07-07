@@ -122,7 +122,7 @@ Chat-first app scaffold with durable threads, actions, auth, live sync, and a cl
 </tr>
 </table>
 
-**Build from scratch.** Use the [framework guide](https://agent-native.com/docs/getting-started) or [build online with Builder.io](https://agent-native.com/apps). Rapidly generate agent-native apps in the cloud — join the waitlist for early access.
+**Build from scratch.** Use the [framework guide](https://agent-native.com/docs/getting-started).
 
 View the full app gallery at **[agent-native.com/apps](https://agent-native.com/apps)**.
 

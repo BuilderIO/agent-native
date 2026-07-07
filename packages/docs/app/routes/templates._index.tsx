@@ -25,10 +25,9 @@ export default function TemplatesPage() {
         {featuredTemplates.map((template) => (
           <TemplateCard key={template.name} template={template} />
         ))}
-      </div>
-
-      <div className="mt-10 flex justify-center">
-        <BuildFromScratchCta location="templates_index" />
+        <div className="flex items-center justify-center">
+          <BuildFromScratchCta location="templates_index" variant="grid" />
+        </div>
       </div>
     </main>
   );

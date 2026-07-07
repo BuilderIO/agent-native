@@ -149,15 +149,23 @@ function BuildOnlinePopover({
 
 export function BuildFromScratchCta({
   location,
+  variant = "rail",
 }: {
   location: "homepage_rail" | "templates_index";
+  variant?: "rail" | "grid";
 }) {
   const { locale } = useLocale();
   const t = useT();
   const docsPath = sitePathForLocale("/docs/getting-started", locale);
 
   return (
-    <div className="build-from-scratch-cta flex w-[260px] shrink-0 flex-col justify-center gap-4 self-center px-4 py-2 sm:w-[280px] sm:px-5">
+    <div
+      className={
+        variant === "grid"
+          ? "build-from-scratch-cta flex w-full max-w-[280px] flex-col justify-center gap-4 px-4 py-2 sm:px-5"
+          : "build-from-scratch-cta flex w-[260px] shrink-0 flex-col justify-center gap-4 self-center px-4 py-2 sm:w-[280px] sm:px-5"
+      }
+    >
       <div className="space-y-1.5">
         <p className="m-0 text-base font-semibold text-[var(--fg)]">
           {t("buildFromScratch.title")}
