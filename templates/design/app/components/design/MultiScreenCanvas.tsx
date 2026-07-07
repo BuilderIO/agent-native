@@ -369,7 +369,7 @@ export function shouldSuppressLineupRecenter(args: {
     return false;
   }
   return (
-    args.screenCount > args.armed.fromCount &&
+    args.screenCount > args.armed.fromCount && // i18n-ignore — pure boolean expression, guard misreads the parenthesized return in this .tsx as JSX text
     args.screenCount <= args.armed.fromCount + args.armed.addedCount
   );
 }
