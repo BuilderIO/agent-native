@@ -3919,15 +3919,22 @@ fn prepare_recording_file(
                                 );
                                 return Ok(original);
                             }
-                            if let Some(fallback) = verify_prepared_audio_signal(
+                            match verify_prepared_audio_signal(
                                 ffmpeg_path,
                                 &normalized_path,
                                 &original,
                                 path,
                                 "audio-normalized recording",
-                            )? {
-                                let _ = std::fs::remove_file(&normalized_path);
-                                return Ok(fallback);
+                            ) {
+                                Ok(Some(fallback)) => {
+                                    let _ = std::fs::remove_file(&normalized_path);
+                                    return Ok(fallback);
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    let _ = std::fs::remove_file(&normalized_path);
+                                    return Err(err);
+                                }
                             }
                             eprintln!(
                                 "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
@@ -4007,23 +4014,30 @@ fn prepare_recording_file(
                         continue;
                     }
                     if has_audio {
-                        if let Some(fallback) = verify_prepared_audio_signal(
-                            &ffmpeg_path,
+                        match verify_prepared_audio_signal(
+                            ffmpeg_path,
                             &compressed_path,
                             &original,
                             path,
                             preset.label,
-                        )? {
-                            let _ = std::fs::remove_file(&compressed_path);
-                            if fallback.bytes <= max_upload_bytes() {
-                                return Ok(fallback);
+                        ) {
+                            Ok(Some(fallback)) => {
+                                let _ = std::fs::remove_file(&compressed_path);
+                                if fallback.bytes <= max_upload_bytes() {
+                                    return Ok(fallback);
+                                }
+                                eprintln!(
+                                    "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent compressed preset {}",
+                                    format_mb(fallback.bytes),
+                                    preset.label
+                                );
+                                continue;
                             }
-                            eprintln!(
-                                "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent compressed preset {}",
-                                format_mb(fallback.bytes),
-                                preset.label
-                            );
-                            continue;
+                            Ok(None) => {}
+                            Err(err) => {
+                                let _ = std::fs::remove_file(&compressed_path);
+                                return Err(err);
+                            }
                         }
                     }
                     smallest_attempt_bytes = Some(
@@ -4120,23 +4134,30 @@ fn prepare_recording_file(
                     }
                     if has_audio {
                         if let Some(ffmpeg_probe_path) = ffmpeg_path.as_deref() {
-                            if let Some(fallback) = verify_prepared_audio_signal(
+                            match verify_prepared_audio_signal(
                                 ffmpeg_probe_path,
                                 &compressed_path,
                                 &original,
                                 path,
                                 preset,
-                            )? {
-                                let _ = std::fs::remove_file(&compressed_path);
-                                if fallback.bytes <= max_upload_bytes() {
-                                    return Ok(fallback);
+                            ) {
+                                Ok(Some(fallback)) => {
+                                    let _ = std::fs::remove_file(&compressed_path);
+                                    if fallback.bytes <= max_upload_bytes() {
+                                        return Ok(fallback);
+                                    }
+                                    eprintln!(
+                                        "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent avconvert preset {}",
+                                        format_mb(fallback.bytes),
+                                        preset
+                                    );
+                                    continue;
                                 }
-                                eprintln!(
-                                    "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent avconvert preset {}",
-                                    format_mb(fallback.bytes),
-                                    preset
-                                );
-                                continue;
+                                Ok(None) => {}
+                                Err(err) => {
+                                    let _ = std::fs::remove_file(&compressed_path);
+                                    return Err(err);
+                                }
                             }
                         }
                     }
@@ -4904,7 +4925,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 
 #[cfg(test)]
 mod audio_track_probe_tests {
-    use super::mp4_has_audio_track;
+    use super::{mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe};
     use std::io::Write;
 
     /// Append an ISO BMFF box: 4-byte big-endian size (header + body) then
@@ -5025,6 +5046,30 @@ mod audio_track_probe_tests {
         let path = write_temp_mp4(&file);
         assert_eq!(mp4_has_audio_track(&path), Some(false));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_ffmpeg_volumedetect_output() {
+        let stderr = "\
+[Parsed_volumedetect_0 @ 0x123] mean_volume: -74.0 dB
+[Parsed_volumedetect_0 @ 0x123] max_volume: -57.6 dB
+";
+        assert_eq!(parse_ffmpeg_volume_db(stderr, "mean_volume:"), Some(-74.0));
+        assert_eq!(parse_ffmpeg_volume_db(stderr, "max_volume:"), Some(-57.6));
+    }
+
+    #[test]
+    fn rejects_effectively_silent_prepared_audio() {
+        let silent = AudioSignalProbe {
+            mean_volume_db: Some(-74.0),
+            max_volume_db: Some(-57.6),
+        };
+        let audible = AudioSignalProbe {
+            mean_volume_db: Some(-21.5),
+            max_volume_db: Some(-1.4),
+        };
+        assert!(!silent.has_audible_signal());
+        assert!(audible.has_audible_signal());
     }
 }
 
