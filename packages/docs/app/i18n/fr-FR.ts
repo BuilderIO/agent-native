@@ -265,8 +265,9 @@ const frFR = {
       },
     },
     comparison: {
-      title: "Le meilleur des deux mondes",
-      body: "Les outils SaaS sont rigides et ajoutent l'AI après coup. Les AI agents bruts sont puissants, mais n'ont pas d'UI. Les apps agent-native combinent les deux.",
+      title:
+        "Ne choisissez pas entre apps et agents. Les apps agent-native sont les deux.",
+      body: "Des agents au cœur, avec l'UX complète d'une app.",
       columns: {
         saas: "Outils SaaS",
         agents: "AI Agents bruts",
@@ -419,6 +420,25 @@ const frFR = {
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
     createYourOwn: "Commencer de zéro",
+  },
+  buildFromScratch: {
+    eyebrow: "Page blanche",
+    title: "Créer de zéro",
+    description:
+      "Commencez avec le guide du framework ou créez en ligne avec l'agent de code cloud de Builder.io.",
+    readDocs: "Lire la documentation",
+    buildOnline: "Créer en ligne",
+    popoverTitle: "Créer en ligne avec Builder.io",
+    popoverBody:
+      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
+    emailLabel: "E-mail",
+    emailPlaceholder: "vous@entreprise.com",
+    joinWaitlist: "Rejoindre la liste d'attente",
+    joining: "Inscription…",
+    joined:
+      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
+    invalidEmail: "Saisissez une adresse e-mail valide.",
+    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",

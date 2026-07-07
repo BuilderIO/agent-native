@@ -263,8 +263,8 @@ const arSA = {
       },
     },
     comparison: {
-      title: "أفضل ما في العالمين",
-      body: "أدوات SaaS جامدة وتضيف AI كفكرة لاحقة. Raw AI Agents قوية لكنها بلا UI. تجمع agent-native apps بين الاثنين.",
+      title: "لا تختَر بين apps و agents. agent-native apps هما الاثنان معًا.",
+      body: "agents في الجوهر، مع UX كاملة لتطبيق.",
       columns: {
         saas: "أدوات ادارة العلاقات مع",
         agents: "وكلاء AI الخام",
@@ -415,6 +415,25 @@ const arSA = {
     body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
+  },
+  buildFromScratch: {
+    eyebrow: "صفحة فارغة",
+    title: "ابنِ من الصفر",
+    description:
+      "ابدأ بدليل إطار العمل أو ابنِ عبر الإنترنت باستخدام وكيل البرمجة السحابي من Builder.io.",
+    readDocs: "اقرأ المستندات",
+    buildOnline: "ابنِ عبر الإنترنت",
+    popoverTitle: "ابنِ عبر الإنترنت باستخدام Builder.io",
+    popoverBody:
+      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
+    emailLabel: "البريد الإلكتروني",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "انضم إلى قائمة الانتظار",
+    joining: "جارٍ الانضمام…",
+    joined:
+      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
+    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
+    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

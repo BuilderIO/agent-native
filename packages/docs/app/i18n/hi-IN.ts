@@ -264,8 +264,8 @@ const hiIN = {
       },
     },
     comparison: {
-      title: "दोनों दुनिया की बेहतरीन बातें",
-      body: "SaaS tools कठोर होते हैं और AI को बाद में जोड़ा जाता है। Raw AI Agents शक्तिशाली होते हैं, पर उनके पास UI नहीं होता। agent-native apps दोनों को जोड़ते हैं।",
+      title: "apps या agents में से चुनने की ज़रूरत नहीं। agent-native apps दोनों हैं।",
+      body: "एजेंट कोर में, app के पूरे UX के साथ।",
       columns: {
         saas: "सास उपकरण",
         agents: "कच्चे AI एजेंट",
@@ -416,6 +416,24 @@ const hiIN = {
     body: "आप हर चीज़ customize कर सकते हैं।",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",
+  },
+  buildFromScratch: {
+    eyebrow: "खाली शुरुआत",
+    title: "शुरू से बनाएँ",
+    description:
+      "फ़्रेमवर्क गाइड से शुरू करें या Builder.io के क्लाउड कोडिंग एजेंट के साथ ऑनलाइन बनाएँ.",
+    readDocs: "डॉक्स पढ़ें",
+    buildOnline: "ऑनलाइन बनाएँ",
+    popoverTitle: "Builder.io के साथ ऑनलाइन बनाएँ",
+    popoverBody:
+      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
+    emailLabel: "ईमेल",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Waitlist में शामिल हों",
+    joining: "शामिल हो रहे हैं…",
+    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
+    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
+    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",

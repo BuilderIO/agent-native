@@ -285,6 +285,7 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
+  "docs_build_online_waitlist",
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -295,6 +296,7 @@ interface BuilderWaitlistFormTarget {
 }
 
 export interface BuilderWaitlistBody {
+  email?: unknown;
   prompt?: unknown;
   orgName?: unknown;
   appUrl?: unknown;
@@ -330,6 +332,26 @@ function normalizeBuilderWaitlistUseCase(value: unknown): string {
   return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
     ? useCase
     : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+}
+
+function isValidWaitlistEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function isAnonymousWaitlistSessionEmail(email: string): boolean {
+  return email.startsWith("anon-") && email.endsWith("@agent-native.com");
+}
+
+export function resolveWaitlistEmail(
+  sessionEmail: string | undefined,
+  bodyEmail: unknown,
+): string | null {
+  const provided = cleanBuilderWaitlistText(bodyEmail, 320);
+  if (provided && isValidWaitlistEmail(provided)) return provided;
+  if (sessionEmail && !isAnonymousWaitlistSessionEmail(sessionEmail)) {
+    return sessionEmail;
+  }
+  return null;
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -1869,15 +1891,19 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
           const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "Authentication required" };
-          }
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
+          const waitlistEmail = resolveWaitlistEmail(
+            session?.email,
+            body.email,
+          );
+          if (!waitlistEmail) {
+            setResponseStatus(event, 400);
+            return { error: "Valid email required" };
+          }
           const waitlistPayload = buildBuilderWaitlistFormPayload(
             event,
-            session.email,
+            waitlistEmail,
             body,
           );
           const waitlistSource = waitlistPayload.data.source;
@@ -1886,14 +1912,14 @@ export function createCoreRoutesPlugin(
           try {
             formSubmission = await submitBuilderWaitlistForm(
               event,
-              session.email,
+              waitlistEmail,
               body,
             );
           } catch (err) {
             await trackBuilderLifecycle(
               event,
               "builder branch waitlist form failed",
-              session.email,
+              waitlistEmail,
               {
                 reason:
                   err instanceof Error ? err.message : "unknown_waitlist_error",
@@ -1911,7 +1937,7 @@ export function createCoreRoutesPlugin(
           await trackBuilderLifecycle(
             event,
             "builder branch waitlist joined",
-            session.email,
+            waitlistEmail,
             {
               formId: formSubmission.formId ?? null,
               formSubmitted: formSubmission.submitted,

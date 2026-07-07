@@ -265,8 +265,8 @@ const esES = {
       },
     },
     comparison: {
-      title: "Lo mejor de ambos mundos",
-      body: "Las herramientas SaaS son rígidas y añaden AI como parche tardío. Los AI agents crudos son potentes, pero no tienen UI. Las apps agent-native combinan ambas cosas.",
+      title: "No elijas entre apps o agents. Las apps agent-native son ambas.",
+      body: "Agents en el núcleo, con la UX completa de una app.",
       columns: {
         saas: "Herramientas SaaS",
         agents: "AI Agents crudos",
@@ -418,6 +418,25 @@ const esES = {
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",
+  },
+  buildFromScratch: {
+    eyebrow: "Lienzo en blanco",
+    title: "Crear desde cero",
+    description:
+      "Empieza con la guía del framework o crea en línea con el agente de programación en la nube de Builder.io.",
+    readDocs: "Leer documentación",
+    buildOnline: "Crear en línea",
+    popoverTitle: "Crear en línea con Builder.io",
+    popoverBody:
+      "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
+    emailLabel: "Correo electrónico",
+    emailPlaceholder: "tu@empresa.com",
+    joinWaitlist: "Unirse a la lista de espera",
+    joining: "Uniéndose…",
+    joined:
+      "Ya estás en la lista de espera. Te enviaremos un correo cuando se abra el acceso para crear en línea.",
+    invalidEmail: "Introduce un correo electrónico válido.",
+    submitError: "No se pudo unir a la lista de espera. Inténtalo de nuevo.",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",

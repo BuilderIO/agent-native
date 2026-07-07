@@ -259,8 +259,8 @@ const zhCN = {
       },
     },
     comparison: {
-      title: "两种优势兼得",
-      body: "SaaS 工具很僵硬，AI 往往只是后加的补丁。原始 AI agents 很强大，但没有 UI。Agent-native apps 把二者结合起来。",
+      title: "不必在 app 和 agent 之间二选一。Agent-native apps 二者兼备。",
+      body: "以 agent 为核心，同时具备完整 app 体验。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -411,6 +411,23 @@ const zhCN = {
     body: "你可以自定义一切。",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
+  },
+  buildFromScratch: {
+    eyebrow: "空白起点",
+    title: "从零开始构建",
+    description: "从框架指南开始，或使用 Builder.io 的云端编码代理在线构建。",
+    readDocs: "阅读文档",
+    buildOnline: "在线构建",
+    popoverTitle: "使用 Builder.io 在线构建",
+    popoverBody:
+      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
+    emailLabel: "邮箱",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入候补名单",
+    joining: "正在加入…",
+    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
+    invalidEmail: "请输入有效的邮箱地址。",
+    submitError: "无法加入候补名单。请重试。",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

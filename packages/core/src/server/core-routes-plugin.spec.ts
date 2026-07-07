@@ -11,6 +11,7 @@ import {
   buildBuilderWaitlistFormPayload,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
+  resolveWaitlistEmail,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
   runDbHealthProbe,
@@ -374,6 +375,50 @@ describe("buildBuilderWaitlistFormPayload", () => {
         useCase: "builder_agent_background_coding",
       },
     });
+  });
+
+  it("preserves the docs build-online waitlist use case", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+      _meta: {
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+    });
+  });
+});
+
+describe("resolveWaitlistEmail", () => {
+  it("prefers an explicit email over anonymous docs sessions", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", "reader@example.com"),
+    ).toBe("reader@example.com");
+  });
+
+  it("uses a signed-in session email when no explicit email is provided", () => {
+    expect(resolveWaitlistEmail("steve@builder.io", undefined)).toBe(
+      "steve@builder.io",
+    );
+  });
+
+  it("rejects anonymous sessions without an explicit email", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", undefined),
+    ).toBeNull();
   });
 });
 

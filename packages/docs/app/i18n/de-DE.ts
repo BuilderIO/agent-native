@@ -266,8 +266,9 @@ const deDE = {
       },
     },
     comparison: {
-      title: "Das Beste aus beiden Welten",
-      body: "SaaS-Tools sind starr und setzen AI nachträglich oben drauf. Raw AI Agents sind mächtig, haben aber keine UI. Agent-native apps kombinieren beides.",
+      title:
+        "Wählen Sie nicht zwischen Apps und Agents. Agent-native apps sind beides.",
+      body: "Agents im Kern, mit der vollen UX einer App.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
@@ -420,6 +421,26 @@ const deDE = {
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
+  },
+  buildFromScratch: {
+    eyebrow: "Leere Grundlage",
+    title: "Von Grund auf bauen",
+    description:
+      "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",
+    readDocs: "Dokumentation lesen",
+    buildOnline: "Online bauen",
+    popoverTitle: "Online mit Builder.io bauen",
+    popoverBody:
+      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
+    emailLabel: "E-Mail",
+    emailPlaceholder: "du@firma.com",
+    joinWaitlist: "Warteliste beitreten",
+    joining: "Beitreten…",
+    joined:
+      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
+    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
+    submitError:
+      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",
