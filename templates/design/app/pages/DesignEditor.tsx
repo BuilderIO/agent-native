@@ -8176,7 +8176,25 @@ export default function DesignEditor() {
     (pending: FileContentSaveRequest) => {
       if (!canEditDesignRef.current) return;
       markPendingLocalFileContent(pending.id, pending.content);
-      latestFileSaveForUnloadRef.current[pending.id] = pending;
+      // Stamp the CURRENTLY-known acked hash onto the object kept for the
+      // pagehide/unload keepalive only — that path has no "resolve at send
+      // time" luxury (unload can fire the instant this runs), so best-effort
+      // now is all it gets. Does NOT feed the real mutateAsync call below,
+      // which still re-resolves the hash fresh at send time; see that call's
+      // comment for why an already-set pending.expectedVersionHash must not
+      // be allowed to shadow a fresher ref read there.
+      latestFileSaveForUnloadRef.current[pending.id] =
+        pending.expectedVersionHash !== undefined
+          ? pending
+          : {
+              ...pending,
+              ...(lastAckedFileContentHashRef.current[pending.id]
+                ? {
+                    expectedVersionHash:
+                      lastAckedFileContentHashRef.current[pending.id],
+                  }
+                : {}),
+            };
       const previous =
         fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
       const current = previous
@@ -8185,13 +8203,15 @@ export default function DesignEditor() {
           try {
             // Resolve the optimistic-concurrency hash at SEND time (after any
             // earlier chained save for this file has landed and refreshed the
-            // acked hash), not at queue time. Attached whenever a hash is
-            // known, on BOTH syncCollab true and false saves — see
-            // lastAckedFileContentHashRef's doc comment. Never invent a hash
-            // when one isn't known yet; omit as before.
+            // acked hash), not at queue time — the freshest ref value always
+            // wins here regardless of anything queue-time code may have
+            // stamped onto `pending` for the unload path above. Attached
+            // whenever a hash is known, on BOTH syncCollab true and false
+            // saves — see lastAckedFileContentHashRef's doc comment. Never
+            // invent a hash when one isn't known yet; omit as before.
             const expectedVersionHash =
-              pending.expectedVersionHash ??
-              lastAckedFileContentHashRef.current[pending.id];
+              lastAckedFileContentHashRef.current[pending.id] ??
+              pending.expectedVersionHash;
             const result = await updateFileMutation.mutateAsync({
               id: pending.id,
               content: pending.content,
@@ -8208,8 +8228,10 @@ export default function DesignEditor() {
             // previously-acked hash in place instead; the DB-reconcile effect
             // (activeFile watcher) will pick up the true live content and
             // refresh the acked hash from that.
-            if (!(result as { skippedStaleMirror?: boolean } | undefined)
-              ?.skippedStaleMirror) {
+            if (
+              !(result as { skippedStaleMirror?: boolean } | undefined)
+                ?.skippedStaleMirror
+            ) {
               lastAckedFileContentHashRef.current[pending.id] =
                 sourceContentHash(pending.content);
             }
@@ -8261,10 +8283,18 @@ export default function DesignEditor() {
       options: { syncCollab?: boolean; immediate?: boolean } = {},
     ) => {
       if (!canEditDesignRef.current) return;
-      const pending = {
+      const pending: FileContentSaveRequest = {
         id: fileId,
         content,
         syncCollab: options.syncCollab ?? true,
+        // Stamp the known acked hash up front (not just inside
+        // saveFileContent) so a pagehide firing while this save is still
+        // sitting in the debounce window (pendingFileSavesRef, before
+        // saveFileContent ever runs) still sees it via
+        // latestFileSaveForUnloadRef — see shouldSendKeepalive.
+        ...(lastAckedFileContentHashRef.current[fileId]
+          ? { expectedVersionHash: lastAckedFileContentHashRef.current[fileId] }
+          : {}),
       };
       markPendingLocalFileContent(fileId, content);
       latestFileSaveForUnloadRef.current[fileId] = pending;
