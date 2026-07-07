@@ -177,14 +177,32 @@ jobs:
                   core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
                   return false;
                 }
-                const matchedFile = (comparison.data.files ?? [])
-                  .map(file => file.filename)
-                  .find(file => watchedPaths.some(watchedPath => pathMatches(file, watchedPath)));
-                if (!matchedFile) {
-                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; newer main commit does not change this site.`);
-                  return false;
+
+                // Walk only the newer commits. Version Packages releases rewrite
+                // package.json / CHANGELOG under watched package dirs, so an
+                // aggregate compare falsely looks like a "newer build that also
+                // changes this site". Those releases intentionally skip every
+                // Netlify site and must never cancel an earlier real deploy.
+                for (const commit of comparison.data.commits ?? []) {
+                  const subject = (commit.commit?.message || '').split('\n')[0] ?? '';
+                  if (/^chore:\s*version packages\b/i.test(subject)) {
+                    continue;
+                  }
+
+                  const detail = await github.rest.repos.getCommit({
+                    ...context.repo,
+                    ref: commit.sha,
+                  });
+                  const matchedFile = (detail.data.files ?? [])
+                    .map(file => file.filename)
+                    .find(file => watchedPaths.some(watchedPath => pathMatches(file, watchedPath)));
+                  if (matchedFile) {
+                    return true;
+                  }
                 }
-                return true;
+
+                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; newer main commits do not change this site (ignoring version-packages releases).`);
+                return false;
               } catch (err) {
                 core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove replacement changes this site: ${err?.message || err}`);
                 return false;
