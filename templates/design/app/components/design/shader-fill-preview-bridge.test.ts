@@ -302,7 +302,7 @@ describe("shader-fill-preview bridge — GLSL preview gate", () => {
     expect(message.errors.some((e) => /gl_FragColor/.test(e))).toBe(true);
   });
 
-  it("rejects GLSL containing a script-breakout sequence without calling the runtime — GPU-hang/injection guard", () => {
+  it("rejects GLSL containing an opening script tag without calling the runtime — GPU-hang/injection guard", () => {
     const bridge = loadBridge();
 
     bridge.sendMessage({
@@ -323,7 +323,26 @@ describe("shader-fill-preview bridge — GLSL preview gate", () => {
       errors: string[];
     }>;
     expect(message.type).toBe("glsl-shader-preview-rejected");
-    expect(message.errors.some((e) => /script tag/.test(e))).toBe(true);
+    expect(message.errors.some((e) => /opening script tag/.test(e))).toBe(true);
+  });
+
+  it("allows a bare closing `</script` sequence (e.g. inside a comment) to pass preview validation — matches the relaxed persist-path contract", () => {
+    const bridge = loadBridge();
+
+    bridge.sendMessage({
+      type: "glsl-shader-preview",
+      target: { nodeId: "hero" },
+      shader: {
+        id: "s1",
+        name: "Test",
+        glsl: VALID_GLSL + "\n// avoid a </script> breakout in output",
+        uniforms: {},
+      },
+      mode: "fill",
+    });
+
+    expect(bridge.runtimeCalls.applyPreview).toHaveLength(1);
+    expect(bridge.parentMessages).toEqual([]);
   });
 
   it("rejects a malformed uniforms manifest (bad name, wrong value type) without calling the runtime", () => {

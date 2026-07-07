@@ -77,9 +77,6 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       if (!/gl_FragColor/.test(glsl)) {
         errors.push("GLSL source must write gl_FragColor");
       }
-      if (/<\\/script/i.test(glsl)) {
-        errors.push("GLSL source must not contain a closing script tag");
-      }
       if (/<script/i.test(glsl)) {
         errors.push("GLSL source must not contain an opening script tag");
       }

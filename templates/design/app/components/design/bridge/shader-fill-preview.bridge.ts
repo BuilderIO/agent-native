@@ -143,6 +143,16 @@
    * the cross-check that every manifest uniform is declared in the GLSL with
    * the matching type (a knob-completeness nicety, not a GPU-hang/injection
    * risk), since previews render even with unused/partial knobs.
+   *
+   * Script-tag handling also intentionally differs from a naive "reject both
+   * tags" rule, to stay in sync with shader script breakout hardening in
+   * shared/shader-fills.ts: an opening `<script` tag is a real injection
+   * vector (starts a brand new, arbitrary script), so it stays a hard
+   * rejection here too. A bare closing `</script` — e.g. inside a GLSL line
+   * comment — is NOT rejected here or on the persist path: escaping
+   * (escapeShaderScriptBreakout) happens only at persist-time serialization
+   * (serializeShaderScriptBlock), not here on the preview path, since preview
+   * GLSL never gets embedded in a `<script>` block in the first place.
    */
   var MAX_GLSL_LENGTH = 20000;
   var UNIFORM_NAME_RE = /^u_[A-Za-z0-9_]{1,48}$/;
@@ -163,9 +173,6 @@
     }
     if (!/gl_FragColor/.test(glsl)) {
       errors.push("GLSL source must write gl_FragColor");
-    }
-    if (/<\/script/i.test(glsl)) {
-      errors.push("GLSL source must not contain a closing script tag");
     }
     if (/<script/i.test(glsl)) {
       errors.push("GLSL source must not contain an opening script tag");
