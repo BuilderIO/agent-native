@@ -14,6 +14,7 @@ import {
 } from "../shared/api.js";
 import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
+import { assertPresetSkeletonAssetsValid } from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -82,6 +83,11 @@ export default defineAction({
       if (args.includeLogo !== undefined) {
         nextSettings.includeLogo = args.includeLogo;
       }
+      await assertPresetSkeletonAssetsValid({
+        db,
+        libraryId: preset.libraryId,
+        settings: nextSettings,
+      });
       updates.settings = stringifyJson(nextSettings);
     }
     await db

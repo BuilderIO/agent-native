@@ -342,10 +342,12 @@ export default defineAction({
           libraryId: args.libraryId,
           canonicalLogoAssetId: library.canonicalLogoAssetId,
           appendCanonicalLogo:
-            resolvedIncludeLogo && resolvedModel !== "gpt-image-2",
+            resolvedIncludeLogo &&
+            !(isSkeletonCutout && resolvedModel === "gpt-image-2"),
         })
       : null;
     const useSkeletonInpaint =
+      isSkeletonCutout &&
       Boolean(skeletonAssets?.backgroundAsset) &&
       resolvedModel === "gpt-image-2";
     const resolvedAspectRatio =

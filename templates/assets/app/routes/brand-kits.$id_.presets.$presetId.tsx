@@ -138,11 +138,19 @@ function logoLayerFromPlacement(
   }
 }
 
-function buildSkeletonSpec(form: PresetFormState): PresetSkeletonSpec | null {
+function buildSkeletonSpec(
+  form: PresetFormState,
+  previous: PresetSkeletonSpec | null = null,
+): PresetSkeletonSpec | null {
   if (!form.skeletonEnabled || !form.skeletonBackgroundAssetId) return null;
-  const foreground = form.skeletonLogo
-    ? [logoLayerFromPlacement(form.skeletonLogoPlacement)]
-    : undefined;
+  const foreground = [
+    ...(previous?.foreground ?? []).filter(
+      (layer) => layer.source !== "canonicalLogo",
+    ),
+    ...(form.skeletonLogo
+      ? [logoLayerFromPlacement(form.skeletonLogoPlacement)]
+      : []),
+  ];
   return {
     background: {
       type: "asset",
@@ -156,7 +164,10 @@ function buildSkeletonSpec(form: PresetFormState): PresetSkeletonSpec | null {
       form.skeletonContentMode === "cutout"
         ? form.skeletonDropShadow
         : undefined,
-    foreground,
+    ...(previous?.contentRegion
+      ? { contentRegion: previous.contentRegion }
+      : {}),
+    ...(foreground.length ? { foreground } : {}),
   };
 }
 
@@ -667,7 +678,10 @@ export default function GenerationPresetEditorRoute() {
         referencePolicy: normalized.referencePolicy,
         includeLogo: normalized.includeLogo,
         settings: {
-          skeletonSpec: buildSkeletonSpec(normalized),
+          skeletonSpec: buildSkeletonSpec(
+            normalized,
+            skeletonFromPreset(preset),
+          ),
         },
         collectionId: normalized.collectionId,
         sortOrder: Number(normalized.sortOrder),

@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
+  inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -40,6 +41,12 @@ vi.mock("./_helpers.js", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
   schema: {
+    assets: {
+      id: "assets.id",
+      libraryId: "assets.libraryId",
+      width: "assets.width",
+      height: "assets.height",
+    },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
   },
@@ -127,5 +134,60 @@ describe("generation preset includeLogo option", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("rejects skeleton masks that do not match the plate dimensions on update", async () => {
+    const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    const selectMock = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: "preset-1",
+                libraryId: "lib-1",
+                settings: "{}",
+              },
+            ]),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "plate-asset-1",
+              libraryId: "lib-1",
+              width: 1200,
+              height: 1200,
+            },
+            {
+              id: "mask-asset-1",
+              libraryId: "lib-1",
+              width: 800,
+              height: 1200,
+            },
+          ]),
+        })),
+      });
+    getDbMock.mockReturnValue({
+      select: selectMock,
+      update: vi.fn(() => ({ set: setMock })),
+    });
+
+    await expect(
+      updatePresetAction.run({
+        id: "preset-1",
+        settings: {
+          skeletonSpec: {
+            background: { type: "asset", assetId: "plate-asset-1" },
+            mask: { type: "asset", assetId: "mask-asset-1" },
+            contentMode: "cutout",
+          },
+        },
+      } as any),
+    ).rejects.toThrow("same pixel size as the background plate");
+    expect(setMock).not.toHaveBeenCalled();
   });
 });
