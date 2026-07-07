@@ -274,8 +274,8 @@ const enUS = {
       },
     },
     comparison: {
-      title: "The best of both worlds",
-      body: "SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI. Agent-native apps combine both.",
+      title: "Don't pick between apps or agents. Agent-native apps are both",
+      body: "Agents at the core, with the full UX of an app",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
@@ -417,6 +417,25 @@ const enUS = {
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
+  },
+  buildFromScratch: {
+    eyebrow: "Blank slate",
+    title: "Build from scratch",
+    description:
+      "Start with the framework guide or build online with Builder.io's cloud coding agent.",
+    readDocs: "Read the docs",
+    buildOnline: "Build online",
+    popoverTitle: "Build online with Builder.io",
+    popoverBody:
+      "Builder.io can spin up and customize an agent-native app in the cloud — actions, auth, SQL state, and agent chat included. Join the waitlist for early access.",
+    emailLabel: "Email",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "Join waitlist",
+    joining: "Joining…",
+    joined:
+      "You're on the waitlist. We'll email you when build-online access opens.",
+    invalidEmail: "Enter a valid email address.",
+    submitError: "Couldn't join the waitlist. Please try again.",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

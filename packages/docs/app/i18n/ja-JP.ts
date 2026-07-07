@@ -265,8 +265,9 @@ const jaJP = {
       },
     },
     comparison: {
-      title: "両方の良さをひとつに",
-      body: "SaaS ツールは硬直的で、AI は後付けになりがちです。生の AI Agents は強力ですが UI がありません。agent-native apps はその両方を組み合わせます。",
+      title:
+        "アプリと agent のどちらかを選ぶ必要はありません。agent-native apps は両方です。",
+      body: "agent を中心に、アプリのフル UX を備えています。",
       columns: {
         saas: "SaaS ツール",
         agents: "生の AI Agents",
@@ -418,6 +419,25 @@ const jaJP = {
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",
+  },
+  buildFromScratch: {
+    eyebrow: "白紙から開始",
+    title: "ゼロから構築",
+    description:
+      "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
+    readDocs: "ドキュメントを読む",
+    buildOnline: "オンラインで構築",
+    popoverTitle: "Builder.io でオンライン構築",
+    popoverBody:
+      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
+    emailLabel: "メール",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "待機リストに参加",
+    joining: "参加中…",
+    joined:
+      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
+    invalidEmail: "有効なメールアドレスを入力してください。",
+    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

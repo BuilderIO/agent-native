@@ -2,6 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { BuildFromScratchCard } from "../components/BuildFromScratchCard";
 import CodeBlock from "../components/CodeBlock";
 import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
@@ -71,6 +72,7 @@ const homepageTemplateSlugs = [
   "content",
   "slides",
   "analytics",
+  "chat",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -465,6 +467,121 @@ function ActionSurfaceSection({
   );
 }
 
+function ComparisonSection() {
+  const t = useT();
+
+  return (
+    <section className="border-t border-[var(--docs-border)] px-6 py-20">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            {t("home.comparison.title")}
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            {t("home.comparison.body")}
+          </p>
+        </div>
+
+        <div className="approaches-table-outer">
+          <div className="approaches-table-wrapper">
+            <div className="approaches-table-scroll">
+              <table className="approaches-table">
+                <thead>
+                  <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
+                    <th className="approaches-th approaches-col-dim"></th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.saas")}
+                    </th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.agents")}
+                    </th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.internal")}
+                    </th>
+                    <th className="approaches-th">
+                      {t("home.comparison.columns.native")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ui")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.polishedButRigid")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.none")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.mixedQuality")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.fullUi")}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ai")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.boltedOn")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.powerful")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.shallowlyConnected")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.agentFirst")}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.customization")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.cant")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.instructionsAndSkills")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.fullHighMaintenance")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.agentModifies")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ownership")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.rented")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.somewhatYours")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.youOwnCode")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.youOwnCode")}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AppsSection({
   localizedPath,
 }: {
@@ -499,6 +616,9 @@ function AppsSection({
             <TemplateCard template={template} />
           </div>
         ))}
+        <div className="template-rail-card template-rail-cta w-[320px] shrink-0 sm:w-[360px]">
+          <BuildFromScratchCard layout="rail" location="homepage_rail" />
+        </div>
       </div>
 
       <div className="mt-10 text-center">
@@ -640,6 +760,8 @@ export default defineAction({
         </section>
 
         <AppsSection localizedPath={localizedPath} />
+
+        <ComparisonSection />
 
         <ActionSurfaceSection
           frameworkCode={frameworkCode}

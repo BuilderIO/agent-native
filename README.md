@@ -21,6 +21,17 @@ export default defineAction({
 - **Agent runtime**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
 - **Backend agnostic**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 
+## Don't pick between apps or agents. Agent-native apps are both
+
+Agents at the core, with the full UX of an app.
+
+|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native            |
+| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
+| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
+| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
+| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
+| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
+
 ## Apps
 
 Fork a working app and let the agent evolve it. **You can customize everything.**
@@ -93,6 +104,19 @@ Generate and edit React-based presentations via prompt or point-and-click.
 **Agent-Native Amplitude, Mixpanel**
 
 Connect analytics data sources, prompt for real charts, and build reusable dashboards.
+
+</td>
+</tr>
+<tr>
+<td colspan="3" align="center" valign="top">
+
+**Chat**
+
+<a href="https://agent-native.com/templates/chat"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406?format=webp&width=800" alt="Chat app" width="66%" /></a>
+
+**A minimal ChatGPT-style app for your own agent**
+
+Chat-first app scaffold with durable threads, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.
 
 </td>
 </tr>

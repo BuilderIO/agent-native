@@ -265,8 +265,9 @@ const koKR = {
       },
     },
     comparison: {
-      title: "두 세계의 장점",
-      body: "SaaS 도구는 경직되어 있고 AI 는 뒤늦게 덧붙는 경우가 많습니다. Raw AI Agents 는 강력하지만 UI 가 없습니다. agent-native apps 는 둘을 결합합니다.",
+      title:
+        "앱과 agent 중 하나를 고르지 마세요. agent-native apps 는 둘 다입니다.",
+      body: "agent 가 핵심이며, app 의 완전한 UX 를 제공합니다.",
       columns: {
         saas: "SaaS 도구",
         agents: "원시 AI 에이전트",
@@ -418,6 +419,25 @@ const koKR = {
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",
+  },
+  buildFromScratch: {
+    eyebrow: "빈 캔버스",
+    title: "처음부터 만들기",
+    description:
+      "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",
+    readDocs: "문서 읽기",
+    buildOnline: "온라인에서 빌드",
+    popoverTitle: "Builder.io로 온라인에서 빌드",
+    popoverBody:
+      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
+    emailLabel: "이메일",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "대기자 명단 참여",
+    joining: "참여 중…",
+    joined:
+      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
+    invalidEmail: "유효한 이메일 주소를 입력하세요.",
+    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",

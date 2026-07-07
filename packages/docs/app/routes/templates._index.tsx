@@ -1,15 +1,9 @@
-import { useLocale, useT } from "@agent-native/core/client";
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 
-import { sitePathForLocale } from "../components/docs-locale";
-import {
-  featuredTemplates,
-  TemplateCard,
-  trackEvent,
-} from "../components/TemplateCard";
+import { BuildFromScratchCard } from "../components/BuildFromScratchCard";
+import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 
 export default function TemplatesPage() {
-  const { locale } = useLocale();
   const t = useT();
 
   return (
@@ -31,35 +25,9 @@ export default function TemplatesPage() {
         {featuredTemplates.map((template) => (
           <TemplateCard key={template.name} template={template} />
         ))}
-      </div>
-
-      <div className="mt-12 text-center">
-        <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-          {t("templatesPage.community")}
-        </p>
-        <Link
-          data-an-prefetch="render"
-          to={sitePathForLocale("/docs/getting-started", locale)}
-          onClick={() =>
-            trackEvent("start from scratch", { location: "templates_index" })
-          }
-          className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          {t("templatesPage.createYourOwn")}
-        </Link>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <BuildFromScratchCard layout="banner" location="templates_index" />
+        </div>
       </div>
     </main>
   );
