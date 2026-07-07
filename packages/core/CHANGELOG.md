@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.90.8
+
+### Patch Changes
+
+- 1de8510: Allow public Builder waitlist signups to submit an explicit email address for docs build-online CTAs.
+- 1de8510: Emit and require a Netlify fallback redirect so single-template deploys route dynamic app requests to the server function instead of publishing platform 404s.
+
 ## 0.90.7
 
 ### Patch Changes
