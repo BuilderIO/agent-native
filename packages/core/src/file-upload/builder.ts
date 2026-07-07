@@ -44,9 +44,8 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   );
 }
 
-function setAsyncCompressionQueryParams(url: URL): void {
+function setStableUrlQueryParam(url: URL): void {
   // Stable URLs let Builder compress asynchronously without changing the media URL.
-  url.searchParams.set("skipCompressionWait", "true");
   url.searchParams.set("stableUrl", "true");
 }
 
@@ -111,7 +110,7 @@ async function uploadLargeFileViaSignedUrl(
     assetId,
     input.filename,
     {
-      skipCompressionWait: input.skipCompressionWait,
+      stableUrl: input.stableUrl,
       recordAsset: input.recordAsset,
     },
   );
@@ -167,12 +166,12 @@ async function completeBuilderUpload(
   privateKey: string,
   assetId: string,
   filename: string | undefined,
-  options?: { skipCompressionWait?: boolean; recordAsset?: boolean },
+  options?: { stableUrl?: boolean; recordAsset?: boolean },
 ): Promise<{ url: string; id?: string }> {
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/complete", host);
-  if (options?.skipCompressionWait) {
-    setAsyncCompressionQueryParams(url);
+  if (options?.stableUrl) {
+    setStableUrlQueryParam(url);
   }
   setRecordAssetQueryParam(url, options?.recordAsset);
   const res = await fetchWithTimeout(url.toString(), {
@@ -277,8 +276,8 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
-    if (input.skipCompressionWait) {
-      setAsyncCompressionQueryParams(url);
+    if (input.stableUrl) {
+      setStableUrlQueryParam(url);
     }
     setRecordAssetQueryParam(url, input.recordAsset);
 
@@ -419,9 +418,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
         assetId,
         filename,
         {
-          skipCompressionWait:
-            options?.skipCompressionWait ||
-            session.meta.skipCompressionWait === true,
+          stableUrl: options?.stableUrl || session.meta.stableUrl === true,
           recordAsset:
             options?.recordAsset ??
             (session.meta.recordAsset === false ? false : undefined),

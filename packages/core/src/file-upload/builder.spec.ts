@@ -104,23 +104,20 @@ describe("builderFileUploadProvider", () => {
     expect(init.headers["Content-Type"]).toBe("image/png");
   });
 
-  it("passes stable async compression params through the legacy upload path when requested", async () => {
+  it("passes only stableUrl through the legacy upload path when requested", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ url: "https://cdn/x" }));
 
     await builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
       mimeType: "image/png",
-      skipCompressionWait: true,
+      stableUrl: true,
     });
 
     const [url] = fetchMock.mock.calls[0];
-    expect(
-      new URL(url.toString()).searchParams.get("skipCompressionWait"),
-    ).toBe("true");
-    expect(new URL(url.toString()).searchParams.get("stableUrl")).toBe("true");
-    expect(new URL(url.toString()).searchParams.has("skipCompression")).toBe(
-      false,
-    );
+    const params = new URL(url.toString()).searchParams;
+    expect(params.get("stableUrl")).toBe("true");
+    expect(params.has("skipCompression")).toBe(false);
+    expect(params.has("skipCompressionWait")).toBe(false);
   });
 
   it("passes record=false through the legacy upload path for internal artifacts", async () => {
@@ -193,7 +190,7 @@ describe("builderFileUploadProvider", () => {
     ).toBe(false);
   });
 
-  it("passes stable async compression params through signed URL completion when requested", async () => {
+  it("passes only stableUrl through signed URL completion when requested", async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse({
@@ -214,14 +211,14 @@ describe("builderFileUploadProvider", () => {
       data: new Uint8Array([1, 2, 3]),
       filename: "clip.webm",
       mimeType: "video/webm",
-      skipCompressionWait: true,
+      stableUrl: true,
     });
 
     const completeUrl = new URL(fetchMock.mock.calls[2][0].toString());
     expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
-    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
     expect(completeUrl.searchParams.get("stableUrl")).toBe("true");
     expect(completeUrl.searchParams.has("skipCompression")).toBe(false);
+    expect(completeUrl.searchParams.has("skipCompressionWait")).toBe(false);
   });
 
   it("passes record=false through signed URL completion for internal artifacts", async () => {
@@ -338,7 +335,7 @@ describe("builderFileUploadProvider", () => {
     ).rejects.toThrow(/returned no URL/);
   });
 
-  it("passes stable async compression params through resumable completion options", async () => {
+  it("passes only stableUrl through resumable completion options", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
     );
@@ -349,15 +346,15 @@ describe("builderFileUploadProvider", () => {
         meta: { assetId: "asset-1" },
       },
       "clip.webm",
-      { skipCompressionWait: true },
+      { stableUrl: true },
     );
 
     expect(url).toBe("https://cdn.builder.io/video");
     const completeUrl = new URL(fetchMock.mock.calls[0][0].toString());
     expect(completeUrl.pathname).toBe("/api/v1/upload/complete");
-    expect(completeUrl.searchParams.get("skipCompressionWait")).toBe("true");
     expect(completeUrl.searchParams.get("stableUrl")).toBe("true");
     expect(completeUrl.searchParams.has("skipCompression")).toBe(false);
+    expect(completeUrl.searchParams.has("skipCompressionWait")).toBe(false);
   });
 
   it("passes record=false through resumable completion options", async () => {
