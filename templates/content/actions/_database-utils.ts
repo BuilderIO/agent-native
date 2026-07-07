@@ -123,12 +123,13 @@ export function normalizeContentDatabasePageOptions(options: {
 function serializeDocument(
   doc: typeof schema.documents.$inferSelect,
   membership?: DatabaseMembershipRow,
+  options: { includeContent?: boolean } = {},
 ) {
   return {
     id: doc.id,
     parentId: doc.parentId,
     title: doc.title,
-    content: doc.content,
+    content: options.includeContent === true ? doc.content : "",
     icon: doc.icon,
     position: doc.position,
     isFavorite: parseDocumentFavorite(doc.isFavorite),

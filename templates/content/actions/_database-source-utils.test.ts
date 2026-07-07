@@ -24,6 +24,7 @@ import {
   normalizeSourceFederation,
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
+  sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
@@ -93,6 +94,27 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("omits heavy Builder body payloads from read snapshots", () => {
+    const values = {
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated body",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "<BuilderText />",
+      [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
+      [BUILDER_CMS_BODY_SIDECARS_KEY]: '{"huge":"sidecar"}',
+    };
+
+    expect(sourceValuesForSnapshot(values)).toEqual({
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+    });
+    expect(
+      sourceValuesForSnapshot(values, { includeHeavyBuilderBodyValues: true }),
+    ).toBe(values);
   });
 
   it("drops stored federation metadata with unsafe regex formulas", () => {
