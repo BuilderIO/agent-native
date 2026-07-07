@@ -211,15 +211,64 @@ describe("session replay", () => {
     amplitudeMock.track.mockReset();
   });
 
-  it("does not import or start rrweb from configureTracking unless replay is enabled", async () => {
+  it("does not import or start rrweb from configureTracking without replay config or an analytics key", async () => {
     installBrowser();
-    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     const { configureTracking } = await import("./analytics.js");
 
     configureTracking({});
     await tick();
 
     expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("starts signed-in replay by default when first-party analytics is configured", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({});
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toBe(true),
+    );
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls).toHaveLength(1);
+    expect(replayCalls[0][0]).toBe(
+      "https://analytics.agent-native.com/api/analytics/replay",
+    );
+    const body = await parseReplayUpload(replayCalls[0][1] as RequestInit);
+    expect(body).toMatchObject({
+      publicKey: "anpk_test",
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      properties: {
+        userId: "dev@example.com",
+        userEmail: "dev@example.com",
+        userName: "Dev User",
+        orgId: "org_123",
+      },
+    });
   });
 
   it("lets explicit sessionReplay false override replay env vars", async () => {

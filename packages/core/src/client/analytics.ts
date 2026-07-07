@@ -1005,8 +1005,16 @@ function configuredSessionReplayOptions(
   config: boolean | SessionReplayOptions | undefined,
   tracking: { endpoint?: string; publicKey?: string } = {},
 ): SessionReplayOptions | null {
-  const publicKey = tracking.publicKey || _agentNativeAnalyticsPublicKey;
-  const trackingEndpoint = tracking.endpoint || _agentNativeAnalyticsEndpoint;
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const publicKey =
+    tracking.publicKey ||
+    _agentNativeAnalyticsPublicKey ||
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  const trackingEndpoint =
+    tracking.endpoint ||
+    _agentNativeAnalyticsEndpoint ||
+    env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+    (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
     ? replayEndpointFromTrackingEndpoint(trackingEndpoint)
     : undefined;
@@ -1034,7 +1042,13 @@ function configuredSessionReplayOptions(
     if (config.enabled === false) return null;
     return withTrackingDefaults(config);
   }
-  return sessionReplayEnabledFromEnv() ? withTrackingDefaults({}) : null;
+  const autoEnabledByAnalyticsKey =
+    !!publicKey &&
+    (typeof window === "undefined" ||
+      !isLocalAnalyticsHostname(window.location.hostname));
+  return sessionReplayEnabledFromEnv() || autoEnabledByAnalyticsKey
+    ? withTrackingDefaults({})
+    : null;
 }
 
 function replayExtraPropertiesWithDefaults(
