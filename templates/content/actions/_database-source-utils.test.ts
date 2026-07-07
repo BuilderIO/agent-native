@@ -24,6 +24,7 @@ import {
   normalizeSourceFederation,
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceMetadataRecord,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -167,6 +168,51 @@ describe("database source helpers", () => {
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
     });
+  });
+
+  it("preserves existing Builder model fields during metadata rewrites", () => {
+    const existingMetadataJson = JSON.stringify({
+      builderModelFields: [
+        {
+          name: "topics",
+          label: "Topics",
+          type: "list",
+          inputType: "tags",
+          required: false,
+          options: ["Headless CMS"],
+        },
+      ],
+    });
+
+    expect(
+      JSON.parse(
+        serializeSourceMetadataRecord({
+          sourceType: "builder-cms",
+          sourceTable: "blog-article",
+          existingMetadataJson,
+        }),
+      ).builderModelFields,
+    ).toEqual([
+      {
+        name: "topics",
+        label: "Topics",
+        type: "list",
+        inputType: "tags",
+        required: false,
+        options: ["Headless CMS"],
+      },
+    ]);
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 1,
+          matchedRowCount: 1,
+          existingMetadataJson,
+        }),
+      ).builderModelFields?.[0]?.name,
+    ).toBe("topics");
   });
 
   it("creates a mock field change for text properties", () => {

@@ -13,6 +13,7 @@ import type {
 import {
   defaultPropertyOptions,
   normalizePropertyValue,
+  normalizePropertyValueWithOptions,
   normalizePropertyVisibility,
   serializePropertyOptions,
   serializePropertyValue,
@@ -48,12 +49,15 @@ export function sourceFieldPropertyValuesFromRows(
   }>,
   sourceFieldKey: string,
   type: DocumentPropertyType,
+  options?: DocumentPropertyOptions,
 ) {
   return rows
     .map((row) => {
       const sourceValues = parseSourceValues(row.sourceValuesJson);
       const sourceValue = sourceValues[sourceFieldKey];
-      const value = normalizePropertyValue(type, sourceValue);
+      const value = options
+        ? normalizePropertyValueWithOptions(type, sourceValue, options)
+        : normalizePropertyValue(type, sourceValue);
       return {
         itemId: row.databaseItemId,
         documentId: row.documentId,
@@ -126,6 +130,17 @@ function optionIdFromName(name: string) {
   );
 }
 
+function uniqueOptionIdFromName(name: string, usedIds: Set<string>) {
+  const baseId = optionIdFromName(name);
+  let id = baseId;
+  let index = 2;
+  while (usedIds.has(id)) {
+    id = `${baseId}-${index++}`;
+  }
+  usedIds.add(id);
+  return id;
+}
+
 function uniqueStringValues(values: unknown[]) {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -161,7 +176,7 @@ function sourceFieldOptionNames(args: {
   return uniqueStringValues(rowValues).slice(0, 100);
 }
 
-function sourceFieldPropertyOptions(args: {
+export function sourceFieldPropertyOptions(args: {
   type: DocumentPropertyType;
   metadata?: BuilderCmsModelFieldSummary | null;
   rows: Array<{ sourceValuesJson: string | null }>;
@@ -172,9 +187,10 @@ function sourceFieldPropertyOptions(args: {
     (args.type === "select" || args.type === "multi_select") &&
     optionNames.length > 0
   ) {
+    const usedIds = new Set<string>();
     return {
       options: optionNames.map((name, index) => ({
-        id: optionIdFromName(name),
+        id: uniqueOptionIdFromName(name, usedIds),
         name,
         color: SOURCE_OPTION_COLORS[index % SOURCE_OPTION_COLORS.length],
       })),
@@ -378,6 +394,7 @@ export default defineAction({
       sourceRows,
       field.sourceFieldKey,
       type,
+      options,
     );
     if (itemValues.length > 0) {
       await db.insert(schema.documentPropertyValues).values(
