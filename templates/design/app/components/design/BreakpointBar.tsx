@@ -98,9 +98,9 @@ export function parseBreakpointWidthInput(
 }
 
 function DeviceIcon({ widthPx }: { widthPx: number }) {
-  if (widthPx >= 1024) return <IconDeviceDesktop className="size-3.5" />;
-  if (widthPx >= 600) return <IconDeviceTablet className="size-3.5" />;
-  return <IconDeviceMobile className="size-3.5" />;
+  if (widthPx >= 1024) return <IconDeviceDesktop className="size-3" />;
+  if (widthPx >= 600) return <IconDeviceTablet className="size-3" />;
+  return <IconDeviceMobile className="size-3" />;
 }
 
 export interface BreakpointBarBreakpoint {
@@ -222,9 +222,12 @@ export function BreakpointDeviceControl({
               onClick={() => onSelect(breakpoint.widthPx)}
               title={`${breakpoint.label} · ${breakpoint.widthPx}px`}
             >
-              {/* Width number only — the device icon + label live in the
-                  tooltip and the "+" popover; icons per segment overflowed
-                  the ~300px inspector-header row next to play/share. */}
+              {/* ITEM 8a — device icon (by width bucket) + width number.
+                  Kept compact (size-3, one notch smaller than Base's
+                  size-3.5) so the segment still fits this ~300px
+                  inspector-header row next to play/share; the full label
+                  stays in the tooltip. */}
+              <DeviceIcon widthPx={breakpoint.widthPx} />
               <span>{breakpoint.widthPx}</span>
             </button>
             {/* "…" — per-breakpoint options (Change width / Remove). Shown

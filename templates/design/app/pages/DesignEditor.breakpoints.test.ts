@@ -258,6 +258,46 @@ describe("pending visual edit breakpoint stamping (gesture parity)", () => {
   });
 });
 
+describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
+  it("scopes a display:none delete override to the active breakpoint's @media block, leaving the base element intact", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "display",
+      value: "none",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain("display: none;");
+    // The element itself (and its base classes) must still be in the
+    // document — this is a scoped override, not a structural removal.
+    expect(patch.content).toContain(
+      '<section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section>',
+    );
+  });
+
+  it("at the base scope (no active breakpoint), a display:none write is a plain inline style — callers must route base deletes through structural removal instead", () => {
+    // This function is scope-agnostic; the base-vs-scoped BRANCHING decision
+    // (structural remove vs. display:none override) lives in
+    // handleDeleteSelection, asserted below via source checks. This case
+    // documents why: at upperBoundPx === null there is no @media scoping to
+    // hide the element at a specific width only, so a real delete must stay
+    // structural at the base scope.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "display",
+      value: "none",
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('style="display: none"');
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+});
+
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
 
@@ -349,6 +389,58 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     const fallback = source.slice(start, start + 400);
     expect(fallback).toContain("activeBreakpointUpperBoundPx != null");
+  });
+
+  it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {
+    const start = source.indexOf("const handleDeleteSelection = useCallback");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = source.indexOf(
+      "// Wrap the current multi-layer selection into a new group container.",
+    );
+    expect(end).toBeGreaterThan(start);
+    const handler = source.slice(start, end);
+    expect(handler).toContain("useBreakpointScopedDelete");
+    expect(handler).toContain('property: "display"');
+    expect(handler).toContain('value: "none"');
+    expect(handler).toContain("applyScopedVisualStyleEdit");
+    // Structural removal (removeCodeLayerNodeFromHtml / removeElementFromHtml)
+    // must still be present for the base-editing (non-scoped) case — this is
+    // an added branch, not a replacement.
+    expect(handler).toContain("removeCodeLayerNodeFromHtml");
+    expect(handler).toContain("removeElementFromHtml");
+  });
+
+  it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
+    expect(source).toContain("onRemoveBreakpoint={");
+    expect(source).toContain("onChangeBreakpointWidth={");
+    expect(source).toContain("onEditBreakpoint={handleOverviewEditBreakpoint}");
+    const remover = source.slice(
+      source.indexOf("const handleOverviewRemoveBreakpoint"),
+      source.indexOf("const handleOverviewChangeBreakpointWidth"),
+    );
+    expect(remover).toContain("handleBreakpointBarRemove(bp.id)");
+    const changer = source.slice(
+      source.indexOf("const handleOverviewChangeBreakpointWidth"),
+      source.indexOf("const handleOverviewEditBreakpoint"),
+    );
+    expect(changer).toContain(
+      "handleBreakpointChangeWidth(bp.id, nextWidthPx)",
+    );
+    const editor = source.slice(
+      source.indexOf("const handleOverviewEditBreakpoint"),
+      source.indexOf("// Hooks must not be called conditionally"),
+    );
+    expect(editor).toContain("enterSingleScreen(screenId)");
+  });
+
+  it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
+    // previewWidthPx is passed straight from activeBreakpointWidthState, and
+    // BreakpointPreviewRow's activateThisFrame (MultiScreenCanvas.tsx) sets
+    // that state BEFORE onEditBreakpoint/enterSingleScreen fires — so no
+    // separate wiring is needed here for full view to land at the right
+    // width; this just guards against a future refactor silently dropping
+    // the prop.
+    expect(source).toContain("previewWidthPx={activeBreakpointWidthState}");
   });
 });
 

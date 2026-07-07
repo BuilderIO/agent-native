@@ -50,7 +50,12 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
-import { IconCopy, IconMaximize, IconPlus } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconDots,
+  IconMaximize,
+  IconPlus,
+} from "@tabler/icons-react";
 import {
   memo,
   useRef,
@@ -63,9 +68,18 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
+import { parseBreakpointWidthInput } from "./BreakpointBar";
 import {
   canvasPrimitiveReactStyle,
   DEFAULT_LINE_STROKE,
@@ -251,6 +265,33 @@ interface MultiScreenCanvasProps {
     screenId: string,
     widthPx: number | undefined,
   ) => void;
+  /**
+   * STEVE TEST BATCH 3 item 8b — "…" menu on an overview breakpoint frame:
+   * remove that breakpoint. Width-first (not breakpoint-id) to match
+   * onAddBreakpoint/onActiveBreakpointChange's existing convention — the
+   * design only has one breakpoint set, so the caller (DesignEditor) can
+   * resolve widthPx back to a breakpoint id the same way
+   * handleOverviewActiveBreakpointChange already does.
+   */
+  onRemoveBreakpoint?: (screenId: string, widthPx: number) => void;
+  /**
+   * STEVE TEST BATCH 3 item 8b — "…" menu "Change width" commit for an
+   * overview breakpoint frame. `widthPx` identifies which breakpoint (its
+   * current width); `nextWidthPx` is the new value.
+   */
+  onChangeBreakpointWidth?: (
+    screenId: string,
+    widthPx: number,
+    nextWidthPx: number,
+  ) => void;
+  /**
+   * STEVE TEST BATCH 3 item 8b — "full view" entry for one breakpoint frame
+   * in overview (double-click or its own full-view button): enter
+   * single-screen mode for the owning screen with this breakpoint width as
+   * the active edit/viewport scope. Falls back to plain `onEdit` when unset
+   * so existing callers keep working unchanged.
+   */
+  onEditBreakpoint?: (screenId: string, widthPx: number) => void;
   onSelectionChange?: (selectedIds: string[]) => void;
   onLayerMarqueeSelectionChange?: (
     selection: CanvasLayerMarqueeSelection[],
@@ -607,6 +648,27 @@ export function shouldShowFrameFullViewButton(args: {
   childHoverActive?: boolean;
 }) {
   return args.emphasized || !!args.showFullView || !!args.childHoverActive;
+}
+
+/**
+ * Item 8b — whether an overview breakpoint frame's "…" menu affordance
+ * (Change width / Remove) should render: gated by edit permission AND at
+ * least one of the two callbacks being wired, then shown only for the
+ * active frame or while its own menu is already open — same
+ * one-visible-at-a-time rule BreakpointDeviceControl's own per-segment menu
+ * uses, so idle frames stay visually clean. Pure/exported for unit tests.
+ */
+export function shouldShowBreakpointMenuAffordance(args: {
+  canEdit: boolean;
+  hasRemoveOrChangeWidth: boolean;
+  isActive: boolean;
+  menuOpen: boolean;
+}): boolean {
+  return (
+    args.canEdit &&
+    args.hasRemoveOrChangeWidth &&
+    (args.isActive || args.menuOpen)
+  );
 }
 
 export function getBoardSurfaceLayerStyle(args: {
@@ -1943,6 +2005,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   clearSelectionRequest,
   onAddBreakpoint,
   onActiveBreakpointChange,
+  onRemoveBreakpoint,
+  onChangeBreakpointWidth,
+  onEditBreakpoint,
   onSelectionChange,
   onLayerMarqueeSelectionChange,
   selectedLayerSelectorGroupsByScreen = {},
@@ -7747,6 +7812,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               // MultiScreenCanvas render, which used to defeat memo(Screen).
               onAddBreakpoint={onAddBreakpoint}
               onActiveBreakpointChange={onActiveBreakpointChange}
+              onRemoveBreakpoint={onRemoveBreakpoint}
+              onChangeBreakpointWidth={onChangeBreakpointWidth}
+              onEditBreakpoint={onEditBreakpoint}
             />
           );
         })}
@@ -9039,6 +9107,16 @@ interface ScreenProps {
     screenId: string,
     widthPx: number | undefined,
   ) => void;
+  /** Item 8b — "…" menu "Remove" on an overview breakpoint frame. */
+  onRemoveBreakpoint?: (screenId: string, widthPx: number) => void;
+  /** Item 8b — "…" menu "Change width" on an overview breakpoint frame. */
+  onChangeBreakpointWidth?: (
+    screenId: string,
+    widthPx: number,
+    nextWidthPx: number,
+  ) => void;
+  /** Item 8b — full-view entry for one breakpoint frame. */
+  onEditBreakpoint?: (screenId: string, widthPx: number) => void;
 }
 
 const Screen = memo(function Screen({
@@ -9069,6 +9147,9 @@ const Screen = memo(function Screen({
   cullTier,
   onAddBreakpoint,
   onActiveBreakpointChange,
+  onRemoveBreakpoint,
+  onChangeBreakpointWidth,
+  onEditBreakpoint,
 }: ScreenProps) {
   const t = useT();
   const display = metadata.title ?? prettyScreenName(screen.filename);
@@ -9513,6 +9594,25 @@ const Screen = memo(function Screen({
               ? (widthPx) => onAddBreakpoint(screen.id, widthPx)
               : undefined
           }
+          onRemoveBreakpoint={
+            onRemoveBreakpoint
+              ? (widthPx) => onRemoveBreakpoint(screen.id, widthPx)
+              : undefined
+          }
+          onChangeBreakpointWidth={
+            onChangeBreakpointWidth
+              ? (widthPx, nextWidthPx) =>
+                  onChangeBreakpointWidth(screen.id, widthPx, nextWidthPx)
+              : undefined
+          }
+          onEditBreakpoint={
+            onEditBreakpoint
+              ? (widthPx) => onEditBreakpoint(screen.id, widthPx)
+              : undefined
+          }
+          canEdit={Boolean(
+            onRemoveBreakpoint || onChangeBreakpointWidth || onAddBreakpoint,
+          )}
         />
       ) : null}
     </div>
@@ -9551,7 +9651,10 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     // per-screen arrow allocated in the render loop, so these are expected
     // to be referentially stable across renders and are safe to compare.
     prev.onAddBreakpoint === next.onAddBreakpoint &&
-    prev.onActiveBreakpointChange === next.onActiveBreakpointChange
+    prev.onActiveBreakpointChange === next.onActiveBreakpointChange &&
+    prev.onRemoveBreakpoint === next.onRemoveBreakpoint &&
+    prev.onChangeBreakpointWidth === next.onChangeBreakpointWidth &&
+    prev.onEditBreakpoint === next.onEditBreakpoint
   );
 }
 
@@ -9631,6 +9734,10 @@ function BreakpointPreviewRow({
   onStartFrameDrag,
   onActiveBreakpointChange,
   onAddBreakpoint,
+  onRemoveBreakpoint,
+  onChangeBreakpointWidth,
+  onEditBreakpoint,
+  canEdit = false,
 }: {
   screen: ScreenFile;
   primaryGeometry: FrameGeometry;
@@ -9675,12 +9782,32 @@ function BreakpointPreviewRow({
   onStartFrameDrag?: (id: string, e: React.MouseEvent) => void;
   onActiveBreakpointChange?: (widthPx: number | undefined) => void;
   onAddBreakpoint?: (widthPx: number) => void;
+  /** Item 8b — "…" menu "Remove" for one breakpoint frame. */
+  onRemoveBreakpoint?: (widthPx: number) => void;
+  /** Item 8b — "…" menu "Change width" for one breakpoint frame. */
+  onChangeBreakpointWidth?: (widthPx: number, nextWidthPx: number) => void;
+  /** Item 8b — full-view entry for one breakpoint frame (double-click or its
+   *  own full-view button), mirroring the base frame's onEdit/full-view
+   *  affordance. */
+  onEditBreakpoint?: (widthPx: number) => void;
+  /** Gates the "…" menu's mutating items (Remove / Change width) — mirrors
+   *  BreakpointBar's own canEdit. Full-view entry is never gated by this,
+   *  same as the base frame's own full-view button. */
+  canEdit?: boolean;
 }) {
+  const t = useT();
   const breakpointWidths = screen.breakpointWidths ?? [];
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
 
   const nextWidth = nextBreakpointWidth(breakpointWidths);
+  // Item 8b — "…" menu (Change width / Remove), same one-open-at-a-time
+  // pattern as BreakpointDeviceControl's own per-segment menu: which
+  // breakpoint's menu is open (by widthPx, the only stable identifier this
+  // row has — see the ScreenFile.breakpointWidths doc comment) and the
+  // draft value of its width input.
+  const [menuOpenForWidth, setMenuOpenForWidth] = useState<number | null>(null);
+  const [widthDraft, setWidthDraft] = useState("");
 
   return (
     <>
@@ -9700,6 +9827,14 @@ function BreakpointPreviewRow({
           onPick?.(screen.id, e);
           onActiveBreakpointChange?.(widthPx);
         };
+        const showMenuAffordance = shouldShowBreakpointMenuAffordance({
+          canEdit,
+          hasRemoveOrChangeWidth: Boolean(
+            onRemoveBreakpoint || onChangeBreakpointWidth,
+          ),
+          isActive,
+          menuOpen: menuOpenForWidth === widthPx,
+        });
 
         return (
           <div
@@ -9761,7 +9896,7 @@ function BreakpointPreviewRow({
             >
               <div
                 data-frame-label
-                className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
+                className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
                 style={{
                   transform: `translateY(-50%) scale(${chromeScale})`,
                   transformOrigin: "left center",
@@ -9792,6 +9927,98 @@ function BreakpointPreviewRow({
                   {widthPx}px
                 </span>
               </div>
+              {/* Item 8b — "…" menu (Change width / Remove), reusing the
+                  exact affordance BreakpointDeviceControl already offers per
+                  segment, so a breakpoint frame in overview and its chip in
+                  the inspector behave identically. Shown for the active
+                  frame (and while its own menu is open) so idle frames stay
+                  visually clean, same rule as the chip control. */}
+              {showMenuAffordance ? (
+                <div
+                  className="absolute right-1 top-1/2 z-30"
+                  style={{
+                    transform: `translateY(-50%) scale(${chromeScale})`,
+                    transformOrigin: "right center",
+                  }}
+                >
+                  <DropdownMenu
+                    open={menuOpenForWidth === widthPx}
+                    onOpenChange={(open) => {
+                      setMenuOpenForWidth(open ? widthPx : null);
+                      setWidthDraft(open ? String(widthPx) : "");
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("designEditor.breakpointBar.options")}
+                        className="flex h-5 w-4 shrink-0 cursor-pointer items-center justify-center rounded-[5px] bg-background/95 text-muted-foreground shadow-sm hover:text-foreground"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                      >
+                        <IconDots className="size-3" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+                    >
+                      {onChangeBreakpointWidth ? (
+                        <div className="flex items-center gap-1.5 px-1.5 py-1">
+                          <span className="shrink-0 !text-[11px] text-muted-foreground">
+                            {t("designEditor.breakpointBar.changeWidth")}
+                          </span>
+                          <Input
+                            type="number"
+                            min={320}
+                            max={3840}
+                            value={widthDraft}
+                            autoFocus
+                            onChange={(e) => setWidthDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const nextWidthPx = parseBreakpointWidthInput(
+                                widthDraft,
+                                breakpointWidths.filter((w) => w !== widthPx),
+                              );
+                              setMenuOpenForWidth(null);
+                              if (
+                                nextWidthPx !== null &&
+                                nextWidthPx !== widthPx
+                              ) {
+                                onChangeBreakpointWidth(widthPx, nextWidthPx);
+                              }
+                            }}
+                            className="h-6 px-1.5 !text-[11px] tabular-nums"
+                            aria-label={t(
+                              "designEditor.breakpointBar.changeWidth",
+                            )}
+                          />
+                        </div>
+                      ) : null}
+                      {onChangeBreakpointWidth && onRemoveBreakpoint ? (
+                        <DropdownMenuSeparator />
+                      ) : null}
+                      {onRemoveBreakpoint ? (
+                        <DropdownMenuItem
+                          className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                          onSelect={() => {
+                            setMenuOpenForWidth(null);
+                            onRemoveBreakpoint(widthPx);
+                          }}
+                        >
+                          {t("designEditor.breakpointBar.remove")}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ) : null}
             </div>
             {/* Frame card — same corner/hover-outline chrome as the primary
                 frame's own `data-screen-card` (BP-DEEP item 3c), sized to the
@@ -9810,9 +10037,26 @@ function BreakpointPreviewRow({
                 e.stopPropagation();
                 activateThisFrame(e);
               }}
+              onDoubleClick={(e) => {
+                // Item 8b — full view for THIS breakpoint: same double-click
+                // gesture as a regular screen's card (handleFrameDoubleClick),
+                // but targeting the breakpoint's own width so the editor
+                // opens single-screen mode scoped to it instead of Base.
+                e.preventDefault();
+                e.stopPropagation();
+                activateThisFrame(e);
+                onEditBreakpoint?.(widthPx);
+              }}
               onMouseDown={(e) => {
                 if (e.button !== 0 || penActive || creationToolActive) return;
                 if (e.shiftKey) {
+                  e.stopPropagation();
+                  return;
+                }
+                if (e.detail > 1) {
+                  // Let onDoubleClick own the second click of a dblclick —
+                  // starting a frame drag on it would fight the full-view
+                  // gesture (matches the base frame's own onMouseDown guard).
                   e.stopPropagation();
                   return;
                 }
@@ -9823,6 +10067,30 @@ function BreakpointPreviewRow({
                 onActiveBreakpointChange?.(widthPx);
               }}
             >
+              {onEditBreakpoint ? (
+                <button
+                  type="button"
+                  data-frame-full-view
+                  className="absolute right-1 top-1 z-30 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/artboard:opacity-100"
+                  style={{
+                    transform: `scale(${chromeScale})`,
+                    transformOrigin: "right center",
+                  }}
+                  aria-label={t("multiScreenCanvas.fullView")}
+                  title={t("multiScreenCanvas.fullView")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    activateThisFrame(e);
+                    onEditBreakpoint(widthPx);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <IconMaximize className="size-3" />
+                </button>
+              ) : null}
               <span
                 data-screen-content
                 className="relative block h-full w-full overflow-hidden rounded-[inherit] bg-white shadow-2xl ring-1 ring-inset ring-border"

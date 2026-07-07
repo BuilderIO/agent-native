@@ -17147,9 +17147,46 @@ export default function DesignEditor() {
         const removedSelectors: string[] = [];
         // L25: track each deleted node's former parent (by stable
         // data-agent-native-node-id) so we can sweep for now-empty generated
-        // "Group" wrappers once every deletion in this file is applied.
+        // "Group" wrappers once every deletion in this file is applied. Only
+        // meaningful for the structural-removal path below — a
+        // breakpoint-scoped display:none write never empties a parent (the
+        // node is still in the DOM, just hidden at that width).
         const formerParentAttrIds = new Set<string>();
+        // Item 7b — while a breakpoint is the active edit target, Delete
+        // must not structurally remove the element (that would remove it at
+        // EVERY width, defeating the point of scoping). Instead it writes a
+        // display:none override scoped to the active breakpoint's upper
+        // bound, through the exact same planBreakpointStyleWrite routing
+        // regular style edits use (applyScopedVisualStyleEdit / see
+        // commitVisualStyles' matching upperBoundPx-gated branch above).
+        // Only file.id === activeFile?.id can be the breakpoint-scoped
+        // target — activeBreakpointUpperBoundPx describes the ACTIVE
+        // screen's viewport scope, not other files' — so a multi-screen
+        // overview selection spanning other screens still deletes those
+        // structurally.
+        const useBreakpointScopedDelete =
+          activeBreakpointWidthStateRef.current !== undefined &&
+          file.id === activeFile?.id &&
+          activeBreakpointUpperBoundPx != null;
         for (const node of nodes) {
+          if (useBreakpointScopedDelete) {
+            const nodeId =
+              node.dataAttributes["data-agent-native-node-id"] ?? node.id;
+            const patch = applyScopedVisualStyleEdit({
+              content,
+              target: { nodeId },
+              property: "display",
+              value: "none",
+              upperBoundPx: activeBreakpointUpperBoundPx,
+            });
+            if (patch.result.status !== "applied") continue;
+            content = patch.content;
+            // Not a structural removal: the node stays selectable at Base /
+            // a wider breakpoint, so it must not be treated as "removed"
+            // for the runtime-selector cleanup, former-parent sweep, or
+            // motion-track pruning below.
+            continue;
+          }
           if (node.parentId) {
             const parentNode = nodesById.get(node.parentId);
             const parentAttrId =
@@ -17174,15 +17211,26 @@ export default function DesignEditor() {
           }
         }
         if (content === originalContent) continue;
-        content = removeEmptyGeneratedGroupWrappers(
-          content,
-          formerParentAttrIds,
-        );
+        if (!useBreakpointScopedDelete) {
+          content = removeEmptyGeneratedGroupWrappers(
+            content,
+            formerParentAttrIds,
+          );
+        }
         if (file.id === activeFile?.id) {
           activeRuntimeSelectors.push(...removedSelectors);
         }
         didDelete = true;
-        applyFileContentUpdate(file.id, content, { refreshPreview: false });
+        // Item 5 (edit-flash) parity: a breakpoint-scoped write can become a
+        // width-scoped class OR a managed @media rule (planBreakpointStyleWrite),
+        // neither of which the runtime bridge's inline-style shortcut can
+        // preview correctly — force a full preview refresh the same way
+        // commitVisualStyles does for breakpoint-scoped style commits,
+        // instead of the optimistic refreshPreview:false structural-delete
+        // path.
+        applyFileContentUpdate(file.id, content, {
+          refreshPreview: useBreakpointScopedDelete,
+        });
       }
       if (!didDelete) return;
       if (orphanedTrackNodeIds) {
@@ -17209,6 +17257,40 @@ export default function DesignEditor() {
 
     if (!selectedElement?.selector) return;
     const baseContent = getFreshActiveContent();
+    // Item 7b — same breakpoint-scoped display:none routing as the
+    // multi-layer-snapshot branch above, for the single-runtime-selected-
+    // element fallback path (e.g. single-screen canvas click-select with no
+    // layers-panel snapshot).
+    if (
+      activeBreakpointWidthStateRef.current !== undefined &&
+      activeBreakpointUpperBoundPx != null
+    ) {
+      const projection = buildCodeLayerProjection(baseContent);
+      const targetNode = resolveCodeLayerNodeFromElementInfo(
+        projection,
+        selectedElement,
+      );
+      const nodeId =
+        targetNode?.dataAttributes["data-agent-native-node-id"] ??
+        targetNode?.id ??
+        selectedElement.sourceId;
+      const patch = nodeId
+        ? applyScopedVisualStyleEdit({
+            content: baseContent,
+            target: { nodeId },
+            property: "display",
+            value: "none",
+            upperBoundPx: activeBreakpointUpperBoundPx,
+          })
+        : null;
+      if (patch && patch.result.status === "applied") {
+        deleteRuntimeElement(selectedElement.selector);
+        applyLocalContentUpdate(patch.content, { refreshPreview: true });
+        setSelectedElement(null);
+        setSelectedLayerIdsState([]);
+      }
+      return;
+    }
     const nextContent = removeElementFromHtml(
       baseContent,
       selectedElement.selector,
@@ -17244,6 +17326,7 @@ export default function DesignEditor() {
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
   }, [
+    activeBreakpointUpperBoundPx,
     activeFile?.id,
     applyFileContentUpdate,
     applyLocalContentUpdate,
@@ -24821,6 +24904,44 @@ ${serializedHtml}
     },
     [id, designDataJson, setActiveBreakpointMutation],
   );
+  // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu (Remove /
+  // Change width) and full-view entry. Width-first, same convention as
+  // onAddBreakpoint/onActiveBreakpointChange above: MultiScreenCanvas has no
+  // per-screen breakpoint-id data (only widths, see ScreenFile.breakpointWidths),
+  // so these resolve widthPx back to a breakpoint id and delegate to the SAME
+  // handlers the inspector's BreakpointDeviceControl "…" menu already calls
+  // (handleBreakpointBarRemove / handleBreakpointChangeWidth) — one design-wide
+  // breakpoint set, so screenId is accepted but unused, same as
+  // handleOverviewAddBreakpoint.
+  const handleOverviewRemoveBreakpoint = useCallback(
+    (_screenId: string, widthPx: number) => {
+      const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
+      if (!bp) return;
+      handleBreakpointBarRemove(bp.id);
+    },
+    [designBreakpoints, handleBreakpointBarRemove],
+  );
+  const handleOverviewChangeBreakpointWidth = useCallback(
+    (_screenId: string, widthPx: number, nextWidthPx: number) => {
+      const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
+      if (!bp) return;
+      handleBreakpointChangeWidth(bp.id, nextWidthPx);
+    },
+    [designBreakpoints, handleBreakpointChangeWidth],
+  );
+  // Full-view entry for one breakpoint: BreakpointPreviewRow's
+  // activateThisFrame already calls onActiveBreakpointChange (which sets
+  // activeBreakpointWidthState) BEFORE onEditBreakpoint fires (see the
+  // frame's onDoubleClick/full-view-button handlers), so the active
+  // breakpoint scope is already correct by the time this runs — this only
+  // needs to enter single-screen mode for the right file, exactly like the
+  // base frame's onEdit={enterSingleScreen}.
+  const handleOverviewEditBreakpoint = useCallback(
+    (screenId: string, _widthPx: number) => {
+      enterSingleScreen(screenId);
+    },
+    [enterSingleScreen],
+  );
 
   // Hooks must not be called conditionally; keep navigate as an effect so the
   // render phase stays pure. This branch is unreachable in practice because the
@@ -26169,6 +26290,17 @@ ${serializedHtml}
                         onActiveBreakpointChange={
                           handleOverviewActiveBreakpointChange
                         }
+                        onRemoveBreakpoint={
+                          canEditDesign
+                            ? handleOverviewRemoveBreakpoint
+                            : undefined
+                        }
+                        onChangeBreakpointWidth={
+                          canEditDesign
+                            ? handleOverviewChangeBreakpointWidth
+                            : undefined
+                        }
+                        onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
                       />
                       {/* §6.4 — the compact/full breakpoint bar itself now

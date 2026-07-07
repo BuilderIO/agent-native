@@ -31,6 +31,7 @@ import {
   resolveNodeScreenId,
   screenPxToCanvasPx,
   shouldBoardSurfaceCapturePointerEvents,
+  shouldShowBreakpointMenuAffordance,
   SURFACE_PADDING,
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
@@ -1108,6 +1109,66 @@ describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
 
   it("false for a screen with no breakpoints at all", () => {
     expect(isBreakpointSelectionTarget({})).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu gate
+// ---------------------------------------------------------------------------
+describe("shouldShowBreakpointMenuAffordance (item 8b)", () => {
+  it("false when the viewer cannot edit, even if active", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: false,
+        hasRemoveOrChangeWidth: true,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("false when neither Remove nor Change-width is wired", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: false,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("false for an idle (non-active, closed-menu) frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: false,
+        menuOpen: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("true for the active breakpoint frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: true,
+        menuOpen: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("true while its own menu is open, even if not the active frame", () => {
+    expect(
+      shouldShowBreakpointMenuAffordance({
+        canEdit: true,
+        hasRemoveOrChangeWidth: true,
+        isActive: false,
+        menuOpen: true,
+      }),
+    ).toBe(true);
   });
 });
 
