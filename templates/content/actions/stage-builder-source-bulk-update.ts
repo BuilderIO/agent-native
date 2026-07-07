@@ -204,6 +204,18 @@ function previewChangeSet(args: {
   };
 }
 
+function mergedFieldChanges(
+  current: ContentDatabaseSourceFieldChange[],
+  next: ContentDatabaseSourceFieldChange,
+) {
+  const withoutExisting = current.filter(
+    (change) =>
+      change.sourceFieldKey !== next.sourceFieldKey &&
+      change.localFieldKey !== next.localFieldKey,
+  );
+  return [...withoutExisting, next];
+}
+
 async function propertyDefinition(args: {
   databaseId: string;
   ownerEmail: string;
@@ -265,6 +277,32 @@ async function upsertPropertyValues(args: {
     }));
   if (inserts.length > 0) {
     await db.insert(schema.documentPropertyValues).values(inserts);
+  }
+}
+
+async function updateOpenChangeSetsForStagedRows(args: {
+  source: ContentDatabaseSource;
+  rows: StageBuilderSourceBulkUpdateRowResult[];
+  now: string;
+}) {
+  const db = getDb();
+  for (const row of args.rows) {
+    if (row.status !== "staged" || !row.fieldChange) continue;
+    const openChangeSet = openChangeSetForDocument(args.source, row.documentId);
+    if (!openChangeSet) continue;
+    const fieldChanges = mergedFieldChanges(
+      openChangeSet.fieldChanges,
+      row.fieldChange,
+    );
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({
+        state: "pending_push",
+        summary: `Pending local Builder CMS changes for "${row.title}".`,
+        fieldChangesJson: JSON.stringify(fieldChanges),
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, openChangeSet.id));
   }
 }
 
@@ -339,10 +377,7 @@ async function stageBuilderSourceBulkUpdateWithDeps(
       (sourceRow?.freshness !== "fresh" || sourceRow?.syncState === "error"
         ? "Refresh this Builder row before staging a bulk update."
         : null) ??
-      (sourceRow ? reviewableRowBlocker(source, sourceRow) : null) ??
-      (openChangeSetForDocument(source, row.document.id)
-        ? "This row already has a pending Builder review item."
-        : null);
+      (sourceRow ? reviewableRowBlocker(source, sourceRow) : null);
     if (blocker || !sourceRow) {
       results.push({
         ...baseResult,
@@ -430,6 +465,11 @@ async function stageBuilderSourceBulkUpdateWithDeps(
         .map((row) => row.documentId),
       propertyId: field.propertyId,
       valueJson,
+      now,
+    });
+    await updateOpenChangeSetsForStagedRows({
+      source,
+      rows: results,
       now,
     });
     await getDb()

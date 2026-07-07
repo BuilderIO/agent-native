@@ -517,7 +517,7 @@ describe("stage-builder-source-bulk-update", () => {
     ).resolves.toHaveLength(0);
   });
 
-  it("blocks rows with existing pending Builder reviews without partially staging", async () => {
+  it("updates existing pending Builder reviews to the latest local overwrite", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 1 });
 
     const response = await asOwner(() =>
@@ -532,25 +532,39 @@ describe("stage-builder-source-bulk-update", () => {
 
     expect(response.summary).toEqual({
       total: 2,
-      staged: 0,
+      staged: 2,
       unchanged: 0,
-      blocked: 2,
+      blocked: 0,
     });
-    expect(response.rows[0]).toMatchObject({
-      status: "blocked",
-      message:
-        "No rows were staged because at least one selected row is blocked.",
-    });
-    expect(response.rows[1]).toMatchObject({
-      status: "blocked",
-      message: "This row already has a pending Builder review item.",
-    });
+    expect(response.review?.rows).toHaveLength(2);
+    expect(
+      response.review?.rows.map((row) => ({
+        documentId: row.documentId,
+        proposedValue: row.fieldChanges[0]?.proposedValue,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          documentId: seeded.rows[0].documentId,
+          proposedValue: "Architects",
+        },
+        {
+          documentId: seeded.rows[1].documentId,
+          proposedValue: "Architects",
+        },
+      ]),
+    );
     await expect(
       valuesFor(
         seeded.propertyId,
         seeded.rows.map((row) => row.documentId),
       ),
-    ).resolves.toHaveLength(0);
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+        expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+      ]),
+    );
   });
 
   it("reports unsupported mapped property types as blocked", async () => {
