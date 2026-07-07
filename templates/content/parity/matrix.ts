@@ -357,6 +357,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "review-content-database-source-change-set",
       "set-content-database-source-write-mode",
+      "stage-builder-source-bulk-update",
       "stage-builder-revision",
       "validate-builder-source-execution",
     ],
@@ -368,6 +369,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],
   },

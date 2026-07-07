@@ -382,6 +382,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Target source ID (defaults to the primary source)"),
+    changeSetIds: z
+      .array(z.string())
+      .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
+      .optional()
+      .describe("Optional bounded set of Builder change-set IDs to prepare"),
     pushModeConfirmation: z
       .enum(["autosave", "draft", "publish"])
       .optional()
@@ -409,13 +414,27 @@ export default defineAction({
     if (!snapshot || snapshot.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
+    const requestedIds = new Set(args.changeSetIds ?? []);
     const allReviewableChanges = snapshot.changeSets.filter(
       (changeSet) =>
         changeSet.direction === "outbound" &&
         (changeSet.state === "pending_push" ||
           changeSet.state === "staged_revision" ||
-          changeSet.state === "approved"),
+          changeSet.state === "approved") &&
+        (requestedIds.size === 0 || requestedIds.has(changeSet.id)),
     );
+    if (
+      requestedIds.size > 0 &&
+      allReviewableChanges.length !== requestedIds.size
+    ) {
+      const foundIds = new Set(
+        allReviewableChanges.map((changeSet) => changeSet.id),
+      );
+      const missingIds = [...requestedIds].filter((id) => !foundIds.has(id));
+      throw new Error(
+        `Requested Builder change-set is not reviewable: ${missingIds.join(", ")}.`,
+      );
+    }
     if (allReviewableChanges.length === 0) {
       throw new Error("No pending local Builder changes to review.");
     }

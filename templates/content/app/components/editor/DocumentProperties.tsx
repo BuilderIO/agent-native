@@ -1523,11 +1523,13 @@ function PropertyOptionSettingsRow({
 export function PropertyValuePopover({
   property,
   documentId,
+  databaseDocumentId = documentId,
   children,
   portalled = true,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
 }) {
@@ -1551,6 +1553,7 @@ export function PropertyValuePopover({
         <PropertyValueEditor
           property={property}
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           onDone={() => setOpen(false)}
         />
       </PopoverContent>
@@ -1561,10 +1564,12 @@ export function PropertyValuePopover({
 function PropertyValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const type = property.definition.type;
@@ -1573,6 +1578,7 @@ function PropertyValueEditor({
       <OptionValueEditor
         property={property}
         documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
         onDone={onDone}
       />
     );
@@ -1583,6 +1589,7 @@ function PropertyValueEditor({
       <CheckboxValueEditor
         property={property}
         documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
         onDone={onDone}
       />
     );
@@ -1593,6 +1600,7 @@ function PropertyValueEditor({
       <DateValueEditor
         property={property}
         documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
         onDone={onDone}
       />
     );
@@ -1603,6 +1611,7 @@ function PropertyValueEditor({
       <PersonValueEditor
         property={property}
         documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
         onDone={onDone}
       />
     );
@@ -1613,6 +1622,7 @@ function PropertyValueEditor({
       <FilesMediaValueEditor
         property={property}
         documentId={documentId}
+        databaseDocumentId={databaseDocumentId}
         onDone={onDone}
       />
     );
@@ -1622,6 +1632,7 @@ function PropertyValueEditor({
     <ScalarValueEditor
       property={property}
       documentId={documentId}
+      databaseDocumentId={databaseDocumentId}
       onDone={onDone}
     />
   );
@@ -1630,14 +1641,16 @@ function PropertyValueEditor({
 function PersonValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId);
+  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
   const { session } = useSession();
   const [people, setPeople] = useState(() => personItems(property.value));
   const [query, setQuery] = useState("");
@@ -1829,14 +1842,16 @@ function PersonValueEditor({
 function FilesMediaValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId);
+  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -2036,14 +2051,16 @@ function FilesMediaValueEditor({
 function DateValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId);
+  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
   const [includeTime, setIncludeTime] = useState(
     documentPropertyDateIncludesTime(property.value),
   );
@@ -2249,14 +2266,16 @@ function DateValueEditor({
 function ScalarValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId);
+  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
   const type = property.definition.type;
   const inputType =
     type === "number"
@@ -2357,14 +2376,16 @@ function ScalarValueEditor({
 function CheckboxValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId);
+  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
   const checked = Boolean(property.value);
 
   return (
@@ -2396,15 +2417,20 @@ function CheckboxValueEditor({
 function OptionValueEditor({
   property,
   documentId,
+  databaseDocumentId,
   onDone,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   onDone: () => void;
 }) {
   const t = useT();
-  const setValue = useSetDocumentProperty(documentId);
-  const configure = useConfigureDocumentProperty(documentId);
+  const setValue = useSetDocumentProperty(documentId, databaseDocumentId);
+  const configure = useConfigureDocumentProperty(
+    documentId,
+    databaseDocumentId,
+  );
   const options = property.definition.options.options ?? [];
   const [optionQuery, setOptionQuery] = useState("");
   const filteredOptions = filterPropertyOptions(options, optionQuery);

@@ -2108,6 +2108,30 @@ function BuilderSpaceModelsView({
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
+    if (attachedModelName) {
+      return (
+        <div className="grid min-w-0 gap-2">
+          <div className="grid min-w-0 gap-1.5">
+            <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {dbText("alreadyAttached")}
+            </div>
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{attachedModelName}</span>
+              </span>
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                attached
+              </span>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            {dbText("loadingBuilderModels")}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
