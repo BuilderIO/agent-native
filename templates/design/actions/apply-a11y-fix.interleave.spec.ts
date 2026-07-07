@@ -272,16 +272,12 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
     const staleBase = await readLiveSourceFile(currentFileRef());
 
     // A concurrent writer advances the live doc past staleBase.
-    const advanced = staleBase.content.replace(
-      "bg-blue-500",
-      "bg-emerald-500",
-    );
+    const advanced = staleBase.content.replace("bg-blue-500", "bg-emerald-500");
     await applyText(FILE_ID, advanced, "content", "agent");
     seedFile(advanced);
 
-    const { writeInlineSourceFile } = await import(
-      "../server/source-workspace.js"
-    );
+    const { writeInlineSourceFile } =
+      await import("../server/source-workspace.js");
     await expect(
       writeInlineSourceFile({
         designId: DESIGN_ID,

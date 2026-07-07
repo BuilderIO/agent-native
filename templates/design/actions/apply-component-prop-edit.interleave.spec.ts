@@ -247,9 +247,8 @@ describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
     await applyText(FILE_ID, advanced, "content", "agent");
     seedFile(advanced);
 
-    const { writeInlineSourceFile } = await import(
-      "../server/source-workspace.js"
-    );
+    const { writeInlineSourceFile } =
+      await import("../server/source-workspace.js");
     await expect(
       writeInlineSourceFile({
         designId: DESIGN_ID,
