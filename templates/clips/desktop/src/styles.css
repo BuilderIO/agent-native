@@ -835,6 +835,11 @@ body[data-clips-route="recording-pill"] #root {
   cursor: not-allowed;
 }
 
+.setup-connect-button {
+  height: 38px;
+  margin-top: 2px;
+}
+
 .primary.start {
   margin-top: 2px;
 }
