@@ -13,14 +13,6 @@ const LARGE_FILE_THRESHOLD_BYTES = 30 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 120_000;
 const SMALL_FILE_RETRY_DELAYS_MS = [600, 1800];
 
-function enabledFlag(value: unknown): boolean {
-  return /^(true|1|yes|on)$/i.test(String(value || "").trim());
-}
-
-function stableUrlOptInEnabled(): boolean {
-  return enabledFlag(process.env.CLIPS_STABLE_URL_OPTIN);
-}
-
 function builderUploadHost(): string {
   return (
     process.env.BUILDER_APP_HOST ||
@@ -52,12 +44,10 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   );
 }
 
-function setSkipCompressionQueryParams(url: URL): void {
+function setAsyncCompressionQueryParams(url: URL): void {
+  // Stable URLs let Builder compress asynchronously without changing the media URL.
   url.searchParams.set("skipCompressionWait", "true");
-  url.searchParams.set("skipCompression", "true");
-  if (stableUrlOptInEnabled()) {
-    url.searchParams.set("stableUrl", "true");
-  }
+  url.searchParams.set("stableUrl", "true");
 }
 
 function setRecordAssetQueryParam(
@@ -182,7 +172,7 @@ async function completeBuilderUpload(
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/complete", host);
   if (options?.skipCompressionWait) {
-    setSkipCompressionQueryParams(url);
+    setAsyncCompressionQueryParams(url);
   }
   setRecordAssetQueryParam(url, options?.recordAsset);
   const res = await fetchWithTimeout(url.toString(), {
@@ -288,7 +278,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
     if (input.skipCompressionWait) {
-      setSkipCompressionQueryParams(url);
+      setAsyncCompressionQueryParams(url);
     }
     setRecordAssetQueryParam(url, input.recordAsset);
 
