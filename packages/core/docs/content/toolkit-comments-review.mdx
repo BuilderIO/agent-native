@@ -31,11 +31,11 @@ status such as draft, review, approved, or needs changes.
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
 
-## Implementation Contract {#implementation-contract}
+## Shared Model {#shared-model}
 
-Comments should be resource-scoped, access-scoped, and agent-readable. The UI
-and agent should use the same actions to create, resolve, and list threads.
-Apps can specialize anchor shapes, but the common model should preserve:
+Comments are resource-scoped, access-scoped, and agent-readable. The UI and
+agent use the same actions to create, resolve, and list threads. Apps can
+specialize anchor shapes, but the common model preserves:
 
 - `resourceType` and `resourceId`
 - `author`, `body`, `status`, and timestamps

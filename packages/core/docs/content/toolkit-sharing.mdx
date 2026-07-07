@@ -33,7 +33,7 @@ links.
 | `list-resource-shares`            | Reads current visibility, grants, and policy.                                          |
 | `set-resource-visibility`         | Changes private, org, or public visibility when policy allows it.                      |
 
-## Implementation Contract {#implementation-contract}
+## API {#api}
 
 Make every shareable table ownable, register it at server startup, and guard
 reads and writes with the same access helpers the UI and agent actions use.
