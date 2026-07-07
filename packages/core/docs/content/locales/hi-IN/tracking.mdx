@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ Agent Native टेम्पलेट रूट पहले से ही `conf
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 ब्राउज़र हेल्पर वर्तमान Agent Native auth session का एक बेस्ट-एफर्ट, नॉन-ब्लॉकिंग रीड भी करता है। Replay डिफ़ॉल्ट रूप से केवल साइन-इन उपयोगकर्ताओं के लिए है: जब `sessionReplay` सक्षम होता है, तो जब तक session किसी उपयोगकर्ता के ईमेल पते पर रिज़ॉल्व नहीं होता, तब तक रिकॉर्डिंग शुरू नहीं होती। साइन-इन replays में ईमेल-बैक्ड `userId`/`userEmail` के साथ `orgId` शामिल होता है।
 
 `sessionReplay.requireSignedInUser: false` या `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` को केवल एक जानबूझकर किए गए एनोनिमस replay डिप्लॉयमेंट के लिए सेट करें। जब auth gating अक्षम होती है, तो एनोनिमस रिकॉर्डिंग्स एनोनिमस विज़िटर, session, app/template, hostname, और path के अनुसार क्वेरी करने योग्य बनी रहती हैं।
 
-Session replay प्रत्येक ब्राउज़र session के लिए निर्धारक रूप से सैंपल किया जाता है। `0.1` का `sampleRate` लगभग 10% योग्य sessions को रिकॉर्ड करता है; जब योग्य आबादी जानबूझकर छोटी हो, जैसे कि केवल-साइन-इन डॉगफूडिंग, तो `1` का उपयोग करें।
+Session replay प्रत्येक ब्राउज़र session के लिए निर्धारक रूप से सैंपल किया जाता है। `1` का `sampleRate` सभी योग्य sessions को रिकॉर्ड करता है; जब योग्य आबादी जानबूझकर व्यापक हो, तो `0.1` जैसे कम मानों का उपयोग करें।
 
 प्राइवेसी डिफ़ॉल्ट जानबूझकर रूढ़िवादी हैं लेकिन फिर भी प्लेबैक के लिए उपयोगी हैं:
 

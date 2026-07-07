@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ Agent Native 模板根已经调用了 `configureTracking()`。托管模板部署
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
 
 仅在有意进行匿名重放部署时，才设置 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。禁用认证门控后，匿名录制仍可按匿名访客、会话、应用/模板、主机名和路径进行查询。
 
-会话重放按浏览器会话确定性采样。`sampleRate` 为 `0.1` 时，会记录约 10% 的符合条件的会话；当符合条件的用户群体本就很小时（例如仅限登录用户的内部测试），可使用 `1`。
+会话重放按浏览器会话确定性采样。`sampleRate` 为 `1` 时，会记录所有符合条件的会话；当符合条件的用户群体有意较大时，可使用较低值，例如 `0.1`。
 
 隐私默认设置刻意保持保守，但仍能满足回放的可用性：
 

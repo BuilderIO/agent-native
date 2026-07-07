@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ Agent Native 範本根目錄已經呼叫了 `configureTracking()`。託管範本
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 瀏覽器輔助程式也會盡力執行、非阻塞式讀取目前的 Agent Native 驗證工作階段。重播預設僅限已登入使用者：當 `sessionReplay` 啟用時，除非工作階段解析出使用者電子郵件地址，否則不會開始錄製。已登入使用者的重播包含以電子郵件為基礎的 `userId`/`userEmail` 以及 `orgId`。
 
 僅在刻意進行匿名重播部署時，才設定 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。停用驗證閘控後，匿名錄製仍可依匿名訪客、工作階段、應用程式/範本、主機名稱與路徑進行查詢。
 
-工作階段重播是依瀏覽器工作階段進行確定性取樣的。`sampleRate` 為 `0.1` 表示大約記錄 10% 符合條件的工作階段；當符合條件的母體刻意較小時（例如僅限已登入使用者的內部試用），可使用 `1`。
+工作階段重播是依瀏覽器工作階段進行確定性取樣的。`sampleRate` 為 `1` 表示記錄所有符合條件的工作階段；當符合條件的母體刻意較大時，可使用較低值，例如 `0.1`。
 
 隱私預設值刻意設計得保守，但仍足以支援播放：
 

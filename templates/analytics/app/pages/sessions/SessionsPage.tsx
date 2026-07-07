@@ -546,7 +546,7 @@ configureTracking({
   sessionReplay: {
     enabled: true,
     requireSignedInUser: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,

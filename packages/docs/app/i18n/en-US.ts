@@ -447,11 +447,11 @@ const enUS = {
     notFoundTitle: "App not found",
     notFoundBody: "Browse the app catalog to find an available app.",
     badge: "Agent-Native {{name}}",
-    title: "{{name}} app",
+    title: "Open-Source {{name}} app",
   },
   templates: {
     clips: {
-      replaces: "Replaces or augments Loom, Granola, and Wisprflow",
+      replaces: "Agent-Native Loom",
       description:
         "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     },
@@ -461,22 +461,22 @@ const enUS = {
         "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
     },
     design: {
-      replaces: "Replaces or augments design prototyping tools",
+      replaces: "Agent-Native Figma",
       description:
         "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
     },
     content: {
-      replaces: "Replaces or augments Obsidian for MDX, Notion, Google Docs",
+      replaces: "Agent-Native Notion/Obsidian",
       description:
         "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
     },
     slides: {
-      replaces: "Replaces or augments Google Slides, Pitch",
+      replaces: "Agent-Native Google Slides",
       description:
         "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     },
     analytics: {
-      replaces: "Replaces or augments Amplitude, Mixpanel, Looker",
+      replaces: "Agent-Native Amplitude, Fullstory",
       description:
         "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
     },
@@ -526,7 +526,7 @@ const enUS = {
       s004: "Query explorer",
       s005: "Natural language",
       s006: "All Apps",
-      s007: "The open-source alternative to Amplitude, Mixpanel & Looker",
+      s007: "Open-Source Amplitude, Fullstory",
       s008: "Connect any data source, prompt for any chart, build reusable dashboards — the AI agent writes the SQL.",
       s009: "Try It",
       s010: "What you can do",
@@ -652,7 +652,7 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Apps",
-      s007: "The open-source alternative to Loom",
+      s007: "Open-Source Loom",
       s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
       s009: "Try It",
       s010: "What you can do",
@@ -712,7 +712,7 @@ const enUS = {
     content: {
       s001: "Content app screenshot",
       s002: "All Apps",
-      s003: "Open-source Obsidian for MDX",
+      s003: "Open-Source Notion/Obsidian",
       s004: "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and write with an AI agent that knows your docs.",
       s005: "Try It",
       s006: "Write",
@@ -779,7 +779,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "The open-source AI HTML prototyping studio",
+      s006: "Open-Source Figma",
       s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
       s008: "Try It",
       s009: "How it works",
@@ -1096,7 +1096,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "The open-source AI alternative to PowerPoint & Canva",
+      s006: "Open-Source Google Slides",
       s007: "Generate a full deck from a prompt, then refine conversationally or edit visually.",
       s008: "Try It",
       s009: "How it works",

@@ -81,7 +81,14 @@ import {
   saveBool,
   saveString,
 } from "./lib/storage";
-import { installAndRestart, isUpdatePendingRestart } from "./lib/updater";
+import {
+  canCheckForUpdates,
+  installAndRestart,
+  isUpdatePendingRestart,
+  retryUpdateCheck,
+  useUpdateStatus,
+  type UpdateStatus,
+} from "./lib/updater";
 import { normalizeServerUrl } from "./lib/url";
 import {
   installDesktopVoiceDictation,
@@ -3521,6 +3528,25 @@ function formatStorageBytes(bytes: number): string {
   return `${Math.max(1, Math.round(mb))} MB`;
 }
 
+function desktopUpdateStatusText(status: UpdateStatus): string {
+  switch (status.state) {
+    case "idle":
+      return "Clips checks automatically after launch and every 4 hours.";
+    case "checking":
+      return "Checking for updates...";
+    case "not-available":
+      return "Clips is up to date.";
+    case "available":
+      return `Update ${status.version} found. Downloading now...`;
+    case "downloading":
+      return `Downloading update ${status.version}... ${status.percent}%`;
+    case "downloaded":
+      return `Update ${status.version} is ready. Restart to install it.`;
+    case "error":
+      return `Update check failed: ${status.message}`;
+  }
+}
+
 function Setup({
   initial,
   serverUrl,
@@ -3568,8 +3594,8 @@ function Setup({
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const [readinessOpen, setReadinessOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const featureConfig = useFeatureConfig();
+  const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
@@ -3869,10 +3895,6 @@ function Setup({
   }
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     const refresh = () => {
       invoke<ScreenMemoryStatus>("screen_memory_status")
@@ -4134,6 +4156,32 @@ function Setup({
     if (providerStatus[byokProvider]) return null;
     return `${keyForByokProvider(byokProvider)} is not set — cleanup will fail until configured.`;
   })();
+  const updateChecksSupported = canCheckForUpdates();
+  const updateBusy =
+    updateStatus.state === "checking" ||
+    updateStatus.state === "available" ||
+    updateStatus.state === "downloading";
+  const updateReady = updateStatus.state === "downloaded";
+  const updateStatusClass =
+    updateStatus.state === "error"
+      ? "setup-warning"
+      : updateStatus.state === "downloaded" ||
+          updateStatus.state === "not-available"
+        ? "setup-success"
+        : "setup-hint";
+  const updateCheckLabel = !updateChecksSupported
+    ? "Release builds only"
+    : updateStatus.state === "checking"
+      ? "Checking..."
+      : updateStatus.state === "downloading"
+        ? `Downloading ${updateStatus.percent}%`
+        : "Check now";
+
+  function checkForDesktopUpdate() {
+    retryUpdateCheck().catch((err) => {
+      console.error("[clips-updater] manual check failed:", err);
+    });
+  }
 
   return (
     <form className="setup" onSubmit={handleSubmit}>
@@ -4161,13 +4209,12 @@ function Setup({
         />
         <input
           id="clips-url"
-          ref={inputRef}
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="http://localhost:8080"
         />
-        <button className="primary" type="submit">
+        <button className="secondary setup-connect-button" type="submit">
           Connect
         </button>
       </div>
@@ -4212,6 +4259,46 @@ function Setup({
             label="Show Clips in screen captures"
           />
         </div>
+      </div>
+
+      <div className="setup-section">
+        <SettingLabel
+          label="Desktop updates"
+          hint="Check the signed Clips desktop release channel and download any available update."
+        />
+        <div className="setup-button-row">
+          <button
+            type="button"
+            className="secondary"
+            onClick={checkForDesktopUpdate}
+            disabled={!updateChecksSupported || updateBusy || updateReady}
+          >
+            <IconRefresh
+              size={15}
+              stroke={1.9}
+              className={updateBusy ? "update-spinner" : undefined}
+            />
+            {updateCheckLabel}
+          </button>
+          {updateReady ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                installAndRestart().catch((err) => {
+                  console.error("[clips-updater] relaunch failed:", err);
+                });
+              }}
+            >
+              Restart to install
+            </button>
+          ) : null}
+        </div>
+        <p className={updateStatusClass}>
+          {updateChecksSupported
+            ? desktopUpdateStatusText(updateStatus)
+            : "Update checks are available in signed release builds."}
+        </p>
       </div>
 
       <div className="setup-section-heading">Permissions</div>

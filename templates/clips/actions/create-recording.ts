@@ -113,7 +113,7 @@ export default defineAction({
           sessionId: session.sessionId,
           meta: {
             ...session.meta,
-            skipCompressionWait: true,
+            stableUrl: true,
             recordAsset: false,
           },
           bytesUploaded: 0,

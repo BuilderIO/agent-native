@@ -205,6 +205,30 @@ describe("wireframe auto-height frame", () => {
     expect(html).toContain('data-frame="show"');
   });
 
+  it("removes root HTML padding when the outer frame is hidden", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const borderlessRootRule =
+      css.match(
+        /\.plan-html-frame\[data-frame="hide"\][^{]*>\s*:first-child\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(borderlessRootRule).toContain("margin: 0 !important");
+    expect(borderlessRootRule).toContain("padding: 0 !important");
+  });
+
+  it("removes root kit padding when the outer frame is hidden", () => {
+    const html = render(
+      {
+        surface: "browser",
+        screen: [{ el: "title", text: "Hi" }],
+      },
+      { visualFrame: "hide" },
+    );
+    const style = classStyle(html, "plan-wf");
+
+    expect(style).toMatch(/padding\s*:\s*0/);
+  });
+
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
     const html = render({
       surface: "browser",

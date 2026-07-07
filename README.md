@@ -45,7 +45,7 @@ Fork a working app and let the agent evolve it. **You can customize everything.*
 
 <a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F189ebd9b2f2b4f0ead3b33138d4e4c10?format=webp&width=800" alt="Clips app" width="100%" /></a>
 
-**Agent-Native Loom + Jam**
+**Agent-Native Loom**
 
 Record your screen with auto-transcripts and captured browser debug logs, share a link, and let an agent read the transcript, see timestamped frames, and fix the bug.
 
@@ -67,7 +67,7 @@ Install `/visual-plan` and `/visual-recap` so your coding agent can plan before 
 
 <a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800" alt="Design app" width="100%" /></a>
 
-**Agent-Native design prototyping**
+**Agent-Native Figma**
 
 Generate interactive HTML prototypes, compare variants, refine controls, and export the result.
 
@@ -80,20 +80,9 @@ Generate interactive HTML prototypes, compare variants, refine controls, and exp
 
 <a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content app" width="100%" /></a>
 
-**Open-source Obsidian for MDX**
+**Agent-Native Notion/Obsidian**
 
 Edit local Markdown/MDX files, generate rich interactive custom blocks, and draft, rewrite, or publish with an agent.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Slides**
-
-<a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides app" width="100%" /></a>
-
-**Agent-Native Google Slides, Pitch**
-
-Generate and edit React-based presentations via prompt or point-and-click.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -102,18 +91,16 @@ Generate and edit React-based presentations via prompt or point-and-click.
 
 <a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics app" width="100%" /></a>
 
-**Agent-Native Amplitude, Mixpanel**
+**Agent-Native Amplitude, Fullstory**
 
 Connect analytics data sources, prompt for real charts, and build reusable dashboards.
 
 </td>
-</tr>
-<tr>
-<td colspan="3" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Chat**
 
-<a href="https://agent-native.com/templates/chat"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406?format=webp&width=800" alt="Chat app" width="66%" /></a>
+<a href="https://agent-native.com/templates/chat"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406?format=webp&width=800" alt="Chat app" width="100%" /></a>
 
 **A minimal ChatGPT-style app for your own agent**
 
@@ -123,9 +110,7 @@ Chat-first app scaffold with durable threads, actions, auth, live sync, and a cl
 </tr>
 </table>
 
-**Build from scratch.** Use the [framework guide](https://agent-native.com/docs/getting-started).
-
-View the full app gallery at **[agent-native.com/apps](https://agent-native.com/apps)**.
+View the full app gallery at **[agent-native.com/apps](https://agent-native.com/apps)**, or build from scratch with the **[framework guide](https://agent-native.com/docs/getting-started)**.
 
 ## Quick Start
 
@@ -137,12 +122,6 @@ cd my-app
 pnpm install
 pnpm dev
 ```
-
-`create` first asks how you want to start:
-
-- **Full app(s)**: clone one or more complete apps into a workspace. Pick Mail + Calendar + Forms and you get all three wired up and sharing auth.
-- **Chat**: a single app with a minimal chat UI and the browser shell already wired, the simplest way to get a UI.
-- **Headless**: a single action-first app with no UI shell. The CLI walks you through calling your first action and agent, and you can add a UI later.
 
 Prefer flags? `create my-app --template mail`, `--headless`, or `--standalone` skip the prompt.
 
