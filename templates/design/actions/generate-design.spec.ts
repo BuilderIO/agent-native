@@ -7,8 +7,11 @@
  * `file.content` is LLM-generated content that can be arbitrarily stale by
  * the time this action persists it (the same bug class already fixed in
  * insert-design-native-asset.ts / insert-asset.ts). The NEW-file creation
- * path (db.insert + seedFromText) is untouched and should behave exactly as
- * before.
+ * path (db.insert + seedFromText) uses the same core write mechanics as
+ * before. Both paths now also stamp missing data-agent-native-node-id
+ * attributes before persisting (shared/screen-annotation.ts) so generated
+ * screens are born fully addressable by id-keyed editor operations instead
+ * of depending on a client-side backfill the first time someone opens them.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -300,12 +303,22 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       { id: "file-1", filename: "index.html", fileType: "html" },
     ]);
     // writeInlineSourceFile persists the authoritative collab content via
-    // db.update(schema.designFiles).set({ content, updatedAt }).
+    // db.update(schema.designFiles).set({ content, updatedAt }). Content is
+    // annotated with data-agent-native-node-id before persisting (see
+    // shared/screen-annotation.ts), so the saved html/body tags carry stamped
+    // ids rather than the byte-exact input string.
     expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
-      expect.objectContaining({ content: "<html><body>new</body></html>" }),
+      expect.objectContaining({
+        content: expect.stringMatching(
+          /^<html data-agent-native-node-id="[^"]+"><body data-agent-native-node-id="[^"]+">new<\/body><\/html>$/,
+        ),
+      }),
     );
-    expect(mocks.seededCollabText.get("file-1")).toBe(
-      "<html><body>new</body></html>",
+    expect(mocks.seededCollabText.get("file-1")).toEqual(
+      expect.stringContaining("new</body></html>"),
+    );
+    expect(mocks.seededCollabText.get("file-1")).toContain(
+      "data-agent-native-node-id",
     );
   });
 
@@ -408,8 +421,14 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     // The new-file path seeds collab state directly; it must not go through
     // the update path's db.update(designFiles) content write.
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
-    expect(Array.from(mocks.seededCollabText.values())).toContain(
-      "<!doctype html><html><body>Hello</body></html>",
-    );
+    // Content is annotated with data-agent-native-node-id before persisting
+    // (see shared/screen-annotation.ts) so the new screen is fully
+    // addressable by id-keyed editor operations immediately, instead of the
+    // byte-exact unannotated input string.
+    const seededValues = Array.from(mocks.seededCollabText.values());
+    expect(seededValues).toHaveLength(1);
+    expect(seededValues[0]).toContain("<body");
+    expect(seededValues[0]).toContain("Hello</body></html>");
+    expect(seededValues[0]).toContain("data-agent-native-node-id");
   });
 });

@@ -50,6 +50,7 @@ import {
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldSkipVisualStyleCommitForPreview,
   shouldLimitEditorChromeUntilContentReady,
+  shouldClearBridgeSelectionOnEmptyMarquee,
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldBlockPendingVisualStyleNavigation,
@@ -1998,5 +1999,51 @@ describe("applyRelativeDeltaToStyleValue", () => {
 
   it("handles negative current values", () => {
     expect(applyRelativeDeltaToStyleValue("-10px", 5)).toBe("-5px");
+  });
+});
+
+describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
+  // B5-1: clicking empty infinite-canvas space while an element INSIDE a
+  // screen is selected must deselect it too, not just an overview screen
+  // frame. handleLayerMarqueeSelectionChange already clears the host-side
+  // selectedElement state whenever the marquee/hit-test resolves to zero
+  // elements and the gesture isn't additive; this helper is the same
+  // decision, extracted so the "also tell the bridge/iframe overlays to
+  // clear their own selection highlight" branch (overviewClearSelectionRequest)
+  // is covered without needing to render the full DesignEditor component.
+  it("clears when an empty-space click resolves to zero elements", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 0,
+        additive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not clear when the click hit an element", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 1,
+        additive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear a multi-hit marquee resolution", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 3,
+        additive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not clear an additive (shift-click) empty-space click", () => {
+    expect(
+      shouldClearBridgeSelectionOnEmptyMarquee({
+        resolvedCount: 0,
+        additive: true,
+      }),
+    ).toBe(false);
   });
 });

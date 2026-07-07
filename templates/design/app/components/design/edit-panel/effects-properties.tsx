@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { ScrubInput } from "../inspector";
 import {
   GlslShaderEffectSection,
+  useScreenGlslShaders,
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
@@ -413,6 +414,22 @@ export function EffectsProperties({
     shadowLayers.length,
     reorderShadowLayers,
   );
+  // `glslShaderContext?.nodeId` is the SELECTION target's node id — it is set
+  // whenever the selected element is a valid shader-effect host, regardless
+  // of whether a shader effect actually exists on it yet (it also describes
+  // "could add a shader here"). Gating on its mere presence made the section
+  // think it had content for every plain element with no effects at all.
+  // Look up whether an effect-mode shader is actually MOUNTED on this node
+  // (same screen.mounts lookup GlslShaderEffectSection performs internally)
+  // so the gate reflects a real effect, not just a selectable target.
+  const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
+  const hasShaderEffect = Boolean(
+    glslShaderContext?.nodeId &&
+    screenShaders.mounts.some(
+      (mount) =>
+        mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
+    ),
+  );
   // Whether there is anything at all to render below the header row. Each
   // effect kind below is its own top-level sibling conditional (not one
   // single ternary), so when every one of them is empty, JSX would still
@@ -421,11 +438,16 @@ export function EffectsProperties({
   // an empty spacer div under the header. Gating the whole block behind one
   // boolean keeps `children` a real `null` in that case, matching how the
   // other sections (e.g. Fill) stay collapsed-empty.
+  // Also true while the shader picker is open (adding a new shader effect,
+  // not applied yet) — mirrors GlslShaderEffectSection's own
+  // `!effectMount && !pickerOpen` early-return so opening the picker doesn't
+  // get swallowed by this outer gate before it can render itself.
   const hasEffectsContent =
     shadowLayers.length > 0 ||
     filterHasBlur ||
     backdropFilterHasBlur ||
-    Boolean(glslShaderContext?.nodeId);
+    hasShaderEffect ||
+    shaderPickerOpen;
 
   return (
     <PanelSection

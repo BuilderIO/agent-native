@@ -1015,6 +1015,23 @@ export function DesignCanvas({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
+  // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
+  // iframe in its own CSS `transform: scale(zoom / 100)` (see the
+  // `deviceFrame === "none"` and framed branches further down) — a purely
+  // visual, OUTER scale the bridge running INSIDE the iframe has no way to
+  // observe. `editorChromeScaleX/Y` is the only channel that tells the bridge
+  // what scale its own chrome (selection borders, resize handles, spacing
+  // overlays) must counter-scale by to stay a constant on-screen size, Figma-
+  // style, instead of visually shrinking/growing with content as the user
+  // zooms. The overview caller already folds its own zoom into the
+  // editorChromeScaleX/Y it passes down for exactly this reason; this
+  // component must do the same with its OWN `zoom` prop for single-view,
+  // multiplying in whatever scale the caller passed (default 1) rather than
+  // assuming the caller already accounted for it — single-view's caller
+  // historically didn't pass either prop at all, so the bridge always
+  // computed with scale=1 and chrome scaled with content on every zoom.
+  const effectiveEditorChromeScaleX = (zoom / 100) * editorChromeScaleX;
+  const effectiveEditorChromeScaleY = (zoom / 100) * editorChromeScaleY;
   const previousContentKeyRef = useRef(contentKey);
   const runtimeReplacementContentRef = useRef(runtimeReplacementContent);
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
@@ -1349,8 +1366,14 @@ export function DesignCanvas({
           readOnly ? "true" : "false",
         )
           .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-          .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
-          .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY))
+          .replace(
+            "__EDITOR_CHROME_SCALE_X__",
+            String(effectiveEditorChromeScaleX),
+          )
+          .replace(
+            "__EDITOR_CHROME_SCALE_Y__",
+            String(effectiveEditorChromeScaleY),
+          )
           .replace(
             "__DESIGN_CANVAS_SCREEN_ID__",
             JSON.stringify(screenId ?? contentKey ?? ""),
@@ -2033,10 +2056,14 @@ export function DesignCanvas({
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "set-editor-chrome-scale",
-      scaleX: editorChromeScaleX,
-      scaleY: editorChromeScaleY,
+      scaleX: effectiveEditorChromeScaleX,
+      scaleY: effectiveEditorChromeScaleY,
     });
-  }, [editorChromeScaleX, editorChromeScaleY, postOneShotBridgeMessage]);
+  }, [
+    effectiveEditorChromeScaleX,
+    effectiveEditorChromeScaleY,
+    postOneShotBridgeMessage,
+  ]);
 
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.

@@ -1471,6 +1471,30 @@ export function shouldEscapeToOverview(args: {
 }
 
 /**
+ * B5-1: an empty-canvas click (a marquee/hit-test that resolved to zero
+ * elements) must deselect ANY current selection kind — a selected
+ * overview screen frame AND a selected element inside a screen (set via the
+ * iframe bridge). `handleLayerMarqueeSelectionChange` already clears the
+ * host-side `selectedElement` state when nothing was hit and the gesture
+ * isn't additive; this helper decides whether it must ALSO signal the
+ * iframe/bridge overlays to clear their own selection highlight
+ * (`overviewClearSelectionRequest`) — otherwise a previously-selected
+ * in-screen element keeps showing its selection chrome inside the iframe
+ * even though the host's `selectedElement` is already null. True whenever
+ * the resolved hit-set is empty and the gesture isn't additive (an additive
+ * click/shift-click on empty space is a no-op, matching Escape and the
+ * MultiScreenCanvas-level `shouldClearSelectionOnEmptyCanvasClick`).
+ *
+ * Exported for unit testing.
+ */
+export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
+  resolvedCount: number;
+  additive: boolean | undefined;
+}): boolean {
+  return args.resolvedCount === 0 && !args.additive;
+}
+
+/**
  * Build the set of all node ids (both projection ids and data-agent-native-node-id
  * attribute values) that exist in the given projection. Used by handleGroupSelection
  * and handleUngroupSelection to filter selectedLayerIdsState to the active file's
@@ -9583,7 +9607,20 @@ export default function DesignEditor() {
               viewModeRef.current = "overview";
               setViewMode("overview");
               if (request?.canvasPosition) {
-                queueFrameGeometrySave({
+                // B5-9: use the same immediate-optimistic-write path as
+                // handleCreateScreenFrame (writeFrameGeometrySnapshot) instead
+                // of the debounced queueFrameGeometrySave. queueFrameGeometrySave
+                // shares its 500ms debounce timer with MultiScreenCanvas's own
+                // reactive onGeometryChange sync (fired whenever a newly
+                // appeared screen briefly falls back to
+                // getInitialFrameGeometry()'s default SCREEN_WIDTH before this
+                // duplicate's real geometry round-trips back) — that reactive
+                // call could land last and silently overwrite this correct
+                // geometry with the disposable fallback. Writing synchronously
+                // here (query cache + mutation, no debounce window) means the
+                // duplicate's real width/height/position are visible to
+                // MultiScreenCanvas before any fallback has a chance to exist.
+                writeFrameGeometrySnapshot({
                   ...canvasFrameGeometryById,
                   [nextId]: {
                     ...canvasFrameGeometryById[screenId],
@@ -9676,9 +9713,9 @@ export default function DesignEditor() {
       recordFileCreationHistoryEntry,
       id,
       queryClient,
-      queueFrameGeometrySave,
       t,
       updateDesignMutation,
+      writeFrameGeometrySnapshot,
     ],
   );
 
@@ -10215,7 +10252,16 @@ export default function DesignEditor() {
       if (isLocalEdit) {
         lastLocalContentRef.current = next;
       } else if (next !== previousActiveContent) {
-        setContentRenderRevision((revision) => revision + 1);
+        // Holistic flash pipeline: a remote (peer/agent) edit arriving mid-
+        // session is exactly the "remote adoption" case that should apply
+        // in-place — this is not a file switch or initial mount. Try the
+        // bridge's live in-place full-document replace (same live iframe, no
+        // navigation) first; only fall back to an actual srcdoc rebuild when
+        // the bridge can't apply it (e.g. this screen's iframe isn't mounted/
+        // registered right now).
+        if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+          setContentRenderRevision((revision) => revision + 1);
+        }
       }
       // Only advance the DB reconcile watermark when the live CRDT text
       // actually matches the current SQL snapshot. Otherwise an intermediate
@@ -12088,6 +12134,23 @@ export default function DesignEditor() {
         );
       }
       const forceRefresh = options.refreshPreview === true;
+      // Holistic flash pipeline: `forcePreviewFullDocument` tells the bridge
+      // to use its whole-document innerHTML replace (needed when the change
+      // isn't scoped to the currently selected element's subtree — e.g. an
+      // undo/redo that can touch anywhere in the document), NOT to force a
+      // full iframe srcdoc rebuild here. `replaceRuntimeDocument`'s full-body
+      // branch already swaps content inside the SAME live iframe document (no
+      // navigation, no onload refire, persistent overlay nodes preserved —
+      // see that function's module doc) — it is exactly as flash-free as the
+      // scoped single-element patch, just broader. Previously this always
+      // bumped contentRenderRevision whenever forcePreviewFullDocument was
+      // set, even after replacePreviewContent already applied the update in
+      // place, forcing a completely redundant full srcdoc rebuild (real
+      // iframe reload, white flash, lost scroll/CSS-transition/Alpine state)
+      // on top of a change that had already rendered correctly. Only fall
+      // back to the expensive srcdoc rebuild when the live patch genuinely
+      // couldn't run (bridge not registered for this surface yet, or an
+      // explicit forceRefresh request).
       const replacedPreview = options.skipPreview
         ? true
         : forceRefresh
@@ -12099,11 +12162,7 @@ export default function DesignEditor() {
                 ? { forceFullDocument: true }
                 : undefined,
             );
-      if (
-        forceRefresh ||
-        options.forcePreviewFullDocument ||
-        !replacedPreview
-      ) {
+      if (forceRefresh || !replacedPreview) {
         setContentRenderRevision((revision) => revision + 1);
       }
       if (ydoc && isSynced) {
@@ -13791,6 +13850,85 @@ export default function DesignEditor() {
       ) {
         return;
       }
+      // Node-id integrity (id-on-demand): AI-generated/duplicated screens
+      // frequently ship elements with a missing or empty-string
+      // `data-agent-native-node-id` — every id-keyed operation on that
+      // element (move/reorder, style commits that resolve a targetNode,
+      // motion tracks, scrub) then silently no-ops or throws "Node with
+      // data-agent-native-node-id=\"\" not found in sourceHtml". The bridge
+      // (editor-chrome.bridge.ts's getElementInfo) mints a durable
+      // `pendingNodeId` on the SELECTION payload whenever it can't resolve a
+      // stable id for the element (`!sourceId`) and exposes it as
+      // `canonical.pendingNodeId`; persist it as the element's real
+      // `data-agent-native-node-id` right now via the same deterministic,
+      // guarded write path every other edit uses (applyVisualEdit's new
+      // "attribute" intent + applyFileContentUpdate), so every subsequent
+      // id-keyed op against this element resolves normally afterward. This is
+      // more reliable than resolving through the host's own static-HTML
+      // projection (`node`, below) — the bridge already knows the live DOM
+      // element and its working selector candidates even when the host's
+      // positional-selector projection match drifts.
+      const pendingNodeId = (canonical as { pendingNodeId?: string })
+        .pendingNodeId;
+      if (
+        !isScreenRootElementInfo(canonical) &&
+        pendingNodeId &&
+        !canonical.sourceId &&
+        canonical.selector
+      ) {
+        const rawContent = getScreenContent(screenId);
+        if (rawContent) {
+          const result = applyVisualEdit(
+            rawContent,
+            {
+              kind: "attribute",
+              target: { selector: canonical.selector },
+              name: "data-agent-native-node-id",
+              value: pendingNodeId,
+            },
+            {
+              source: { kind: "design-file", designId: id, fileId: screenId },
+            },
+          );
+          if (
+            result.result.status === "applied" &&
+            result.content !== rawContent
+          ) {
+            applyFileContentUpdate(screenId, result.content, {
+              recordHistory: false,
+            });
+          }
+        }
+      } else if (
+        // Fallback sweep: an element the bridge didn't mint a pendingNodeId
+        // for (older bridge instance, or a node resolved only through the
+        // host's own projection) but that still lacks a stable id per the
+        // host's own projection match. Runs the whole-document stamp helper
+        // so any other id-less siblings pick up ids in the same pass too.
+        !isScreenRootElementInfo(canonical) &&
+        node &&
+        !node.dataAttributes["data-agent-native-node-id"]?.trim()
+      ) {
+        const rawContent = getScreenContent(screenId);
+        if (rawContent) {
+          const stamped = ensureCodeLayerNodeIdsInHtml(rawContent, {
+            source: { kind: "design-file", designId: id, fileId: screenId },
+          });
+          if (stamped.changed && stamped.content !== rawContent) {
+            applyFileContentUpdate(screenId, stamped.content, {
+              recordHistory: false,
+            });
+          }
+        }
+      }
+      // Known limitation: elements rendered from a `<template x-for>`
+      // repeater (common in AI-generated Alpine.js list/task UIs) have no
+      // per-instance static DOM node in the SOURCE HTML at all — neither
+      // resolveCodeLayerNodeFromElementInfo nor a selector-based
+      // applyVisualEdit resolution can find a unique per-instance node to
+      // stamp. Fixing that requires the code-layer projection itself to
+      // model `<template>` repeater children as selectable/attributable
+      // nodes, which is out of scope for this selection-time fix.
       const additiveSelection = Boolean(
         node &&
         (intent?.additive ||
@@ -13837,10 +13975,13 @@ export default function DesignEditor() {
       focusDesignInspectorForSelection();
     },
     [
+      applyFileContentUpdate,
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
+      getScreenContent,
       handleBreakpointBarSelect,
+      id,
       selectedLayerIdsState,
     ],
   );
@@ -19272,8 +19413,16 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          replacePreviewContent(next, null, { forceFullDocument: true });
-          setContentRenderRevision((revision) => revision + 1);
+          // Holistic flash pipeline: only fall back to a full srcdoc rebuild
+          // (real iframe reload) when the live in-place patch genuinely
+          // failed — replaceRuntimeDocument's forceFullDocument branch already
+          // swaps content inside the SAME live iframe (no navigation), so
+          // bumping contentRenderRevision unconditionally right after a
+          // successful in-place replace was a redundant second reload and the
+          // dominant cause of "undo/redo flashes heavily".
+          if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+            setContentRenderRevision((revision) => revision + 1);
+          }
           // Clear stale selection if the undo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -19601,8 +19750,13 @@ export default function DesignEditor() {
           queueFileContentSave(activeFile.id, next, {
             syncCollab: !(ydoc && isSynced),
           });
-          replacePreviewContent(next, null, { forceFullDocument: true });
-          setContentRenderRevision((revision) => revision + 1);
+          // Holistic flash pipeline: see the matching comment in handleUndo —
+          // only fall back to a full srcdoc rebuild when the in-place bridge
+          // patch genuinely failed, instead of always reloading the iframe on
+          // top of an already-successful in-place replace.
+          if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+            setContentRenderRevision((revision) => revision + 1);
+          }
           // Clear stale selection if the redo removed the selected element.
           setSelectedElement((prev) => {
             if (!prev) return prev;
@@ -23992,8 +24146,20 @@ ${serializedHtml}
         setActiveFileId(primary.screenId);
         setSelectedElement(primary.elementInfo);
         focusDesignInspectorForSelection();
-      } else if (!intent.additive) {
+      } else if (
+        shouldClearBridgeSelectionOnEmptyMarquee({
+          resolvedCount: resolved.length,
+          additive: intent.additive,
+        })
+      ) {
+        // B5-1: an empty-space click (zero-hit marquee) must deselect an
+        // in-screen/bridge element selection too, not just the host
+        // selectedElement state. Without bumping this counter, the iframe's
+        // own selection-overlay highlight (set via the bridge for an
+        // in-screen element) never gets the clear signal and keeps
+        // rendering, mirroring the same clear used by Escape (~20428).
         setSelectedElement(null);
+        setOverviewClearSelectionRequest((request) => request + 1);
       }
 
       setActiveTool("move");

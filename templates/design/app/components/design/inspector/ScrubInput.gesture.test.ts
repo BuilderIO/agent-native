@@ -195,6 +195,128 @@ describe("ScrubInput gesture lifecycle — discrete commits are always phase:'co
   });
 });
 
+// ─── Scrub accumulation vs stale `value` prop (STEVE TEST BATCH 5 #14) ────────
+//
+// The real component must accumulate each tick from ITS OWN last emitted
+// value (lastScrubValueRef), never by re-reading the `value` prop per tick.
+// The prop only updates if the host echoes preview commits back through
+// computedStyles before the next pointermove — which is not guaranteed (the
+// host may throttle/debounce/skip preview writes). Re-reading the prop per
+// tick recomputes every tick from the frozen pre-drag base plus one tiny
+// incremental delta, so the emitted numbers barely creep from the original
+// value instead of following the cursor ("weird random numbers, not a
+// smooth continuum").
+describe("ScrubInput gesture — accumulates from its own last value, not the prop (B5-14)", () => {
+  /** Mirrors the FIXED handlePointerMove: base = gesture-local running value
+   * seeded from the prop once at pointerdown; the external prop never
+   * updates during the drag (worst-case stale host). */
+  function simulateWithStaleProp(moves: number[], startValue: number) {
+    const emitted: number[] = [];
+    let drag: ScrubDragState = startScrubDrag(moves[0] ?? 0);
+    // pointerdown: seed the gesture's running base from the current prop.
+    let lastScrubValue = startValue;
+    for (const clientX of moves.slice(1)) {
+      const tick = updateScrubDrag(drag, clientX);
+      drag = tick.state;
+      if (tick.deltaX === null) continue;
+      const next =
+        lastScrubValue +
+        tick.deltaX *
+          getScrubStepFromEvent({ shiftKey: false, altKey: false }, 1);
+      lastScrubValue = normalizeScrubNumber(roundScrubDragValue(next, "px"));
+      emitted.push(lastScrubValue);
+    }
+    return { emitted, final: lastScrubValue };
+  }
+
+  it("a steady rightward drag produces a monotonic continuum reaching start + total delta", () => {
+    // 100px of total movement in 10px increments; prop frozen at 16 (a
+    // stale font-size that the host never echoes back mid-drag).
+    const moves = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    const { emitted, final } = simulateWithStaleProp(moves, 16);
+    // Continuum: strictly increasing, no resets back toward the base.
+    for (let i = 1; i < emitted.length; i++) {
+      expect(emitted[i]).toBeGreaterThan(emitted[i - 1]);
+    }
+    // Total: the full 100px drag lands at 16 + 100, not 16 + last-tick's 10.
+    expect(final).toBe(116);
+  });
+
+  it("the OLD prop-per-tick formula loses the drag under a stale prop (documents the bug)", () => {
+    // Same gesture, but recomputing from the frozen prop each tick — the
+    // pre-fix behavior. The final value only reflects the LAST tick's
+    // increment, throwing away the rest of the gesture.
+    const moves = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    const staleProp = 16;
+    let drag: ScrubDragState = startScrubDrag(moves[0]);
+    let last = staleProp;
+    for (const clientX of moves.slice(1)) {
+      const tick = updateScrubDrag(drag, clientX);
+      drag = tick.state;
+      if (tick.deltaX === null) continue;
+      last = normalizeScrubNumber(
+        roundScrubDragValue(staleProp + tick.deltaX * 1, "px"),
+      );
+    }
+    expect(last).toBe(26); // 16 + one 10px tick — NOT the dragged 116.
+  });
+
+  it("re-seeding at pointerdown keeps gestures independent across an out-of-band prop change", () => {
+    // First gesture from 16 → 26.
+    const first = simulateWithStaleProp([0, 10], 16);
+    expect(first.final).toBe(26);
+    // Host applies the commit; a second gesture starts from the fresh prop
+    // (30, say, after an external edit) — not from the first gesture's
+    // leftover running value.
+    const second = simulateWithStaleProp([0, 10], 30);
+    expect(second.final).toBe(40);
+  });
+});
+
+// ─── Optimistic commit hold (STEVE TEST BATCH 5 #14 — Enter reset) ───────────
+//
+// After a commit (typed Enter/blur, keyboard nudge, scrub release) the input
+// must hold the committed value until the host echoes it back through the
+// `value` prop — resyncing the draft from a still-stale prop the moment
+// focus leaves is exactly the "type 24, press Enter, input snaps back to 16"
+// symptom. These tests exercise the resolution predicate the component's
+// resync effect uses.
+describe("ScrubInput — pending-commit resolution predicate (B5-14 Enter reset)", () => {
+  /** Mirrors the resync effect's decision: given a pending committed value
+   * and the latest incoming prop, should the draft resync from the prop? */
+  function shouldResyncFromProp(
+    pending: number | null,
+    incomingValue: number,
+    options: { unit?: string; precision?: number } = {},
+  ): boolean {
+    if (pending === null) return true;
+    return normalizeScrubNumber(incomingValue, options) === pending;
+  }
+
+  it("holds the optimistic value while the prop is still stale", () => {
+    // Typed 24, committed; prop still reports the old 16 — must NOT resync.
+    expect(shouldResyncFromProp(24, 16, { unit: "px", precision: 1 })).toBe(
+      false,
+    );
+  });
+
+  it("resyncs once the host echoes the committed value back", () => {
+    expect(shouldResyncFromProp(24, 24, { unit: "px", precision: 1 })).toBe(
+      true,
+    );
+  });
+
+  it("normalization differences (precision rounding) still count as confirmation", () => {
+    // Committed 24; host echoes 24.04 which normalizes to 24.0 at
+    // precision 1 → confirmed.
+    expect(shouldResyncFromProp(24, 24.04, { precision: 1 })).toBe(true);
+  });
+
+  it("no pending commit means normal prop-driven resync", () => {
+    expect(shouldResyncFromProp(null, 16)).toBe(true);
+  });
+});
+
 /**
  * Reproduces handleKeyDown's mixed-selection arrow-key branch (ScrubInput.tsx)
  * outside a DOM/React render (this template has no jsdom — see file header):

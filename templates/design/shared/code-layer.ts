@@ -274,6 +274,13 @@ export type EditCapability =
       operations: Array<"moveNode">;
       confidence: number;
       reason?: string;
+    }
+  | {
+      /** Single plain-attribute writes (see AttributeEditIntent). */
+      kind: "attribute";
+      operations: Array<"set">;
+      confidence: number;
+      reason?: string;
     };
 
 export interface CodeLayerNode {
@@ -418,6 +425,24 @@ export interface TextEditIntent {
   html?: string;
 }
 
+/**
+ * Node-id integrity (id-on-demand): sets or replaces a single plain HTML
+ * attribute on the target element. Introduced so the host can persist the
+ * bridge's minted `pendingNodeId` (see ElementInfo.pendingNodeId) as the
+ * element's real `data-agent-native-node-id` the moment an id-less node is
+ * selected — every subsequent id-keyed operation (move/reorder, style
+ * commits, motion tracks, scrub) then resolves normally. Not limited to that
+ * attribute name; kept general so other single-attribute host writes can
+ * reuse the same deterministic path instead of a full-document
+ * find/replace-and-resave.
+ */
+export interface AttributeEditIntent {
+  kind: "attribute";
+  target: EditIntentTarget;
+  name: string;
+  value: string;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -550,6 +575,7 @@ export type EditIntent =
   | StyleEditIntent
   | ClassEditIntent
   | TextEditIntent
+  | AttributeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -2735,6 +2761,31 @@ function applyClassEdit(
   };
 }
 
+// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
+// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
+// `on*` event handler. Deliberately conservative: this path is for host-side
+// bookkeeping writes (pending node-id persistence today), not general-purpose
+// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+
+function applyAttributeEdit(
+  html: string,
+  element: ParsedElement,
+  intent: AttributeEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
+    return "unsupported";
+  }
+  return {
+    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    capability: {
+      kind: "attribute",
+      operations: ["set"],
+      confidence: 0.95,
+    },
+  };
+}
+
 function sanitizeTextEditHtml(html: string): string {
   return html
     .replace(
@@ -3822,6 +3873,8 @@ export function applyVisualEdit(
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
+  } else if (intent.kind === "attribute") {
+    edit = applyAttributeEdit(html, element, intent);
   } else if (intent.kind === "responsive-class") {
     edit = applyResponsiveClassEdit(html, element, intent);
   } else if (intent.kind === "breakpoint-style") {

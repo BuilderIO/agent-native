@@ -30,6 +30,7 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -290,7 +291,16 @@ const generateDesignAction = defineAction({
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
-    for (const file of files) {
+    // Stamp missing data-agent-native-node-id attributes before persisting so
+    // every generated screen is born fully addressable by id-keyed editor
+    // operations (move/select/style), instead of depending on a client-side
+    // backfill the first time a human opens the screen.
+    const annotatedFiles = files.map((file) => ({
+      ...file,
+      content: annotateScreenHtmlForPersist(file.content, file.fileType),
+    }));
+
+    for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
         // Publish agent presence so live editors see "AI is generating" in place.

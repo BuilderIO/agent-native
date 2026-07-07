@@ -196,6 +196,8 @@ pnpm action show-design-questions \
   --questions '[{"id":"form_factor","type":"text-options","question":"What form factor?","options":[{"label":"Desktop web app","value":"desktop"},{"label":"Mobile app","value":"mobile"},{"label":"Both / responsive","value":"responsive"},{"label":"Decide for me","value":"decide"}],"allowOther":true}]'
 ```
 
+**Carry the form-factor answer through to generation — do not just ask and discard it.** A "Desktop web app" answer means the generated screen's canvas frame must be desktop-sized (~1440×1024), not left at whatever a screen with no placement falls back to. Map the answer to real frame geometry: pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen to `generate-screens`, explicit `width`/`height` per variant to `present-design-variants`, or an explicit `canvasFrames` entry to `generate-design` — see Phase 2 and Phase 3 below. For "Both / responsive," generate at desktop width and rely on the responsive breakpoint system (see `responsive-breakpoints` skill) rather than guessing a size.
+
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
 For new designs, default to **three** variations (`present-design-variants`
@@ -209,14 +211,16 @@ screen name.
   "designId": "<the design id>",
   "prompt": "Pick a direction",
   "variants": [
-    { "id": "a", "label": "Editorial Serif", "content": "<!DOCTYPE html>...full self-contained HTML..." },
-    { "id": "b", "label": "Bold Brutalist", "content": "<!DOCTYPE html>..." },
-    { "id": "c", "label": "Soft & Spacious", "content": "<!DOCTYPE html>..." }
+    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." }
   ]
 }
 ```
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
+
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -241,8 +245,11 @@ pnpm action generate-design \
   --designId "<id>" \
   --prompt "Description of the design" \
   --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]' \
-  --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]'
+  --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]' \
+  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":1024}]'
 ```
+
+Always pass `canvasFrames` with an explicit `width`/`height` matching the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024 as above) — a screen saved without a placement falls back to a generic default that won't match a desktop-intended design. For multiple screens generated together, call `generate-screens` first and pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
 ### Phase 4 — Always ship tweaks with the design
 

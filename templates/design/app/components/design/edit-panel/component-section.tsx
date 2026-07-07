@@ -225,7 +225,7 @@ function MakeItRealCard({
         <p className="px-2 text-[10px] text-destructive">
           {migrateError instanceof Error
             ? migrateError.message
-            : "Migration failed. Please try again."}
+            : /* i18n-ignore make-it-real card */ "Migration failed. Please try again."}
         </p>
       ) : null}
     </div>

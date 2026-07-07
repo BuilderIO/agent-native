@@ -37,7 +37,7 @@
       "runtimeExecutable": "env",
       "runtimeArgs": [
         "APP_NAME=design",
-        "DESIGN_DATABASE_URL=file:./data/nestfix.db",
+        "DESIGN_DATABASE_URL=file:./data/nestfix2.db",
         "AUTH_MODE=local",
         "PORT=9331",
         "pnpm",
@@ -223,6 +223,75 @@
         "9329"
       ],
       "port": 9329
+    },
+    {
+      "name": "design-flash2",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "APP_NAME=design",
+        "DESIGN_DATABASE_URL=file:./data/flash2.db",
+        "AUTH_MODE=local",
+        "PORT=9337",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9337"
+      ],
+      "port": 9337
+    },
+    {
+      "name": "design-flash2b",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "APP_NAME=design",
+        "DESIGN_DATABASE_URL=file:./data/flash2b.db",
+        "AUTH_MODE=local",
+        "PORT=9341",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9341"
+      ],
+      "port": 9341
+    },
+    {
+      "name": "design-scrubfix",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "APP_NAME=design",
+        "DESIGN_DATABASE_URL=file:./data/scrubfix.db",
+        "AUTH_MODE=local",
+        "PORT=9335",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9335"
+      ],
+      "port": 9335
+    },
+    {
+      "name": "design-ep5",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "APP_NAME=design",
+        "DESIGN_DATABASE_URL=file:./data/ep5.db",
+        "AUTH_MODE=local",
+        "BETTER_AUTH_SECRET=ep5-verify-fixed-dev-secret-not-a-real-secret",
+        "PORT=9343",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9343"
+      ],
+      "port": 9343
     },
     {
       "name": "dispatch",

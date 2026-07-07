@@ -92,7 +92,16 @@ describe("isTextElement", () => {
     ).toBe(false);
   });
 
-  it("does not misclassify a flex container div via the fallback heuristic", () => {
+  it("classifies a childless flex div with its own text as text (B5-12)", () => {
+    // REVERSED from the original assertion: this test used to require the
+    // fallback to reject flex containers, but real-design evidence proved
+    // that assumption wrong — the T-tool's own text primitives are
+    // `display: flex` divs (flex drives their vertical alignment), and
+    // board/overview selection payloads omit `primitiveKind`, so the old
+    // exclusion made the Typography section vanish for exactly those text
+    // nodes (text nested in a rectangle via nest-on-drop). A childless div
+    // with its own text is text, flex or not; real containers are still
+    // rejected by the childElementCount guard above.
     expect(
       isTextElement(
         makeElement({
@@ -102,7 +111,7 @@ describe("isTextElement", () => {
           isFlexContainer: true,
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

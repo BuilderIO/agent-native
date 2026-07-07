@@ -195,18 +195,33 @@ export function isTextElement(element: ElementInfo): boolean {
   if (TEXT_TAGS.has(tag)) return true;
   // T-tool text primitives are plain `div`s stamped with
   // data-an-primitive="text" (see DesignEditor primitive creation). The
-  // bridge now forwards that marker as ElementInfo.primitiveKind — prefer it
+  // bridge forwards that marker as ElementInfo.primitiveKind — prefer it
   // when present since it's exact.
   if (element.primitiveKind) return element.primitiveKind === "text";
-  // Fallback for older payloads that predate primitiveKind: approximate a
-  // T-tool text div with a content heuristic — a childless div that has its
-  // own text content and isn't already flagged as a layout container. This
-  // intentionally excludes empty frames/shapes (no text) and containers with
-  // element children.
+  // Canvas-drawn primitives carry a `draft-<tool>-<timestamp>-<random>` node
+  // id (see MultiScreenCanvas's draft-id minting). Some selection payloads —
+  // notably board/overview layer-panel selections built by parsing the source
+  // HTML rather than by the in-iframe bridge — omit `primitiveKind` entirely
+  // even though the DOM node carries data-an-primitive="text". The id prefix
+  // identifies the tool that drew the element just as exactly for those
+  // payloads.
+  const nodeId = element.sourceId || element.pendingNodeId || "";
+  if (nodeId.startsWith("draft-text-")) return true;
+  if (nodeId.startsWith("draft-rect-") || nodeId.startsWith("draft-frame-")) {
+    return false;
+  }
+  // Fallback for payloads with no primitive marker at all: approximate a
+  // text node with a content heuristic — a childless div that has its own
+  // text content. This intentionally excludes empty frames/shapes (no text)
+  // and containers with element children. NOTE: deliberately no
+  // isFlexContainer/isGridContainer exclusion here — the T-tool's own text
+  // primitives are `display: flex` divs (flex is how their vertical
+  // alignment works), so "is a flex container" does NOT imply "not text" for
+  // a leaf node. Excluding flex containers made the Typography section
+  // vanish for exactly those text nodes whenever the payload lacked
+  // primitiveKind (B5-12: text nested in a rectangle via nest-on-drop).
   if (
     tag === "div" &&
-    !element.isFlexContainer &&
-    !element.isGridContainer &&
     (element.childElementCount ?? 0) === 0 &&
     Boolean(element.textContent?.trim())
   ) {

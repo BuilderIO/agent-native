@@ -119,8 +119,30 @@ export function ScrubInput({
   // can re-emit it once as the gesture's authoritative "commit" — without
   // recomputing from stale pointer deltas after pointer capture is released.
   const lastScrubValueRef = useRef(value);
+  // The most recent value THIS input committed (typed Enter/blur, keyboard
+  // nudge, or scrub release) that the host hasn't echoed back yet. While this
+  // is set, the resync effect below must hold the optimistic committed
+  // display instead of snapping back to the still-stale incoming `value`
+  // prop — otherwise a round-trip slower than one React render (host commit
+  // -> computedStyles update -> fresh `value` prop) clobbers the just-typed
+  // value back to the old one the instant focus leaves the input, which
+  // reads as "Enter resets to the old value". Cleared as soon as a fresh
+  // `value` prop confirms (or supersedes) the pending commit.
+  const pendingCommitRef = useRef<number | null>(null);
+  const options = { unit, min, max, precision };
 
   useEffect(() => {
+    if (pendingCommitRef.current !== null) {
+      if (normalizeScrubNumber(value, options) === pendingCommitRef.current) {
+        // The host echoed back exactly what we committed — resolved, safe to
+        // resume syncing from the prop again.
+        pendingCommitRef.current = null;
+      } else {
+        // Still waiting for the round-trip (or the host is reporting a
+        // different in-flight value) — don't stomp the optimistic draft.
+        return;
+      }
+    }
     if (!focused) {
       const formatted = mixed
         ? "Mixed"
@@ -128,13 +150,19 @@ export function ScrubInput({
       draftRef.current = formatted;
       setDraft(formatted);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `options` is a fresh object every render; the individual fields it's built from (unit/min/max/precision) are already listed below.
   }, [focused, mixed, precision, unit, value]);
 
-  const options = { unit, min, max, precision };
   const resolvedTooltipLabel = tooltipLabel ?? ariaLabel ?? label;
 
   const setNextValue = (nextValue: number, meta: ScrubInputChangeMeta) => {
     const normalized = normalizeScrubNumber(nextValue, options);
+    // Mark commit-phase writes as pending confirmation so the resync effect
+    // holds this optimistic display instead of reverting to a stale `value`
+    // prop before the host's round-trip lands (see pendingCommitRef above).
+    // Preview ticks don't need this: they're expected to be superseded by
+    // the next tick or the gesture's own final commit almost immediately.
+    if (meta.phase === "commit") pendingCommitRef.current = normalized;
     onChange(normalized, meta);
     const formatted = formatScrubValue(normalized, options);
     draftRef.current = formatted;
@@ -162,6 +190,9 @@ export function ScrubInput({
     // when it equals the placeholder `value` prop (e.g. typing "0"): the
     // selected objects hold differing values, so "no change" is meaningless.
     if (parsed.value !== value || mixed) {
+      // See setNextValue's pendingCommitRef comment — this text-commit path
+      // (Enter/blur) bypasses setNextValue, so mark it pending here too.
+      pendingCommitRef.current = parsed.value;
       onChange(parsed.value, {
         source: "commit",
         expression: currentDraft,
@@ -243,6 +274,13 @@ export function ScrubInput({
       pointerId: event.pointerId,
       drag: startScrubDrag(event.clientX),
     };
+    // Re-seed the gesture's running base from the current prop right as the
+    // drag starts. Without this, a stale `lastScrubValueRef` left over from a
+    // previous gesture (or from an out-of-band prop update that arrived while
+    // not dragging) would silently become this gesture's starting point
+    // instead of the value actually displayed when the user grabbed the
+    // control.
+    lastScrubValueRef.current = value;
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
   };
@@ -264,8 +302,20 @@ export function ScrubInput({
     // Use incremental deltas from the last move so that clamped/rounded values
     // committed by onChange are respected. A total-delta approach would create
     // a dead zone equal to the amount dragged past the clamp boundary.
+    //
+    // Accumulate from this gesture's OWN last emitted value
+    // (lastScrubValueRef), not the `value` prop. The prop only reflects
+    // whatever the host last echoed back through computedStyles — a "preview"
+    // phase commit is not guaranteed to round-trip before the next
+    // pointermove tick fires (the host may debounce/throttle/skip preview
+    // writes), so re-reading `value` here would recompute every tick from a
+    // stale, pre-drag base plus one tiny incremental delta: the displayed
+    // number barely creeps from the original value instead of following the
+    // cursor, which reads as jittery/near-random rather than a smooth
+    // continuum. The gesture's own running total is always current because
+    // this component sets it itself on every tick below.
     const next =
-      value +
+      lastScrubValueRef.current +
       tick.deltaX *
         getScrubStepFromEvent(
           { altKey: event.altKey, shiftKey: event.shiftKey },
@@ -294,6 +344,11 @@ export function ScrubInput({
     // dragging" — without this, the last preview tick would be the only
     // signal, and a consumer that ignores preview ticks would never commit.
     if (wasDrag && !mixed) {
+      // See setNextValue's pendingCommitRef comment — mark this gesture's
+      // authoritative value as pending confirmation so releasing the drag
+      // can't be clobbered back to the pre-drag value by a slow host
+      // round-trip (same class of bug as the Enter/blur text-commit case).
+      pendingCommitRef.current = lastScrubValueRef.current;
       onChange(lastScrubValueRef.current, {
         source: "scrub",
         phase: "commit",
