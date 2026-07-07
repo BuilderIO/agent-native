@@ -733,19 +733,34 @@ async function buildCompositor(
 async function createMixedAudio(
   streams: MediaStream[],
 ): Promise<{ audioContext: AudioContext | null; tracks: MediaStreamTrack[] }> {
-  const streamsWithAudio = streams.filter(
-    (stream) => stream.getAudioTracks().length,
-  );
-  if (!streamsWithAudio.length) return { audioContext: null, tracks: [] };
-  if (streamsWithAudio.length === 1) {
-    return { audioContext: null, tracks: streamsWithAudio[0].getAudioTracks() };
+  const audioTracks = streams.flatMap((stream) => stream.getAudioTracks());
+  if (!audioTracks.length) return { audioContext: null, tracks: [] };
+  if (audioTracks.length === 1) {
+    return { audioContext: null, tracks: audioTracks };
   }
 
   const audioContext = new AudioContext();
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
-  for (const stream of streamsWithAudio) {
-    audioContext.createMediaStreamSource(stream).connect(destination);
+  for (const track of audioTracks) {
+    // One source per track (not per stream) so each input is isolated in the
+    // mix graph and can be detached independently.
+    const source = audioContext.createMediaStreamSource(
+      new MediaStream([track]),
+    );
+    source.connect(destination);
+    // A mixed input track can end mid-recording — most commonly the shared
+    // tab's audio track when the user refreshes the captured tab. Disconnect
+    // just that dead source so the mixed output keeps carrying the surviving
+    // inputs (the microphone). Without this the whole mixed destination can go
+    // silent, dropping both the tab audio and the mic for the rest of the clip.
+    track.addEventListener("ended", () => {
+      try {
+        source.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    });
   }
   return { audioContext, tracks: destination.stream.getAudioTracks() };
 }
