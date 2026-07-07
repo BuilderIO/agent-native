@@ -13,6 +13,14 @@ const LARGE_FILE_THRESHOLD_BYTES = 30 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 120_000;
 const SMALL_FILE_RETRY_DELAYS_MS = [600, 1800];
 
+function enabledFlag(value: unknown): boolean {
+  return /^(true|1|yes|on)$/i.test(String(value || "").trim());
+}
+
+function stableUrlOptInEnabled(): boolean {
+  return enabledFlag(process.env.CLIPS_STABLE_URL_OPTIN);
+}
+
 function builderUploadHost(): string {
   return (
     process.env.BUILDER_APP_HOST ||
@@ -47,6 +55,9 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
 function setSkipCompressionQueryParams(url: URL): void {
   url.searchParams.set("skipCompressionWait", "true");
   url.searchParams.set("skipCompression", "true");
+  if (stableUrlOptInEnabled()) {
+    url.searchParams.set("stableUrl", "true");
+  }
 }
 
 async function assertOk(res: Response, label: string): Promise<void> {

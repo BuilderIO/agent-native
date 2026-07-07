@@ -1,4 +1,4 @@
-import { appApiPath, useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import {
   IconBrandFigma,
   IconBrandGithub,
@@ -7,7 +7,6 @@ import {
   IconCode,
   IconCopy,
   IconHtml,
-  IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState, type ReactNode } from "react";
@@ -20,7 +19,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   importResultSummary,
   looksLikeStandaloneHtml,
-  parseUploadResponse,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
@@ -33,19 +31,16 @@ interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
 }
 
-type ImportMode = "figma-paste" | "fig-file" | "html" | "local-app";
+type ImportMode = "figma-paste" | "html" | "local-app";
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
   const [htmlText, setHtmlText] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
-  const [activeUploadName, setActiveUploadName] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
 
   const finishImport = useCallback(
@@ -101,62 +96,6 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [context.designId, finishImport, importSource, t],
   );
 
-  const uploadFile = useCallback(
-    async (file: File) => {
-      setUploading(true);
-      setActiveUploadName(file.name);
-      const body = new FormData();
-      body.append("designId", context.designId);
-      body.append("file", file);
-      try {
-        const response = await fetch(
-          appApiPath(
-            `/api/import-design-file?designId=${encodeURIComponent(context.designId)}`,
-          ),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        // R83 — guard the parse: a failed upload can come back as a
-        // non-JSON body (upstream proxy/platform error page, plaintext
-        // "Internal Error", etc.) even though this route's own thrown
-        // failures are always JSON. Calling response.json() unconditionally
-        // used to surface a raw "Unexpected token ... is not valid JSON"
-        // SyntaxError in the toast instead of a clean message.
-        const result = await parseUploadResponse<ImportResult>(
-          response,
-          t("designEditor.import.errors.uploadFailed"),
-        );
-        if (!response.ok) {
-          throw new Error(
-            result.error || t("designEditor.import.errors.uploadFailed"),
-          );
-        }
-        await finishImport(result, t("designEditor.import.uploadSuccess"));
-      } catch (error) {
-        toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description:
-            error instanceof Error ? error.message : t("common.genericError"),
-        });
-      } finally {
-        setUploading(false);
-        setActiveUploadName(null);
-      }
-    },
-    [context.designId, finishImport, t],
-  );
-
-  const handleFigmaFileChange = useCallback(
-    (file: File | undefined) => {
-      if (!file) return;
-      setActiveMode("fig-file");
-      void uploadFile(file);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    },
-    [uploadFile],
-  );
-
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
@@ -182,7 +121,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [t],
   );
 
-  const busy = importSource.isPending || uploading;
+  const busy = importSource.isPending;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -213,46 +152,6 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
               <p>
                 {
                   "Click the canvas first, then paste with the same shortcut you use for copied Design content." /* i18n-ignore */
-                }
-              </p>
-            </div>
-          </ImportSourceRow>
-
-          <ImportSourceRow
-            id="fig-file-import"
-            icon={<IconUpload className="size-3.5" />}
-            title={t("designEditor.import.figUploadTitle")}
-            description={"Upload exported Figma frames." /* i18n-ignore */}
-            isOpen={activeMode === "fig-file"}
-            onToggle={() =>
-              setActiveMode((mode) => (mode === "fig-file" ? null : "fig-file"))
-            }
-          >
-            <div className="space-y-2 p-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".fig"
-                className="hidden"
-                onChange={(event) =>
-                  handleFigmaFileChange(event.target.files?.[0])
-                }
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 w-full justify-center"
-                disabled={busy}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading
-                  ? "Importing..." /* i18n-ignore */
-                  : t("designEditor.import.chooseFigFile")}
-              </Button>
-              <p className="truncate text-[10px] leading-snug text-muted-foreground">
-                {
-                  activeUploadName ??
-                    "Export only the frames you need." /* i18n-ignore */
                 }
               </p>
             </div>

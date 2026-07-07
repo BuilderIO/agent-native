@@ -1468,6 +1468,7 @@ const frFR = {
     recurringJobs: "Tâches récurrentes",
     automations: "Automatisations",
     extensions: "Rallonges",
+    dataPrograms: "Programmes de données",
     multiAppWorkspaces: "Workspaces multi-apps",
     onboardingApiKeys: "Onboarding et clés API",
     messaging: "Messagerie (Slack, Email...)",

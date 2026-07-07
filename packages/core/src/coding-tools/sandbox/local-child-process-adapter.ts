@@ -30,6 +30,21 @@ import type {
 /** Grace period between SIGTERM and SIGKILL when a run times out. */
 const SIGKILL_GRACE_MS = 2_000;
 
+/**
+ * Hard ceiling on combined stdout+stderr bytes accumulated PER STREAM while a
+ * run is in flight, independent of any caller-supplied `maxOutputChars`
+ * display cap. Callers (e.g. data-programs' `emit()` contract) apply their
+ * own, much smaller caps AFTER the process exits and the full string has been
+ * captured and JSON-parsed — that is a business-logic cap, not a memory-safety
+ * one. Without a ceiling here, a runaway `console.log`/emit loop can grow the
+ * accumulated string to hundreds of MB or more before any downstream cap ever
+ * runs, exhausting parent/child memory. 32 MiB comfortably covers legitimate
+ * uses (run-code's 200_000-char display cap, data-programs' 4 MiB emitted
+ * payload, plus generous debug logging headroom) while still bounding the
+ * worst case to a small constant instead of unbounded growth.
+ */
+const MAX_STREAM_BYTES = 32 * 1024 * 1024;
+
 function sandboxReadAllowPaths(tmpDir: string): string[] {
   const paths = new Set<string>([tmpDir]);
   try {
@@ -121,9 +136,23 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      let stdout = "";
-      let stderr = "";
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
       let timedOut = false;
+      let outputExceeded = false;
+
+      const killForOverflow = () => {
+        if (outputExceeded) return;
+        outputExceeded = true;
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+        }, SIGKILL_GRACE_MS);
+      };
 
       const timer = setTimeout(() => {
         timedOut = true;
@@ -135,11 +164,27 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
         }, SIGKILL_GRACE_MS);
       }, request.timeoutMs);
 
+      // Accumulate as raw Buffer chunks (cheaper than repeated string
+      // concatenation) and stop collecting — and kill the child — the moment
+      // either stream crosses MAX_STREAM_BYTES, so a runaway emit()/console.log
+      // loop can never grow parent memory past a small bounded ceiling.
       child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
+        if (outputExceeded) return;
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > MAX_STREAM_BYTES) {
+          killForOverflow();
+          return;
+        }
+        stdoutChunks.push(chunk);
       });
       child.stderr?.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
+        if (outputExceeded) return;
+        stderrBytes += chunk.length;
+        if (stderrBytes > MAX_STREAM_BYTES) {
+          killForOverflow();
+          return;
+        }
+        stderrChunks.push(chunk);
       });
 
       const exitCode = await new Promise<number | null>((resolve, reject) => {
@@ -147,6 +192,18 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
         child.once("exit", resolve);
       });
       clearTimeout(timer);
+
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+
+      if (outputExceeded && !timedOut) {
+        return {
+          stdout,
+          stderr: `${stderr}\n[sandbox] output exceeded the ${MAX_STREAM_BYTES}-byte-per-stream safety limit; process was terminated.`,
+          exitCode,
+          timedOut: false,
+        };
+      }
 
       return { stdout, stderr, exitCode, timedOut };
     } finally {

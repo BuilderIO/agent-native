@@ -602,19 +602,20 @@ function buildFinalizeArgs(
   mimeType: string,
   query: Record<string, unknown>,
 ) {
+  const queryBoolean = (value: unknown): boolean | undefined => {
+    if (value === undefined) return undefined;
+    if (Array.isArray(value)) return queryBoolean(value[0]);
+    return value === "1" || value === "true" || value === true;
+  };
+
   return {
     id: recordingId,
     durationMs: normalizeChunkUploadNumber(query.durationMs),
     width: normalizeChunkUploadNumber(query.width),
     height: normalizeChunkUploadNumber(query.height),
-    hasAudio:
-      query.hasAudio === undefined
-        ? undefined
-        : query.hasAudio === "1" || query.hasAudio === "true",
-    hasCamera:
-      query.hasCamera === undefined
-        ? undefined
-        : query.hasCamera === "1" || query.hasCamera === "true",
+    hasAudio: queryBoolean(query.hasAudio),
+    hasCamera: queryBoolean(query.hasCamera),
+    locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
   };
 }

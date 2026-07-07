@@ -239,20 +239,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# त्वरित डेटाबेस निरीक्षण और एकमुश्त रखरखाव के लिए मुख्य कार्रवाइयां
+# त्वरित डेटाबेस निरीक्षण के लिए मुख्य कार्रवाइयां
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# बड़े टेक्स्ट कॉलम पर सर्जिकल find/replace - एक अंतर भेजता है, संपूर्ण मान नहीं
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-प्रोडक्शन एजेंट चैट प्लगइन डिफ़ॉल्ट रूप से कच्चे डेटाबेस को लिखने में सक्षम बनाता है
-(`databaseTools: "write"`) ताकि एजेंट बिना प्रतीक्षा किए ऐप-स्वामित्व वाले डेटा को ठीक कर सकें
-नया टाइप किया गया कार्य। उन लेखों का दायरा प्रमाणित उपयोगकर्ता/संगठन तक होता है। सेट करें
-`databaseTools: "read"` केवल `db-schema` / `db-query` निरीक्षण रखने के लिए, या
-सभी डेटा के लिए `databaseTools: "off"` / `false` टाइप किए गए ऐप actions की आवश्यकता है
+production agent chat plugin raw SQL tools को default रूप से read-only रखता है
+(`databaseTools: "read"`), इसलिए agent app data को `db-schema` / `db-query`
+से inspect करते हैं और writes typed app actions से करते हैं। `databaseTools: "write"`
+(या `true`) केवल उन maintenance surfaces के लिए सेट करें जिन्हें scoped
+`db-exec` / `db-patch` भी चाहिए; सभी data access के लिए typed app actions
+require करने हेतु `databaseTools: "off"` / `false` सेट करें
 पहुँच.
 
 ## एजेंट चैट ब्रिज {#agent-chat-bridge}
@@ -437,6 +434,7 @@ UI इसे मार्ग परिवर्तन पर लिखता ह
 
 - **[Dispatch](/docs/dispatch)** - कार्यक्षेत्र नियंत्रण विमान: साझा इनबॉक्स, रहस्य वॉल्ट, निर्धारित कार्य, और एक ऑर्केस्ट्रेटर जो A2A पर विशेषज्ञ ऐप्स को सौंपता है।
 - **[Extensions](/docs/extensions)** - सैंडबॉक्स्ड Alpine.js मिनी-ऐप्स एजेंट रनटाइम पर बनाता है, कोई स्रोत परिवर्तन या माइग्रेशन नहीं।
+- **[डेटा प्रोग्राम](/docs/data-programs)** - एजेंट द्वारा लिखी गई सहेजी गई `run-code` स्क्रिप्ट्स जो dashboard पैनलों को हार्डकोडेड provider action के बजाय एक कैश्ड, रिफ्रेश करने योग्य परिणाम देती हैं।
 - **[A2A Protocol](/docs/a2a-protocol)** - एक ही कार्यक्षेत्र में ऐप्स JSON-RPC पर एक-दूसरे को कैसे खोजते हैं और कॉल करते हैं।
 
 ## आपको मुफ़्त में क्या मिलता है {#what-you-get-for-free}

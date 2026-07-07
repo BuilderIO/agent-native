@@ -376,11 +376,10 @@ const messages = {
     },
     import: {
       title: "匯入",
-      description:
-        "將 Figma 選取內容、.fig 匯出檔或獨立 HTML 帶入為 Design 螢幕。",
+      description: "將 Figma 剪貼簿 HTML 或獨立 HTML 帶入為 Design 螢幕。",
       figmaPasteTitle: "從 Figma 貼上",
       figmaPasteDescription:
-        "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。可用時會直接匯入 Figma 中繼資料。",
+        "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
       figmaPasteTarget: "貼到畫布",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
@@ -898,7 +897,7 @@ const messages = {
     figmaThumbnailAlt: "Figma 檔案縮略圖",
     errors: {
       chooseFig: "請選取一個.fig 檔案（在 Figma 中：檔案 -> 儲存本機副本）。",
-      parseFig: "無法解析該 Figma 檔案。",
+      parseFig: "無法為該 Figma 檔案啟動 Builder 索引。",
       enterWebsite: "新增前輸入網站 URL。",
       websiteProtocol: "網站 URLs 必須以 http:// 或 https:// 開頭。",
       enterGithub: "在新增之前輸入 GitHub 儲存庫 URL。",

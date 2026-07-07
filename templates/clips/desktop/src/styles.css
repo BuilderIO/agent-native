@@ -2186,7 +2186,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: rgba(0, 0, 0, 0.42);
   pointer-events: none;
 }
 

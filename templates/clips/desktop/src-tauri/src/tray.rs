@@ -172,14 +172,11 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     rebuild_tray_menu(app);
                 }
                 "devtools" => {
-                    #[cfg(debug_assertions)]
-                    {
-                        if let Some(w) = app.get_webview_window("popover") {
-                            if w.is_devtools_open() {
-                                w.close_devtools();
-                            } else {
-                                w.open_devtools();
-                            }
+                    if let Some(w) = app.get_webview_window("popover") {
+                        if w.is_devtools_open() {
+                            w.close_devtools();
+                        } else {
+                            w.open_devtools();
                         }
                     }
                 }

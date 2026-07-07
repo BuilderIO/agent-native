@@ -384,24 +384,23 @@ Rotieren Sie sie, indem Sie die Umgebungsvariable auf jeder Instanz ersetzen und
 ## Production Agent Tools {#production-agent-tools}
 
 Produktionsagenten erhalten die registrierten actions der App sowie Framework-Tools von
-das Agenten-Chat-Plugin. Datenbankschreibvorgänge sind standardmäßig aktiviert, da Raw-DB
-Tools sind auf den authentifizierten Benutzer/die authentifizierte Organisation beschränkt, aber App-Besitzer können den Bereich einschränken
-Oberfläche, wenn eine Bereitstellung eigenwilliger sein sollte:
+das Agenten-Chat-Plugin. SQL-Inspektion ist standardmäßig aktiviert; Schreibvorgänge
+laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Schreibwerkzeuge aktiviert:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` – Standard. Register `db-schema`, `db-query`,
-  `db-exec` und `db-patch`. Schreibvorgänge sind auf den aktuellen Benutzer/die aktuelle Organisation und
-  Schemaänderungen werden blockiert.
-- `databaseTools: "read"` – registriert nur `db-schema` und `db-query`; Agenten
-  Daten mit SQL prüfen, für Schreibvorgänge muss jedoch die typisierte App-Actions verwendet werden.
+- `databaseTools: "read"` – Standard. Registriert nur `db-schema` und `db-query`;
+  Agenten prüfen Daten mit SQL, müssen für Schreibvorgänge aber typisierte App-Actions verwenden.
+- `databaseTools: "write"` oder `true` – registriert zusätzlich `db-exec` und
+  `db-patch` für bewusste rohe SQL-Wartung. Schreibvorgänge sind auf den
+  aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
 - `databaseTools: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
   Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
 - `extensionTools: false` – entfernt Framework-Erweiterungsverwaltung actions und

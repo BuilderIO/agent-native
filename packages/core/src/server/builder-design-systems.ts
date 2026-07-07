@@ -377,7 +377,7 @@ export function createBuilderDesignSystemProxyFields({
       `Builder URL: ${result.builderUrl}`,
       projectName ? `Requested name: ${projectName}` : "",
       description ? `Context: ${description}` : "",
-      "Builder Design System Intelligence is the source of truth for extracted tokens, components, assets, and usage guidance.",
+      "Builder Design System Intelligence is the source of truth for indexed tokens, components, assets, and usage guidance.",
     ]
       .filter(Boolean)
       .join("\n"),
@@ -388,7 +388,7 @@ export function createBuilderDesignSystemProxyFields({
     `Builder job id: ${result.jobId}`,
     `Builder project id: ${result.projectId}`,
     `Builder URL: ${result.builderUrl}`,
-    `When generating ${surfaceNoun}, treat Builder DSI as the source of truth for extracted tokens, components, assets, and usage guidance.`,
+    `When generating ${surfaceNoun}, treat Builder DSI as the source of truth for indexed tokens, components, assets, and usage guidance.`,
     "Call get-design-system for this local id before generation and use the returned builder docs and token values when available.",
   ].join("\n");
 

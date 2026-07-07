@@ -75,6 +75,12 @@ vi.mock("@shared/upload-limits.js", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ column, kind: "isNull" })),
+  ne: vi.fn((column: unknown, value: unknown) => ({
+    column,
+    value,
+    kind: "ne",
+  })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -94,6 +100,13 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/debug.js", () => ({
   debugLog: vi.fn(),
+}));
+
+vi.mock("../server/lib/builder-media-compression.js", () => ({
+  queueBuilderMediaCompression: vi.fn(async () => ({
+    queued: false,
+    reason: "test",
+  })),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({

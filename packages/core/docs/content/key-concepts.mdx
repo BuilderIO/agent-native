@@ -239,19 +239,16 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Core actions for quick database inspection and one-off maintenance
+# Core actions for quick database inspection
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Surgical find/replace on a large text column — sends a diff, not the whole value
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-The production agent chat plugin enables raw database writes by default
-(`databaseTools: "write"`) so agents can fix app-owned data without waiting on a
-new typed action. Those writes are scoped to the authenticated user/org. Set
-`databaseTools: "read"` to keep `db-schema` / `db-query` inspection only, or
+The production agent chat plugin defaults raw SQL tools to read-only
+(`databaseTools: "read"`), so agents inspect app-owned data with `db-schema` /
+`db-query` and perform writes through typed app actions. Set
+`databaseTools: "write"` (or `true`) only for deliberate maintenance surfaces
+that should also expose scoped `db-exec` / `db-patch`; set
 `databaseTools: "off"` / `false` to require typed app actions for all data
 access.
 

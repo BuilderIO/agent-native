@@ -25,6 +25,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { debugLog } from "../server/lib/debug.js";
 import {
   applyFaststart,
@@ -118,8 +119,28 @@ function stateBoolean(
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
   if (value === "false") return false;
+  if (value === "1") return true;
+  if (value === "0") return false;
   return value;
 }, z.boolean());
+
+function queueBackgroundBuilderCompression(args: {
+  recordingId: string;
+  ownerEmail: string;
+  videoUrl: string | null | undefined;
+  mimeType: string;
+  providerId?: string | null;
+  assetDbId?: string | null;
+  sourceSizeBytes?: number | null;
+  locallyTranscoded?: boolean;
+}): void {
+  void queueBuilderMediaCompression(args).catch((err) => {
+    console.warn("[finalize] failed to queue media compression", {
+      recordingId: args.recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
 
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
@@ -330,6 +351,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("MIME type of the assembled blob (e.g. video/webm)"),
+    locallyTranscoded: cliBoolean
+      .optional()
+      .describe(
+        "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
@@ -469,6 +495,17 @@ export default defineAction({
             // background.
             seekableApplied: false,
           });
+          if (result.status === "ready") {
+            queueBackgroundBuilderCompression({
+              recordingId: id,
+              ownerEmail,
+              videoUrl,
+              mimeType,
+              providerId: resumableSession.providerId,
+              sourceSizeBytes: resumableSession.bytesUploaded,
+              locallyTranscoded: args.locallyTranscoded === true,
+            });
+          }
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
           deleteResumableSession(id).catch((err) =>
@@ -956,7 +993,7 @@ export default defineAction({
         videoUrl: upload.url,
         bytes: uploadData.byteLength,
       });
-      return markRecordingReady({
+      const result = await markRecordingReady({
         ...readyParams,
         // Use the audio-probe-corrected value, not the raw client claim in
         // `readyParams` — see the audio sanity check above.
@@ -965,6 +1002,20 @@ export default defineAction({
         videoSizeBytes: uploadData.byteLength,
         seekableApplied,
       });
+      if (result.status === "ready") {
+        queueBackgroundBuilderCompression({
+          recordingId: id,
+          ownerEmail,
+          videoUrl: upload.url,
+          mimeType,
+          providerId: upload.provider,
+          assetDbId: upload.id,
+          sourceSizeBytes: uploadData.byteLength,
+          locallyTranscoded:
+            args.locallyTranscoded === true || Boolean(compressionMeta),
+        });
+      }
+      return result;
     } finally {
       // Unconditional chunk scratch-space cleanup. Runs on success AND on
       // error — a throw during uploadFile / drizzle update / anything else

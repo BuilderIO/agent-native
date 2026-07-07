@@ -403,14 +403,68 @@ export async function findAgent(
   return agents.find((a) => a.id === lower || a.name.toLowerCase() === lower);
 }
 
-function isDevEnvironment(): boolean {
+function hostnameFromUrlLike(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    try {
+      return new URL(`http://${value}`).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isLoopbackUrl(value: string | undefined): boolean {
+  const hostname = hostnameFromUrlLike(value);
   return (
-    typeof process !== "undefined" && process.env?.NODE_ENV !== "production"
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1"
   );
 }
 
+function hasPublicRuntimeUrl(): boolean {
+  // Intentionally omit generic `URL` / `DEPLOY_URL` here. Platforms that set
+  // those also expose a stronger hosted signal (for example `NETLIFY`), while
+  // local shells and unrelated tools can use generic URL vars for other work.
+  const keys = [
+    "WORKSPACE_GATEWAY_URL",
+    "VITE_WORKSPACE_GATEWAY_URL",
+    "APP_URL",
+    "WORKSPACE_OAUTH_ORIGIN",
+    "VITE_WORKSPACE_OAUTH_ORIGIN",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+    "VERCEL_URL",
+    "VERCEL_PROJECT_PRODUCTION_URL",
+  ];
+
+  return keys.some((key) => {
+    const value = process.env[key];
+    return !!value && !isLoopbackUrl(value);
+  });
+}
+
+function isHostedRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    !!process.env.NETLIFY ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.VERCEL ||
+    "__cf_env" in globalThis ||
+    hasPublicRuntimeUrl()
+  );
+}
+
+function shouldUseLocalAgentUrls(): boolean {
+  return !isHostedRuntime();
+}
+
 function resolveAgentUrl(app: AgentEntry): string {
-  if (isDevEnvironment()) {
+  if (shouldUseLocalAgentUrls()) {
     return app.devUrl || `http://localhost:${app.devPort}`;
   }
   return app.url;
@@ -584,8 +638,14 @@ function workspaceBaseUrl(): string | null {
   );
 }
 
-function workspaceAppUrl(app: WorkspaceAppManifestEntry): string | null {
-  if (app.url) return app.url;
+function workspaceAppUrl(
+  app: WorkspaceAppManifestEntry,
+  hostedLoopbackFallbackUrl?: string,
+): string | null {
+  if (app.url) {
+    if (!isHostedRuntime() || !isLoopbackUrl(app.url)) return app.url;
+    if (hostedLoopbackFallbackUrl) return hostedLoopbackFallbackUrl;
+  }
   const base = workspaceBaseUrl();
   if (!base) return null;
   try {
@@ -610,11 +670,11 @@ async function discoverWorkspaceAgents(
         app,
         metadataSettings,
       );
-      const url = workspaceAppUrl(withOverride);
-      if (!url) return null;
       const builtin = BUILTIN_AGENTS.find(
         (agent) => agent.id === withOverride.id,
       );
+      const url = workspaceAppUrl(withOverride, builtin?.url);
+      if (!url) return null;
       return {
         id: withOverride.id,
         name: withOverride.name,

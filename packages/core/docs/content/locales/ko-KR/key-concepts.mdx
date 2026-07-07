@@ -239,21 +239,18 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# 신속한 데이터베이스 검사 및 일회성 유지 관리를 위한 핵심 조치
+# 신속한 데이터베이스 검사를 위한 핵심 조치
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# 큰 텍스트 열의 외과적 find/replace — 전체 값이 아닌 차이점을 보냅니다.
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-프로덕션 에이전트 채팅 플러그인은 기본적으로 원시 데이터베이스 쓰기를 활성화합니다.
-(`databaseTools: "write"`) 상담원이 기다리지 않고 앱 소유 데이터를 수정할 수 있도록
-새로 입력된 작업입니다. 이러한 쓰기는 인증된 사용자/조직으로 범위가 지정됩니다. 설정
-`databaseTools: "read"`는 `db-schema` / `db-query` 검사만 유지하거나
-`databaseTools: "off"` / `false`는 모든 데이터에 대해 입력된 앱 actions를 요구합니다
-액세스.
+프로덕션 에이전트 채팅 플러그인은 raw SQL 도구를 기본적으로 읽기 전용으로 둡니다
+(`databaseTools: "read"`). 에이전트는 `db-schema` / `db-query`로 앱 소유
+데이터를 검사하고, 쓰기는 typed app actions를 통해 수행합니다.
+스코프가 적용된 `db-exec` / `db-patch`도 노출해야 하는 의도적인
+유지 관리 화면에서만 `databaseTools: "write"`(또는 `true`)를 설정합니다.
+모든 데이터 접근에 typed app actions를 요구하려면 `databaseTools: "off"` /
+`false`를 설정합니다.
 
 ## 에이전트 채팅 브리지 {#agent-chat-bridge}
 
@@ -437,6 +434,7 @@ UI는 경로 변경 시 이를 기록합니다. 상담원은 조치를 취하기
 
 - **[Dispatch](/docs/dispatch)** — 작업 공간 제어 플레인: 공유 받은 편지함, 비밀 금고, 예약된 작업 및 A2A를 통해 전문 앱에 위임하는 오케스트레이터.
 - **[Extensions](/docs/extensions)** — 에이전트가 런타임 시 생성하는 샌드박스형 Alpine.js 미니 앱, 소스 변경 또는 마이그레이션 없음.
+- **[데이터 프로그램](/docs/data-programs)** — 에이전트가 작성하고 저장한 `run-code` 스크립트로, 하드코딩된 provider action 대신 캐시되고 갱신 가능한 결과를 dashboard 패널에 제공합니다.
 - **[A2A Protocol](/docs/a2a-protocol)** — 동일한 작업 공간에 있는 앱이 JSON-RPC를 통해 서로를 검색하고 호출하는 방법
 
 ## 무료로 얻는 것 {#what-you-get-for-free}
