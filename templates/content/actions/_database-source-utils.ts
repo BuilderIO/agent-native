@@ -302,6 +302,7 @@ export function serializeSourceField(
 
 function serializeSourceRowRecord(
   row: ContentDatabaseSourceRecordRowDb,
+  options: { includeHeavyBuilderBodyValues?: boolean } = {},
 ): ContentDatabaseSourceRow {
   return {
     id: row.id,
@@ -310,16 +311,39 @@ function serializeSourceRowRecord(
     sourceRowId: row.sourceRowId,
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
-    sourceValues:
+    sourceValues: sourceValuesForSnapshot(
       parseObject<Record<string, DocumentPropertyValue>>(
         row.sourceValuesJson,
       ) ?? {},
+      options,
+    ),
     provenance: row.provenance,
     syncState: normalizeSourceSyncState(row.syncState),
     freshness: normalizeSourceFreshness(row.freshness),
     lastSyncedAt: row.lastSyncedAt,
     lastSourceUpdatedAt: row.lastSourceUpdatedAt,
   };
+}
+
+const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_READABLE_MAP_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
+]);
+
+export function sourceValuesForSnapshot(
+  sourceValues: Record<string, DocumentPropertyValue>,
+  options: { includeHeavyBuilderBodyValues?: boolean } = {},
+): Record<string, DocumentPropertyValue> {
+  if (options.includeHeavyBuilderBodyValues === true) return sourceValues;
+  let next: Record<string, DocumentPropertyValue> | null = null;
+  for (const key of HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(sourceValues, key)) continue;
+    next ??= { ...sourceValues };
+    delete next[key];
+  }
+  return next ?? sourceValues;
 }
 
 function serializeSourceChangeSet(
@@ -1919,7 +1943,9 @@ export async function getContentDatabaseSourceSnapshot(
       asc(schema.contentDatabaseSources.id),
     );
   if (!source) return null;
-  return loadSourceSnapshot(source, database);
+  return loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: false,
+  });
 }
 
 /**
@@ -1942,7 +1968,9 @@ export async function getContentDatabaseSourceSnapshotById(
       ),
     );
   if (!source) return null;
-  return loadSourceSnapshot(source, database);
+  return loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: false,
+  });
 }
 
 /**
@@ -1955,9 +1983,37 @@ export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
 ): Promise<ContentDatabaseSource | null> {
-  return sourceId
-    ? getContentDatabaseSourceSnapshotById(database, sourceId)
-    : getContentDatabaseSourceSnapshot(database);
+  if (sourceId) {
+    const db = getDb();
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, sourceId),
+          eq(schema.contentDatabaseSources.databaseId, database.id),
+        ),
+      );
+    return source
+      ? loadSourceSnapshot(source, database, {
+          includeHeavyBuilderBodyValues: true,
+        })
+      : null;
+  }
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
+  return source
+    ? loadSourceSnapshot(source, database, {
+        includeHeavyBuilderBodyValues: true,
+      })
+    : null;
 }
 
 /**
@@ -1982,7 +2038,11 @@ export async function getAllContentDatabaseSourceSnapshots(
     );
   const snapshots: ContentDatabaseSource[] = [];
   for (const source of sources) {
-    snapshots.push(await loadSourceSnapshot(source, database));
+    snapshots.push(
+      await loadSourceSnapshot(source, database, {
+        includeHeavyBuilderBodyValues: false,
+      }),
+    );
   }
   return snapshots;
 }
@@ -2135,6 +2195,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
+  options: { includeHeavyBuilderBodyValues: boolean },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
@@ -2218,7 +2279,11 @@ async function loadSourceSnapshot(
     database,
     isBuilderSource,
   });
-  const rows = rowRows.map(serializeSourceRowRecord);
+  const rows = rowRows.map((row) =>
+    serializeSourceRowRecord(row, {
+      includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
+    }),
+  );
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
   );

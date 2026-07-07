@@ -1223,9 +1223,15 @@ function DatabaseTable({
   ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
+    const scopedChangeSetIds =
+      activeBuilderReview && activeBuilderReview.rows.length > 0
+        ? activeBuilderReview.rows.map((row) => row.changeSetId)
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
+        sourceId: source?.id,
+        changeSetIds: scopedChangeSetIds,
         pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;
@@ -2240,6 +2246,25 @@ export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
       property.editable && !isComputedPropertyType(property.definition.type),
+  );
+}
+
+export function databaseBuilderBulkUpdateSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  selectedItems: ContentDatabaseItem[],
+) {
+  if (selectedItems.length === 0) return null;
+  const candidates =
+    sources.length > 0 ? sources : primarySource ? [primarySource] : [];
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.sourceType === "builder-cms" &&
+        selectedItems.every((item) =>
+          candidate.rows.some((row) => row.documentId === item.document.id),
+        ),
+    ) ?? null
   );
 }
 
@@ -6068,6 +6093,30 @@ function BuilderSpaceModelsView({
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
+    if (attachedModelName) {
+      return (
+        <div className="grid min-w-0 gap-2">
+          <div className="grid min-w-0 gap-1.5">
+            <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {dbText("alreadyAttached")}
+            </div>
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{attachedModelName}</span>
+              </span>
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                attached
+              </span>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            {dbText("loadingBuilderModels")}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
@@ -12096,7 +12145,7 @@ function DatabaseBulkEditPopover({
           disabled={disabled}
         >
           <IconPencil className="size-3.5" />
-          Set
+          Edit
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[28rem] p-2">
@@ -12308,7 +12357,7 @@ function DatabaseBulkScalarValueEditor({
         autoFocus
         value={value}
         type={inputType}
-        aria-label={`Set ${property.definition.name} for selected rows`}
+        aria-label={`Edit ${property.definition.name} for selected rows`}
         placeholder="Value"
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -12370,7 +12419,7 @@ function DatabaseBulkFilesValueEditor({
     >
       <textarea
         autoFocus
-        aria-label="Set files for selected rows"
+        aria-label={dbText("editFilesForSelectedRows")}
         value={value}
         placeholder={dbText("oneFileOrMediaLinkPerLine")}
         rows={4}
@@ -14508,7 +14557,6 @@ function DatabaseTableRow({
           item.properties.find(
             (candidate) => candidate.definition.id === property.definition.id,
           ) ?? property;
-
         const value = (
           <div
             className={cn(
@@ -14555,6 +14603,7 @@ function DatabaseTableRow({
               <PropertyValuePopover
                 property={itemProperty}
                 documentId={item.document.id}
+                databaseDocumentId={databaseDocumentId}
               >
                 {value}
               </PropertyValuePopover>

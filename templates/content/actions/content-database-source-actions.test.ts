@@ -27,6 +27,7 @@ import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
+import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
@@ -57,6 +58,47 @@ describe("content database source actions", () => {
         "change-2": { publicationTransition: "publish" },
       },
     });
+  });
+
+  it("accepts Builder source bulk update staging args", () => {
+    expect(
+      stageBulkUpdate.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        itemIds: ["item-1", "item-2"],
+        field: {
+          propertyId: "property-1",
+          value: "Docs team",
+        },
+        dryRun: false,
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      itemIds: ["item-1", "item-2"],
+      field: {
+        propertyId: "property-1",
+        value: "Docs team",
+      },
+      dryRun: false,
+    });
+  });
+
+  it("rejects Builder source bulk update requests above the combined row limit", () => {
+    expect(() =>
+      stageBulkUpdate.schema.parse({
+        documentId: "database-page",
+        itemIds: Array.from({ length: 75 }, (_, index) => `item-${index}`),
+        documentIds: Array.from(
+          { length: 75 },
+          (_, index) => `document-${index}`,
+        ),
+        field: {
+          propertyId: "property-1",
+          value: "Docs team",
+        },
+      }),
+    ).toThrow("Builder source bulk updates are limited to 100 rows.");
   });
 
   it("defaults source attachment to the safe mock-local source type", () => {
@@ -362,12 +404,14 @@ describe("content database source actions", () => {
     expect(
       prepareReview.schema.parse({
         documentId: "database-page",
+        changeSetIds: ["change-set"],
         pushModeConfirmation: "autosave",
         publicationTransition: "unpublish",
         confirmUnpublish: true,
       }),
     ).toEqual({
       documentId: "database-page",
+      changeSetIds: ["change-set"],
       pushModeConfirmation: "autosave",
       publicationTransition: "unpublish",
       confirmUnpublish: true,
