@@ -5257,3 +5257,256 @@ it(
     }
   },
 );
+
+// ── Absolute-into-pristine-flow reparent target + failed-move rollback ──────
+//
+// Regression: dragging a source-backed absolute-positioned element into a
+// pristine (childless) flex/auto-layout container that is itself nested
+// under another container (e.g. <main>) used to resolve the reparent TARGET
+// one level too high — autoLayoutInsertionTargetForPoint checked "is
+// cursor's PARENT a container" (sibling-insert, inside cursor's own parent)
+// BEFORE checking "is CURSOR ITSELF a container" (nest inside cursor). Since
+// an ancestor like <main> almost always satisfies the parent check, hovering
+// directly over an empty flex row matched the sibling-insert branch first
+// and the drop anchored to the OUTER container instead of nesting inside the
+// hovered row. Fixed by promoting the cursor-is-container checks ahead of
+// the parent-is-container fallback (matching reorderTargetForPoint's
+// working precedence for the flow-reorder gesture).
+//
+// Second regression: once a host-side move-node round-trip fails (e.g. the
+// resolved anchor can't be matched in the persisted HTML), the bridge's
+// optimistic DOM mutation — reparent AND the absolute-into-flow position
+// strip — was not fully undone: the visual-structure-ack failure branch
+// restored the prior parent/sibling but left position/left/top stripped,
+// leaving the element stuck in a half-reverted, visually broken state. Fixed
+// by snapshotting the inline position/left/top/right/bottom values before
+// the optimistic strip and restoring them alongside the DOM revert.
+
+it(
+  "resolves the reparent target to the hovered pristine flex row, not its outer ancestor",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      // #row is a PRISTINE (childless) flex container nested inside <main>,
+      // which is itself a valid BRIDGE_CONTAINER_TAGS nesting target — the
+      // exact shape that triggered the wrong-ancestor bug (main satisfies
+      // the old "is cursor's parent a container" check before #row's own
+      // "is cursor a container" check ever ran).
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      main {
+        position: absolute; left: 0; top: 0; width: 900px; height: 700px;
+      }
+      #row {
+        position: absolute; left: 250px; top: 100px;
+        width: 320px; height: 200px; background: #eef2ff;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      #dragme {
+        position: absolute; left: 40px; top: 40px;
+        width: 80px; height: 60px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <main data-agent-native-node-id="main">
+      <div id="row" data-agent-native-node-id="row"></div>
+    </main>
+    <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Select #dragme (center at 80, 70) and drag it into #row's center
+      // (410, 200) — the row has no children, so the pointer's hit target
+      // IS the row itself, the exact scenario that used to resolve one
+      // level too high.
+      await page.mouse.click(80, 70);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(80, 70);
+      await page.mouse.down();
+      await page.mouse.move(90, 80, { steps: 4 });
+      await page.mouse.move(410, 200, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          draggedParentId: dragged.parentElement?.id,
+          position: dragged.style.position,
+        };
+      });
+
+      // Correct target: reparented INTO #row, not as a sibling inside <main>.
+      expect(result.draggedParentId).toBe("row");
+      // Absolute-into-flow strip still applies on the correct target.
+      expect(result.position).toBe("");
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as any;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage.dropMode).toBe("flow-insert");
+      // The anchor must identify #row (via its stable node id), never <main>.
+      expect(structureMessage.anchorSourceId).toBe("row");
+      expect(structureMessage.anchorSelector).toContain("row");
+      expect(structureMessage.anchorSourceId).not.toBe("main");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "rolls back parent, DOM position, and stripped inline styles when the host rejects the move",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #origin {
+        position: absolute; left: 0; top: 350px; width: 300px; height: 200px;
+      }
+      #row {
+        position: absolute; left: 250px; top: 100px;
+        width: 320px; height: 200px; background: #eef2ff;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      #sibling {
+        width: 60px; height: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="origin" data-agent-native-node-id="origin">
+      <div id="dragme" style="position:absolute;left:40px;top:40px;width:80px;height:60px;background:#6366f1" data-agent-native-node-id="dragme">Drag me</div>
+      <span id="sibling" data-agent-native-node-id="sibling">Anchor</span>
+    </div>
+    <div id="row" data-agent-native-node-id="row"></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const before = await page.evaluate(() => {
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          parentId: dragged.parentElement?.id,
+          nextSiblingId: (dragged.nextElementSibling as HTMLElement | null)?.id,
+          position: dragged.style.position,
+          left: dragged.style.left,
+          top: dragged.style.top,
+        };
+      });
+      expect(before.parentId).toBe("origin");
+      expect(before.nextSiblingId).toBe("sibling");
+      expect(before.position).toBe("absolute");
+
+      // Drag #dragme (center ~80, 420) into the pristine #row (center 410, 200).
+      await page.mouse.click(80, 420);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(80, 420);
+      await page.mouse.down();
+      await page.mouse.move(90, 410, { steps: 4 });
+      await page.mouse.move(410, 200, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      // Confirm the optimistic move + strip happened (pre-rollback state).
+      const optimistic = await page.evaluate(() => {
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          parentId: dragged.parentElement?.id,
+          position: dragged.style.position,
+        };
+      });
+      expect(optimistic.parentId).toBe("row");
+      expect(optimistic.position).toBe("");
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as any;
+      expect(structureMessage).toBeTruthy();
+      const requestId = structureMessage.requestId as string;
+      expect(requestId).toBeTruthy();
+
+      // Simulate the host rejecting the move (e.g. the resolved anchor
+      // couldn't be matched against the persisted HTML) — exactly what
+      // DesignEditor.tsx's onVisualStructureChange handler does when
+      // handleVisualStructureChange returns false.
+      await page.evaluate((id: string) => {
+        window.postMessage(
+          { type: "visual-structure-ack", requestId: id, applied: false },
+          "*",
+        );
+      }, requestId);
+      await page.waitForTimeout(30);
+
+      const after = await page.evaluate(() => {
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          parentId: dragged.parentElement?.id,
+          nextSiblingId: (dragged.nextElementSibling as HTMLElement | null)?.id,
+          position: dragged.style.position,
+          left: dragged.style.left,
+          top: dragged.style.top,
+        };
+      });
+
+      // Full rollback: original parent, original DOM position (still before
+      // #sibling), AND the stripped position/left/top inline styles restored
+      // — not left stuck reparented-and-stripped.
+      expect(after.parentId).toBe(before.parentId);
+      expect(after.nextSiblingId).toBe(before.nextSiblingId);
+      expect(after.position).toBe(before.position);
+      expect(after.left).toBe(before.left);
+      expect(after.top).toBe(before.top);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

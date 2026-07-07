@@ -4124,20 +4124,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         var parent = cursor.parentElement;
-        if (parent && parent !== document.body && isContainerDropTarget(parent)) {
-          var parentAxis = parentFlowAxis(parent);
-          var childRect = cursor.getBoundingClientRect();
-          var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
-          var childPointer = parentAxis === "x" ? clientX : clientY;
-          return {
-            anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
-            axis: parentAxis,
-            dropMode: "flow-insert",
-            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-            conversionTarget: parent
-          };
-        }
         if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
           return {
             anchor: cursor,
@@ -4146,7 +4132,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "absolute-container"
           };
         }
-        if (cursor !== document.body && isContainerDropTarget(cursor)) {
+        if (cursor !== document.body && isContainerDropTarget(cursor) && !(parent && parent !== document.body && isAutoLayoutElement(parent))) {
           var betweenContainerChildren = nearestChildInsertionTarget(
             cursor,
             clientX,
@@ -4170,6 +4156,20 @@ export const editorChromeBridgeScript: string = `"use strict";
             dropMode: "flow-insert",
             needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
             conversionTarget: cursor
+          };
+        }
+        if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+          var parentAxis = parentFlowAxis(parent);
+          var childRect = cursor.getBoundingClientRect();
+          var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
+          var childPointer = parentAxis === "x" ? clientX : clientY;
+          return {
+            anchor: cursor,
+            placement: childPointer < childCenter ? "before" : "after",
+            axis: parentAxis,
+            dropMode: "flow-insert",
+            needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+            conversionTarget: parent
           };
         }
         cursor = parent;
@@ -4221,6 +4221,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       "right",
       "bottom"
     ];
+    function snapshotInlinePositionStyles(el) {
+      var htmlEl = el;
+      var snapshot = {};
+      for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+        var prop = ABS_POSITION_INLINE_PROPS[i];
+        snapshot[prop] = htmlEl.style.getPropertyValue(prop);
+      }
+      return snapshot;
+    }
+    function restoreInlinePositionStyles(el, snapshot) {
+      if (!snapshot) return;
+      var htmlEl = el;
+      for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+        var prop = ABS_POSITION_INLINE_PROPS[i];
+        var value = snapshot[prop];
+        if (value) {
+          htmlEl.style.setProperty(prop, value);
+        } else {
+          htmlEl.style.removeProperty(prop);
+        }
+      }
+    }
+    function dragOriginInlinePositionStyles(state) {
+      return {
+        position: state.originalPosition,
+        left: state.originalLeft,
+        top: state.originalTop,
+        right: "",
+        bottom: ""
+      };
+    }
     function stripAbsolutePositioningForFlowInsert(el, target) {
       if (!target || target.dropMode !== "flow-insert") return;
       var htmlEl = el;
@@ -4321,7 +4352,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
-    function applyGroupStructureDrop(members, target, ev) {
+    function applyGroupStructureDrop(members, target, ev, originInlineStylesFor) {
       var container = dropContainerForTarget(target);
       var previous = null;
       for (var i = 0; i < members.length; i += 1) {
@@ -4334,11 +4365,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
         var prevParent = member.parentElement;
         var prevNextSibling = member.nextSibling;
+        var prevInlinePositionStyles = originInlineStylesFor ? originInlineStylesFor(member) : snapshotInlinePositionStyles(member);
         adaptAutoTextColorForNest(member, container);
         applyRuntimeReorder(member, memberTarget);
         postVisualStructureChange(member, memberTarget, {
           prevParent,
-          prevNextSibling
+          prevNextSibling,
+          prevInlinePositionStyles
         });
         previous = member;
       }
@@ -4649,6 +4682,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } else {
             var prevParent = reorderEl.parentElement;
             var prevNextSibling = reorderEl.nextSibling;
+            var prevInlinePositionStyles = snapshotInlinePositionStyles(reorderEl);
             adaptAutoTextColorForNest(
               reorderEl,
               dropContainerForTarget(currentTarget)
@@ -4656,7 +4690,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             applyRuntimeReorder(reorderEl, currentTarget);
             postVisualStructureChange(reorderEl, currentTarget, {
               prevParent,
-              prevNextSibling
+              prevNextSibling,
+              prevInlinePositionStyles
             });
           }
         };
@@ -4876,10 +4911,21 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
           }
           if (isGroupDrag) {
-            applyGroupStructureDrop(groupEls, currentAutoLayoutTarget, ev);
+            applyGroupStructureDrop(
+              groupEls,
+              currentAutoLayoutTarget,
+              ev,
+              function(member) {
+                var state = memberStates.filter(function(s) {
+                  return s.el === member;
+                })[0];
+                return state ? dragOriginInlinePositionStyles(state) : snapshotInlinePositionStyles(member);
+              }
+            );
           } else {
             var prevParent = dragEl.parentElement;
             var prevNextSibling = dragEl.nextSibling;
+            var prevInlinePositionStyles = dragOriginInlinePositionStyles(gestureState);
             adaptAutoTextColorForNest(
               dragEl,
               dropContainerForTarget(currentAutoLayoutTarget)
@@ -4887,7 +4933,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             applyRuntimeReorder(dragEl, currentAutoLayoutTarget);
             postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
               prevParent,
-              prevNextSibling
+              prevNextSibling,
+              prevInlinePositionStyles
             });
           }
         } else {
@@ -6242,6 +6289,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             move.origin.prevParent.insertBefore(
               move.el,
               move.origin.prevNextSibling
+            );
+            restoreInlinePositionStyles(
+              move.el,
+              move.origin.prevInlinePositionStyles
             );
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);

@@ -1576,7 +1576,19 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       requestId: string;
       el: Element;
       target: { anchor: Element; placement: string; axis?: string };
-      origin: { prevParent: Element; prevNextSibling: Node | null } | null;
+      origin: {
+        prevParent: Element;
+        prevNextSibling: Node | null;
+        // Inline position/left/top/right/bottom VALUES captured right before
+        // the optimistic reorder's stripAbsolutePositioningForFlowInsert ran
+        // (absent/undefined when that strip did not apply — e.g. an
+        // absolute-container drop, or a flow-reorder of an already-flow
+        // element with nothing to strip). Restored by the visual-structure-ack
+        // failure branch alongside the parent/sibling revert so a rejected
+        // move-node round-trip cannot leave the element stripped of its
+        // absolute positioning while stuck in the wrong parent.
+        prevInlinePositionStyles?: Record<string, string> | null;
+      } | null;
     }
   > = {};
   var pendingShieldDrag: {
@@ -6010,34 +6022,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // node whose parent happens to be body — must fall through to a plain
       // absolute placement instead of silently wrapping body in auto-layout.
       var parent = cursor.parentElement;
-      if (parent && parent !== document.body && isContainerDropTarget(parent)) {
-        var parentAxis = parentFlowAxis(parent);
-        var childRect = cursor.getBoundingClientRect();
-        var childCenter =
-          parentAxis === "x"
-            ? childRect.left + childRect.width / 2
-            : childRect.top + childRect.height / 2;
-        var childPointer = parentAxis === "x" ? clientX : clientY;
-        return {
-          anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
-          axis: parentAxis,
-          dropMode: "flow-insert",
-          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
-          conversionTarget: parent,
-        };
-      }
       // Absolute-primitive-container target (a canvas rectangle marked
       // data-an-primitive="rectangle"/"rect"): this is a dedicated
       // free-placement container, not a Figma-style auto-layout frame — the
       // matching reorderTargetForPoint (flow-reorder) branch already
       // recognizes it via this same helper and assigns dropMode
       // "absolute-container" so onUp skips the auto-layout conversion and
-      // keeps the moved element's position:absolute. This branch was
-      // missing here (the absolute-drag path), so dragging an
-      // ABSOLUTE-positioned element onto an absolute rectangle container fell
-      // through to the generic isContainerDropTarget branch below and got
-      // incorrectly converted to flex + flow-inserted instead.
+      // keeps the moved element's position:absolute.
       if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
         return {
           anchor: cursor,
@@ -6046,12 +6037,40 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           dropMode: "absolute-container",
         };
       }
-      if (cursor !== document.body && isContainerDropTarget(cursor)) {
-        // B5-4 (absolute path): pointer over the container's own background
-        // — its padding or a gap between children. Prefer the nearest child
-        // slot (insertion line at the pointer index) over plain "inside"
-        // (which appends after the last child); fall back to "inside" only
-        // for containers with no visible children.
+      // Nest-inside-what-you're-hovering takes priority over sibling-insert
+      // UNLESS cursor is already a managed flex-item of an ESTABLISHED
+      // auto-layout parent (isAutoLayoutElement — genuinely display:flex/grid,
+      // not just an isContainerDropTarget tag match). That parent-is-already-
+      // auto-layout signal is what distinguishes "cursor is a list item being
+      // reordered within its existing list" (sibling-insert is correct: a
+      // plain-block <div> chip that is itself a flex-item of #frame/#col)
+      // from "cursor is genuinely being hovered as a nesting target" (a
+      // pristine/empty container, or a real container whose own parent isn't
+      // already running auto-layout — e.g. a top-level or newly-adjacent
+      // rectangle, matching reorderTargetForPoint's isContainerDropTarget(hit)
+      // priority for the flow-reorder gesture).
+      //
+      // This check used to run AFTER the sibling-insert branch below with no
+      // such carve-out, so hovering directly over a pristine/empty auto-layout
+      // container nested under a NON-auto-layout ancestor (e.g. a plain
+      // <main>) — whose own parent still satisfies the old unconditional
+      // "isContainerDropTarget(parent)" check — matched the sibling-insert
+      // branch first and resolved the drop one level too high (anchoring
+      // before/after the hovered container inside ITS parent, instead of
+      // nesting inside the hovered container). Fixed by promoting this
+      // nest-inside check ahead of the sibling-insert fallback, gated on the
+      // parent NOT already being an established auto-layout list (so genuine
+      // flex-item reordering inside an existing list is unaffected).
+      if (
+        cursor !== document.body &&
+        isContainerDropTarget(cursor) &&
+        !(parent && parent !== document.body && isAutoLayoutElement(parent))
+      ) {
+        // B5-4 (absolute path): pointer over the container's own
+        // background — its padding or a gap between children. Prefer the
+        // nearest child slot (insertion line at the pointer index) over
+        // plain "inside" (which appends after the last child); fall back
+        // to "inside" only for containers with no visible children.
         var betweenContainerChildren = nearestChildInsertionTarget(
           cursor,
           clientX,
@@ -6075,6 +6094,23 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           dropMode: "flow-insert",
           needsAutoLayoutConversion: !isAutoLayoutElement(cursor),
           conversionTarget: cursor,
+        };
+      }
+      if (parent && parent !== document.body && isContainerDropTarget(parent)) {
+        var parentAxis = parentFlowAxis(parent);
+        var childRect = cursor.getBoundingClientRect();
+        var childCenter =
+          parentAxis === "x"
+            ? childRect.left + childRect.width / 2
+            : childRect.top + childRect.height / 2;
+        var childPointer = parentAxis === "x" ? clientX : clientY;
+        return {
+          anchor: cursor,
+          placement: childPointer < childCenter ? "before" : "after",
+          axis: parentAxis,
+          dropMode: "flow-insert",
+          needsAutoLayoutConversion: !isAutoLayoutElement(parent),
+          conversionTarget: parent,
         };
       }
       cursor = parent;
@@ -6153,6 +6189,61 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     "right",
     "bottom",
   ];
+  // Snapshot of the inline position/left/top/right/bottom VALUES (not just
+  // whether they existed) taken right before stripAbsolutePositioningForFlowInsert
+  // runs, so a failed move-node round-trip can restore exactly what was
+  // there — including "" for a property that had no inline value at all,
+  // which style.removeProperty already treats correctly as "unset". Reused
+  // by the visual-structure-ack failure branch below to undo the optimistic
+  // strip together with the parent/sibling DOM revert.
+  function snapshotInlinePositionStyles(el: Element): Record<string, string> {
+    var htmlEl = el as HTMLElement;
+    var snapshot: Record<string, string> = {};
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      var prop = ABS_POSITION_INLINE_PROPS[i];
+      snapshot[prop] = htmlEl.style.getPropertyValue(prop);
+    }
+    return snapshot;
+  }
+  function restoreInlinePositionStyles(
+    el: Element,
+    snapshot: Record<string, string> | null | undefined,
+  ): void {
+    if (!snapshot) return;
+    var htmlEl = el as HTMLElement;
+    for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
+      var prop = ABS_POSITION_INLINE_PROPS[i];
+      var value = snapshot[prop];
+      if (value) {
+        htmlEl.style.setProperty(prop, value);
+      } else {
+        htmlEl.style.removeProperty(prop);
+      }
+    }
+  }
+  // Builds the same snapshot shape as snapshotInlinePositionStyles, but from
+  // a startMove memberState's TRUE pre-drag inline values (captured once at
+  // gesture start — see memberStates below) rather than the live element's
+  // CURRENT inline styles. Used at the startMove/applyGroupStructureDrop
+  // call sites: those paths continuously rewrite the dragged element's
+  // left/top to follow the pointer throughout the free-drag phase, so a
+  // snapshot taken right before the strip would only capture the LAST
+  // dragged-to position, not the position the element should return to when
+  // the whole move-node round-trip is rejected and it goes back to its
+  // original parent.
+  function dragOriginInlinePositionStyles(state: {
+    originalPosition: string;
+    originalLeft: string;
+    originalTop: string;
+  }): Record<string, string> {
+    return {
+      position: state.originalPosition,
+      left: state.originalLeft,
+      top: state.originalTop,
+      right: "",
+      bottom: "",
+    };
+  }
   function stripAbsolutePositioningForFlowInsert(el: Element, target): void {
     if (!target || target.dropMode !== "flow-insert") return;
     var htmlEl = el as HTMLElement;
@@ -6315,7 +6406,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // selection to each moved node as it processes each message, so a final
   // marquee-selection message restores the full multi-selection afterwards
   // (requirement: selection stays intact after a group drop).
-  function applyGroupStructureDrop(members: Element[], target, ev): void {
+  // `originInlineStylesFor` (optional): resolves a member's TRUE pre-drag
+  // position/left/top snapshot (see dragOriginInlinePositionStyles) when the
+  // caller has that gesture-start state available (the startMove auto-layout
+  // branch, whose onMove continuously rewrites left/top to follow the
+  // pointer). Falls back to a live snapshot taken here for the flow-reorder
+  // branch's group call site, which never mutates left/top during its drag
+  // (flow-reorder has no free left/top phase), so the live value IS the
+  // pre-strip/pre-move value there.
+  function applyGroupStructureDrop(
+    members: Element[],
+    target,
+    ev,
+    originInlineStylesFor?: (member: Element) => Record<string, string>,
+  ): void {
     var container = dropContainerForTarget(target);
     var previous: Element | null = null;
     for (var i = 0; i < members.length; i += 1) {
@@ -6333,6 +6437,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
               };
       var prevParent = member.parentElement;
       var prevNextSibling = member.nextSibling;
+      // Captured BEFORE applyRuntimeReorder so a rejected move-node
+      // round-trip can restore the exact pre-strip inline values (see
+      // snapshotInlinePositionStyles / dragOriginInlinePositionStyles doc
+      // comments).
+      var prevInlinePositionStyles = originInlineStylesFor
+        ? originInlineStylesFor(member)
+        : snapshotInlinePositionStyles(member);
       // Board-text auto-color: adapt before the DOM move so the re-parent
       // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
@@ -6340,6 +6451,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       postVisualStructureChange(member, memberTarget, {
         prevParent: prevParent,
         prevNextSibling: prevNextSibling,
+        prevInlinePositionStyles: prevInlinePositionStyles,
       });
       previous = member;
     }
@@ -6799,6 +6911,13 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           // reports applied===false on the structure-ack.
           var prevParent = reorderEl.parentElement;
           var prevNextSibling = reorderEl.nextSibling;
+          // Usually a no-op here (flow-reorder drags a member that's
+          // already in flow, so there's nothing to strip), but captured for
+          // consistency so an absolute-positioned element reordered through
+          // this gesture still rolls back its inline styles correctly on a
+          // rejected move-node round-trip.
+          var prevInlinePositionStyles =
+            snapshotInlinePositionStyles(reorderEl);
           adaptAutoTextColorForNest(
             reorderEl,
             dropContainerForTarget(currentTarget),
@@ -6810,6 +6929,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postVisualStructureChange(reorderEl, currentTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
+            prevInlinePositionStyles: prevInlinePositionStyles,
           });
         }
       }
@@ -7087,10 +7207,31 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           );
         }
         if (isGroupDrag) {
-          applyGroupStructureDrop(groupEls, currentAutoLayoutTarget, ev);
+          applyGroupStructureDrop(
+            groupEls,
+            currentAutoLayoutTarget,
+            ev,
+            function (member) {
+              var state = memberStates.filter(function (s) {
+                return s.el === member;
+              })[0];
+              return state
+                ? dragOriginInlinePositionStyles(state)
+                : snapshotInlinePositionStyles(member);
+            },
+          );
         } else {
           var prevParent = dragEl.parentElement;
           var prevNextSibling = dragEl.nextSibling;
+          // The element's TRUE pre-drag inline position/left/top (gestureState
+          // is captured once at drag start, before onMove's continuous
+          // pointer-follow rewrites left/top) — not a snapshot taken here,
+          // which would only capture the LAST dragged-to position. On a
+          // rejected move-node round-trip the element goes back to its
+          // ORIGINAL parent, so it must also go back to the position it had
+          // in that original parent, not a mid-drag coordinate.
+          var prevInlinePositionStyles =
+            dragOriginInlinePositionStyles(gestureState);
           adaptAutoTextColorForNest(
             dragEl,
             dropContainerForTarget(currentAutoLayoutTarget),
@@ -7099,6 +7240,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postVisualStructureChange(dragEl, currentAutoLayoutTarget, {
             prevParent: prevParent,
             prevNextSibling: prevNextSibling,
+            prevInlinePositionStyles: prevInlinePositionStyles,
           });
         }
       } else {
@@ -8924,7 +9066,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           postElementSelect(selectedEl);
         }
       } else {
-        // Revert the optimistic reorder to its pre-drag position.
+        // Revert the optimistic reorder to its pre-drag position AND
+        // restore any inline position/left/top/right/bottom the optimistic
+        // reorder stripped (stripAbsolutePositioningForFlowInsert runs
+        // inside applyRuntimeReorder for flow-insert drops). Without this
+        // second half a rejected move-node round-trip left the element
+        // re-parented back to its original container but permanently
+        // stripped of its absolute positioning — worse than doing nothing,
+        // since it now renders at the flow position of a detached style
+        // instead of either its original spot or the intended drop slot.
         if (
           move.el &&
           move.el.isConnected &&
@@ -8935,6 +9085,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           move.origin.prevParent.insertBefore(
             move.el,
             move.origin.prevNextSibling,
+          );
+          restoreInlinePositionStyles(
+            move.el,
+            move.origin.prevInlinePositionStyles,
           );
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
