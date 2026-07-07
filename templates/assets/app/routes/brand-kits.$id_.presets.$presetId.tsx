@@ -107,6 +107,12 @@ const NO_COLLECTION = "__none__";
 const NO_SKELETON_BACKGROUND = "__none__";
 const NO_SKELETON_MASK = "__none__";
 
+function usesSkeletonInpaintMode(
+  form: Pick<PresetFormState, "model" | "skeletonContentMode">,
+) {
+  return form.skeletonContentMode === "cutout" && form.model === "gpt-image-2";
+}
+
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.generationPreset }];
 }
@@ -147,7 +153,7 @@ function buildSkeletonSpec(
     ...(previous?.foreground ?? []).filter(
       (layer) => layer.source !== "canonicalLogo",
     ),
-    ...(form.skeletonLogo
+    ...(form.skeletonLogo && !usesSkeletonInpaintMode(form)
       ? [logoLayerFromPlacement(form.skeletonLogoPlacement)]
       : []),
   ];
@@ -957,7 +963,7 @@ export default function GenerationPresetEditorRoute() {
               </span>
             </span>
           </label>
-          <div className="grid gap-4 rounded-md border border-border p-4">
+          <div className="grid min-w-0 gap-4 rounded-md border border-border p-4">
             <label
               htmlFor="preset-skeleton-enabled"
               className={cn("flex items-start gap-3", readOnly && "opacity-70")}
@@ -981,7 +987,7 @@ export default function GenerationPresetEditorRoute() {
               </span>
             </label>
             {form.skeletonEnabled ? (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <FieldLabel>{t("brandKitDetail.contentMode")}</FieldLabel>
                   <Select
@@ -1004,9 +1010,9 @@ export default function GenerationPresetEditorRoute() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-3 sm:col-span-2">
+                <div className="grid min-w-0 gap-3 sm:col-span-2">
                   <FieldLabel>{t("brandKitDetail.skeletonImage")}</FieldLabel>
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(12rem,1fr)_minmax(12rem,16rem)]">
                     <button
                       type="button"
                       className={cn(
@@ -1029,7 +1035,7 @@ export default function GenerationPresetEditorRoute() {
                         </span>
                       )}
                     </button>
-                    <div className="grid content-start gap-2">
+                    <div className="grid min-w-0 content-start gap-2">
                       <input
                         ref={skeletonFileInputRef}
                         type="file"
@@ -1043,7 +1049,7 @@ export default function GenerationPresetEditorRoute() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="gap-2"
+                        className="w-full min-w-0 gap-2"
                         disabled={readOnly || skeletonUploadPending}
                         onClick={() => skeletonFileInputRef.current?.click()}
                       >
@@ -1052,9 +1058,11 @@ export default function GenerationPresetEditorRoute() {
                         ) : (
                           <IconUpload className="h-4 w-4" />
                         )}
-                        {skeletonUploadPending
-                          ? t("brandKitDetail.uploadingSkeletonImage")
-                          : t("brandKitDetail.uploadSkeletonImage")}
+                        <span className="min-w-0 truncate">
+                          {skeletonUploadPending
+                            ? t("brandKitDetail.uploadingSkeletonImage")
+                            : t("brandKitDetail.uploadSkeletonImage")}
+                        </span>
                       </Button>
                       <Select
                         value={
@@ -1064,7 +1072,7 @@ export default function GenerationPresetEditorRoute() {
                         disabled={readOnly || !skeletonBackgroundAssets.length}
                         onValueChange={updateSkeletonBackgroundAsset}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="min-w-0">
                           <SelectValue
                             placeholder={t(
                               "brandKitDetail.chooseSkeletonImage",
@@ -1090,9 +1098,9 @@ export default function GenerationPresetEditorRoute() {
                 </div>
                 {form.skeletonContentMode === "cutout" &&
                 form.model === "gpt-image-2" ? (
-                  <div className="grid gap-3 sm:col-span-2">
+                  <div className="grid min-w-0 gap-3 sm:col-span-2">
                     <FieldLabel>{t("brandKitDetail.skeletonMask")}</FieldLabel>
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem]">
+                    <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(12rem,1fr)_minmax(12rem,16rem)]">
                       <button
                         type="button"
                         className={cn(
@@ -1119,7 +1127,7 @@ export default function GenerationPresetEditorRoute() {
                           </span>
                         )}
                       </button>
-                      <div className="grid content-start gap-2">
+                      <div className="grid min-w-0 content-start gap-2">
                         <input
                           ref={skeletonMaskFileInputRef}
                           type="file"
@@ -1133,7 +1141,7 @@ export default function GenerationPresetEditorRoute() {
                         <Button
                           type="button"
                           variant="outline"
-                          className="gap-2"
+                          className="w-full min-w-0 gap-2"
                           disabled={readOnly || skeletonMaskUploadPending}
                           onClick={() =>
                             skeletonMaskFileInputRef.current?.click()
@@ -1144,9 +1152,11 @@ export default function GenerationPresetEditorRoute() {
                           ) : (
                             <IconUpload className="h-4 w-4" />
                           )}
-                          {skeletonMaskUploadPending
-                            ? t("brandKitDetail.uploadingSkeletonMask")
-                            : t("brandKitDetail.uploadSkeletonMask")}
+                          <span className="min-w-0 truncate">
+                            {skeletonMaskUploadPending
+                              ? t("brandKitDetail.uploadingSkeletonMask")
+                              : t("brandKitDetail.uploadSkeletonMask")}
+                          </span>
                         </Button>
                         <Select
                           value={form.skeletonMaskAssetId || NO_SKELETON_MASK}
@@ -1155,7 +1165,7 @@ export default function GenerationPresetEditorRoute() {
                           }
                           onValueChange={updateSkeletonMaskAsset}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger className="min-w-0">
                             <SelectValue
                               placeholder={t(
                                 "brandKitDetail.chooseSkeletonMask",
@@ -1207,61 +1217,68 @@ export default function GenerationPresetEditorRoute() {
                     </span>
                   </label>
                 ) : null}
-                <label
-                  htmlFor="preset-skeleton-logo"
-                  className={cn(
-                    "flex items-start gap-3 rounded-md border border-border p-3",
-                    readOnly && "opacity-70",
-                  )}
-                >
-                  <Checkbox
-                    id="preset-skeleton-logo"
-                    checked={form.skeletonLogo}
-                    disabled={readOnly || !library?.canonicalLogoAssetId}
-                    onCheckedChange={(checked) =>
-                      updateForm({ skeletonLogo: checked === true })
-                    }
-                    className="mt-0.5"
-                  />
-                  <span className="grid gap-1">
-                    <span className="text-sm font-medium leading-none">
-                      {t("brandKitDetail.placeLogoInSkeleton")}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {t("brandKitDetail.placeLogoInSkeletonHint")}
-                    </span>
-                  </span>
-                </label>
-                <div className="grid gap-2">
-                  <FieldLabel>{t("brandKitDetail.logoPlacement")}</FieldLabel>
-                  <Select
-                    value={form.skeletonLogoPlacement}
-                    disabled={readOnly || !form.skeletonLogo}
-                    onValueChange={(value) =>
-                      updateForm({
-                        skeletonLogoPlacement: value as SkeletonLogoPlacement,
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="upper-right">
-                        {t("brandKitDetail.upperRight")}
-                      </SelectItem>
-                      <SelectItem value="upper-left">
-                        {t("brandKitDetail.upperLeft")}
-                      </SelectItem>
-                      <SelectItem value="lower-right">
-                        {t("brandKitDetail.lowerRight")}
-                      </SelectItem>
-                      <SelectItem value="lower-left">
-                        {t("brandKitDetail.lowerLeft")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!usesSkeletonInpaintMode(form) ? (
+                  <>
+                    <label
+                      htmlFor="preset-skeleton-logo"
+                      className={cn(
+                        "flex items-start gap-3 rounded-md border border-border p-3",
+                        readOnly && "opacity-70",
+                      )}
+                    >
+                      <Checkbox
+                        id="preset-skeleton-logo"
+                        checked={form.skeletonLogo}
+                        disabled={readOnly || !library?.canonicalLogoAssetId}
+                        onCheckedChange={(checked) =>
+                          updateForm({ skeletonLogo: checked === true })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="grid gap-1">
+                        <span className="text-sm font-medium leading-none">
+                          {t("brandKitDetail.placeLogoInSkeleton")}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {t("brandKitDetail.placeLogoInSkeletonHint")}
+                        </span>
+                      </span>
+                    </label>
+                    <div className="grid gap-2">
+                      <FieldLabel>
+                        {t("brandKitDetail.logoPlacement")}
+                      </FieldLabel>
+                      <Select
+                        value={form.skeletonLogoPlacement}
+                        disabled={readOnly || !form.skeletonLogo}
+                        onValueChange={(value) =>
+                          updateForm({
+                            skeletonLogoPlacement:
+                              value as SkeletonLogoPlacement,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="upper-right">
+                            {t("brandKitDetail.upperRight")}
+                          </SelectItem>
+                          <SelectItem value="upper-left">
+                            {t("brandKitDetail.upperLeft")}
+                          </SelectItem>
+                          <SelectItem value="lower-right">
+                            {t("brandKitDetail.lowerRight")}
+                          </SelectItem>
+                          <SelectItem value="lower-left">
+                            {t("brandKitDetail.lowerLeft")}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>

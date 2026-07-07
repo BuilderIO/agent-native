@@ -25,8 +25,11 @@ export async function assertPresetSkeletonAssetsValid(input: {
     skeleton.mask?.type === "asset" && typeof skeleton.mask.assetId === "string"
       ? skeleton.mask.assetId
       : "";
-  if (!backgroundAssetId || !maskAssetId) return;
+  if (!backgroundAssetId) return;
 
+  const assetIds = maskAssetId
+    ? [backgroundAssetId, maskAssetId]
+    : [backgroundAssetId];
   const rows = await input.db
     .select({
       id: schema.assets.id,
@@ -35,18 +38,15 @@ export async function assertPresetSkeletonAssetsValid(input: {
       height: schema.assets.height,
     })
     .from(schema.assets)
-    .where(inArray(schema.assets.id, [backgroundAssetId, maskAssetId]));
+    .where(inArray(schema.assets.id, assetIds));
   const background = rows.find((asset: any) => asset.id === backgroundAssetId);
+  if (!background || background.libraryId !== input.libraryId) {
+    throw new Error("Skeleton image must belong to this asset library.");
+  }
+  if (!maskAssetId) return;
   const mask = rows.find((asset: any) => asset.id === maskAssetId);
-  if (
-    !background ||
-    !mask ||
-    background.libraryId !== input.libraryId ||
-    mask.libraryId !== input.libraryId
-  ) {
-    throw new Error(
-      "Skeleton image and mask must belong to this asset library.",
-    );
+  if (!mask || mask.libraryId !== input.libraryId) {
+    throw new Error("Skeleton mask must belong to this asset library.");
   }
   if (
     typeof background.width !== "number" ||

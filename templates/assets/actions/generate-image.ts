@@ -30,9 +30,11 @@ import {
   compositeLogo,
   maskFromManualMaskAlpha,
   maskFromPlateAlpha,
+  prepareGptImage2SkeletonInpaintImages,
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
+  aspectRatioValue,
   clampCutoutAspectRatio,
   normalizePresetSkeletonSpec,
   skeletonUsesCanonicalLogo,
@@ -350,13 +352,21 @@ export default defineAction({
       isSkeletonCutout &&
       Boolean(skeletonAssets?.backgroundAsset) &&
       resolvedModel === "gpt-image-2";
+    const skeletonInpaint = useSkeletonInpaint
+      ? await inpaintReferencesForSkeleton(skeletonAssets)
+      : null;
     const resolvedAspectRatio =
-      isSkeletonCutout && !useSkeletonInpaint
-        ? clampCutoutAspectRatio({
-            aspectRatio: outputAspectRatio,
-            supported: supportedAspectRatiosForModel("gpt-image-1"),
-          })
-        : outputAspectRatio;
+      useSkeletonInpaint && skeletonInpaint
+        ? closestSupportedAspectRatioForSize(
+            skeletonInpaint.size,
+            supportedAspectRatiosForModel("gpt-image-2"),
+          )
+        : isSkeletonCutout
+          ? clampCutoutAspectRatio({
+              aspectRatio: outputAspectRatio,
+              supported: supportedAspectRatiosForModel("gpt-image-1"),
+            })
+          : outputAspectRatio;
     if (
       isSkeletonCutout &&
       !useSkeletonInpaint &&
@@ -386,7 +396,7 @@ export default defineAction({
       : "";
     let references: ReferenceForGeneration[];
     if (useSkeletonInpaint) {
-      references = await inpaintReferencesForSkeleton(skeletonAssets);
+      references = skeletonInpaint?.references ?? [];
     } else {
       const backgroundPlateReference =
         backgroundPlateReferenceForSkeleton(skeletonAssets);
@@ -839,7 +849,10 @@ function backgroundPlateReferenceForSkeleton(
 
 async function inpaintReferencesForSkeleton(
   skeletonAssets: LoadedSkeletonAssets | null,
-): Promise<ReferenceForGeneration[]> {
+): Promise<{
+  references: ReferenceForGeneration[];
+  size: { width: number; height: number };
+}> {
   if (
     !skeletonAssets?.backgroundAsset ||
     !skeletonAssets.backgroundAssetId ||
@@ -853,26 +866,49 @@ async function inpaintReferencesForSkeleton(
         plate: skeletonAssets.backgroundAsset,
       })
     : await maskFromPlateAlpha(skeletonAssets.backgroundAsset);
-  return [
-    {
-      id: skeletonAssets.backgroundAssetId,
-      role: "edit_target",
-      category: "skeleton",
-      mimeType: skeletonAssets.backgroundMimeType,
-      data: skeletonAssets.backgroundAsset.toString("base64"),
-      selectionReason: "explicit",
-    },
-    {
-      id:
-        skeletonAssets.maskAssetId ??
-        `${skeletonAssets.backgroundAssetId}:mask`,
-      role: "mask",
-      category: "skeleton",
-      mimeType: "image/png",
-      data: mask.toString("base64"),
-      selectionReason: "explicit",
-    },
-  ];
+  const prepared = await prepareGptImage2SkeletonInpaintImages({
+    plate: skeletonAssets.backgroundAsset,
+    mask,
+  });
+  return {
+    size: prepared.size,
+    references: [
+      {
+        id: skeletonAssets.backgroundAssetId,
+        role: "edit_target",
+        category: "skeleton",
+        mimeType: prepared.resized
+          ? "image/png"
+          : skeletonAssets.backgroundMimeType,
+        data: prepared.plate.toString("base64"),
+        selectionReason: "explicit",
+      },
+      {
+        id:
+          skeletonAssets.maskAssetId ??
+          `${skeletonAssets.backgroundAssetId}:mask`,
+        role: "mask",
+        category: "skeleton",
+        mimeType: "image/png",
+        data: prepared.mask.toString("base64"),
+        selectionReason: "explicit",
+      },
+    ],
+  };
+}
+
+function closestSupportedAspectRatioForSize(
+  size: { width: number; height: number },
+  supported: readonly AspectRatio[],
+): AspectRatio {
+  const target = size.width / size.height;
+  return (
+    [...supported].sort(
+      (left, right) =>
+        Math.abs(aspectRatioValue(left) - target) -
+        Math.abs(aspectRatioValue(right) - target),
+    )[0] ?? "1:1"
+  );
 }
 
 type LoadedSkeletonAssets = {

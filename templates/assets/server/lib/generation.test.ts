@@ -57,7 +57,7 @@ const SUPPRESS_EMBEDDED_TEXT =
   "Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.";
 
 function mockBuilderFailure(status: number, body: unknown) {
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn(async (_url: string | URL | Request) => {
     return new Response(JSON.stringify(body), {
       status,
       headers: { "Content-Type": "application/json" },
@@ -477,8 +477,51 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
         requiredCredential: "BUILDER_PRIVATE_KEY",
-        message: expect.stringContaining("Mask inpainting runs need"),
+        message: expect.stringContaining(
+          "manual OpenAI or Gemini fallback cannot pass image-edit masks",
+        ),
       }),
+    );
+  });
+
+  it("does not fallback to manual generation for Builder mask edit failures", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = mockBuilderFailure(429, {
+      error: { message: "Rate limited" },
+    });
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        mode: "edit",
+        references: [
+          {
+            id: "plate-1",
+            role: "edit_target",
+            mimeType: "image/png",
+            data: Buffer.from([1]).toString("base64"),
+          },
+          {
+            id: "plate-1:mask",
+            role: "mask",
+            mimeType: "image/png",
+            data: Buffer.from([2]).toString("base64"),
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "BuilderImageGenerationError",
+        message: expect.stringContaining(
+          "manual OpenAI or Gemini fallback cannot pass image-edit masks",
+        ),
+      }),
+    );
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+      "https://api.openai.com/v1/images/generations",
     );
   });
 
