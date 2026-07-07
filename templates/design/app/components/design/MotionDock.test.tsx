@@ -1,3 +1,4 @@
+import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -6,18 +7,75 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { MotionDock, type MotionDockTrack } from "./MotionDock";
 
+// Minimal catalog covering only the keys MotionDock reads — see the same
+// convention/rationale note in BreakpointBar.test.tsx. Full catalog coverage
+// across all 11 locales is verified by `guard:i18n-catalogs`, not here.
+const CATALOG_MESSAGES = {
+  designEditor: {
+    motion: {
+      dockLabel: "Motion dock",
+      collapseDock: "Collapse motion dock",
+      play: "Play",
+      pause: "Pause",
+      resetPlayhead: "Reset playhead",
+      reset: "Reset",
+      addKeyframeAtPlayhead: "Add keyframe at playhead",
+      addKeyframeAtPlayheadForProperty:
+        "Add keyframe at playhead ({{property}})",
+      selectPropertyRowFirst: "Select a property row first",
+      currentTimeMs: "Current time in ms",
+      duration: "Duration",
+      durationMs: "Duration in ms",
+      playbackMode: "Playback mode: {{mode}}",
+      playback: "Playback: {{mode}}",
+      loop: "Loop",
+      once: "Once",
+      pingPong: "Ping-pong",
+      toggleAutoKeyframe: "Toggle auto-keyframe",
+      autoKeyframe: "Auto-keyframe",
+      savingMotion: "Saving motion",
+      emptyStateAnimate: "Animate",
+      emptyStatePickProperty: ". Pick a property to add the first track.",
+      emptyStateNoSelection:
+        "Select an element on the canvas, then add a track to animate it.",
+      addMotion: "Add motion",
+      selectElementFirst: "Select an element on the canvas first",
+      animateLayer: 'Animate "{{label}}"',
+      more: "More",
+      addKeyframe: "Add keyframe",
+      trackExists:
+        'A "{{property}}" track already exists for {{label}}. Edit its keyframes in the timeline instead.',
+      layerAnimationSpan: "{{label}} animation span",
+      keyframeAt: "Keyframe at {{ms}}ms",
+      deleteKeyframe: "Delete keyframe",
+      segmentEasing: "Segment easing: {{ease}}",
+      curveTab: "Curve",
+      springTab: "Spring",
+      customBezier: "Custom bezier",
+      customSpring: "Custom spring",
+      bounce: "Bounce",
+      bezierCurveEditor: "Bezier curve editor",
+      springCurvePreview: "Spring curve preview",
+      defaultEase: "Default",
+    },
+  },
+};
+
 function render(props: Partial<Parameters<typeof MotionDock>[0]>): string {
   return renderToStaticMarkup(
-    createElement(
-      TooltipProvider,
-      null,
-      createElement(MotionDock, {
-        tracks: [],
-        durationMs: 2000,
-        open: true,
-        ...props,
-      }),
-    ),
+    createElement(AgentNativeI18nProvider, {
+      catalog: { messages: CATALOG_MESSAGES },
+      children: createElement(
+        TooltipProvider,
+        null,
+        createElement(MotionDock, {
+          tracks: [],
+          durationMs: 2000,
+          open: true,
+          ...props,
+        }),
+      ),
+    }),
   );
 }
 

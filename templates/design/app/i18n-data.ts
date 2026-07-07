@@ -1,6 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
+import { motionDockOverrides } from "./i18n-motion";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -351,6 +352,52 @@ const enUS = {
       desktop: "Desktop",
       tablet: "Tablet",
       phone: "Phone",
+    },
+    motion: {
+      dockLabel: "Motion dock",
+      collapseDock: "Collapse motion dock",
+      play: "Play",
+      pause: "Pause",
+      resetPlayhead: "Reset playhead",
+      reset: "Reset",
+      addKeyframeAtPlayhead: "Add keyframe at playhead",
+      addKeyframeAtPlayheadForProperty:
+        "Add keyframe at playhead ({{property}})",
+      selectPropertyRowFirst: "Select a property row first",
+      currentTimeMs: "Current time in ms",
+      duration: "Duration",
+      durationMs: "Duration in ms",
+      playbackMode: "Playback mode: {{mode}}",
+      playback: "Playback: {{mode}}",
+      loop: "Loop",
+      once: "Once",
+      pingPong: "Ping-pong",
+      toggleAutoKeyframe: "Toggle auto-keyframe",
+      autoKeyframe: "Auto-keyframe",
+      savingMotion: "Saving motion",
+      emptyStateAnimate: "Animate",
+      emptyStatePickProperty: ". Pick a property to add the first track.",
+      emptyStateNoSelection:
+        "Select an element on the canvas, then add a track to animate it.",
+      addMotion: "Add motion",
+      selectElementFirst: "Select an element on the canvas first",
+      animateLayer: 'Animate "{{label}}"',
+      more: "More",
+      addKeyframe: "Add keyframe",
+      trackExists:
+        'A "{{property}}" track already exists for {{label}}. Edit its keyframes in the timeline instead.',
+      layerAnimationSpan: "{{label}} animation span",
+      keyframeAt: "Keyframe at {{ms}}ms",
+      deleteKeyframe: "Delete keyframe",
+      segmentEasing: "Segment easing: {{ease}}",
+      curveTab: "Curve",
+      springTab: "Spring",
+      customBezier: "Custom bezier",
+      customSpring: "Custom spring",
+      bounce: "Bounce",
+      bezierCurveEditor: "Bezier curve editor",
+      springCurvePreview: "Spring curve preview",
+      defaultEase: "Default",
     },
     applyToSource: "Apply to source",
     applyToSourcePath: "Apply to source ({{path}})",
@@ -11976,6 +12023,7 @@ export const messagesByLocale = {
       designPendingVisualStyleOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
+      motionDockOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -11999,6 +12047,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["zh-CN"],
       designMotionAndBreakpointOverrides["zh-CN"],
       breakpointBarOverrides["zh-CN"],
+      motionDockOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12061,6 +12110,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["es-ES"],
       designMotionAndBreakpointOverrides["es-ES"],
       breakpointBarOverrides["es-ES"],
+      motionDockOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12123,6 +12173,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["fr-FR"],
       designMotionAndBreakpointOverrides["fr-FR"],
       breakpointBarOverrides["fr-FR"],
+      motionDockOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12185,6 +12236,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["de-DE"],
       designMotionAndBreakpointOverrides["de-DE"],
       breakpointBarOverrides["de-DE"],
+      motionDockOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12247,6 +12299,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ja-JP"],
       designMotionAndBreakpointOverrides["ja-JP"],
       breakpointBarOverrides["ja-JP"],
+      motionDockOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12310,6 +12363,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ko-KR"],
       designMotionAndBreakpointOverrides["ko-KR"],
       breakpointBarOverrides["ko-KR"],
+      motionDockOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12371,6 +12425,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["pt-BR"],
       designMotionAndBreakpointOverrides["pt-BR"],
       breakpointBarOverrides["pt-BR"],
+      motionDockOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12433,6 +12488,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["hi-IN"],
       designMotionAndBreakpointOverrides["hi-IN"],
       breakpointBarOverrides["hi-IN"],
+      motionDockOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -12495,6 +12551,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ar-SA"],
       designMotionAndBreakpointOverrides["ar-SA"],
       breakpointBarOverrides["ar-SA"],
+      motionDockOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

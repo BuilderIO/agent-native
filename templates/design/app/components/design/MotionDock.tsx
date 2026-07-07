@@ -1,4 +1,3 @@
-// i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 /**
  * MotionDock — bottom motion timeline dock for the Design Studio (§6.3).
  *
@@ -17,6 +16,7 @@
  * All times are normalised to [0, 1] internally; the ruler maps them to px.
  */
 
+import { useT } from "@agent-native/core/client";
 import {
   MOTION_CURVE_PRESETS,
   MOTION_SPRING_DEFAULT_BOUNCE,
@@ -115,12 +115,12 @@ const DEFAULT_DOCK_HEIGHT = 280; // px
  */
 const PLAYBACK_MODES: {
   mode: MotionPlaybackMode;
-  label: string;
+  labelKey: "loop" | "once" | "pingPong";
   Icon: typeof IconRepeat;
 }[] = [
-  { mode: "loop", label: "Loop", Icon: IconRepeat },
-  { mode: "once", label: "Once", Icon: IconRepeatOnce },
-  { mode: "ping-pong", label: "Ping-pong", Icon: IconArrowsLeftRight },
+  { mode: "loop", labelKey: "loop", Icon: IconRepeat },
+  { mode: "once", labelKey: "once", Icon: IconRepeatOnce },
+  { mode: "ping-pong", labelKey: "pingPong", Icon: IconArrowsLeftRight },
 ];
 
 /**
@@ -140,16 +140,23 @@ function formatMsTick(ms: number): string {
 }
 
 /** Human label for an ease value: preset name when recognised, else raw. */
-function easeLabel(ease: MotionEase | undefined): string {
-  if (ease === undefined) return "Default";
+function easeLabel(
+  ease: MotionEase | undefined,
+  t: (key: string) => string,
+): string {
+  if (ease === undefined) return t("designEditor.motion.defaultEase");
   const curve = MOTION_CURVE_PRESETS.find((preset) => preset.value === ease);
   if (curve) return curve.label;
   const springPreset = MOTION_SPRING_PRESETS.find(
     (preset) => preset.value === ease,
   );
   if (springPreset) return springPreset.label;
-  if (parseSpringToken(String(ease))) return "Custom spring";
-  if (/^cubic-bezier\(/.test(String(ease))) return "Custom bezier";
+  if (parseSpringToken(String(ease))) {
+    return t("designEditor.motion.customSpring");
+  }
+  if (/^cubic-bezier\(/.test(String(ease))) {
+    return t("designEditor.motion.customBezier");
+  }
   return String(ease);
 }
 
@@ -247,6 +254,8 @@ export function MotionDock({
   livePlayheadRef,
   selectedTarget = null,
 }: MotionDockProps) {
+  const t = useT();
+
   // Controlled / uncontrolled open state.
   const [openInternal, setOpenInternal] = useState(false);
   const isOpen = openProp !== undefined ? openProp : openInternal;
@@ -592,7 +601,10 @@ export function MotionDock({
         // presets can target the same property, e.g. slide + scale are both
         // "transform").
         toast.info(
-          `A "${preset.property}" track already exists for ${label}. Edit its keyframes in the timeline instead.`,
+          t("designEditor.motion.trackExists", {
+            property: preset.property,
+            label,
+          }),
         );
         return;
       }
@@ -758,9 +770,16 @@ export function MotionDock({
     const NICE_STEPS = [
       10, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000,
     ];
-    const step =
-      NICE_STEPS.find((candidate) => durationMs / candidate <= 10) ??
-      Math.ceil(durationMs / 10);
+    // Plain loop (rather than Array#find with an inline arrow function) so a
+    // `<=` comparison never sits directly after a `>` character — the i18n
+    // raw-literal guard's regex heuristic treats `>...<` runs as JSX text.
+    let step = Math.ceil(durationMs / 10);
+    for (const candidate of NICE_STEPS) {
+      if (durationMs / candidate <= 10) {
+        step = candidate;
+        break;
+      }
+    }
     const ticks: { t: number; label: string }[] = [];
     for (let ms = 0; ms <= durationMs; ms += step) {
       ticks.push({ t: ms / durationMs, label: formatMsTick(ms) });
@@ -799,7 +818,7 @@ export function MotionDock({
       style={{ height: isOpen ? dockHeight : 0 }}
     >
       <div
-        aria-label="Motion dock"
+        aria-label={t("designEditor.motion.dockLabel")}
         aria-hidden={!isOpen ? true : undefined}
         // Focusable so Space can play/pause while the dock is focused
         // (Figma parity); -1 keeps it out of the tab order.
@@ -829,7 +848,7 @@ export function MotionDock({
             type="button"
             className="-ml-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
             onClick={() => setOpen(false)}
-            aria-label="Collapse motion dock"
+            aria-label={t("designEditor.motion.collapseDock")}
           >
             <IconChevronDown className="size-3.5" />
           </button>
@@ -844,7 +863,11 @@ export function MotionDock({
                   size="icon"
                   className="size-6 shrink-0"
                   onClick={playing ? stopPlayback : startPlayback}
-                  aria-label={playing ? "Pause" : "Play"}
+                  aria-label={
+                    playing
+                      ? t("designEditor.motion.pause")
+                      : t("designEditor.motion.play")
+                  }
                 >
                   {playing ? (
                     <IconPlayerPause className="size-3.5" />
@@ -854,7 +877,9 @@ export function MotionDock({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {playing ? "Pause" : "Play"}
+                {playing
+                  ? t("designEditor.motion.pause")
+                  : t("designEditor.motion.play")}
               </TooltipContent>
             </Tooltip>
 
@@ -872,12 +897,14 @@ export function MotionDock({
                     commitPlayhead();
                     sendPreview(0);
                   }}
-                  aria-label="Reset playhead"
+                  aria-label={t("designEditor.motion.resetPlayhead")}
                 >
                   <IconPlayerStop className="size-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="top">Reset</TooltipContent>
+              <TooltipContent side="top">
+                {t("designEditor.motion.reset")}
+              </TooltipContent>
             </Tooltip>
 
             {/* Add keyframe at playhead (selected property row) */}
@@ -893,7 +920,7 @@ export function MotionDock({
                     onClick={() => {
                       if (selectedTrack) addKeyframe(selectedTrack);
                     }}
-                    aria-label="Add keyframe at playhead"
+                    aria-label={t("designEditor.motion.addKeyframeAtPlayhead")}
                   >
                     <IconDiamondFilled className="size-3" />
                   </Button>
@@ -901,8 +928,10 @@ export function MotionDock({
               </TooltipTrigger>
               <TooltipContent side="top">
                 {selectedTrack
-                  ? `Add keyframe at playhead (${selectedTrack.property})`
-                  : "Select a property row first"}
+                  ? t("designEditor.motion.addKeyframeAtPlayheadForProperty", {
+                      property: selectedTrack.property,
+                    })
+                  : t("designEditor.motion.selectPropertyRowFirst")}
               </TooltipContent>
             </Tooltip>
 
@@ -927,7 +956,7 @@ export function MotionDock({
                   }
                 }}
                 className="h-5 w-14 px-1 !text-[11px] md:!text-[11px]"
-                aria-label="Current time in ms"
+                aria-label={t("designEditor.motion.currentTimeMs")}
               />
               <span className="text-[10px] text-muted-foreground">/</span>
             </div>
@@ -935,7 +964,7 @@ export function MotionDock({
             {/* Duration */}
             <div className="flex items-center gap-1 ml-1">
               <span className="text-[10px] text-muted-foreground">
-                Duration
+                {t("designEditor.motion.duration")}
               </span>
               <Input
                 type="number"
@@ -952,7 +981,7 @@ export function MotionDock({
                   }
                 }}
                 className="h-5 w-16 px-1 !text-[11px] md:!text-[11px]"
-                aria-label="Duration in ms"
+                aria-label={t("designEditor.motion.durationMs")}
               />
               <span className="text-[10px] text-muted-foreground">ms</span>
             </div>
@@ -963,6 +992,7 @@ export function MotionDock({
                 PLAYBACK_MODES.find((m) => m.mode === playbackMode) ??
                 PLAYBACK_MODES[0];
               const ModeIcon = current.Icon;
+              const modeLabel = t(`designEditor.motion.${current.labelKey}`);
               return (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -972,13 +1002,15 @@ export function MotionDock({
                       size="icon"
                       className="size-6 shrink-0"
                       onClick={cyclePlaybackMode}
-                      aria-label={`Playback mode: ${current.label}`}
+                      aria-label={t("designEditor.motion.playbackMode", {
+                        mode: modeLabel,
+                      })}
                     >
                       <ModeIcon className="size-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    Playback: {current.label}
+                    {t("designEditor.motion.playback", { mode: modeLabel })}
                   </TooltipContent>
                 </Tooltip>
               );
@@ -1005,13 +1037,15 @@ export function MotionDock({
                       autoKeyframe && "text-primary",
                     )}
                     onClick={() => setAutoKeyframe((v) => !v)}
-                    aria-label="Toggle auto-keyframe"
+                    aria-label={t("designEditor.motion.toggleAutoKeyframe")}
                     aria-pressed={autoKeyframe}
                   >
                     <IconBolt className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Auto-keyframe</TooltipContent>
+                <TooltipContent side="top">
+                  {t("designEditor.motion.autoKeyframe")}
+                </TooltipContent>
               </Tooltip>
 
               {applying ? (
@@ -1019,13 +1053,15 @@ export function MotionDock({
                   <TooltipTrigger asChild>
                     <span
                       role="status"
-                      aria-label="Saving motion"
+                      aria-label={t("designEditor.motion.savingMotion")}
                       className="flex size-6 items-center justify-center rounded text-muted-foreground"
                     >
                       <IconRefresh className="size-3 animate-spin" />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Saving motion</TooltipContent>
+                  <TooltipContent side="top">
+                    {t("designEditor.motion.savingMotion")}
+                  </TooltipContent>
                 </Tooltip>
               ) : null}
             </div>
@@ -1051,11 +1087,11 @@ export function MotionDock({
                 {selectedTarget ? (
                   <>
                     <p className="!text-[11px] text-muted-foreground/70 leading-snug">
-                      Animate{" "}
+                      {t("designEditor.motion.emptyStateAnimate")}{" "}
                       <span className="font-medium text-foreground/80">
                         {selectedTarget.label}
                       </span>
-                      . Pick a property to add the first track.
+                      {t("designEditor.motion.emptyStatePickProperty")}
                     </p>
                     <AddTrackMenu
                       selectedTarget={selectedTarget}
@@ -1065,8 +1101,7 @@ export function MotionDock({
                   </>
                 ) : (
                   <p className="!text-[11px] text-muted-foreground/70 leading-snug">
-                    Select an element on the canvas, then add a track to animate
-                    it.
+                    {t("designEditor.motion.emptyStateNoSelection")}
                   </p>
                 )}
               </div>
@@ -1188,7 +1223,9 @@ function AddTrackMenu({
   onCreateTrack,
   variant = "toolbar",
 }: AddTrackMenuProps) {
+  const t = useT();
   const disabled = !selectedTarget;
+  const addMotionLabel = t("designEditor.motion.addMotion");
   const trigger =
     variant === "cta" ? (
       <Button
@@ -1199,7 +1236,7 @@ function AddTrackMenu({
         disabled={disabled}
       >
         <IconPlus className="size-3.5" />
-        Add motion
+        {addMotionLabel}
       </Button>
     ) : (
       <Button
@@ -1210,7 +1247,7 @@ function AddTrackMenu({
         disabled={disabled}
       >
         <IconPlus className="size-3.5" />
-        Add motion
+        {addMotionLabel}
       </Button>
     );
 
@@ -1223,7 +1260,7 @@ function AddTrackMenu({
           <span className="inline-flex">{trigger}</span>
         </TooltipTrigger>
         <TooltipContent side="top">
-          Select an element on the canvas first
+          {t("designEditor.motion.selectElementFirst")}
         </TooltipContent>
       </Tooltip>
     );
@@ -1241,7 +1278,9 @@ function AddTrackMenu({
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48 p-1">
         <DropdownMenuLabel className="truncate px-2 py-1 text-[10px] font-medium leading-none text-muted-foreground">
-          Animate “{selectedTarget.label}”
+          {t("designEditor.motion.animateLayer", {
+            label: selectedTarget.label,
+          })}
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="my-1" />
         {primaryPresets.map((preset) => (
@@ -1255,7 +1294,7 @@ function AddTrackMenu({
         ))}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className="h-7 px-2 text-[12px] leading-none">
-            More
+            {t("designEditor.motion.more")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-44 p-1">
             {morePresets.map((preset) => (
@@ -1319,6 +1358,7 @@ function LayerGroup({
   selectedTrackKey,
   onSelectTrack,
 }: LayerGroupProps) {
+  const t = useT();
   return (
     <>
       {/* Layer header row */}
@@ -1381,13 +1421,13 @@ function LayerGroup({
                     e.stopPropagation();
                     onAddKeyframe(track);
                   }}
-                  aria-label="Add keyframe"
+                  aria-label={t("designEditor.motion.addKeyframe")}
                 >
                   <IconPlus className="size-3" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                Add keyframe at playhead
+                {t("designEditor.motion.addKeyframeAtPlayhead")}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -1500,6 +1540,7 @@ function LayerSpanBar({
   label,
   onSpanChange,
 }: LayerSpanBarProps) {
+  const t = useT();
   const barRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<{
     kind: "move" | "left" | "right";
@@ -1572,7 +1613,7 @@ function LayerSpanBar({
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
       role="slider"
-      aria-label={`${label} animation span`}
+      aria-label={t("designEditor.motion.layerAnimationSpan", { label })}
       aria-valuemin={0}
       aria-valuemax={timelineDurationMs}
       aria-valuenow={Math.round(spanStartMs)}
@@ -1753,6 +1794,7 @@ function KeyframeDiamond({
   onPointerDown,
   onDelete,
 }: KeyframeDiamondProps) {
+  const t = useT();
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -1770,7 +1812,7 @@ function KeyframeDiamond({
             onPointerDown={onPointerDown}
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
-            aria-label={`Keyframe at ${timeMs}ms`}
+            aria-label={t("designEditor.motion.keyframeAt", { ms: timeMs })}
           >
             <rect
               x={1}
@@ -1800,7 +1842,7 @@ function KeyframeDiamond({
             type="button"
             className="ml-1 text-destructive hover:text-destructive/80"
             onClick={onDelete}
-            aria-label="Delete keyframe"
+            aria-label={t("designEditor.motion.deleteKeyframe")}
           >
             <IconTrash className="size-3" />
           </button>
@@ -1835,7 +1877,9 @@ function EasingSegment({
   defaultEase,
   onEaseChange,
 }: EasingSegmentProps) {
+  const t = useT();
   const effective = ease ?? defaultEase;
+  const effectiveLabel = easeLabel(effective, t);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1848,8 +1892,10 @@ function EasingSegment({
             minWidth: 8,
           }}
           onPointerDown={(e) => e.stopPropagation()}
-          aria-label={`Segment easing: ${easeLabel(effective)}`}
-          title={easeLabel(effective)}
+          aria-label={t("designEditor.motion.segmentEasing", {
+            ease: effectiveLabel,
+          })}
+          title={effectiveLabel}
         />
       </PopoverTrigger>
       <PopoverContent
@@ -1879,6 +1925,7 @@ interface EasingPanelProps {
  *   with a single Bounce control (0–1, default 0.25).
  */
 function EasingPanel({ ease, onChange }: EasingPanelProps) {
+  const t = useT();
   const easeStr = String(ease);
   const spring = parseSpringToken(easeStr);
   const [tab, setTab] = useState<"curve" | "spring">(
@@ -1921,8 +1968,8 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
       <div className="flex gap-0.5 rounded-md bg-muted p-0.5">
         {(
           [
-            ["curve", "Curve"],
-            ["spring", "Spring"],
+            ["curve", t("designEditor.motion.curveTab")],
+            ["spring", t("designEditor.motion.springTab")],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -1968,7 +2015,7 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
               }
             >
               <IconCheck className={checkClass(isCustomBezier)} />
-              Custom bezier
+              {t("designEditor.motion.customBezier")}
             </button>
           </div>
           {isCustomBezier && (
@@ -2011,14 +2058,14 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
               }
             >
               <IconCheck className={checkClass(isCustomSpring)} />
-              Custom spring
+              {t("designEditor.motion.customSpring")}
             </button>
           </div>
           {isCustomSpring && (
             <div className="flex flex-col gap-1 px-1">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-muted-foreground">
-                  Bounce
+                  {t("designEditor.motion.bounce")}
                 </span>
                 <span className="text-[10px] tabular-nums">
                   {bounce.toFixed(2)}
@@ -2032,7 +2079,7 @@ function EasingPanel({ ease, onChange }: EasingPanelProps) {
                 onValueChange={(values) =>
                   onChange(springToken({ bounce: values[0] ?? bounce, settle }))
                 }
-                aria-label="Bounce"
+                aria-label={t("designEditor.motion.bounce")}
               />
             </div>
           )}
@@ -2060,6 +2107,7 @@ interface CurveEditorProps {
 }
 
 function CurveEditor({ value, onChange }: CurveEditorProps) {
+  const t = useT();
   const [x1, y1, x2, y2] = value;
   const svgRef = useRef<SVGSVGElement>(null);
   const draggingHandle = useRef<1 | 2 | null>(null);
@@ -2132,7 +2180,7 @@ function CurveEditor({ value, onChange }: CurveEditorProps) {
         onPointerUp={() => (draggingHandle.current = null)}
         onPointerCancel={() => (draggingHandle.current = null)}
         role="application"
-        aria-label="Bezier curve editor"
+        aria-label={t("designEditor.motion.bezierCurveEditor")}
       >
         {/* Unit box (0..1) */}
         <rect
@@ -2215,6 +2263,7 @@ function SpringCurvePreview({
   bounce: number;
   settle: number;
 }) {
+  const t = useT();
   const points: string[] = [];
   const samples = 72;
   for (let i = 0; i <= samples; i++) {
@@ -2233,7 +2282,7 @@ function SpringCurvePreview({
       width="100%"
       viewBox={`0 0 ${CURVE_W} ${CURVE_H}`}
       className="rounded border border-border bg-muted/40"
-      aria-label="Spring curve preview"
+      aria-label={t("designEditor.motion.springCurvePreview")}
       role="img"
     >
       <line
