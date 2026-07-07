@@ -298,7 +298,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "O que deveria fazer?",
     createPlaceholder: "Uma lista de tarefas, painel de API, calculadora...",
-    backToApp: "Voltar ao aplicativo",
     title: "Extensões",
     hiddenShown: "Ocultando mostrado",
     showHidden: "Mostrar ocultos",

@@ -1,5 +1,4 @@
 import { IconX } from "@tabler/icons-react";
-import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
@@ -136,12 +135,11 @@ export function FlowBar() {
 
   const handleCancel = () => {
     // Broadcast to the popover webview where voice-dictation.ts lives —
-    // it will abort any in-flight transcribe, stop recording, and hide
-    // the bar without pasting text.
+    // it will abort any in-flight transcribe, stop recording, hide the
+    // bar without pasting text, and own the delayed defensive re-hide
+    // (gated on no new session having started since) so a fast re-press
+    // right after cancel doesn't hide a brand-new session's bar (R21).
     emit("voice:cancel").catch(() => {});
-    window.setTimeout(() => {
-      invoke("hide_flow_bar").catch(() => {});
-    }, 250);
   };
 
   return (

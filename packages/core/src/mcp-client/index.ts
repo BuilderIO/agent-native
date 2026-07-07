@@ -104,12 +104,14 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 import { MCP_APP_MIME_TYPE } from "../action.js";
+import type { EngineToolResultImagePart } from "../agent/engine/types.js";
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
  * the agent's action registry. Each tool is marked `http: false` so it's
  * never auto-mounted as an HTTP endpoint — MCP tools are agent-only.
  */
 import type { ActionEntry } from "../agent/production-agent.js";
+import { normalizeToolResultImages } from "../agent/tool-result-images.js";
 import {
   MCP_ACTION_RESULT_MARKER,
   toolForMcpAppPayload,
@@ -250,6 +252,33 @@ function hasStructuredContent(result: unknown): boolean {
     typeof result === "object" &&
     Object.prototype.hasOwnProperty.call(result, "structuredContent")
   );
+}
+
+/**
+ * Extract vision images from a raw MCP tool result so the model can SEE
+ * screenshots/previews returned by external MCP tools instead of only the
+ * `[image: <mime>]` placeholder that `flattenMcpToolResult` leaves in the
+ * text. Shares the per-result caps with `_agentImages` (max count, max base64
+ * size); over-cap or unsupported images stay placeholder-only. Never throws.
+ */
+export function extractMcpToolResultImages(
+  result: unknown,
+): EngineToolResultImagePart[] {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !Array.isArray((result as any).content) ||
+    (result as any).isError
+  ) {
+    return [];
+  }
+  const candidates = ((result as any).content as Array<Record<string, any>>)
+    .filter((part) => part?.type === "image" && typeof part.data === "string")
+    .map((part) => ({
+      data: part.data as string,
+      mediaType: typeof part.mimeType === "string" ? part.mimeType : undefined,
+    }));
+  return normalizeToolResultImages(candidates).images;
 }
 
 async function buildMcpActionResult(

@@ -27,6 +27,7 @@ export type ContentPart =
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
       activity?: boolean;
+      repeatCount?: number;
       /**
        * Set when the server emitted an `approval_required` event for this tool
        * call (opt-in `needsApproval` actions). The action did NOT run; the UI
@@ -117,6 +118,7 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
+      part.isError = true;
       changed = true;
     }
   }
@@ -146,12 +148,62 @@ export class AgentAutoContinueSignal extends Error {
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
+/**
+ * Widened client watchdog windows for durable background runs. The SERVER is
+ * the recovery brain for these runs: its run-manager no-progress backstop
+ * emits `auto_continue` over the same stream the client is already reading,
+ * and its unclaimed-run sweep reaps dead workers into loud terminal errors.
+ * The client watchdogs therefore sit ABOVE the server's durable-background
+ * backstop so a healthy background run never trips them — the server's own
+ * recovery event arrives first over the wire. When one does fire, the thrown
+ * signal only means "reattach the read" (the adapter's background follow loop
+ * re-polls /runs/active); it never escalates to a client-declared error or a
+ * synthetic continuation POST. Progress ACCOUNTING (what counts as a
+ * meaningful event) is unchanged — only the client-initiated recovery timing
+ * is relaxed.
+ */
+export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
+export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
+
+export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
+  return options?.durableBackgroundRun === true
+    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+    : SSE_NO_PROGRESS_TIMEOUT_MS;
+}
+
+function sseActionPreparationStallTimeoutMs(
+  options?: SSEStreamOptions,
+): number {
+  return options?.durableBackgroundRun === true
+    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+}
+
+export interface SSEStreamOptions {
+  /**
+   * Durable background runs have their own server-side liveness budget and
+   * heartbeat. While one is active, generic keepalive-only periods keep the
+   * client attached. Tool-input preparation is stricter: real byte progress
+   * keeps long payloads alive, but zero-byte/silent preparation still recovers
+   * so one stuck action cannot pin the chat forever — just on the wider
+   * durable windows above (behind the server's own 150s backstop) instead of
+   * the tight foreground 75s/90s windows.
+   */
+  durableBackgroundRun?: boolean;
+  /**
+   * Optional caller-owned preparation watchdog state. Passing the same object
+   * across reconnect reads keeps a stuck action preparation from getting a
+   * fresh stall budget every time the browser reattaches to the same run.
+   */
+  preparingActionState?: PreparingActionState;
+}
 
 type ActivityTrailEntry = AgentActivityTrailEntry;
 
-type PreparingActionState = {
-  tool?: string;
+type PreparingActionEntry = {
+  tool: string;
   startedAt?: number;
+  lastProgressBytes?: number;
   /**
    * Timestamp of the last real streaming progress for the in-preparation tool
    * input. The server emits a throttled `activity` heartbeat per
@@ -162,6 +214,11 @@ type PreparingActionState = {
    * further deltas) can trip it.
    */
   lastProgressAt?: number;
+};
+
+export type PreparingActionState = {
+  entries?: Map<string, PreparingActionEntry>;
+  toolEntries?: Map<string, PreparingActionEntry>;
 };
 
 function formatProgressBytes(bytes: number): string {
@@ -184,17 +241,45 @@ function isPreparingActionActivity(ev: SSEEvent): boolean {
   return label.startsWith("preparing ") && label.includes(" action");
 }
 
+function isMeaningfulProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+  options?: SSEStreamOptions,
+): boolean {
+  if (ev.type === "stream_keepalive") {
+    return options?.durableBackgroundRun === true;
+  }
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
+    if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
 function baseActivityLabel(ev: SSEEvent, tool?: string): string {
   return humanizeToolLabelText(ev.label ?? "Working", tool);
 }
 
-function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
-  const label = baseActivityLabel(ev, tool);
-  const progressBytes = activityProgressBytes(ev);
-  if (progressBytes === undefined || !isPreparingActionActivity(ev)) {
-    return label;
+function preparationActivityLabel(
+  tool: string | undefined,
+  progressBytes: number | undefined,
+): string {
+  const action = humanizeToolName(tool);
+  if (progressBytes === undefined) {
+    return `Starting ${action}...`;
   }
-  return `${label} (${formatProgressBytes(progressBytes)} streamed)`;
+  if (progressBytes <= 0) {
+    return `Preparing ${action}...`;
+  }
+  return `Writing ${action}... (${formatProgressBytes(progressBytes)} prepared)`;
+}
+
+function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
+  const progressBytes = activityProgressBytes(ev);
+  if (isPreparingActionActivity(ev)) {
+    return preparationActivityLabel(tool, progressBytes);
+  }
+  return baseActivityLabel(ev, tool);
 }
 
 function findPendingToolCallIndex(
@@ -234,6 +319,24 @@ function findPendingToolCallIndex(
   return -1;
 }
 
+function findCompletedToolCallIndex(
+  content: ContentPart[],
+  toolCallId?: string,
+): number {
+  if (!toolCallId) return -1;
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.result !== undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
   next: ActivityTrailEntry,
@@ -249,23 +352,91 @@ function appendActivityTrail(
   }
 }
 
+function refreshPreparingToolEntry(state: PreparingActionState, tool: string) {
+  const remainingEntries = [...(state.entries?.values() ?? [])].filter(
+    (entry) => entry.tool === tool,
+  );
+  if (remainingEntries.length === 0) {
+    state.toolEntries?.delete(tool);
+    return;
+  }
+  const deadlineBasis = (entry: PreparingActionEntry) =>
+    entry.lastProgressAt ?? entry.startedAt ?? Number.POSITIVE_INFINITY;
+  const oldestEntry = remainingEntries.reduce((oldest, entry) =>
+    deadlineBasis(entry) < deadlineBasis(oldest) ? entry : oldest,
+  );
+  const lastProgressBytes = remainingEntries.reduce<number | undefined>(
+    (max, entry) =>
+      entry.lastProgressBytes === undefined
+        ? max
+        : Math.max(max ?? 0, entry.lastProgressBytes),
+    undefined,
+  );
+  const toolEntries =
+    state.toolEntries ?? new Map<string, PreparingActionEntry>();
+  state.toolEntries = toolEntries;
+  toolEntries.set(tool, {
+    tool,
+    startedAt: oldestEntry.startedAt,
+    lastProgressAt: oldestEntry.lastProgressAt,
+    lastProgressBytes,
+  });
+}
+
 function updatePreparingActionState(
   state: PreparingActionState,
   ev: SSEEvent,
   now: number,
-) {
+): boolean | undefined {
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     const tool = ev.tool?.trim() || undefined;
-    if (!tool) return;
-    if (state.tool !== tool || state.startedAt === undefined) {
-      state.tool = tool;
-      state.startedAt = now;
+    if (!tool) return false;
+    const id = ev.id?.trim();
+    const key = id || tool;
+    const entries = state.entries ?? new Map<string, PreparingActionEntry>();
+    state.entries = entries;
+    let entry = entries.get(key);
+    if (!entry) {
+      entry = {
+        tool,
+        startedAt: now,
+        lastProgressAt: undefined,
+        lastProgressBytes: undefined,
+      };
+      entries.set(key, entry);
     }
-    // Every tool-input activity is a throttled proof the model is still
-    // streaming this action's argument. Treat it as progress so large inputs
-    // that take many seconds/minutes to stream are NOT flagged as stalled.
-    state.lastProgressAt = now;
-    return;
+    const toolEntries =
+      state.toolEntries ?? new Map<string, PreparingActionEntry>();
+    state.toolEntries = toolEntries;
+    let toolEntry = toolEntries.get(tool);
+    if (!toolEntry) {
+      toolEntry = {
+        tool,
+        startedAt: now,
+        lastProgressAt: undefined,
+        lastProgressBytes: undefined,
+      };
+      toolEntries.set(tool, toolEntry);
+    }
+    const progressBytes = activityProgressBytes(ev);
+    const previousBytes = entry.lastProgressBytes ?? 0;
+    let madeProgress = false;
+    if (progressBytes !== undefined) {
+      entry.lastProgressBytes = Math.max(previousBytes, progressBytes);
+      toolEntry.lastProgressBytes = Math.max(
+        toolEntry.lastProgressBytes ?? 0,
+        progressBytes,
+      );
+      madeProgress = id ? progressBytes > previousBytes : progressBytes > 0;
+    }
+    if (madeProgress) {
+      // A byte increase is proof the model is still streaming this action's
+      // argument. Repeated zero-byte prep activity is only a heartbeat.
+      entry.lastProgressAt = now;
+      toolEntry.lastProgressAt = now;
+      return true;
+    }
+    return false;
   }
 
   if (
@@ -277,31 +448,58 @@ function updatePreparingActionState(
     ev.type === "error" ||
     ev.type === "missing_api_key"
   ) {
-    state.tool = undefined;
-    state.startedAt = undefined;
-    state.lastProgressAt = undefined;
+    if (ev.type === "tool_start" || ev.type === "tool_done") {
+      const tool = ev.tool?.trim();
+      const id = ev.id?.trim();
+      for (const [key, entry] of state.entries ?? []) {
+        if ((id && key === id) || (!id && tool && entry.tool === tool)) {
+          state.entries?.delete(key);
+        }
+      }
+      if (tool) {
+        refreshPreparingToolEntry(state, tool);
+      }
+    } else {
+      state.entries?.clear();
+      state.toolEntries?.clear();
+    }
   }
+  return undefined;
 }
 
-function hasStalledPreparingAction(state: PreparingActionState, now: number) {
+function hasStalledPreparingAction(
+  state: PreparingActionState,
+  now: number,
+  stallTimeoutMs: number,
+) {
   // Fire only when a tool input has gone SILENT — no further streaming deltas
   // for the whole window — never merely because a large input has been
   // streaming for a long time. `lastProgressAt` advances on every delta
   // heartbeat, so an actively-streaming large output keeps resetting this and
   // survives; a genuinely stuck prep (keepalive-only, no deltas) trips it.
-  return (
-    state.tool !== undefined &&
-    state.lastProgressAt !== undefined &&
-    now - state.lastProgressAt >= SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-  );
+  // Durable background reads pass the wider durable window so the server's
+  // own 150s no-progress backstop gets first chance to recover the stall.
+  for (const entry of [
+    ...(state.toolEntries?.values() ?? []),
+    ...(state.entries?.values() ?? []),
+  ]) {
+    if (
+      entry.startedAt !== undefined &&
+      now - (entry.lastProgressAt ?? entry.startedAt) >= stallTimeoutMs
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function readChunkWithProgressTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   lastMeaningfulEventAt: number,
+  noProgressTimeoutMs: number,
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
   const elapsed = Date.now() - lastMeaningfulEventAt;
-  const timeoutMs = Math.max(0, SSE_NO_PROGRESS_TIMEOUT_MS - elapsed);
+  const timeoutMs = Math.max(0, noProgressTimeoutMs - elapsed);
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const readPromise = reader.read();
   // If the timeout wins and cancellation causes the pending read to reject,
@@ -442,6 +640,15 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
+function dispatchMissingApiKey(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:missing-api-key", {
+      detail: { tabId },
+    }),
+  );
+}
+
 function pendingToolNames(content: ContentPart[]): {
   activity: string[];
   running: string[];
@@ -458,6 +665,165 @@ function pendingToolNames(content: ContentPart[]): {
     }
   }
   return { activity: [...activity], running: [...running] };
+}
+
+function contentSnapshot(content: ContentPart[]): ContentPart[] {
+  return content.map((part) => {
+    if (part.type === "text") return { ...part };
+    return {
+      ...part,
+      args: { ...part.args },
+      ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+      ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
+      ...(part.approval ? { approval: { ...part.approval } } : {}),
+      ...(part.structuredMeta
+        ? { structuredMeta: { ...part.structuredMeta } }
+        : {}),
+    };
+  });
+}
+
+function repeatSignatureValue(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function completedToolRepeatSignature(
+  part: Extract<ContentPart, { type: "tool-call" }>,
+): string | null {
+  if (
+    part.result === undefined ||
+    part.activity === true ||
+    part.approval ||
+    part.mcpApp ||
+    part.chatUI ||
+    part.structuredMeta
+  ) {
+    return null;
+  }
+  return [
+    part.toolName,
+    part.argsText,
+    repeatSignatureValue(part.args),
+    part.result,
+    part.isError === true ? "error" : "",
+    part.completedSideEffect === true ? "side-effect" : "",
+  ].join("\u0000");
+}
+
+/**
+ * Result prefixes the server emits when a tool_start/tool_done pair is a
+ * REPLAY of a call that already executed in an earlier interrupted chunk of
+ * this turn (tool-call journal hard-block and zombie-ledger recovery in
+ * production-agent.ts). These are not new calls — rendering them as separate
+ * cards produces the "same tool twice, one spinning / one done" duplicate.
+ */
+const JOURNAL_RECOVERY_RESULT_PREFIXES = [
+  "(Already completed in an earlier interrupted attempt",
+  "(Recovered from prior interrupted chunk",
+] as const;
+
+function isJournalRecoveryResult(result: unknown): boolean {
+  return (
+    typeof result === "string" &&
+    JOURNAL_RECOVERY_RESULT_PREFIXES.some((prefix) => result.startsWith(prefix))
+  );
+}
+
+/**
+ * Merge a journal/ledger-recovered tool_done into the earlier card for the
+ * same logical call instead of leaving a duplicate pair. Two shapes occur:
+ *
+ * 1. The original card already completed (reconnect/continuation replay): the
+ *    recovery card at `completedIndex` is redundant — drop it, keeping the
+ *    original result.
+ * 2. The recovery result attached to the ORIGINAL still-pending card (the
+ *    id-less replay tool_done name-matches the earliest pending card): the
+ *    replay's own tool_start pushed a second pending card AFTER it that no
+ *    tool_done will ever resolve — remove that stuck-spinner artifact.
+ *
+ * Gated strictly on the recovery result markers so genuinely repeated
+ * identical calls are never collapsed. Returns true when it spliced the card
+ * at `completedIndex` (callers must not reuse the index afterwards).
+ */
+function coalesceJournalRecoveredTool(
+  content: ContentPart[],
+  completedIndex: number,
+): boolean {
+  const current = content[completedIndex];
+  if (!current || current.type !== "tool-call") return false;
+  if (!isJournalRecoveryResult(current.result)) return false;
+  const matchesCurrentCall = (
+    part: ContentPart,
+  ): part is Extract<ContentPart, { type: "tool-call" }> =>
+    part.type === "tool-call" &&
+    part.activity !== true &&
+    part.toolName === current.toolName &&
+    part.argsText === current.argsText;
+
+  for (let i = completedIndex - 1; i >= 0; i--) {
+    const prior = content[i];
+    if (!matchesCurrentCall(prior)) continue;
+    if (prior.result === undefined) {
+      // The original was interrupted mid-flight (spinner) — resolve it with
+      // the recovered result instead of showing a second card.
+      prior.result = current.result;
+      if (current.isError !== undefined) prior.isError = current.isError;
+      if (current.completedSideEffect !== undefined) {
+        prior.completedSideEffect = current.completedSideEffect;
+      }
+      if (current.mcpApp) prior.mcpApp = current.mcpApp;
+      if (current.chatUI) prior.chatUI = current.chatUI;
+    }
+    content.splice(completedIndex, 1);
+    return true;
+  }
+
+  // No earlier card — the recovery result landed on the original pending card
+  // itself. Remove any later still-pending replay-start artifact for the same
+  // call so it doesn't spin forever.
+  for (let i = content.length - 1; i > completedIndex; i--) {
+    const later = content[i];
+    if (
+      later.type === "tool-call" &&
+      matchesCurrentCall(later) &&
+      later.result === undefined
+    ) {
+      content.splice(i, 1);
+    }
+  }
+  return false;
+}
+
+function coalesceCompletedToolRepeat(
+  content: ContentPart[],
+  completedIndex: number,
+): void {
+  const current = content[completedIndex];
+  const previous = content[completedIndex - 1];
+  if (
+    !current ||
+    !previous ||
+    current.type !== "tool-call" ||
+    previous.type !== "tool-call"
+  ) {
+    return;
+  }
+
+  const currentSignature = completedToolRepeatSignature(current);
+  if (
+    !currentSignature ||
+    currentSignature !== completedToolRepeatSignature(previous)
+  ) {
+    return;
+  }
+
+  previous.repeatCount =
+    (previous.repeatCount ?? 1) + (current.repeatCount ?? 1);
+  content.splice(completedIndex, 1);
 }
 
 function formatToolNames(tools: string[]): string {
@@ -556,11 +922,15 @@ export function processEvent(
   };
 } {
   if (ev.type === "clear") {
-    // Server is retrying — discard partial text/tool output from the failed attempt
-    content.length = 0;
+    // Server is retrying — discard rejected draft text and unfinished tool
+    // output while keeping completed tool results visible.
+    clearAssistantDraftContent(content);
     resetProcessEventState(state);
     dispatchActivityClear(tabId);
-    return { action: "continue" };
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
   }
 
   if (ev.type === "text") {
@@ -578,7 +948,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -615,13 +985,16 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-start", {
@@ -672,7 +1045,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -694,7 +1067,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -703,6 +1076,9 @@ export function processEvent(
     // so a tool_done frame with an undefined tool name still matches its
     // pending tool-call entry instead of leaving it forever unresolved.
     const doneTool = ev.tool ?? "unknown";
+    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+      return { action: "continue" };
+    }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -730,11 +1106,17 @@ export function processEvent(
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
+        // Journal/ledger replay merge first (may splice the card at doneIdx —
+        // when it does, the adjacent-repeat coalesce below must not run on the
+        // stale index).
+        if (!coalesceJournalRecoveredTool(content, doneIdx)) {
+          coalesceCompletedToolRepeat(content, doneIdx);
+        }
       }
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -764,7 +1146,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -784,7 +1166,7 @@ export function processEvent(
     }
     return {
       action: "yield",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
@@ -811,7 +1193,7 @@ export function processEvent(
       errorCode,
     };
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      dispatchMissingApiKey(tabId);
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
           detail: { ...runError, tabId },
@@ -826,7 +1208,7 @@ export function processEvent(
     return {
       action: "missing_api_key",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -911,9 +1293,7 @@ export function processEvent(
     }
     const normalized = normalizeChatError(errMsg, ev.errorCode);
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-      }
+      dispatchMissingApiKey(tabId);
     }
     const runError = {
       message: normalized.message,
@@ -938,7 +1318,7 @@ export function processEvent(
     return {
       action: "error",
       result: {
-        content: [...content],
+        content: contentSnapshot(content),
         status: { type: "incomplete" as const, reason: "error" as const },
         metadata: { custom: { runError } },
       } as ChatModelRunResult,
@@ -974,7 +1354,7 @@ export function processEvent(
       return {
         action: "error",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
         } as ChatModelRunResult,
@@ -993,7 +1373,7 @@ export function processEvent(
       return {
         action: "done",
         result: {
-          content: [...content],
+          content: contentSnapshot(content),
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: {
             custom: {
@@ -1009,11 +1389,25 @@ export function processEvent(
     }
     return {
       action: "done",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
     };
   }
 
   return { action: "continue" };
+}
+
+function clearAssistantDraftContent(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (!part) continue;
+    if (part.type === "text") {
+      content.splice(index, 1);
+      continue;
+    }
+    if (part.type === "tool-call" && part.result === undefined) {
+      content.splice(index, 1);
+    }
+  }
 }
 
 /**
@@ -1032,13 +1426,17 @@ export async function* readSSEStream(
   tabId: string | undefined,
   onSeq?: (seq: number) => void,
   runId?: string | null,
+  options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const noProgressTimeoutMs = sseNoProgressTimeoutMs(options);
+  const preparationStallTimeoutMs = sseActionPreparationStallTimeoutMs(options);
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1075,16 +1473,31 @@ export async function* readSSEStream(
 
   try {
     while (true) {
-      const { done, value } = await readChunkWithProgressTimeout(
-        reader,
-        lastMeaningfulEventAt,
-      );
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await readChunkWithProgressTimeout(
+          reader,
+          lastMeaningfulEventAt,
+          noProgressTimeoutMs,
+        );
+      } catch (err) {
+        if (err instanceof AgentAutoContinueSignal) {
+          throw new AgentAutoContinueSignal({
+            reason: err.reason,
+            maxIterations: err.maxIterations,
+            activityTrail: [...activityTrail],
+            errorInfo: err.errorInfo,
+          });
+        }
+        throw err;
+      }
+      const { done, value } = readResult;
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
-      let sawDataEvent = false;
+      let sawProgressEvent = false;
 
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
@@ -1097,10 +1510,16 @@ export async function* readSSEStream(
         } catch {
           continue;
         }
-        sawDataEvent = true;
         const now = Date.now();
-        lastMeaningfulEventAt = now;
-        updatePreparingActionState(preparingActionState, ev, now);
+        const actionPreparationProgress = updatePreparingActionState(
+          preparingActionState,
+          ev,
+          now,
+        );
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+          sawProgressEvent = true;
+          lastMeaningfulEventAt = now;
+        }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
@@ -1139,7 +1558,13 @@ export async function* readSSEStream(
         );
 
         if (result) yield withStreamMetadata(result);
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
+        if (
+          hasStalledPreparingAction(
+            preparingActionState,
+            Date.now(),
+            preparationStallTimeoutMs,
+          )
+        ) {
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1162,10 +1587,13 @@ export async function* readSSEStream(
       }
 
       if (
-        !sawDataEvent &&
-        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+        !sawProgressEvent &&
+        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
       ) {
-        throw new AgentAutoContinueSignal({ reason: "no_progress" });
+        throw new AgentAutoContinueSignal({
+          reason: "no_progress",
+          activityTrail: [...activityTrail],
+        });
       }
     }
   } finally {
@@ -1200,13 +1628,17 @@ export async function readSSEStreamRaw(
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
   onSeq?: (seq: number) => void,
+  options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  const noProgressTimeoutMs = sseNoProgressTimeoutMs(options);
+  const preparationStallTimeoutMs = sseActionPreparationStallTimeoutMs(options);
   const activityTrail: ActivityTrailEntry[] = [];
-  const preparingActionState: PreparingActionState = {};
+  const preparingActionState: PreparingActionState =
+    options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
   };
@@ -1218,18 +1650,32 @@ export async function readSSEStreamRaw(
 
   try {
     while (true) {
-      const { done, value } = await readChunkWithProgressTimeout(
-        reader,
-        lastMeaningfulEventAt,
-      );
+      let readResult: ReadableStreamReadResult<Uint8Array>;
+      try {
+        readResult = await readChunkWithProgressTimeout(
+          reader,
+          lastMeaningfulEventAt,
+          noProgressTimeoutMs,
+        );
+      } catch (err) {
+        if (err instanceof AgentAutoContinueSignal) {
+          throw new AgentAutoContinueSignal({
+            reason: err.reason,
+            maxIterations: err.maxIterations,
+            activityTrail: [...activityTrail],
+            errorInfo: err.errorInfo,
+          });
+        }
+        throw err;
+      }
+      const { done, value } = readResult;
       if (done) break;
 
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
 
-      let updated = false;
-      let sawDataEvent = false;
+      let sawProgressEvent = false;
       for (const line of lines) {
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
@@ -1241,10 +1687,16 @@ export async function readSSEStreamRaw(
         } catch {
           continue;
         }
-        sawDataEvent = true;
         const now = Date.now();
-        lastMeaningfulEventAt = now;
-        updatePreparingActionState(preparingActionState, ev, now);
+        const actionPreparationProgress = updatePreparingActionState(
+          preparingActionState,
+          ev,
+          now,
+        );
+        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+          sawProgressEvent = true;
+          lastMeaningfulEventAt = now;
+        }
 
         if (ev.seq !== undefined && onSeq) {
           onSeq(ev.seq);
@@ -1287,18 +1739,26 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          updated = true;
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
         }
         if (action === "auto_continue") {
-          onUpdate([...content]);
+          onUpdate(contentSnapshot(content));
+          emittedLatestContent = true;
           throw new AgentAutoContinueSignal(
             autoContinue
               ? { ...autoContinue, activityTrail: [...activityTrail] }
               : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
-        if (hasStalledPreparingAction(preparingActionState, Date.now())) {
-          onUpdate([...content]);
+        if (
+          hasStalledPreparingAction(
+            preparingActionState,
+            Date.now(),
+            preparationStallTimeoutMs,
+          )
+        ) {
+          onUpdate(contentSnapshot(content));
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
@@ -1309,20 +1769,18 @@ export async function readSSEStreamRaw(
           action === "error" ||
           action === "missing_api_key"
         ) {
-          onUpdate([...content]);
           return;
         }
       }
 
-      if (updated) {
-        onUpdate([...content]);
-        emittedLatestContent = true;
-      }
       if (
-        !sawDataEvent &&
-        Date.now() - lastMeaningfulEventAt >= SSE_NO_PROGRESS_TIMEOUT_MS
+        !sawProgressEvent &&
+        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
       ) {
-        throw new AgentAutoContinueSignal({ reason: "no_progress" });
+        throw new AgentAutoContinueSignal({
+          reason: "no_progress",
+          activityTrail: [...activityTrail],
+        });
       }
     }
   } finally {
@@ -1332,6 +1790,8 @@ export async function readSSEStreamRaw(
       // See readSSEStream: cancellation may race lock release in browsers.
     }
   }
-  if (content.length > 0 && !emittedLatestContent) onUpdate([...content]);
+  if (content.length > 0 && !emittedLatestContent) {
+    onUpdate(contentSnapshot(content));
+  }
   throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

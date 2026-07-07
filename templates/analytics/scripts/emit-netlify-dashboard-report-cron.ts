@@ -135,7 +135,24 @@ function siteOrigin(request) {
   return url.origin;
 }
 
+async function readScheduledInvocation(request) {
+  if (request.method !== "POST") return null;
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return null;
+  }
+  const nextRun = typeof body?.next_run === "string" ? body.next_run : "";
+  return nextRun && Number.isFinite(Date.parse(nextRun))
+    ? { nextRun }
+    : null;
+}
+
 export default async function handler(request) {
+  const scheduled = await readScheduledInvocation(request);
+  if (!scheduled) return new Response("Not Found", { status: 404 });
+
   const url = new URL(WORKER_PATH, siteOrigin(request));
   const response = await fetch(url.toString(), {
     method: "POST",
@@ -143,7 +160,7 @@ export default async function handler(request) {
       "content-type": "application/json",
       "x-agent-native-analytics-alert-cron": CRON_TOKEN,
     },
-    body: JSON.stringify({ scheduled: true }),
+    body: JSON.stringify({ scheduled: true, next_run: scheduled.nextRun }),
   });
 
   if (!response.ok && response.status !== 202) {

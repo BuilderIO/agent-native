@@ -50,6 +50,9 @@ Detailed event, availability, booking, storage, and UI rules live in
   `addAttendees` so existing RSVP notes/statuses are preserved. Use
   `scope: "all"` only when the user wants a recurring-event guest change applied
   to the whole series.
+- Pass `optional: true` on an attendee object to mark someone optional when
+  creating, drafting, or adding guests. To change optional/required after the
+  fact, replace the full `attendees` list with `optional` set on that guest.
 
 ## Application State
 

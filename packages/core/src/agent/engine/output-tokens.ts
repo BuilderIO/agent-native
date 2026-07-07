@@ -1,8 +1,11 @@
+import { getMaxOutputTokensForModel } from "../model-config.js";
+
 const MIN_MAX_OUTPUT_TOKENS = 256;
-// Raise the global clamp to 64K to support models like claude-sonnet-5
-// (64K) and GPT-5.x (up to 128K). Callers can still set higher explicit
-// per-call values; this clamp only applies when no explicit value is given.
-const MAX_MAX_OUTPUT_TOKENS = 64_000;
+// The output-token ceiling is model-aware (see MODEL_MAX_OUTPUT_TOKENS in
+// model-config.ts): 64K for models documented at 64K (Claude Haiku 4.5 and
+// unknown models — the previous global clamp), 128K for models documented
+// higher (Claude Fable 5 / Opus 4.8 / Sonnet 5, GPT-5.x). When no model id is
+// available the conservative 64K ceiling applies.
 
 // OpenRouter default raised from 1024 (truncation-prone) to 8192.
 export const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 8192;
@@ -23,16 +26,22 @@ function parsePositiveInteger(value: unknown): number | null {
   return n;
 }
 
-export function normalizeMaxOutputTokens(value: unknown): number | null {
+export function normalizeMaxOutputTokens(
+  value: unknown,
+  modelId?: string,
+): number | null {
   const parsed = parsePositiveInteger(value);
   if (parsed == null) return null;
   return Math.min(
-    MAX_MAX_OUTPUT_TOKENS,
+    getMaxOutputTokensForModel(modelId),
     Math.max(MIN_MAX_OUTPUT_TOKENS, parsed),
   );
 }
 
-function envOverrideForEngine(engineName: string): number | null {
+function envOverrideForEngine(
+  engineName: string,
+  modelId?: string,
+): number | null {
   const provider = engineName.startsWith("ai-sdk:")
     ? engineName.slice("ai-sdk:".length)
     : engineName;
@@ -41,13 +50,16 @@ function envOverrideForEngine(engineName: string): number | null {
     .toUpperCase()}_MAX_OUTPUT_TOKENS`;
   return (
     // guard:allow-env-credential — output-token cap config, not a credential
-    normalizeMaxOutputTokens(process.env[providerEnvKey]) ??
-    normalizeMaxOutputTokens(process.env.AGENT_MAX_OUTPUT_TOKENS)
+    normalizeMaxOutputTokens(process.env[providerEnvKey], modelId) ??
+    normalizeMaxOutputTokens(process.env.AGENT_MAX_OUTPUT_TOKENS, modelId)
   );
 }
 
-export function defaultMaxOutputTokensForEngine(engineName: string): number {
-  const override = envOverrideForEngine(engineName);
+export function defaultMaxOutputTokensForEngine(
+  engineName: string,
+  modelId?: string,
+): number {
+  const override = envOverrideForEngine(engineName, modelId);
   if (override != null) return override;
 
   if (engineName === "builder") return DEFAULT_BUILDER_MAX_OUTPUT_TOKENS;
@@ -66,9 +78,10 @@ export function defaultMaxOutputTokensForEngine(engineName: string): number {
 export function resolveMaxOutputTokensForEngine(
   engineName: string,
   explicit?: unknown,
+  modelId?: string,
 ): number {
   return (
-    normalizeMaxOutputTokens(explicit) ??
-    defaultMaxOutputTokensForEngine(engineName)
+    normalizeMaxOutputTokens(explicit, modelId) ??
+    defaultMaxOutputTokensForEngine(engineName, modelId)
   );
 }

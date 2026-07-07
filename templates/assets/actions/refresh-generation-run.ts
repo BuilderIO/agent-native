@@ -9,7 +9,11 @@ import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
 
-const STALE_IMAGE_RUN_MS = 2 * 60 * 1000;
+// Must stay comfortably above the managed generation budget: the default 300s
+// request window plus up to ~4 minutes of idempotent in-flight polling. Otherwise
+// a slow but healthy run can get prematurely declared "interrupted" before the
+// finished image lands and flips it back to ready.
+const STALE_IMAGE_RUN_MS = 10 * 60 * 1000;
 const INTERRUPTED_IMAGE_RUN_ERROR =
   "Image generation was interrupted before a preview was created. Start a new generation to retry.";
 

@@ -22,6 +22,62 @@ function numberFromRowValue(value: unknown): number {
   return 0;
 }
 
+export interface RecordingChunkKey {
+  key: string;
+  index: number;
+}
+
+export function recordingChunkIndexFromKey(key: string): number | null {
+  const rawIndex = key.slice(key.lastIndexOf("-") + 1);
+  if (!/^\d+$/.test(rawIndex)) return null;
+  const index = Number(rawIndex);
+  return Number.isSafeInteger(index) ? index : null;
+}
+
+export function validateRecordingChunkKeys(
+  keys: string[],
+  expectedChunks?: number,
+): RecordingChunkKey[] {
+  const parsed = keys.map((key) => {
+    const index = recordingChunkIndexFromKey(key);
+    if (index === null) {
+      throw new Error(
+        `Recording upload contains an invalid chunk key (${key}). Please retry the recording.`,
+      );
+    }
+    return { key, index };
+  });
+
+  parsed.sort((a, b) => a.index - b.index);
+
+  for (let i = 0; i < parsed.length; i++) {
+    const chunk = parsed[i]!;
+    if (chunk.index < i) {
+      throw new Error(
+        `Recording upload contains duplicate chunk ${chunk.index}. Please retry the recording.`,
+      );
+    }
+    if (chunk.index > i) {
+      throw new Error(
+        `Recording upload is incomplete: missing chunk ${i}. Please retry the recording.`,
+      );
+    }
+  }
+
+  if (
+    typeof expectedChunks === "number" &&
+    Number.isSafeInteger(expectedChunks) &&
+    expectedChunks >= 0 &&
+    parsed.length !== expectedChunks
+  ) {
+    throw new Error(
+      `Recording upload is incomplete (${parsed.length} of ${expectedChunks} chunks received). Please retry the recording.`,
+    );
+  }
+
+  return parsed;
+}
+
 export async function listRecordingChunkKeys(
   ownerEmail: string,
   recordingId: string,

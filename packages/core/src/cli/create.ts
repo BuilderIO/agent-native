@@ -23,10 +23,16 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
-  "@react-router/dev": "8.0.1",
-  "@react-router/fs-routes": "8.0.1",
-  "react-router": "8.0.1",
+  "@react-router/dev": "8.1.0",
+  "@react-router/fs-routes": "8.1.0",
+  "react-router": "8.1.0",
 };
+const REACT_ROUTER_BUILD_DEPENDENCIES = [
+  "@react-router/dev",
+  "@react-router/fs-routes",
+  "react-router",
+  "vite",
+] as const;
 const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
@@ -330,6 +336,7 @@ async function createWorkspaceInteractive(
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
+        toolkitDependencyVersion: getToolkitDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName);
       fixWebManifestName(appDir, appName, templateName);
@@ -465,6 +472,22 @@ async function scaffoldWorkspaceRoot(
         wsPath,
         existing.trimEnd() + "\ncatalog:\n" + catalogYaml + "\n",
       );
+    }
+  }
+
+  const localToolkit = localToolkitOverride();
+  if (localToolkit) {
+    const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+    const existing = fs.existsSync(wsPath)
+      ? fs.readFileSync(wsPath, "utf-8")
+      : "";
+    const updated = mergeWorkspaceYamlSections(existing, {
+      overrides: {
+        '"@agent-native/toolkit"': JSON.stringify(localToolkit),
+      },
+    });
+    if (updated !== existing) {
+      fs.writeFileSync(wsPath, updated);
     }
   }
 
@@ -629,6 +652,7 @@ async function scaffoldOneAppIntoWorkspace(
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
       dispatchDependencyVersion: getDispatchDependencyVersion(),
+      toolkitDependencyVersion: getToolkitDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName);
     fixWebManifestName(appDir, appName, templateName);
@@ -844,7 +868,6 @@ function findLocalTemplate(name: string): string | undefined {
 
 function normalizeTemplateName(template: string): string {
   if (template === "blank") return "headless";
-  if (template === "video") return "videos";
   if (template === "image" || template === "images" || template === "asset") {
     return "assets";
   }
@@ -899,9 +922,9 @@ async function scaffoldRequiredPackages(
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
 
-    // The copied package may have @agent-native/core as a workspace:* dep.
-    // Convert it to this CLI package's published range since
-    // @agent-native/core is an npm package, not a workspace member.
+    // The copied package may have published framework packages as workspace:*
+    // deps. Convert them to published ranges because these package-backed
+    // modules are npm dependencies, not scaffolded workspace members.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -920,6 +943,13 @@ async function scaffoldRequiredPackages(
               key === "@agent-native/core"
             ) {
               deps[key] = getCoreDependencyVersion();
+            }
+            if (
+              typeof val === "string" &&
+              val.startsWith("workspace:") &&
+              key === "@agent-native/toolkit"
+            ) {
+              deps[key] = getToolkitDependencyVersion();
             }
           }
         }
@@ -1007,6 +1037,8 @@ function postProcessStandalone(
             deps[key] = exactOverride;
           } else if (key === "@agent-native/core") {
             deps[key] = getCoreDependencyVersion();
+          } else if (key === "@agent-native/toolkit") {
+            deps[key] = getToolkitDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -1019,6 +1051,7 @@ function postProcessStandalone(
       // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+      ensureReactRouterBuildDependencies(pkg);
 
       const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
       if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
@@ -1057,6 +1090,12 @@ function postProcessStandalone(
         nf3: '"0.3.17"',
       };
     }
+    const localToolkit = localToolkitOverride();
+    if (localToolkit) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/toolkit"'] =
+        JSON.stringify(localToolkit);
+    }
     let updated = mergeWorkspaceYamlSections(existing, sections);
     updated = mergeWorkspaceYamlListItems(
       updated,
@@ -1071,6 +1110,34 @@ function postProcessStandalone(
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
+  const allDeps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+  if (
+    !allDeps["@react-router/dev"] &&
+    !allDeps["react-router"] &&
+    !allDeps["@react-router/fs-routes"]
+  ) {
+    return;
+  }
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  for (const key of REACT_ROUTER_BUILD_DEPENDENCIES) {
+    const existing =
+      pkg.dependencies[key] ??
+      pkg.devDependencies?.[key] ??
+      pkg.peerDependencies?.[key];
+    if (!existing) continue;
+    pkg.dependencies[key] =
+      STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key] ?? existing;
+    delete pkg.devDependencies?.[key];
+    delete pkg.peerDependencies?.[key];
+  }
 }
 
 function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
@@ -1263,6 +1330,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
+  getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
@@ -1572,6 +1640,21 @@ function getDispatchDependencyVersion(): string {
   return "latest";
 }
 
+function getToolkitDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localToolkit = findLocalPackage("toolkit");
+    if (localToolkit) return pathToFileURL(localToolkit).href;
+  }
+
+  return "latest";
+}
+
+function localToolkitOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localToolkit = findLocalPackage("toolkit");
+  return localToolkit ? pathToFileURL(localToolkit).href : null;
+}
+
 function getCorePackageVersion(): string | undefined {
   try {
     const packageRoot = path.resolve(__dirname, "../..");
@@ -1627,6 +1710,9 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
       const deps = pkg[depType];
       if (deps?.["@agent-native/core"]) {
         deps["@agent-native/core"] = getCoreDependencyVersion();
+      }
+      if (deps?.["@agent-native/toolkit"]) {
+        deps["@agent-native/toolkit"] = getToolkitDependencyVersion();
       }
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");

@@ -34,6 +34,20 @@ function stringArrayProp(value: unknown, key: string): string[] {
     : [];
 }
 
+function boolProp(value: unknown, key: string): boolean | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "boolean" ? candidate : undefined;
+}
+
+function objectProp(value: unknown, key: string): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const candidate = (value as Record<string, unknown>)[key];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as Record<string, unknown>)
+    : {};
+}
+
 function resolveActiveScreen(
   files: Array<{
     id: string;
@@ -93,9 +107,36 @@ function resolveActiveScreen(
   return null;
 }
 
+function resolveActiveCodeFile(
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string | null;
+    updatedAt: string | null;
+  }>,
+  designSelection: unknown,
+) {
+  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
+  if (Object.keys(codeWorkspace).length === 0) return null;
+  const fileId = stringProp(codeWorkspace, "activeFileId");
+  const path = stringProp(codeWorkspace, "activePath");
+  const file = files.find(
+    (candidate) => candidate.id === fileId || candidate.filename === path,
+  );
+  return {
+    open: boolProp(codeWorkspace, "open") ?? false,
+    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
+    path: path ?? file?.filename ?? null,
+    fileId: fileId ?? file?.id ?? null,
+    dirty: boolProp(codeWorkspace, "dirty") ?? false,
+    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
+    file: file ?? null,
+  };
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, tools, or tokens), overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -154,6 +195,7 @@ export default defineAction({
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
           activeScreen: resolveActiveScreen(files, navigation, designSelection),
+          activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
       }

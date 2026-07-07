@@ -1,11 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
-/* Vazirmatn — open-source (OFL) Persian/Arabic face, scoped to RTL plan content
- * below via `[data-plan-direction="rtl"]`. @fontsource/vazirmatn is not in the
- * workspace, so this matches the Inter CDN @import pattern above. */
-@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/vazirmatn
+ * — no render-blocking Google Fonts request. Vazirmatn is an open-source (OFL)
+ * Persian/Arabic face, scoped to RTL plan content below via
+ * `[data-plan-direction="rtl"]`. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/vazirmatn";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @font-face {
   font-family: "Excalifont";
@@ -109,10 +111,22 @@
 }
 
 @layer base {
+  html:not([data-embed="1"]),
+  html:not([data-embed="1"]) body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: "Inter", sans-serif;
+    font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@supports (height: 100dvh) {
+  html:not([data-embed="1"]) .agent-layout-shell {
+    height: 100dvh;
   }
 }
 
@@ -124,7 +138,8 @@
  * face — code never renders in Vazirmatn (code-like blocks are also pinned to
  * dir="ltr"). */
 [data-plan-direction="rtl"] {
-  font-family: "Vazirmatn", "Inter", sans-serif;
+  font-family:
+    "Vazirmatn Variable", "Vazirmatn", "Inter Variable", "Inter", sans-serif;
 }
 
 @layer utilities {
@@ -503,8 +518,7 @@
 }
 
 .plan-document-toc__link.is-active {
-  color: hsl(var(--ring));
-  font-weight: 550;
+  color: var(--plan-text);
 }
 
 .plan-document-toc__link.is-nested {
@@ -1712,7 +1726,7 @@
 .plan-template-group-title > span:last-child,
 .plan-template-meter-copy > span {
   color: var(--plan-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
 }
@@ -1733,7 +1747,7 @@
 .plan-template-header-meta,
 .plan-template-popover-header > span {
   color: var(--plan-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
 }

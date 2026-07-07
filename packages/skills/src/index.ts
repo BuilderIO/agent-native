@@ -170,11 +170,11 @@ Options:
   --dry-run                   Print intended writes without changing files
   --json                      Print the result as JSON
 
-App-backed skills (visual-plan, visual-recap, content) register their hosted MCP
-server in your agent config by default so the agent can actually use them. Use
---no-mcp to skip that and copy the files only.
-For visual-plan/visual-recap/content, choose --mode local-files for local-file
-workflows, or --mode self-hosted --mcp-url <url> for your own app.
+App-backed skills (visual-plan, visual-recap, visualize-repo, content) register
+their hosted MCP server in your agent config by default so the agent can
+actually use them. Use --no-mcp to skip that and copy the files only.
+For visual-plan/visual-recap/visualize-repo/content, choose --mode local-files
+for local-file workflows, or --mode self-hosted --mcp-url <url> for your own app.
 
 Examples:
   npx @agent-native/skills@latest add
@@ -874,12 +874,12 @@ async function resolvePlanModeForSkills(
   const modeAwareApp = selectedModeAwareApp(skillNames);
   if (options.planMode && !modeAwareApp) {
     throw new Error(
-      "--mode only applies to visual-plan / visual-recap / content.",
+      "--mode only applies to visual-plan / visual-recap / visualize-repo / content.",
     );
   }
   if (options.mcpUrl && !modeAwareApp) {
     throw new Error(
-      "--mcp-url only applies to visual-plan / visual-recap / content.",
+      "--mcp-url only applies to visual-plan / visual-recap / visualize-repo / content.",
     );
   }
   if (!modeAwareApp) return undefined;
@@ -1161,7 +1161,7 @@ async function printInstallResult(
   if (
     result.planMode === "local-files" &&
     result.skills.some((skill) =>
-      ["visual-plan", "visual-recap"].includes(skill),
+      ["visual-plan", "visual-recap", "visualize-repo"].includes(skill),
     )
   ) {
     clack.note(
@@ -1438,6 +1438,9 @@ function instructionContentForSkill(skillName: string): string | null {
   }
   if (skillName === "visual-recap") {
     return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
+  }
+  if (skillName === "visualize-repo") {
+    return "When a repository needs local visual docs or a navigable Plan-backed repo viewer, use the /visualize-repo skill always.";
   }
   return null;
 }

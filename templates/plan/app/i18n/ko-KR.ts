@@ -615,6 +615,10 @@ const messages = {
       signIn: "登录",
       haveAccount: "我已有账户",
       retry: "重试",
+      sendFeedback: "피드백 보내기",
+      feedbackPlaceholder:
+        "이 계획 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+      openGitHubIssue: "GitHub issue 열기",
       joinedOrg: "已加入 {{orgName}}。正在打开计划...",
       acceptingInvite: "正在接受邀请",
       joiningOrg: "正在加入组织",

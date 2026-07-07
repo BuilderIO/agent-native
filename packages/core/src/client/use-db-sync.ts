@@ -32,7 +32,7 @@ class HttpStatusError extends Error {
   }
 }
 
-type SyncEvent = {
+export type SyncEvent = {
   version?: number;
   source?: string;
   type?: string;
@@ -147,6 +147,13 @@ interface TransportSubscription {
   interval: number;
   /** Requested fallback interval while SSE is connected. */
   fallbackInterval: number;
+  /**
+   * Optional: notified when the shared SSE connection opens or closes (also
+   * fired once with the current state when the subscriber joins). Lets
+   * subscribers with their own fallback loops (e.g. the collab doc poll)
+   * relax their cadence while the push path is healthy.
+   */
+  onSseStateChange?: (connected: boolean) => void;
 }
 
 class SyncTransport {
@@ -158,6 +165,7 @@ class SyncTransport {
   private eventSource: EventSource | null = null;
   private sseConnected = false;
   private authFailureUntil = 0;
+  private consecutiveFailures = 0;
 
   constructor(
     private readonly pollUrl: string,
@@ -175,6 +183,7 @@ class SyncTransport {
       this.stopped = false;
       this.start();
     }
+    sub.onSseStateChange?.(this.sseConnected);
   }
 
   remove(id: symbol): void {
@@ -226,6 +235,14 @@ class SyncTransport {
     }
   }
 
+  private setSseConnected(connected: boolean): void {
+    if (this.sseConnected === connected) return;
+    this.sseConnected = connected;
+    for (const sub of this.subscribers.values()) {
+      sub.onSseStateChange?.(connected);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // SSE + poll loop (mirrors the original per-hook logic exactly)
   // -------------------------------------------------------------------------
@@ -246,15 +263,21 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    this.timer = setTimeout(
-      () => {
-        this.timer = null;
-        void this.poll();
-      },
-      this.sseConnected
-        ? this.effectiveFallbackInterval
-        : this.effectiveInterval,
-    );
+    const base = this.sseConnected
+      ? this.effectiveFallbackInterval
+      : this.effectiveInterval;
+    // Exponential backoff while polls keep failing (500s during a deploy,
+    // DNS blips, a struggling DB). Auth failures have their own cooldown
+    // above; this covers everything else so a down server isn't hammered at
+    // full cadence. Resets on the first successful poll.
+    const delay =
+      this.consecutiveFailures > 0
+        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 30_000)
+        : base;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.poll();
+    }, delay);
   }
 
   private reschedule(): void {
@@ -271,7 +294,7 @@ class SyncTransport {
     if (!this.eventSource) return;
     this.eventSource.close();
     this.eventSource = null;
-    this.sseConnected = false;
+    this.setSseConnected(false);
   }
 
   private connectEvents(): void {
@@ -288,11 +311,11 @@ class SyncTransport {
     const source = new EventSource(this.sseUrl);
     this.eventSource = source;
     source.onopen = () => {
-      this.sseConnected = true;
+      this.setSseConnected(true);
       this.schedulePoll();
     };
     source.onerror = () => {
-      this.sseConnected = false;
+      this.setSseConnected(false);
       // When the browser gives up permanently (HTTP error → readyState
       // CLOSED), it won't auto-reconnect. Drop the ref so a later
       // connectEvents() (on focus/visibility) can establish a fresh stream;
@@ -342,16 +365,18 @@ class SyncTransport {
         this.effectiveInterval,
       );
       if (this.stopped) return;
+      this.consecutiveFailures = 0;
       const events = data.events ?? [];
       this.applyVersion(events, data.version);
       this.fan(events, data.version);
     } catch (err) {
       if (this.stopped) return;
+      this.consecutiveFailures++;
       if (isAuthFailure(err)) {
         this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
         this.closeEvents();
       }
-      // Network error — will retry on next interval.
+      // Network error — retried on the next (backed-off) interval.
     } finally {
       this.inFlight = false;
       this.schedulePoll();
@@ -456,6 +481,56 @@ export function _resetSyncTransportRegistryForTests(): void {
   transportRegistry.clear();
 }
 
+export interface SubscribeSyncEventsOptions {
+  /** Receives every batch of change events (SSE push or poll). */
+  onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  /** Notified when the shared SSE connection opens/closes (and once on join). */
+  onSseStateChange?: (connected: boolean) => void;
+  pollUrl?: string;
+  sseUrl?: string | false;
+  pauseWhenHidden?: boolean;
+  /**
+   * Poll cadence this subscriber requests from the SHARED poll loop. The
+   * transport uses the minimum across subscribers, so the defaults here are
+   * deliberately high: subscribing must not speed up the shared poll —
+   * useDbSync (mounted by every template root) already sets the pace.
+   */
+  interval?: number;
+  fallbackInterval?: number;
+}
+
+/**
+ * Subscribe to the shared SSE + poll transport without the React Query
+ * invalidation behavior of `useDbSync`. Use this instead of opening another
+ * `EventSource` to `/_agent-native/events` — a browser tab should hold ONE
+ * SSE connection no matter how many features listen to it (extra streams eat
+ * the per-origin connection budget and starve data fetches, especially on
+ * HTTP/1.1 dev servers).
+ *
+ * Returns an unsubscribe function. Safe to call only in browser contexts.
+ */
+export function subscribeSyncEvents(
+  options: SubscribeSyncEventsOptions,
+): () => void {
+  const pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll");
+  const sseUrl = resolveSseUrl(options.sseUrl);
+  const transport = getOrCreateTransport(pollUrl, sseUrl);
+  const id = Symbol("subscribeSyncEvents");
+  transport.add(id, {
+    onEvents: options.onEvents,
+    onSseStateChange: options.onSseStateChange,
+    pauseWhenHidden: options.pauseWhenHidden ?? true,
+    interval: options.interval ?? 60_000,
+    fallbackInterval: options.fallbackInterval ?? 60_000,
+  });
+  return () => {
+    transport.remove(id);
+    if (!transport["subscribers"].size) {
+      releaseTransport(pollUrl, sseUrl);
+    }
+  };
+}
+
 /**
  * Hook that listens to /_agent-native/events for DB change events and
  * invalidates react-query caches when changes are detected. Falls back to
@@ -486,6 +561,9 @@ export function _resetSyncTransportRegistryForTests(): void {
  *   compatibility invalidate triggered by `action` events. Use this to keep
  *   expensive active queries on explicit-refresh semantics while still letting
  *   normal source-versioned queries react through `useChangeVersion`.
+ * @param options.suppressActionInvalidationFor - Action names whose sync events
+ *   should not invalidate all action queries. Use only for high-volume
+ *   background actions that perform their own narrow client invalidation.
  */
 export function useDbSync(
   options: {
@@ -501,6 +579,7 @@ export function useDbSync(
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
     actionInvalidatePredicate?: (query: Query) => boolean;
+    suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
   const {
@@ -524,6 +603,11 @@ export function useDbSync(
     options.actionInvalidatePredicate,
   );
   actionInvalidatePredicateRef.current = options.actionInvalidatePredicate;
+  const suppressActionInvalidationForRef = useRef(
+    options.suppressActionInvalidationFor,
+  );
+  suppressActionInvalidationForRef.current =
+    options.suppressActionInvalidationFor;
 
   useEffect(() => {
     const id = Symbol("useDbSync");
@@ -546,6 +630,18 @@ export function useDbSync(
       const relevant = ignore
         ? events.filter((e) => e.requestSource !== ignore)
         : events;
+      const suppressedActions = new Set(
+        suppressActionInvalidationForRef.current ?? [],
+      );
+      const isSuppressedActionEvent = (evt: SyncEvent) =>
+        evt.source === "action" &&
+        typeof evt.key === "string" &&
+        suppressedActions.has(evt.key);
+      const nonAwareness = relevant.filter((e) => e.source !== "awareness");
+      const suppressesWholeBatch =
+        nonAwareness.length > 0 &&
+        nonAwareness.every((evt) => evt.source === "action") &&
+        nonAwareness.every(isSuppressedActionEvent);
 
       // Bump per-source change counters. Components that read these via
       // `useChangeVersion(source)` and fold the value into a React Query
@@ -557,8 +653,18 @@ export function useDbSync(
         if (src && ver > 0) bumpChangeVersion(src, ver);
       }
 
-      if (relevant.length > 0 && queryClient) {
-        const hasActionEvent = relevant.some((evt) => evt.source === "action");
+      // Awareness (cursor/presence) events never change action/extension/
+      // app-state query results, but they arrive on every peer keystroke and
+      // carry no version (so the freshness filter always passes them). Keep
+      // them out of the invalidate block or an idle collaborative doc turns
+      // every peer's cursor move into a framework-wide refetch storm; they
+      // still reach onEvent below for callers that render presence.
+      const invalidating = relevant.filter((e) => e.source !== "awareness");
+
+      if (invalidating.length > 0 && queryClient) {
+        const hasActionEvent = invalidating.some(
+          (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
+        );
         if (hasActionEvent) {
           // Custom apps frequently start with raw `useQuery` calls before
           // graduating to `useActionQuery` or source-versioned query keys.
@@ -576,23 +682,28 @@ export function useDbSync(
         // etc.). Templates' own data queries do NOT live here — they react
         // through `useChangeVersion(source)` in their query keys instead, so
         // a single change event doesn't fan out into "refetch everything".
-        queryClient.invalidateQueries({ queryKey: ["action"] });
-        queryClient.invalidateQueries({ queryKey: ["extension"] });
-        queryClient.invalidateQueries({ queryKey: ["extensions"] });
-        queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-        queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-        queryClient.invalidateQueries({ queryKey: ["tool"] });
-        queryClient.invalidateQueries({ queryKey: ["tools"] });
-        queryClient.invalidateQueries({ queryKey: ["app-state"] });
-        if (hasAppStateEvent(relevant, "navigate")) {
-          queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
-        }
-        if (hasAppStateEvent(relevant, "show-questions")) {
-          queryClient.invalidateQueries({ queryKey: ["show-questions"] });
-        }
-        if (hasAppStateEvent(relevant, "__set_url__")) {
-          queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+        // Suppressed-action-only batches skip this whole list (their
+        // mutations perform their own narrow invalidation) — but events must
+        // STILL reach the onEvent forwarding below, so guard, don't return.
+        if (!suppressesWholeBatch) {
+          queryClient.invalidateQueries({ queryKey: ["action"] });
+          queryClient.invalidateQueries({ queryKey: ["extension"] });
+          queryClient.invalidateQueries({ queryKey: ["extensions"] });
+          queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+          queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+          queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+          queryClient.invalidateQueries({ queryKey: ["tool"] });
+          queryClient.invalidateQueries({ queryKey: ["tools"] });
+          queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          if (hasAppStateEvent(invalidating, "navigate")) {
+            queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+          }
+          if (hasAppStateEvent(invalidating, "show-questions")) {
+            queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+          }
+          if (hasAppStateEvent(invalidating, "__set_url__")) {
+            queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+          }
         }
       }
 

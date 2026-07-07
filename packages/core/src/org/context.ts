@@ -60,6 +60,49 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event));
 }
 
+type MembershipRow = { orgId: string; role: OrgRole; orgName: string };
+
+const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
+
+/**
+ * Per-request memoization of the org_members lookup, keyed by email on
+ * `event.context`. Both the session org backfill (inside `getSession`) and
+ * `getOrgContext` need the membership rows; without sharing, every request
+ * whose session lacks an orgId pays the query twice.
+ */
+function loadMembershipsForEvent(
+  event: H3Event,
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+): Promise<MembershipRow[] | null> {
+  const ctx = event.context as Record<string, unknown>;
+  const cache = ((ctx[MEMBERSHIPS_CACHE_KEY] as
+    | Map<string, Promise<MembershipRow[] | null>>
+    | undefined) ??
+    (ctx[MEMBERSHIPS_CACHE_KEY] = new Map<
+      string,
+      Promise<MembershipRow[] | null>
+    >())) as Map<string, Promise<MembershipRow[] | null>>;
+  let promise = cache.get(email);
+  if (!promise) {
+    promise = loadMemberships(exec, email);
+    cache.set(email, promise);
+  }
+  return promise;
+}
+
+function updateMembershipsForEvent(
+  event: H3Event,
+  email: string,
+  memberships: MembershipRow[] | null,
+): void {
+  const ctx = event.context as Record<string, unknown>;
+  const cache = ctx[MEMBERSHIPS_CACHE_KEY] as
+    | Map<string, Promise<MembershipRow[] | null>>
+    | undefined;
+  cache?.set(email, Promise.resolve(memberships));
+}
+
 async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
@@ -72,7 +115,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  let memberships = await loadMemberships(exec, email);
+  let memberships = await loadMembershipsForEvent(event, exec, email);
   if (memberships === null) {
     if (sessionOrgId) {
       return {
@@ -118,7 +161,10 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     });
     if (joined.joined.length > 0) {
       const refreshed = await loadMemberships(exec, email);
-      if (refreshed !== null) memberships = refreshed;
+      if (refreshed !== null) {
+        memberships = refreshed;
+        updateMembershipsForEvent(event, email, refreshed);
+      }
     }
 
     if (joined.activeOrgId) {
@@ -225,6 +271,37 @@ export async function resolveOrgIdForEmail(
       return activeOrgSetting.orgId;
     }
     return ids[0];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Event-aware variant of `resolveOrgIdForEmail` for HTTP request paths.
+ * Shares the per-request membership lookup with `getOrgContext`, so the
+ * session org backfill inside `getSession` and a later `getOrgContext` call
+ * in the same request pay ONE org_members round trip, not two.
+ */
+export async function resolveOrgIdForEmailViaEvent(
+  event: H3Event,
+  email: string,
+): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    if (!exec) return null;
+    const memberships = await loadMembershipsForEvent(event, exec, email);
+    if (!memberships || memberships.length === 0) return null;
+    if (memberships.length === 1) return memberships[0].orgId;
+    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
+      orgId: string;
+    } | null;
+    if (
+      activeOrgSetting?.orgId &&
+      memberships.some((m) => m.orgId === activeOrgSetting.orgId)
+    ) {
+      return activeOrgSetting.orgId;
+    }
+    return memberships[0].orgId;
   } catch {
     return null;
   }

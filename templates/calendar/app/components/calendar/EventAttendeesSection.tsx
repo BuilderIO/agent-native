@@ -1,10 +1,16 @@
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
-import { IconMessageCircle, IconUser } from "@tabler/icons-react";
+import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -343,6 +349,8 @@ function AttendeeRow({
   currentNote,
   onResponseChange,
   isRecurring,
+  canEditOptional,
+  onToggleOptional,
 }: {
   attendee: Attendee;
   event: Pick<CalendarEvent, "id" | "accountEmail">;
@@ -352,15 +360,19 @@ function AttendeeRow({
   currentNote?: string;
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
   const t = useT();
   const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
   const statusLabel =
     getLocalizedRsvpStatusLabel(t, displayStatus) ?? t("eventForm.awaiting");
   const comment = (inlineRsvp ? currentNote : attendee.comment)?.trim();
+  const showOptionalMenu =
+    canEditOptional && onToggleOptional && !attendee.organizer;
 
   return (
-    <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+    <div className="group rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
       <AttendeeApolloPopover attendee={attendee}>
         <div className="flex items-center gap-2.5">
           <div className="relative shrink-0">
@@ -379,6 +391,11 @@ function AttendeeRow({
                   {t("eventForm.organizer")}
                 </span>
               )}
+              {attendee.optional && !attendee.organizer && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {t("attendees.optionalBadge")}
+                </span>
+              )}
             </div>
             {attendee.displayName && (
               <div className="truncate text-[11px] text-muted-foreground/60">
@@ -391,6 +408,38 @@ function AttendeeRow({
                 : statusLabel}
             </div>
           </div>
+          {showOptionalMenu && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                  aria-label={t("attendees.guestOptions", {
+                    email: attendee.email,
+                  })}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onToggleOptional(attendee.email, !attendee.optional)
+                  }
+                >
+                  {attendee.optional
+                    ? t("attendees.markRequired")
+                    : t("attendees.markOptional")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
         {comment && (
           <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -425,6 +474,8 @@ function sortAttendees(attendees: Attendee[]) {
 
 export function EventAttendeesSection({
   event,
+  canEditOptional = false,
+  onToggleOptional,
 }: {
   event: Pick<
     CalendarEvent,
@@ -436,6 +487,8 @@ export function EventAttendeesSection({
     | "source"
     | "recurringEventId"
   >;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
   const t = useT();
   const attendees = event.attendees ?? [];
@@ -523,6 +576,8 @@ export function EventAttendeesSection({
                 attendee={attendee}
                 event={event}
                 photoUrl={photos?.[attendee.email.toLowerCase()]}
+                canEditOptional={canEditOptional}
+                onToggleOptional={onToggleOptional}
               />
             ))}
 
@@ -557,6 +612,8 @@ export function EventAttendeesSection({
                   currentNote={selfNote}
                   onResponseChange={handleSelfResponseChange}
                   isRecurring={!!event.recurringEventId}
+                  canEditOptional={canEditOptional}
+                  onToggleOptional={onToggleOptional}
                 />
               </>
             )}

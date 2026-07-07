@@ -653,6 +653,10 @@ const messages = {
       signIn: "Einloggen",
       haveAccount: "Ich habe bereits ein Konto",
       retry: "Versuchen Sie es erneut",
+      sendFeedback: "Feedback senden",
+      feedbackPlaceholder:
+        "Beschreiben Sie, was vor diesem Planfehler passiert ist.",
+      openGitHubIssue: "GitHub-Issue öffnen",
       joinedOrg: "Beigetreten {{orgName}}. Eröffnungsplan...",
       acceptingInvite: "Einladung annehmen",
       joiningOrg: "Beitritt zur Organisation",

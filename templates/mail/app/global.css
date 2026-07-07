@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -35,6 +36,13 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  --mail-sidebar-surface: hsl(var(--muted) / 0.5);
+  --mail-sidebar-hover-surface: hsl(var(--accent));
+  --mail-message-surface: hsl(var(--card));
+  --mail-drawer-surface: hsl(var(--background) / 0.85);
+  --mail-toast-surface: hsl(var(--card));
+  --mail-toast-border: hsl(var(--border));
+  --mail-overlay-scrim: hsl(0 0% 0% / 0.2);
 }
 
 .dark {
@@ -58,7 +66,7 @@
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 10%;
+  --sidebar-background: 0 0% 13%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
   --sidebar-primary-foreground: 0 0% 10%;
@@ -66,6 +74,13 @@
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
+  --mail-sidebar-surface: hsl(0 0% 14%);
+  --mail-sidebar-hover-surface: hsl(0 0% 18%);
+  --mail-message-surface: hsl(0 0% 16%);
+  --mail-drawer-surface: hsl(0 0% 14% / 0.9);
+  --mail-toast-surface: hsl(0 0% 15%);
+  --mail-toast-border: hsl(0 0% 26%);
+  --mail-overlay-scrim: hsl(0 0% 6% / 0.32);
 }
 
 @layer base {
@@ -269,9 +284,11 @@
   flex-shrink: 0 !important;
   white-space: nowrap !important;
 }
-/* Ensure toast border is visible in dark mode */
+/* Keep toast chrome on Mail's lighter dark gray surface. */
 .dark [data-sonner-toast] {
-  border-color: hsl(0 0% 22%) !important;
+  background: var(--mail-toast-surface) !important;
+  border-color: var(--mail-toast-border) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* Sonner cancel button style — match action button but muted */

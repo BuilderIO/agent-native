@@ -1,7 +1,6 @@
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
-  IconBuilding,
   IconWorld,
   IconTrash,
   IconCheck,
@@ -11,6 +10,7 @@ import {
   IconSearch,
   IconSearchOff,
   IconShare3,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,11 +46,11 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label.
-   *  Use "label-icon" to render a leading share glyph alongside the label so
-   *  the trigger matches adjacent icon+label buttons; "icon" is icon-only. */
+  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label
+   *  with a leading visibility icon. "label-icon" is kept for callsites that
+   *  want to explicitly opt into icon+label parity; "icon" is icon-only. */
   trigger?: "label" | "icon" | "label-icon";
-  /** @deprecated Label triggers no longer render a visibility/share glyph. */
+  /** @deprecated No longer affects rendering — triggers show visibility state. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -197,7 +197,7 @@ const VIS_META: Record<
   org: {
     label: "Organization",
     description: "Anyone in your organization can view",
-    Icon: IconBuilding,
+    Icon: IconUsersGroup,
   },
   public: {
     label: "Public",
@@ -356,10 +356,17 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The default trigger stays text-only; the icon trigger keeps the share glyph.
-  // "label-icon" renders the glyph alongside the label for icon+label parity.
+  const triggerVisibility =
+    pendingVisibility ??
+    (sharesQuery.data
+      ? ((sharesQuery.data.visibility as Visibility | null) ?? "private")
+      : null);
+  const triggerMeta = triggerVisibility
+    ? visibilityMeta(triggerVisibility, props.visibilityCopy)
+    : null;
+  const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
+  const triggerLabel = triggerMeta ? `Share (${triggerMeta.label})` : "Share";
   const iconOnly = props.trigger === "icon";
-  const showLabelIcon = props.trigger === "label-icon";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -370,11 +377,10 @@ export function ShareButton(props: ShareButtonProps) {
             iconOnly ? BUTTON_GHOST_ICON : BUTTON_OUTLINE_SM,
             props.triggerClassName,
           )}
-          aria-label={iconOnly ? "Share" : undefined}
+          aria-label={triggerLabel}
+          title={triggerLabel}
         >
-          {iconOnly || showLabelIcon ? (
-            <IconShare3 size={16} strokeWidth={1.75} />
-          ) : null}
+          <TriggerIcon size={16} strokeWidth={1.75} />
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -693,6 +699,10 @@ function SharePanel(
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) {
+      setShareError("Only owners and admins can change access.");
+      return;
+    }
     setShareError(null);
     void onVisibilityChange(next).catch((err) => {
       setShareError(extractShareErrorMessage(err));
@@ -1024,6 +1034,15 @@ function SharePanel(
           </div>
         </div>
       </div>
+
+      {shareError && !canManage ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {shareError}
+        </div>
+      ) : null}
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -1589,14 +1608,20 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   visibilityCopy?: ShareButtonProps["visibilityCopy"];
+  /** When false, the "Private" option is omitted unless currently selected. */
+  allowPrivate?: boolean;
   /** When false, the "Public" option is omitted. Default: true. */
   allowPublic?: boolean;
 }) {
+  const allowPrivate = props.allowPrivate !== false;
   const allowPublic = props.allowPublic !== false;
   const current = visibilityMeta(props.value, props.visibilityCopy);
-  const options = (Object.keys(VIS_META) as Visibility[]).filter(
-    (k) => allowPublic || k !== "public",
-  );
+  const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
   return (
     <Select.Root
       value={props.value}
@@ -1644,7 +1669,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       aria-hidden
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? <IconBuilding size={14} strokeWidth={1.75} /> : initials(label)}
+      {org ? <IconUsersGroup size={14} strokeWidth={1.75} /> : initials(label)}
     </span>
   );
 }

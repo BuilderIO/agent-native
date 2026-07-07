@@ -6,6 +6,47 @@ import {
   useCodeMode,
 } from "@agent-native/core/client";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@agent-native/toolkit/ui/sheet";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
@@ -93,51 +134,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
+  isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
@@ -166,12 +167,27 @@ import {
 import {
   useDeleteDocument,
   useDocument,
+  seedDatabaseItemDocumentCaches,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
+import {
+  builderBodyHydrationDisplayHydratedCount,
+  databaseItemBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
+  previewBodyHydrationIsPending,
+  previewBodyHydrationIsTerminalError,
+  shouldIgnorePreviewEmptyNormalization,
+} from "../body-hydration";
+import {
+  builderBodyHydrationMutationMadeProgress,
+  builderBodyHydrationPumpKey,
+  shouldPumpBuilderBodyHydration,
+} from "../builder-body-hydration-pump";
+import { BuilderBodySyncingNotice } from "../BuilderBodySyncingNotice";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -196,7 +212,10 @@ import {
   updatePropertyOptionColor,
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
-import { createPreviewDocumentSaveController } from "../previewDocumentSaveController";
+import {
+  createPreviewDocumentSaveController,
+  skippedPreviewDocumentSave,
+} from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
   peekPreviewDocumentSaveController,
@@ -246,6 +265,8 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
+export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
+export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
@@ -473,6 +494,7 @@ function DatabaseTable({
   isActive: boolean;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [databaseItemLimit, setDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
@@ -488,7 +510,13 @@ function DatabaseTable({
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
   const updateView = useUpdateContentDatabaseView(document.id);
-  const data = database.data;
+  // A deleted/missing database resolves to the unavailable union (no
+  // `database` field) — treat it as no data; the inline-block wrapper owns
+  // the user-facing "Database unavailable" state.
+  const data = isContentDatabaseUnavailable(database.data)
+    ? undefined
+    : database.data;
+  const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
@@ -556,6 +584,29 @@ function DatabaseTable({
   );
   const hydratedViewRef = useRef("");
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoContinueBuilderSourceRef = useRef<string | null>(null);
+  const builderContinuationWatchdogRef = useRef<{
+    key: string | null;
+    refires: number;
+  }>({ key: null, refires: 0 });
+  const [
+    builderContinuationClientErrorKey,
+    setBuilderContinuationClientErrorKey,
+  ] = useState<string | null>(null);
+  const autoPumpBuilderBodiesRef = useRef<string | null>(null);
+  const [builderHydrationClientErrorKey, setBuilderHydrationClientErrorKey] =
+    useState<string | null>(null);
+  const [builderProgressHighWater, setBuilderProgressHighWater] = useState<{
+    sourceId: string | null;
+    fetchedCount: number;
+    hydratedCount: number;
+    rowsComplete: boolean;
+  }>({
+    sourceId: null,
+    fetchedCount: 0,
+    hydratedCount: 0,
+    rowsComplete: false,
+  });
   const previewStateRef = useRef<{
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
@@ -662,6 +713,194 @@ function DatabaseTable({
   }, [visibleItems]);
 
   useEffect(() => {
+    if (!source || source.sourceType !== "builder-cms") {
+      autoPumpBuilderBodiesRef.current = null;
+      setBuilderHydrationClientErrorKey(null);
+      setBuilderProgressHighWater({
+        sourceId: null,
+        fetchedCount: 0,
+        hydratedCount: 0,
+        rowsComplete: false,
+      });
+      return;
+    }
+    const rawFetchedCount =
+      typeof source.metadata.lastReadFetchedEntryCount === "number"
+        ? source.metadata.lastReadFetchedEntryCount
+        : typeof source.metadata.lastReadEntryCount === "number"
+          ? source.metadata.lastReadEntryCount
+          : 0;
+    const fetchedCount =
+      source.metadata.lastReadHasMore === false
+        ? Math.max(rawFetchedCount, source.bodyHydration?.total ?? 0)
+        : rawFetchedCount;
+    const hydratedCount = source.bodyHydration?.hydrated ?? 0;
+    const rowsComplete = source.metadata.lastReadHasMore === false;
+    setBuilderProgressHighWater((current) => {
+      if (current.sourceId !== source.id) {
+        return {
+          sourceId: source.id,
+          fetchedCount,
+          hydratedCount,
+          rowsComplete,
+        };
+      }
+      const next = {
+        sourceId: source.id,
+        fetchedCount: Math.max(current.fetchedCount, fetchedCount),
+        hydratedCount: Math.max(current.hydratedCount, hydratedCount),
+        rowsComplete: current.rowsComplete || rowsComplete,
+      };
+      return next.fetchedCount === current.fetchedCount &&
+        next.hydratedCount === current.hydratedCount &&
+        next.rowsComplete === current.rowsComplete
+        ? current
+        : next;
+    });
+  }, [source]);
+
+  useEffect(() => {
+    if (
+      !isActive ||
+      !canEdit ||
+      !source ||
+      source.sourceType !== "builder-cms" ||
+      sourceAddsDetails(source) ||
+      refreshSource.isPending
+    ) {
+      return;
+    }
+    const sourceStatus = builderSourceRowFetchStatus(source);
+    if (
+      sourceStatus !== "fetching" ||
+      source.metadata.lastReadHasMore !== true
+    ) {
+      return;
+    }
+    const continuationKey = builderSourceContinuationKey(source);
+    if (!continuationKey) return;
+    if (builderContinuationClientErrorKey === continuationKey) return;
+    if (autoContinueBuilderSourceRef.current === continuationKey) return;
+    autoContinueBuilderSourceRef.current = continuationKey;
+    refreshSource.mutate(
+      {
+        documentId: document.id,
+        sourceId: source.id,
+      },
+      {
+        onError: () => setBuilderContinuationClientErrorKey(continuationKey),
+      },
+    );
+  }, [
+    builderContinuationClientErrorKey,
+    canEdit,
+    document.id,
+    isActive,
+    refreshSource.mutate,
+    refreshSource.isPending,
+    source,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isActive ||
+      !canEdit ||
+      !source ||
+      !shouldPumpBuilderBodyHydration(
+        source,
+        processBuilderBodies.isPending,
+        builderHydrationClientErrorKey,
+      )
+    ) {
+      return;
+    }
+    const hydrationKey = builderBodyHydrationPumpKey(source);
+    if (!hydrationKey || autoPumpBuilderBodiesRef.current === hydrationKey) {
+      return;
+    }
+    autoPumpBuilderBodiesRef.current = hydrationKey;
+    processBuilderBodies.mutate(
+      { sourceId: source.id },
+      {
+        onSuccess: (result) => {
+          if (!builderBodyHydrationMutationMadeProgress(result)) {
+            setBuilderHydrationClientErrorKey(hydrationKey);
+          }
+        },
+        onError: () => setBuilderHydrationClientErrorKey(hydrationKey),
+      },
+    );
+  }, [
+    builderHydrationClientErrorKey,
+    canEdit,
+    isActive,
+    processBuilderBodies.isPending,
+    processBuilderBodies.mutate,
+    source,
+  ]);
+
+  useEffect(() => {
+    const continuationKey =
+      source?.sourceType === "builder-cms"
+        ? builderSourceContinuationKey(source)
+        : null;
+    if (
+      !isActive ||
+      !canEdit ||
+      !source ||
+      source.sourceType !== "builder-cms" ||
+      sourceAddsDetails(source) ||
+      refreshSource.isPending ||
+      builderSourceRowFetchStatus(source) !== "fetching" ||
+      source.metadata.lastReadHasMore !== true ||
+      !continuationKey ||
+      builderContinuationClientErrorKey === continuationKey
+    ) {
+      return;
+    }
+    if (builderContinuationWatchdogRef.current.key !== continuationKey) {
+      builderContinuationWatchdogRef.current = {
+        key: continuationKey,
+        refires: 0,
+      };
+    }
+    const refireDelay = builderSourceContinuationWatchdogDelay(
+      builderContinuationWatchdogRef.current.refires,
+    );
+    const timer = window.setTimeout(() => {
+      const watchdog = builderContinuationWatchdogRef.current;
+      if (watchdog.key !== continuationKey) return;
+      if (
+        builderSourceContinuationWatchdogDecision(watchdog.refires) !== "refire"
+      )
+        return;
+      builderContinuationWatchdogRef.current = {
+        key: continuationKey,
+        refires: watchdog.refires + 1,
+      };
+      autoContinueBuilderSourceRef.current = null;
+      refreshSource.mutate(
+        {
+          documentId: document.id,
+          sourceId: source.id,
+        },
+        {
+          onError: () => setBuilderContinuationClientErrorKey(continuationKey),
+        },
+      );
+    }, refireDelay);
+    return () => window.clearTimeout(timer);
+  }, [
+    builderContinuationClientErrorKey,
+    canEdit,
+    document.id,
+    isActive,
+    refreshSource.mutate,
+    refreshSource.isPending,
+    source,
+  ]);
+
+  useEffect(() => {
     if (!databaseId || !isActive) return;
     const state = databaseNavigationState({
       document,
@@ -718,6 +957,8 @@ function DatabaseTable({
   ]);
 
   function previewItemPage(item: ContentDatabaseItem) {
+    seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
       openItemPage(item);
       return;
@@ -755,7 +996,25 @@ function DatabaseTable({
   }
 
   function openItemPage(item: ContentDatabaseItem) {
+    seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
     navigate(`/page/${item.document.id}`);
+  }
+
+  function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {
+    const sourceId = item.document.databaseMembership?.sourceId ?? source?.id;
+    if (!sourceId) return;
+    const builderSource =
+      sources.find((candidate) => candidate.id === sourceId) ?? source;
+    if (builderSource?.sourceType !== "builder-cms") return;
+    const hydration =
+      item.bodyHydration ?? item.document.databaseMembership?.bodyHydration;
+    if (hydration && !databaseItemBodyHydrationIsPending(item)) return;
+    processBuilderBodies.mutate({
+      sourceId,
+      documentId: item.document.id,
+      limit: 1,
+    });
   }
 
   async function createRow(
@@ -1234,8 +1493,8 @@ function DatabaseTable({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
             {builderReviewChangeSets.length > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-                {builderReviewChangeSets.length}
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+                {formatCompactCountBadge(builderReviewChangeSets.length)}
               </span>
             ) : null}
           </Button>
@@ -1282,6 +1541,42 @@ function DatabaseTable({
         }}
       />
 
+      <BuilderSourceContinuationBar
+        source={source}
+        canEdit={canEdit}
+        pending={refreshSource.isPending}
+        clientError={
+          source
+            ? builderContinuationClientErrorKey ===
+              builderSourceContinuationKey(source)
+            : false
+        }
+        progressHighWater={builderProgressHighWater}
+        onRetry={() => {
+          if (!source) return;
+          const continuationKey = builderSourceContinuationKey(source);
+          setBuilderContinuationClientErrorKey(null);
+          autoContinueBuilderSourceRef.current = null;
+          builderContinuationWatchdogRef.current = {
+            key: continuationKey,
+            refires: 0,
+          };
+          refreshSource.mutate(
+            {
+              documentId: document.id,
+              sourceId: source.id,
+            },
+            {
+              onError: () => {
+                if (continuationKey) {
+                  setBuilderContinuationClientErrorKey(continuationKey);
+                }
+              },
+            },
+          );
+        }}
+      />
+
       {activeView.type === "board" ? (
         <DatabaseBoardView
           activeView={activeView}
@@ -1290,7 +1585,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
@@ -1318,7 +1613,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1341,7 +1636,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1364,7 +1659,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1390,7 +1685,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1424,7 +1719,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={database.isLoading}
+          isLoading={isDatabaseInitialLoading}
           isCreating={addItem.isPending}
           columnWidths={columnWidths}
           sorts={sorts}
@@ -1509,11 +1804,12 @@ function DatabaseTable({
             setPreviewTitleFocusDocumentId(null);
           }
         }}
-        onPreviewItem={(item) => setPreviewDocumentId(item.document.id)}
+        onPreviewItem={(item) => {
+          prioritizeBuilderBodyHydrationForItem(item);
+          setPreviewDocumentId(item.document.id);
+        }}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
-          setPreviewDocumentId(null);
-          setPreviewTitleFocusDocumentId(null);
           openItemPage(item);
         }}
       />
@@ -1677,7 +1973,7 @@ function DatabaseTable({
         onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
-      {!database.isLoading ? (
+      {!isDatabaseInitialLoading ? (
         activeView.type === "table" ? null : (
           <DatabaseResultCountFooter
             visibleCount={databaseFooterVisibleCount(
@@ -2104,8 +2400,12 @@ function DatabaseItemPreviewSheet({
       <SheetContent
         side="right"
         showOverlay={false}
-        onInteractOutside={(event) => event.preventDefault()}
-        className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(64vw,560px)] sm:max-w-none"
+        onInteractOutside={(event) => {
+          if (isDatabasePreviewPortalInteraction(event.target)) {
+            event.preventDefault();
+          }
+        }}
+        className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
@@ -2133,16 +2433,36 @@ function DatabaseItemPreviewSheet({
   );
 }
 
+function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return !!target.closest("[data-database-preview-portal]");
+}
+
 function previewPayloadsEqual(
-  a: { title: string; content: string },
-  b: { title: string; content: string },
+  a: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
+  b: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
 ) {
   return a.title === b.title && a.content === b.content;
 }
 
 function retainedPreviewPayload(
   documentId: string,
-  serverPayload: { title: string; content: string },
+  serverPayload: {
+    title: string;
+    content: string;
+    loadedUpdatedAt?: string;
+    loadedContentWasEmpty?: boolean;
+  },
 ) {
   const controller = peekPreviewDocumentSaveController(documentId);
   if (!controller) return null;
@@ -2181,9 +2501,20 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
+  const previewDocument = document ?? item.document;
   const previewTitle = databaseItemPreviewTitle(item);
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
+  const bodyHydrationPending = previewBodyHydrationIsPending({
+    item,
+    document,
+  });
+  const bodyHydrationError = previewBodyHydrationIsTerminalError({
+    item,
+    document,
+  });
+  const previewCanEdit = canEdit && !bodyHydrationPending;
+  const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
   // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
   // edit is restored on remount instead of showing stale server content; else
@@ -2192,6 +2523,7 @@ function DatabaseItemPreview({
     const retained = retainedPreviewPayload(item.document.id, {
       title: item.document.title,
       content: item.document.content,
+      loadedUpdatedAt: item.document.updatedAt,
     });
     return retained?.title ?? item.document.title;
   });
@@ -2199,12 +2531,14 @@ function DatabaseItemPreview({
     const retained = retainedPreviewPayload(item.document.id, {
       title: item.document.title,
       content: item.document.content,
+      loadedUpdatedAt: item.document.updatedAt,
     });
     return retained?.content ?? item.document.content;
   });
   const [localIcon, setLocalIcon] = useState(item.document.icon);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openingFullPage, setOpeningFullPage] = useState(false);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
 
   // The peek's primary title+body save runs through a flush-on-release controller
@@ -2222,6 +2556,8 @@ function DatabaseItemPreview({
   updateDocumentRef.current = updateDocument;
   const queryClientRef = useRef(queryClient);
   queryClientRef.current = queryClient;
+  const bodyHydrationPendingRef = useRef(bodyHydrationPending);
+  bodyHydrationPendingRef.current = bodyHydrationPending;
   // Doc ids that have been deleted in this peek's lifetime. A pending save must
   // never resurrect a deleted document, so dispatch is suppressed for these.
   const deletedIdsRef = useRef<Set<string>>(new Set());
@@ -2238,6 +2574,10 @@ function DatabaseItemPreview({
       initial: {
         title: item.document.title,
         content: item.document.content,
+        loadedUpdatedAt: item.document.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          item.document.content,
+        ),
       },
       save: (id, payload) =>
         new Promise((resolve, reject) => {
@@ -2246,8 +2586,18 @@ function DatabaseItemPreview({
             resolve(undefined);
             return;
           }
+          if (bodyHydrationPendingRef.current) {
+            resolve(skippedPreviewDocumentSave());
+            return;
+          }
           updateDocumentRef.current.mutate(
-            { id, title: payload.title, content: payload.content },
+            {
+              id,
+              title: payload.title,
+              content: payload.content,
+              loadedUpdatedAt: payload.loadedUpdatedAt,
+              loadedContentWasEmpty: payload.loadedContentWasEmpty,
+            },
             { onSuccess: () => resolve(undefined), onError: reject },
           );
         }),
@@ -2278,6 +2628,23 @@ function DatabaseItemPreview({
     null,
   );
   useEffect(() => {
+    seedDatabaseItemDocumentCaches(queryClient, item);
+  }, [item, queryClient]);
+
+  useEffect(() => {
+    setOpeningFullPage(false);
+  }, [location.key]);
+
+  useEffect(() => {
+    if (!openingFullPage) return;
+    const timer = window.setTimeout(() => {
+      setOpeningFullPage(false);
+      toast.error(dbText("somethingWentWrong"));
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [openingFullPage]);
+
+  useEffect(() => {
     saveControllerRef.current = acquirePreviewDocumentSaveController(
       documentId,
       makeController,
@@ -2301,11 +2668,17 @@ function DatabaseItemPreview({
     const nextTitle = document?.title ?? item.document.title;
     const nextContent = document?.content ?? item.document.content;
     const nextIcon = document?.icon ?? item.document.icon;
+    const nextLoadedUpdatedAt = document?.updatedAt ?? item.document.updatedAt;
     // Icon isn't tracked by the title/content save controller, so it can always
     // follow the server.
     setLocalIcon(nextIcon);
     const controller = peekPreviewDocumentSaveController(documentId);
-    const serverPayload = { title: nextTitle, content: nextContent };
+    const serverPayload = {
+      title: nextTitle,
+      content: nextContent,
+      loadedUpdatedAt: nextLoadedUpdatedAt,
+      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(nextContent),
+    };
     const dirty =
       !!controller &&
       !previewPayloadsEqual(controller.pending, controller.lastSaved);
@@ -2313,12 +2686,18 @@ function DatabaseItemPreview({
       !!controller &&
       controller.hasSavedLocally &&
       !previewPayloadsEqual(controller.lastSaved, serverPayload);
+    const staleEmptyPendingOverFreshServer =
+      !!controller &&
+      dirty &&
+      controller.lastSaved.loadedContentWasEmpty === true &&
+      isEffectivelyEmptyDocumentContent(controller.pending.content) &&
+      !isEffectivelyEmptyDocumentContent(nextContent);
     // Only adopt the server's title/content — into BOTH the displayed editor
     // state and the controller baseline — when the user hasn't typed something
     // newer on this row. If a dirty in-progress edit exists, preserve it: don't
     // clobber the visible text (the controller already holds the unsaved edit,
     // so nothing is lost, but the editor must keep showing what the user typed).
-    if (!dirty && !savedAheadOfServer) {
+    if (staleEmptyPendingOverFreshServer || (!dirty && !savedAheadOfServer)) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
       controller?.mark(serverPayload);
@@ -2334,13 +2713,15 @@ function DatabaseItemPreview({
     document?.title,
     document?.content,
     document?.icon,
+    document?.updatedAt,
     item.document.title,
     item.document.content,
     item.document.icon,
+    item.document.updatedAt,
   ]);
 
   useEffect(() => {
-    if (!focusTitle || !canEdit || isLoading || !document) return;
+    if (!focusTitle || !previewCanEdit || isLoading || !document) return;
 
     const frame = requestAnimationFrame(() => {
       titleInputRef.current?.focus();
@@ -2349,22 +2730,31 @@ function DatabaseItemPreview({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [canEdit, document, focusTitle, isLoading, onTitleFocused]);
+  }, [document, focusTitle, isLoading, onTitleFocused, previewCanEdit]);
 
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     saveControllerRef.current?.changeTitle(nextTitle);
   }
 
   function handleContentChange(nextContent: string) {
+    if (
+      shouldIgnorePreviewEmptyNormalization({
+        currentContent: localContent,
+        nextContent,
+      })
+    ) {
+      setLocalContent(nextContent);
+      return;
+    }
     setLocalContent(nextContent);
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     saveControllerRef.current?.changeContent(nextContent);
   }
 
   function handleIconChange(nextIcon: string | null) {
-    if (!canEdit || !document) return;
+    if (!previewCanEdit || !document) return;
     setLocalIcon(nextIcon);
     updateDocument.mutate(
       { id: document.id, icon: nextIcon },
@@ -2500,10 +2890,18 @@ function DatabaseItemPreview({
               variant="ghost"
               size="sm"
               className="h-8 shrink-0 gap-1.5 px-2 text-xs"
-              onClick={onOpenPage}
+              disabled={openingFullPage}
+              onClick={() => {
+                setOpeningFullPage(true);
+                onOpenPage();
+              }}
             >
-              <IconExternalLink className="size-3.5" />
-              {dbText("openPage")}
+              {openingFullPage ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <IconExternalLink className="size-3.5" />
+              )}
+              {openingFullPage ? dbText("opening") : dbText("openPage")}
             </Button>
             {canEdit || canManage ? (
               <DropdownMenu
@@ -2521,7 +2919,11 @@ function DatabaseItemPreview({
                     <IconDots className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-44"
+                  data-database-preview-portal=""
+                >
                   {canEdit ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending}
@@ -2558,7 +2960,7 @@ function DatabaseItemPreview({
         </SheetDescription>
       </SheetHeader>
 
-      {isLoading || !document ? (
+      {!previewDocument ? (
         <div className="grid gap-4 p-6">
           <div className="h-10 w-2/3 rounded bg-muted" />
           <div className="h-4 w-full rounded bg-muted" />
@@ -2568,7 +2970,7 @@ function DatabaseItemPreview({
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto w-full max-w-3xl px-6 pt-8 pb-12">
             <div className="mb-5 flex items-start gap-3">
-              {canEdit ? (
+              {previewCanEdit ? (
                 <EmojiPicker
                   icon={localIcon}
                   variant="compact"
@@ -2577,7 +2979,7 @@ function DatabaseItemPreview({
                 />
               ) : (
                 <DatabaseItemPageIcon
-                  document={document}
+                  document={previewDocument}
                   className="mt-2 size-5 text-xl"
                   fallbackClassName="mt-2 size-5"
                 />
@@ -2586,7 +2988,7 @@ function DatabaseItemPreview({
                 ref={titleInputRef}
                 rows={1}
                 value={localTitle}
-                readOnly={!canEdit}
+                readOnly={!previewCanEdit}
                 aria-label={dbText("previewPageTitle")}
                 placeholder="Untitled"
                 onChange={(event) => handleTitleChange(event.target.value)}
@@ -2594,26 +2996,35 @@ function DatabaseItemPreview({
                 className="min-w-0 flex-1 resize-none overflow-hidden break-words border-0 bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40"
               />
             </div>
-            {document.databaseMembership ? (
+            {previewDocument.databaseMembership ? (
               <DocumentProperties
-                documentId={document.id}
-                canEdit={canEdit}
+                documentId={previewDocument.id}
+                canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
             ) : null}
             <div className="pt-6">
               {(() => {
+                if (bodyHydrationPending) {
+                  return (
+                    <BuilderBodySyncingNotice
+                      title={dbText("builderBodySyncing")}
+                      description={dbText("builderBodySyncingDescription")}
+                    />
+                  );
+                }
+
                 // The peek's primary "Content" Blocks field is the document body.
                 // No collab in the peek (ydoc=null), so it's a plain rich-text
                 // editor saving through the preview document save path.
                 const primaryEditor = (
                   <VisualEditor
-                    key={document.id}
-                    documentId={document.id}
+                    key={previewDocument.id}
+                    documentId={previewDocument.id}
                     content={localContent}
                     onChange={handleContentChange}
                     ydoc={null}
-                    editable={canEdit}
+                    editable={previewCanEdit}
                   />
                 );
 
@@ -2622,24 +3033,34 @@ function DatabaseItemPreview({
                 // identical loading/empty/solo/multi behavior — including the
                 // empty state (no editable body when there are zero Blocks
                 // fields). Only database rows have Blocks fields.
-                if (document.databaseMembership) {
-                  return (
-                    <DocumentBlockFields
-                      documentId={document.id}
-                      canEdit={canEdit}
-                      primaryEditor={primaryEditor}
-                    />
-                  );
-                }
+                const editor = previewDocument.databaseMembership ? (
+                  <DocumentBlockFields
+                    documentId={previewDocument.id}
+                    canEdit={previewCanEdit}
+                    primaryEditor={primaryEditor}
+                  />
+                ) : (
+                  primaryEditor
+                );
 
-                return primaryEditor;
+                return (
+                  <div className="grid gap-4">
+                    {bodyHydrationError ? (
+                      <BuilderBodySyncingNotice
+                        title={dbText("builderBodySyncFailedNotice")}
+                        description={dbText("builderBodySyncFailedDescription")}
+                      />
+                    ) : null}
+                    {editor}
+                  </div>
+                );
               })()}
             </div>
           </div>
         </div>
       )}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent data-database-preview-portal="">
           <AlertDialogHeader>
             <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -4104,6 +4525,10 @@ function DatabaseSettingsSourcePanel({
     return (
       <AddSourceView
         excludeDatabaseIds={[
+          // Always exclude this database itself — before any source exists
+          // the panel only knows the database's document id; the action
+          // matches exclusion ids against both id forms.
+          documentId,
           ...(source?.databaseId ? [source.databaseId] : []),
           ...sources
             .filter((item) => item.sourceType === "local-table")
@@ -4405,6 +4830,16 @@ function DatabaseSettingsSourcePanel({
                       source.freshness
                     }`
                   : source.freshness,
+                typeof source.metadata.lastReadFetchedEntryCount === "number"
+                  ? dbText("builderRowsFetched", {
+                      count: source.metadata.lastReadFetchedEntryCount,
+                    })
+                  : null,
+                builderSourceRowFetchStatus(source) === "error"
+                  ? dbText("builderRowsFetchFailed")
+                  : builderSourceRowFetchStatus(source) === "fetching"
+                    ? dbText("builderRowsFetchingMore")
+                    : null,
               ]
                 .filter(Boolean)
                 .join(" · ")
@@ -4860,7 +5295,7 @@ function AddSourceView({
     title: string;
   }) => void;
 }) {
-  const query = useContentDatabases({ enabled: true });
+  const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
@@ -5186,6 +5621,181 @@ function SourceRoleCard({
   );
 }
 
+function BuilderSourceContinuationBar({
+  source,
+  canEdit,
+  pending,
+  clientError,
+  progressHighWater,
+  onRetry,
+}: {
+  source: ContentDatabaseSource | null;
+  canEdit: boolean;
+  pending: boolean;
+  clientError: boolean;
+  progressHighWater: {
+    sourceId: string | null;
+    fetchedCount: number;
+    hydratedCount: number;
+    rowsComplete: boolean;
+  };
+  onRetry: () => void;
+}) {
+  if (
+    !source ||
+    source.sourceType !== "builder-cms" ||
+    sourceAddsDetails(source)
+  ) {
+    return null;
+  }
+  const rowsComplete =
+    source.metadata.lastReadHasMore === false ||
+    (progressHighWater.sourceId === source.id &&
+      progressHighWater.rowsComplete);
+  const rawStatus = clientError ? "error" : builderSourceRowFetchStatus(source);
+  const status = rowsComplete && rawStatus === "fetching" ? null : rawStatus;
+  const bodyHydration = source.bodyHydration;
+  const rawFetchedCount =
+    typeof source.metadata.lastReadFetchedEntryCount === "number"
+      ? source.metadata.lastReadFetchedEntryCount
+      : typeof source.metadata.lastReadEntryCount === "number"
+        ? source.metadata.lastReadEntryCount
+        : null;
+  const hydratedCount = bodyHydration
+    ? builderBodyHydrationDisplayHydratedCount({
+        summary: bodyHydration,
+        highWaterCount:
+          progressHighWater.sourceId === source.id
+            ? progressHighWater.hydratedCount
+            : 0,
+      })
+    : 0;
+  const fetchedCount =
+    rowsComplete && bodyHydration
+      ? Math.max(
+          rawFetchedCount ?? 0,
+          bodyHydration.total,
+          progressHighWater.sourceId === source.id
+            ? progressHighWater.fetchedCount
+            : 0,
+        )
+      : rawFetchedCount;
+  const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
+  const bodyHydrationActive =
+    !hasMore &&
+    !!bodyHydration &&
+    bodyHydration.total > 0 &&
+    bodyHydration.pending + bodyHydration.hydrating > 0;
+  const bodyHydrationFailed =
+    !hasMore &&
+    !!bodyHydration &&
+    bodyHydration.total > 0 &&
+    bodyHydration.error > 0 &&
+    bodyHydration.pending + bodyHydration.hydrating === 0;
+  const bodyHydrationVisible = bodyHydrationActive || bodyHydrationFailed;
+  if (!status && !bodyHydrationVisible) return null;
+  const showRetry = status === "error" || bodyHydrationFailed;
+  const progressPercent = bodyHydrationActive
+    ? Math.round((hydratedCount / bodyHydration!.total) * 100)
+    : builderSourceContinuationProgressPercent(source);
+  const label =
+    status === "error"
+      ? dbText("builderRowsLoadingHitSnag")
+      : bodyHydrationFailed
+        ? dbText("builderRowsLoadingHitSnag")
+        : bodyHydrationActive
+          ? dbText("builderRowsFetchedSyncingBodies")
+          : hasMore
+            ? dbText("builderRowsLoadingBackground")
+            : dbText("builderRowsFinishingUp");
+  const detail =
+    fetchedCount === null
+      ? bodyHydrationVisible && bodyHydration
+        ? dbText(
+            bodyHydrationFailed
+              ? "builderBodiesSyncFinishedWithFailures"
+              : "builderBodiesSyncingProgress",
+            {
+              hydrated: hydratedCount,
+              total: bodyHydration.total,
+              failed: bodyHydration.error,
+            },
+          )
+        : null
+      : bodyHydrationVisible && bodyHydration
+        ? dbText(
+            bodyHydrationFailed
+              ? "builderRowsFetchedBodiesSyncFinishedWithFailures"
+              : "builderRowsFetchedBodiesSyncing",
+            {
+              rows: fetchedCount,
+              hydrated: hydratedCount,
+              total: bodyHydration.total,
+              failed: bodyHydration.error,
+            },
+          )
+        : dbText("builderRowsFetchedSoFar", { count: fetchedCount });
+
+  return (
+    <div
+      className={cn(
+        "mx-6 mb-3 grid gap-2 rounded-lg border p-3 text-xs",
+        showRetry
+          ? "border-destructive/30 bg-destructive/5 text-destructive"
+          : "border-border bg-muted/35 text-foreground",
+      )}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">{label}</div>
+          {detail ? (
+            <div
+              className={cn(
+                "mt-0.5 break-words",
+                showRetry ? "text-destructive/80" : "text-muted-foreground",
+              )}
+            >
+              {detail}
+            </div>
+          ) : null}
+        </div>
+        {showRetry ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 px-2 text-xs"
+            disabled={pending || !canEdit}
+            onClick={onRetry}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconRefresh className="mr-1 size-3.5" />
+            )}
+            {dbText("retry")}
+          </Button>
+        ) : null}
+      </div>
+      {status === "fetching" || bodyHydrationActive ? (
+        <div className="h-1.5 overflow-hidden rounded-full bg-background">
+          <div
+            className={cn(
+              "h-full rounded-full bg-foreground/70 transition-[width]",
+              progressPercent === null ? "w-full animate-pulse" : null,
+            )}
+            style={
+              progressPercent === null
+                ? undefined
+                : { width: `${progressPercent}%` }
+            }
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BuilderBodyHydrationCard({
   source,
   canEdit,
@@ -5343,22 +5953,26 @@ function SourceDetailsFieldPicker({
     );
   };
   const addSelected = async () => {
-    const sourceFieldIds = fields
+    const sourceFields = fields
       .filter((field) => selected.has(field.id))
-      .map((field) => field.id);
-    if (sourceFieldIds.length === 0) {
+      .map((field) => ({
+        sourceFieldId: field.id,
+        sourceId: source.id,
+        sourceFieldKey: field.sourceFieldKey,
+      }));
+    if (sourceFields.length === 0) {
       onDone();
       return;
     }
     try {
-      for (const sourceFieldId of sourceFieldIds) {
-        await addField.mutateAsync({ documentId, sourceFieldId });
+      for (const field of sourceFields) {
+        await addField.mutateAsync({ documentId, ...field });
       }
       toast.success(dbText("detailFieldsAdded"), {
         description:
-          sourceFieldIds.length === 1
+          sourceFields.length === 1
             ? dbText("addedOneFieldFromSource")
-            : dbText("addedFieldsFromSource", { count: sourceFieldIds.length }),
+            : dbText("addedFieldsFromSource", { count: sourceFields.length }),
       });
       onDone();
     } catch (error) {
@@ -5852,6 +6466,54 @@ function formatRelativeSyncTime(value: string | null): string | null {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+export function builderSourceRowFetchStatus(
+  source: Pick<ContentDatabaseSource, "metadata">,
+): "fetching" | "error" | null {
+  if (source.metadata.sourceFetchState === "error") return "error";
+  if (
+    source.metadata.sourceFetchState === "fetching" ||
+    source.metadata.lastReadPartial
+  ) {
+    return "fetching";
+  }
+  return null;
+}
+
+export function builderSourceContinuationKey(
+  source: Pick<ContentDatabaseSource, "id" | "metadata">,
+) {
+  const offset =
+    typeof source.metadata.lastReadNextOffset === "number"
+      ? source.metadata.lastReadNextOffset
+      : null;
+  return offset === null ? null : `${source.id}:${offset}`;
+}
+
+export function builderSourceContinuationProgressPercent(
+  source: Pick<ContentDatabaseSource, "metadata">,
+) {
+  const fetched = source.metadata.lastReadFetchedEntryCount;
+  const limit = source.metadata.lastReadLimit;
+  if (typeof fetched !== "number" || typeof limit !== "number" || limit <= 0) {
+    return null;
+  }
+  const rawPercent = Math.max(0, Math.min(100, (fetched / limit) * 100));
+  return source.metadata.lastReadHasMore === true
+    ? Math.min(95, rawPercent)
+    : rawPercent;
+}
+
+export function builderSourceContinuationWatchdogDecision(refires: number) {
+  return "refire";
+}
+
+export function builderSourceContinuationWatchdogDelay(refires: number) {
+  return Math.min(
+    BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
+    BUILDER_SOURCE_CONTINUATION_STALL_MS * 2 ** Math.max(0, refires),
+  );
+}
+
 function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
   if (source.metadata.liveReadConfigured) return "Builder API read-only";
   if (source.metadata.readMode === "fixture") {
@@ -5911,6 +6573,7 @@ function DatabaseSettingsRow({
   disabled?: boolean;
   onClick?: () => void;
 }) {
+  const badgeLabel = formatCompactCountBadge(badgeCount);
   return (
     <button
       type="button"
@@ -5936,8 +6599,8 @@ function DatabaseSettingsRow({
         </span>
       ) : null}
       {badgeCount > 0 ? (
-        <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-          {badgeCount}
+        <span className="flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+          {badgeLabel}
         </span>
       ) : null}
       {onClick && !disabled ? (
@@ -5945,6 +6608,10 @@ function DatabaseSettingsRow({
       ) : null}
     </button>
   );
+}
+
+function formatCompactCountBadge(count: number) {
+  return count > 99 ? "99+" : String(count);
 }
 
 function DatabaseSettingsSwitch({
@@ -12250,8 +12917,8 @@ function DatabasePropertiesMenu({
         >
           <IconEye className="size-3.5" />
           {hiddenCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {hiddenCount}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(hiddenCount)}
             </span>
           ) : null}
         </Button>
@@ -12919,8 +13586,8 @@ function SortMenu({
         >
           <IconArrowsSort className="size-3.5" />
           {sorts.length > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {sorts.length}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(sorts.length)}
             </span>
           ) : null}
         </Button>
@@ -13115,8 +13782,8 @@ function FilterMenu({
         >
           <IconFilter className="size-3.5" />
           {active ? (
-            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
-              {activeFilters.length}
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+              {formatCompactCountBadge(activeFilters.length)}
             </span>
           ) : null}
         </Button>

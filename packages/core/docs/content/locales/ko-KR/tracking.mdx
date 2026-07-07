@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 이는 Agent Native의 자체 제품 분석을 지원하는 프레임워크의 내부 브라우저 원격 측정(`trackEvent()` / 자동 페이지뷰 - 아래 [Browser defaults](#browser-defaults) 참조)과 다릅니다. 구성된 제공업체에 도달해야 하는 앱 자체 분석 이벤트에 `track()`를 사용하세요.
 
+## 세션 리플레이 {#session-replay}
+
+Agent Native 앱은 두 번째 분석 SDK를 추가하지 않고도 퍼스트파티 브라우저 세션 리플레이를 사용하도록 설정할 수 있습니다. 브라우저 루트에서 `configureTracking()`을 한 번 호출하고 Analytics 공개 키와 수집기 엔드포인트를 전달하세요.
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+`sessionReplay.enabled`가 참 값이면 클라이언트는 시작 후 `@rrweb/record`를 동적으로 가져와 리플레이 청크를 리플레이 엔드포인트로 전송합니다. `endpoint`가 `/api/analytics/track` 또는 `/track`로 끝나면 리플레이 엔드포인트는 `/api/analytics/replay`로 자동 유도됩니다. 리플레이 수집기가 다른 곳에 있다면 `sessionReplay.endpoint`로 명시적으로 재정의하세요.
+
+Agent Native 템플릿 루트는 이미 `configureTracking()`을 호출합니다. 호스팅된 템플릿 배포는 Vite/Netlify 환경 변수로 리플레이를 켤 수 있으며, 라이브러리 소비자는 위의 명시적인 `configureTracking({ key, endpoint, sessionReplay })` 형태를 사용하는 것이 좋습니다.
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+브라우저 도우미는 또한 현재 Agent Native 인증 세션에 대해 최선을 다하는 논블로킹 읽기를 수행합니다. 리플레이는 기본적으로 로그인한 사용자에게만 적용됩니다. `sessionReplay`가 활성화되어 있어도 세션이 사용자 이메일 주소로 확인되지 않으면 녹화가 시작되지 않습니다. 로그인한 사용자의 리플레이에는 이메일 기반 `userId`/`userEmail`과 `orgId`가 포함됩니다.
+
+의도적으로 익명 리플레이를 배포하려는 경우에만 `sessionReplay.requireSignedInUser: false` 또는 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`를 설정하세요. 인증 게이팅을 비활성화하면 익명 녹화는 익명 방문자, 세션, 앱/템플릿, 호스트명, 경로별로 계속 쿼리할 수 있습니다.
+
+세션 리플레이는 브라우저 세션별로 결정적으로 샘플링됩니다. `sampleRate`가 `0.1`이면 대상이 되는 세션의 약 10%가 기록됩니다. 로그인 전용 도그푸딩처럼 대상 모집단이 의도적으로 작을 때는 `1`을 사용하세요.
+
+개인정보 보호 기본값은 의도적으로 보수적이지만 재생에는 여전히 유용합니다.
+
+- 입력값은 기본적으로 마스킹됩니다 (`maskAllInputs: true`).
+- 페이지 텍스트는 `.an-mask` 또는 `data-an-mask`로 표시된 요소가 아닌 한 계속 표시됩니다.
+- 민감한 영역은 `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`와 같은 선택자, 그리고 신용카드/비밀번호/주민등록번호와 유사한 필드로 차단됩니다.
+- URL은 브라우저 분석에서 사용하는 것과 동일한 `scrubUrl()` 도우미로 정제됩니다.
+- 리플레이 캡처는 웹 전용이며 옵트인 방식입니다. 네이티브 데스크톱 화면은 기록하지 않습니다.
+
+기록하는 동안 세션 리플레이는 브라우저 콘솔 출력(`log`, `info`, `warn`, `error`, `debug` 및 window `error` / `unhandledrejection`)과 네트워크 요청 메타데이터(`fetch` 및 XHR)를 태그가 지정된 rrweb 커스텀 이벤트로 캡처하므로, 에이전트와 리플레이 뷰어가 사용자가 보고한 문제를 디버그할 수 있습니다. 리플레이가 활성화되면 캡처는 기본적으로 켜져 있으며, `sessionReplay.console` 및 `sessionReplay.network` 옵션으로 조정하거나 비활성화할 수 있습니다. 각 옵션은 불리언 또는 옵션 객체(`{ maxEvents?: number }`)를 받으며, `network`는 추가로 `captureErrorBodies`와 `maxErrorBodyLength`를 받습니다. 요청 본문과 헤더는 절대 캡처되지 않으며, 응답 본문은 5xx(서버 오류) 응답에 한해서만 경계가 지정된 정제된 스니펫으로 캡처됩니다(`captureErrorBodies`, 기본값 `true`, `maxErrorBodyLength` 문자 수로 상한 설정, 기본값 2048) — 5xx가 아닌 응답과 네트워크 실패(상태 0) 응답에는 본문이 포함되지 않습니다. URL은 정제되며, 메시지는 잘리고, 레코더 자체의 수집/추적 트래픽은 제외되며, 세션당 한도(콘솔 1000개 / 네트워크 2000개 이벤트)를 초과하면 잘림 안내가 추가됩니다.
+
+Analytics 템플릿은 리플레이 메타데이터를 SQL(`session_recordings`)에 저장하고 청크는 프라이빗 blob 참조(`session_replay_chunks`)를 통해 저장합니다. 브라우저와 에이전트는 공급자 URL을 절대 받지 않습니다. 재생은 범위가 지정된 서버 경로를 거치며, 기본 에이전트 도구는 원시 청크 테이블 접근이 아닌 요약 또는 범위가 지정된 리플레이 이벤트를 반환합니다.
+
+프라이빗 녹화를 외부 에이전트에게 전달해야 할 때는 세션 상세 페이지의 **Copy for agent** 컨트롤을 사용하세요. 이는 두 시간 동안 유효한 녹화 범위의 `agent_access` 링크를 발급하고, `/sessions/:recordingId`에서 작은 디스커버리 페이로드를 SSR하며, 에이전트 컨텍스트/이벤트 JSON API만 노출합니다. 녹화의 공개 범위는 변경되지 않습니다.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+로컬 개발 환경에서만 Analytics는 프라이빗 blob 스토리지를 사용할 수 없을 때 용량이 제한된 SQL 인라인 청크로 대체할 수 있습니다. 프로덕션 배포에서는 리플레이 페이로드를 Postgres에 의존하기보다 프라이빗 또는 암호화된 blob 스토리지를 구성해야 합니다.
+
 ## 고급: 맞춤형 공급자 및 내부 {#advanced}
 
 대부분의 앱에는 `track()` / `identify()` 및 내장 공급자만 필요합니다. 사용자 지정 공급자 등록, `TrackingProvider` 인터페이스, 내부 일괄 처리 및 프레임워크의 자체 브라우저 원격 측정 등 나머지 표면은 다음과 같습니다.

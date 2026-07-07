@@ -186,6 +186,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.allowInPlanMode === "boolean") {
+    out.allowInPlanMode = entry.allowInPlanMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
@@ -559,6 +562,10 @@ export async function mergeCoreSharingActions(
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
+    [
+      "create-agent-resource-link",
+      () => import("../sharing/actions/create-agent-resource-link.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
       "context-manifest-get",
@@ -599,6 +606,60 @@ export async function mergeCoreSharingActions(
       () => import("../audit/actions/list-audit-events.js"),
     ],
     ["get-audit-event", () => import("../audit/actions/get-audit-event.js")],
+    // History kit — reusable version snapshots and restore surface.
+    [
+      "create-resource-version",
+      () => import("../history/actions/create-resource-version.js"),
+    ],
+    [
+      "list-resource-versions",
+      () => import("../history/actions/list-resource-versions.js"),
+    ],
+    [
+      "get-resource-version",
+      () => import("../history/actions/get-resource-version.js"),
+    ],
+    [
+      "restore-resource-version",
+      () => import("../history/actions/restore-resource-version.js"),
+    ],
+    [
+      "list-resource-history",
+      () => import("../history/actions/list-resource-history.js"),
+    ],
+    // Comments/review kit — reusable inline comments, feedback, and review status.
+    [
+      "list-review-comments",
+      () => import("../review/actions/list-review-comments.js"),
+    ],
+    [
+      "create-review-comment",
+      () => import("../review/actions/create-review-comment.js"),
+    ],
+    [
+      "reply-review-comment",
+      () => import("../review/actions/reply-review-comment.js"),
+    ],
+    [
+      "resolve-review-thread",
+      () => import("../review/actions/resolve-review-thread.js"),
+    ],
+    [
+      "delete-review-comment",
+      () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "consume-review-feedback",
+      () => import("../review/actions/consume-review-feedback.js"),
+    ],
+    [
+      "get-review-feedback",
+      () => import("../review/actions/get-review-feedback.js"),
+    ],
+    [
+      "set-review-status",
+      () => import("../review/actions/set-review-status.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [

@@ -1,0 +1,80 @@
+---
+title: "Org & Team Kit"
+description: "Organizations, team settings, invites, allowed domains, roles, and app switching."
+---
+
+# Org & Team Kit
+
+The Org & Team Kit standardizes how apps expose team membership and
+organization context. It covers the team page, organization switcher, invites,
+roles, allowed email domains, and the active organization that scopes sharing,
+connections, service tokens, and app switching.
+
+<WireframeBlock id="doc-block-toolkit-org-team">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:240px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:12px'><strong>Workspace</strong><div class='wf-box'>OrgSwitcher: Acme</div><div class='wf-pill'>Analytics</div><div class='wf-pill'>Content</div><div class='wf-pill'>Slides</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Team</h2><div style='flex:1'></div><button class='primary'>Invite</button></div><div class='wf-box'>Allowed domain: acme.com</div><div class='wf-box'>Steve - owner</div><div class='wf-box'>Maya - admin</div><div class='wf-box'>Kai - member</div><div class='wf-box'>Pending invites: 3</div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                 | Purpose                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `<TeamPage>`          | Standard team management page for members, invites, roles, and organization preferences.        |
+| `<OrgSwitcher>`       | Current organization picker for sidebars and headers.                                           |
+| `<InvitationBanner>`  | One-click invite and domain-match join prompts.                                                 |
+| `<RequireActiveOrg>`  | Guard for pages that need an active organization before rendering app data.                     |
+| `useOrgRole()`        | Shared role booleans for member, invite, settings, and domain controls.                         |
+| Organization handlers | Create, rename, switch, invite, accept, remove, and update roles/domains.                       |
+| Roles                 | Owner, admin, and member gates for sharing, settings, service tokens, and provider connections. |
+| Allowed domains       | Automatic join and domain-scoped access policy.                                                 |
+| App links             | Workspace app-link parsing and visible app-switcher helpers.                                    |
+
+## API {#api}
+
+Render organization context wherever data scope changes. Put `OrgSwitcher` in
+the persistent shell and make `/settings#team` or `/team` open `TeamPage`.
+
+```tsx
+import {
+  OrgSwitcher,
+  RequireActiveOrg,
+  TeamPage,
+  useOrgRole,
+} from "@agent-native/core/client/org-team";
+
+export function AppShell() {
+  return <OrgSwitcher />;
+}
+
+export function SettingsTeamTab() {
+  return (
+    <RequireActiveOrg>
+      <TeamPage createOrgDescription="Create a team to share dashboards and provider connections." />
+    </RequireActiveOrg>
+  );
+}
+
+export function AdminOnlyControl() {
+  const { canManageOrg } = useOrgRole();
+  return canManageOrg ? <button type="button">Invite members</button> : null;
+}
+```
+
+Server code imports the same role helpers from `@agent-native/core/org-team`.
+The route plugin mounts `/_agent-native/org/*` for org creation, switching,
+invites, domains, member roles, and A2A secret sync.
+
+## UX Standard {#ux-standard}
+
+- Users can see which organization they are in before creating or sharing data.
+- Invites and roles live in the team settings surface, not per-resource dialogs.
+- Org domain changes are owner-only and explain who can auto-join.
+- App switching lists workspace/default app links. Active-org continuity comes
+  from the target app sharing the same auth and organization state.
+
+Related docs: [Multi-Tenancy](/docs/multi-tenancy),
+[Workspace Management](/docs/workspace-management), [Sharing Kit](/docs/toolkit-sharing).

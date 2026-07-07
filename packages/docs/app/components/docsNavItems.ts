@@ -49,8 +49,93 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-surfaces",
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
-      { id: "cloneable-saas", labelKey: "templates", slug: "cloneable-saas" },
+      {
+        id: "cloneable-saas",
+        labelKey: "templates",
+        slug: "cloneable-saas",
+      },
       { id: "faq", labelKey: "faq", slug: "faq" },
+    ],
+  },
+  {
+    id: "toolkits",
+    titleKey: "agentNativeToolkit",
+    items: [
+      {
+        id: "agent-native-toolkit",
+        labelKey: "toolkitOverview",
+        slug: "agent-native-toolkit",
+      },
+      {
+        id: "toolkit-sharing",
+        labelKey: "toolkitSharing",
+        slug: "toolkit-sharing",
+      },
+      {
+        id: "toolkit-collaboration",
+        labelKey: "toolkitCollaboration",
+        slug: "toolkit-collaboration",
+      },
+      {
+        id: "toolkit-settings",
+        labelKey: "toolkitSettings",
+        slug: "toolkit-settings",
+      },
+      {
+        id: "toolkit-org-team",
+        labelKey: "toolkitOrgTeam",
+        slug: "toolkit-org-team",
+      },
+      {
+        id: "toolkit-setup-connections",
+        labelKey: "toolkitSetupConnections",
+        slug: "toolkit-setup-connections",
+      },
+      {
+        id: "toolkit-command-navigation",
+        labelKey: "toolkitCommandNavigation",
+        slug: "toolkit-command-navigation",
+      },
+      {
+        id: "toolkit-resources",
+        labelKey: "toolkitResources",
+        slug: "toolkit-resources",
+      },
+      {
+        id: "toolkit-agent-ux",
+        labelKey: "toolkitAgentUx",
+        slug: "toolkit-agent-ux",
+      },
+      {
+        id: "toolkit-history",
+        labelKey: "toolkitHistory",
+        slug: "toolkit-history",
+      },
+      {
+        id: "toolkit-comments-review",
+        labelKey: "toolkitCommentsReview",
+        slug: "toolkit-comments-review",
+      },
+      {
+        id: "toolkit-observability",
+        labelKey: "toolkitObservability",
+        slug: "toolkit-observability",
+      },
+      {
+        id: "toolkit-ui",
+        labelKey: "toolkitUiPrimitives",
+        slug: "toolkit-ui",
+      },
+      {
+        id: "toolkit-app-adapters",
+        labelKey: "toolkitAppAdapters",
+        slug: "toolkit-app-adapters",
+      },
+      {
+        id: "toolkit-shell-hooks",
+        labelKey: "toolkitShellHooks",
+        slug: "toolkit-shell-hooks",
+      },
     ],
   },
   {
@@ -184,6 +269,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "automations", labelKey: "automations", slug: "automations" },
       { id: "extensions", labelKey: "extensions", slug: "extensions" },
+      {
+        id: "data-programs",
+        labelKey: "dataPrograms",
+        slug: "data-programs",
+      },
       {
         id: "multi-app-workspace",
         labelKey: "multiAppWorkspaces",
@@ -321,7 +411,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       { id: "template-slides", labelKey: "slides", slug: "template-slides" },
-      { id: "template-videos", labelKey: "video", slug: "template-videos" },
       {
         id: "template-analytics",
         labelKey: "analytics",

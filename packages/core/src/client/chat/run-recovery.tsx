@@ -920,6 +920,12 @@ export function LoopLimitContinueCard({
 }
 
 // ─── PlanModeCallout ──────────────────────────────────────────────────────────
+//
+// Renders inside the same width-constrained column as the composer (see
+// `.agent-plan-mode-callout` in agent-native.css and the fullscreen rule
+// injected by AgentPanel) so the pill hugs the composer's right edge in both
+// narrow sidebar chats and wide/centered page layouts, instead of floating
+// against the full pane width.
 
 export function PlanModeCallout({
   canImplementPlan,
@@ -931,7 +937,7 @@ export function PlanModeCallout({
   onSwitchToAct: () => void;
 }) {
   return (
-    <div className="shrink-0 px-3 pt-1">
+    <div className="agent-plan-mode-callout shrink-0 px-3">
       <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
         <span className="min-w-0 truncate">

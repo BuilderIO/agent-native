@@ -91,7 +91,7 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant messages actionable", () => {
+  it("hides completed historical assistant controls while any chat work is running", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -99,7 +99,7 @@ describe("shouldShowAssistantMessageFooter", () => {
         hasRenderableContent: true,
         statusIsTerminal: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

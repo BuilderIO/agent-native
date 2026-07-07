@@ -17,6 +17,56 @@ type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 const TOOLBAR_COLLAPSED_H = 154;
 const TOOLBAR_EXPANDED_H = 236;
 
+function isDeviceUnavailableError(error: unknown): boolean {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name)
+      : "";
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
+}
+
+function cameraConstraint(deviceId: string): MediaTrackConstraints {
+  const video: MediaTrackConstraints = {
+    width: { ideal: 640 },
+    height: { ideal: 640 },
+  };
+  if (deviceId) video.deviceId = { exact: deviceId };
+  else video.facingMode = "user";
+  return video;
+}
+
+async function getCameraBubbleStream(deviceId: string): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: cameraConstraint(deviceId),
+      audio: false,
+    });
+  } catch (error) {
+    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+    captureExtensionError(
+      new Error("Selected Clips camera was unavailable; using default camera."),
+      {
+        tags: { surface: "overlay", mechanism: "camera-device-fallback" },
+        extra: {
+          requestedDeviceId: deviceId,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+    return navigator.mediaDevices.getUserMedia({
+      video: cameraConstraint(""),
+      audio: false,
+    });
+  }
+}
+
 function postToolbarSize(height: number): void {
   try {
     window.parent.postMessage(
@@ -161,16 +211,7 @@ async function initBubble(): Promise<void> {
         resolve("");
       }
     });
-    const videoConstraint: MediaTrackConstraints = {
-      width: { ideal: 640 },
-      height: { ideal: 640 },
-    };
-    if (videoDeviceId) videoConstraint.deviceId = { exact: videoDeviceId };
-    else videoConstraint.facingMode = "user";
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraint,
-      audio: false,
-    });
+    const stream = await getCameraBubbleStream(videoDeviceId);
     const video = document.createElement("video");
     video.muted = true;
     video.autoplay = true;

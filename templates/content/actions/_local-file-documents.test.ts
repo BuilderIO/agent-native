@@ -8,6 +8,7 @@ import {
   createLocalFileDocument,
   localFileDocumentId,
   moveLocalFileDocument,
+  removeContentLocalFileRoots,
   updateLocalFileDocument,
 } from "./_local-file-documents";
 import editDocument from "./edit-document";
@@ -189,6 +190,41 @@ describe("content local file documents", () => {
       ],
     });
     expect(localContentOpens()).toBeGreaterThan(0);
+  });
+
+  it("removes configured local roots from the Content manifest without deleting files", async () => {
+    const root = setupLocalContentRepo();
+    writeFile(root, "docs/guide.mdx", "# Guide\n\nStill on disk.");
+
+    await expect(removeContentLocalFileRoots("docs")).resolves.toMatchObject({
+      removed: 1,
+      roots: ["docs"],
+    });
+
+    const manifest = JSON.parse(readFile(root, "agent-native.json"));
+    expect(manifest.apps.content).toMatchObject({
+      mode: "local-files",
+      roots: [
+        { name: "Blog", path: "blog", extensions: [".md", ".mdx"] },
+        {
+          name: "Resources",
+          path: "resources",
+          extensions: [".md", ".mdx"],
+        },
+      ],
+    });
+    expect(readFile(root, "docs/guide.mdx")).toContain("Still on disk.");
+
+    await expect(removeContentLocalFileRoots()).resolves.toMatchObject({
+      removed: 2,
+      roots: ["blog", "resources"],
+    });
+
+    const emptiedManifest = JSON.parse(readFile(root, "agent-native.json"));
+    expect(emptiedManifest.apps.content).toMatchObject({
+      mode: "database",
+      roots: [],
+    });
   });
 
   it("does not overwrite files during concurrent same-title creates", async () => {

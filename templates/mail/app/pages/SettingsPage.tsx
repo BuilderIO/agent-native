@@ -5,7 +5,7 @@ import {
   useChangeVersions,
   ChangelogSettingsCard,
   LanguagePicker,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
@@ -34,6 +34,7 @@ import {
   IconInfoCircle,
   IconHistory,
   IconSettings,
+  IconMessage2,
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -41,6 +42,7 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
+import { SnippetsSection } from "@/components/settings/SnippetsSection";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1433,20 +1435,6 @@ function GeneralSection() {
           <LanguagePicker label={t("settings.languageLabel")} />
         </div>
       </div>
-
-      <div className="mt-4 max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
-        <div className="mb-3">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            {t("settings.agentTitle")}
-          </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {t("settings.agentDescription")}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => openAgentSettings()}>
-          {t("settings.openAgentSettings")}
-        </Button>
-      </div>
     </div>
   );
 }
@@ -1473,26 +1461,19 @@ function WhatsNewSection() {
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection =
-  | "general"
-  | "whats-new"
-  | "drafting"
-  | "automations"
-  | "gmail-filters"
-  | "aliases"
-  | "tracking"
-  | "slack"
-  | "team";
-
-const navItems: {
-  id: SettingsSection;
-  labelKey: string;
+type SettingsNavItem = {
+  id: string;
+  labelKey?: string;
+  label?: string;
   icon: React.ComponentType<{ className?: string }>;
-}[] = [
+};
+
+const navItems: SettingsNavItem[] = [
   { id: "general", labelKey: "settings.general", icon: IconSettings },
   { id: "team", labelKey: "settings.team", icon: IconUsers },
   { id: "whats-new", labelKey: "settings.whatsNew", icon: IconHistory },
   { id: "drafting", labelKey: "settings.drafting", icon: IconSignature },
+  { id: "snippets", labelKey: "settings.snippets", icon: IconMessage2 },
   { id: "automations", labelKey: "settings.automations", icon: IconBolt },
   { id: "gmail-filters", labelKey: "settings.gmailFilters", icon: IconFilter },
   { id: "aliases", labelKey: "settings.aliases", icon: IconUsers },
@@ -1500,27 +1481,34 @@ const navItems: {
   { id: "slack", labelKey: "settings.slack", icon: IconBolt },
 ];
 
-function isSettingsSection(value: string | null): value is SettingsSection {
-  return navItems.some((item) => item.id === value);
-}
-
 export function SettingsPage() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
-  const [activeSection, setActiveSection] =
-    useState<SettingsSection>("general");
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const [activeSection, setActiveSection] = useState<string>("general");
+  const allNavItems = useMemo<SettingsNavItem[]>(
+    () => [
+      ...navItems,
+      ...agentSettingsTabs.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        icon: tab.icon ?? IconSettings,
+      })),
+    ],
+    [agentSettingsTabs],
+  );
 
   useEffect(() => {
     const section = searchParams.get("section");
-    if (!isSettingsSection(section)) return;
+    if (!section || !allNavItems.some((item) => item.id === section)) return;
     setActiveSection(section);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("section");
       return next;
     });
-  }, [searchParams, setSearchParams]);
+  }, [allNavItems, searchParams, setSearchParams]);
 
   useEffect(() => {
     navState.sync({ view: "settings", settingsSection: activeSection });
@@ -1529,11 +1517,13 @@ export function SettingsPage() {
   return (
     <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
       {/* Top tabs on mobile, left sidebar on desktop */}
-      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
-        {navItems.map((item) => {
+      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
+        {allNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
-          const label = t(item.labelKey);
+          const label = item.labelKey
+            ? t(item.labelKey)
+            : (item.label ?? item.id);
           return (
             <button
               key={item.id}
@@ -1562,6 +1552,7 @@ export function SettingsPage() {
         {activeSection === "general" && <GeneralSection />}
         {activeSection === "whats-new" && <WhatsNewSection />}
         {activeSection === "drafting" && <DraftingSection />}
+        {activeSection === "snippets" && <SnippetsSection />}
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "gmail-filters" && <GmailFiltersSection />}
         {activeSection === "aliases" && <AliasesSection />}
@@ -1574,6 +1565,13 @@ export function SettingsPage() {
               createOrgDescription={t("settings.teamDescription")}
             />
           </div>
+        )}
+        {agentSettingsTabs.map((tab) =>
+          activeSection === tab.id ? (
+            <div key={tab.id} className="flex-1 overflow-y-auto p-4 sm:p-8">
+              {tab.content}
+            </div>
+          ) : null,
         )}
       </div>
     </div>

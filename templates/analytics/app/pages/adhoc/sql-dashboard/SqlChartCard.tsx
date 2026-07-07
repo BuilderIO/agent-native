@@ -466,6 +466,21 @@ export function SqlChartCard({
                 <TooltipContent>{t("sqlDashboard.refreshing")}</TooltipContent>
               </Tooltip>
             ) : null}
+            {editable && onSaveSql ? (
+              <ViewSqlPopover
+                panel={panel}
+                resolvedSql={resolvedSql}
+                onSaveSql={onSaveSql}
+              >
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground"
+                  aria-label={t("sqlDashboard.viewSql")}
+                  title={t("sqlDashboard.viewSql")}
+                >
+                  <IconCode className="h-3.5 w-3.5" />
+                </button>
+              </ViewSqlPopover>
+            ) : null}
             {showPanelMenu ? (
               <DropdownMenu>
                 <Tooltip>
@@ -503,19 +518,6 @@ export function SqlChartCard({
                   {editable && panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
-                  {editable && onSaveSql ? (
-                    <ViewSqlPopover
-                      panel={panel}
-                      resolvedSql={resolvedSql}
-                      onSaveSql={onSaveSql}
-                    >
-                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                        <IconCode className="h-4 w-4 mr-2" />
-                        {t("sqlDashboard.viewSql")}
-                      </DropdownMenuItem>
-                    </ViewSqlPopover>
-                  ) : null}
-                  {editable ? <DropdownMenuSeparator /> : null}
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />

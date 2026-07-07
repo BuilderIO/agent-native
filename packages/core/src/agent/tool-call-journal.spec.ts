@@ -239,6 +239,35 @@ describe("buildResumeJournalNote", () => {
     // Result summary is capped well under the raw length.
     expect(note.length).toBeLessThan(longResult.length);
   });
+
+  it("keeps nextRequiredAction visible when the tool result summary is truncated", () => {
+    const result = JSON.stringify({
+      designId: "design-1",
+      files: [
+        {
+          id: "file-1",
+          content: "x".repeat(2000),
+        },
+      ],
+      nextRequiredAction:
+        "Call edit-design exactly once with designId design-1 and fileId file-1. Do not call get-design-snapshot again.",
+    });
+    const events: AgentChatEvent[] = [
+      start("get-design-snapshot", {
+        designId: "design-1",
+        fileId: "file-1",
+      }),
+      done("get-design-snapshot", result),
+    ];
+
+    const note = buildResumeJournalNote(classifyToolCallJournal(events)) ?? "";
+
+    expect(note).toContain("Next required action from result");
+    expect(note).toContain("Call edit-design exactly once");
+    expect(note).toContain("Do not call get-design-snapshot again");
+    expect(note).toContain("…");
+    expect(note.length).toBeLessThan(result.length);
+  });
 });
 
 describe("findCompletedJournalEntry", () => {

@@ -188,6 +188,67 @@ Principais diferenças em relação ao [server `track()`](#track):
 
 Isso é diferente da telemetria interna do navegador da estrutura (`trackEvent()`/visualizações automáticas de página — veja [Browser defaults](#browser-defaults) abaixo), que alimenta a análise de produto do próprio Agent Native. Use `track()` para os eventos de análise do seu aplicativo que devem chegar aos provedores configurados.
 
+## Replay de sessão {#session-replay}
+
+Aplicativos Agent Native podem optar por um replay de sessão do navegador nativo sem adicionar um segundo SDK de análise. Chame `configureTracking()` uma vez na raiz do navegador e passe a chave pública do Analytics mais o endpoint do coletor:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+Quando `sessionReplay.enabled` é verdadeiro, o cliente importa dinamicamente `@rrweb/record` após a inicialização e envia os blocos de replay para o endpoint de replay. Se `endpoint` terminar em `/api/analytics/track` ou `/track`, o endpoint de replay é derivado automaticamente como `/api/analytics/replay`. Substitua-o explicitamente com `sessionReplay.endpoint` quando o coletor de replay estiver em outro lugar.
+
+As raízes dos modelos do Agent Native já chamam `configureTracking()`. As implantações hospedadas de modelos podem ativar o replay com variáveis de ambiente do Vite/Netlify, enquanto os consumidores de biblioteca devem preferir a forma explícita `configureTracking({ key, endpoint, sessionReplay })` acima:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+O auxiliar do navegador também realiza uma leitura best-effort e não bloqueante da sessão de autenticação atual do Agent Native. O replay é, por padrão, exclusivo para usuários conectados: quando `sessionReplay` está habilitado, a gravação não começa a menos que a sessão seja resolvida para um endereço de e-mail de usuário. Replays de usuários conectados incluem `userId`/`userEmail` baseados em e-mail, além de `orgId`.
+
+Defina `sessionReplay.requireSignedInUser: false` ou `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` apenas para uma implantação de replay anônimo intencional. Quando o controle de autenticação está desabilitado, as gravações anônimas permanecem consultáveis por visitante anônimo, sessão, aplicativo/modelo, hostname e caminho.
+
+O replay de sessão é amostrado de forma determinística por sessão do navegador. Um `sampleRate` de `0.1` registra cerca de 10% das sessões elegíveis; use `1` quando a população elegível for intencionalmente pequena, como em dogfooding somente para usuários conectados.
+
+Os padrões de privacidade são intencionalmente conservadores, mas ainda úteis para a reprodução:
+
+- As entradas são mascaradas por padrão (`maskAllInputs: true`).
+- O texto da página permanece visível, a menos que um elemento seja marcado com `.an-mask` ou `data-an-mask`.
+- Zonas sensíveis são bloqueadas com seletores como `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, e campos do tipo cartão de crédito/senha/CPF.
+- As URLs são higienizadas com o mesmo auxiliar `scrubUrl()` usado pela análise do navegador.
+- A captura de replay é somente para web e opcional; ela não grava telas de desktop nativas.
+
+Durante a gravação, o replay de sessão também captura a saída do console do navegador (`log`, `info`, `warn`, `error`, `debug`, além dos eventos `error`/`unhandledrejection` da janela) e metadados de solicitações de rede (`fetch` e XHR) como eventos personalizados do rrweb marcados, para que agentes e o visualizador de replay possam depurar problemas relatados por usuários. A captura é ativada por padrão quando o replay está habilitado; ajuste ou desabilite-a com as opções `sessionReplay.console` e `sessionReplay.network`, cada uma aceitando um booleano ou um objeto de opções (`{ maxEvents?: number }`, sendo que `network` também aceita `captureErrorBodies` e `maxErrorBodyLength`). Corpos e cabeçalhos de solicitação nunca são capturados; corpos de resposta são capturados apenas como um trecho limitado e higienizado para respostas 5xx (erro de servidor) (`captureErrorBodies`, padrão `true`, limitado a `maxErrorBodyLength` caracteres, padrão 2048) — respostas que não sejam 5xx e falhas de rede (status 0) nunca carregam um corpo. As URLs são higienizadas, as mensagens são truncadas, o próprio tráfego de ingestão/rastreamento do gravador é excluído, e os orçamentos por sessão (1000 eventos de console / 2000 eventos de rede) adicionam um aviso de truncamento quando excedidos.
+
+O modelo Analytics armazena os metadados de replay em SQL (`session_recordings`) e armazena os blocos por meio de referências privadas de blob (`session_replay_chunks`). Navegadores e agentes nunca recebem URLs de provedores. A reprodução passa por rotas de servidor com escopo definido, e as ferramentas padrão do agente retornam resumos ou eventos de replay limitados, não acesso bruto à tabela de blocos.
+
+Quando você precisar entregar uma gravação privada a um agente externo, use o controle **Copy for agent** da página de detalhes da sessão. Ele emite um link `agent_access` com escopo de gravação e validade de duas horas, renderiza via SSR um pequeno payload de descoberta em `/sessions/:recordingId`, e expõe apenas as APIs JSON de contexto/eventos do agente. A visibilidade da gravação não muda.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+Apenas para desenvolvimento local, o Analytics pode recorrer a blocos embutidos em SQL com limite de tamanho quando o armazenamento privado de blob não estiver disponível. As implantações de produção devem configurar armazenamento de blob privado ou criptografado, em vez de depender do Postgres para os payloads de replay.
+
 ## Avançado: provedores personalizados e internos {#advanced}
 
 A maioria dos aplicativos só precisa de `track()`/`identify()` e de um provedor integrado. O resto da superfície – registro de provedores personalizados, a interface `TrackingProvider`, processamento interno de lotes e a telemetria do navegador da própria estrutura – está abaixo.

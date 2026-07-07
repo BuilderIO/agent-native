@@ -9,6 +9,12 @@ import {
 } from "react";
 
 import {
+  chooseFallbackAudioInput,
+  isPseudoMediaDeviceId,
+  isSelectableAudioInputDevice,
+  normalizedMediaDeviceId,
+} from "../lib/media-device-selection";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
 } from "../lib/permissions";
@@ -19,13 +25,13 @@ const MIC_KEY = "clips:last-mic-id";
 const CAM_LABEL_KEY = "clips:last-camera-label";
 const MIC_LABEL_KEY = "clips:last-mic-label";
 
-function normalizedMediaDeviceId(value: string | null | undefined): string {
-  return value?.trim() ?? "";
-}
-
-function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
-  const id = normalizedMediaDeviceId(value).toLowerCase();
-  return id === "default" || id === "communications";
+function rawMicConstraints(deviceId?: string): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
 }
 
 function concreteMediaDeviceId(value: string | null | undefined): string {
@@ -35,16 +41,6 @@ function concreteMediaDeviceId(value: string | null | undefined): string {
 
 function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
   return !!concreteMediaDeviceId(device.deviceId);
-}
-
-function isBuiltInMicDevice(device: MediaDeviceInfo): boolean {
-  const label = device.label.toLowerCase();
-  return (
-    label.includes("macbook") ||
-    label.includes("built-in") ||
-    label.includes("built in") ||
-    label.includes("internal microphone")
-  );
 }
 
 interface Props {
@@ -123,11 +119,7 @@ export function useMediaDevices({
           (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
         ),
       );
-      setMics(
-        list.filter(
-          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
-        ),
-      );
+      setMics(list.filter((d) => isSelectableAudioInputDevice(d)));
     } catch {
       // ignore
     }
@@ -138,6 +130,29 @@ export function useMediaDevices({
     navigator.mediaDevices.addEventListener("devicechange", loadDevices);
     return () => {
       navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
+    };
+  }, [loadDevices]);
+
+  // Reopening the popover doesn't reliably re-fire the Tauri
+  // `clips:popover-visible` event (the WebView is shown/hidden, not
+  // remounted, and the native side only ever emits the `false`/hidden
+  // transition). Without this, a webcam unplugged while the popover was
+  // closed would still show the previous session's device list — the exact
+  // "reopen without my webcam, it still shows the old camera selected" bug.
+  // Cover reopen via both signals so it works whether the WebView regains
+  // focus or only its document visibility flips.
+  useEffect(() => {
+    const onFocus = (): void => {
+      loadDevices();
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === "visible") loadDevices();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [loadDevices]);
 
@@ -160,7 +175,7 @@ export function useMediaDevices({
         return;
       }
       const s = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: selectedMicId } },
+        audio: rawMicConstraints(selectedMicId),
         video: false,
       });
       s.getTracks().forEach((t) => t.stop());
@@ -179,7 +194,10 @@ export function useMediaDevices({
         const stream = await navigator.mediaDevices.getUserMedia(
           kind === "camera"
             ? { video: true, audio: false }
-            : { audio: true, video: false },
+            : {
+                audio: rawMicConstraints(selectedMicId || undefined),
+                video: false,
+              },
         );
         stream.getTracks().forEach((track) => track.stop());
         await loadDevices();
@@ -220,10 +238,64 @@ export function useMediaDevices({
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
 
   useEffect(() => {
-    if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
-    const builtIn = mics.find(isBuiltInMicDevice);
-    setMicId(builtIn?.deviceId ?? "");
-  }, [micId, mics]);
+    if (!micId || !isPseudoMediaDeviceId(micId) || mics.length === 0) return;
+    const fallback = chooseFallbackAudioInput(mics, {
+      savedLabel: micLabel,
+      avoidDeviceIds: [micId],
+    });
+    if (!fallback) return;
+    console.warn("[clips-recorder] resolved pseudo mic id to concrete input", {
+      previousDeviceId: micId,
+      nextDeviceId: fallback.deviceId,
+      reason: fallback.reason,
+    });
+    setMicId(fallback.deviceId);
+    setMicLabel(fallback.label);
+  }, [micId, micLabel, mics]);
+
+  // A stored device id that no longer matches anything enumerated (e.g. the
+  // webcam/mic was unplugged since the app last ran) must not be rewritten to
+  // the OS default. Keep the explicit choice unless we can rematch it by saved
+  // label, because macOS default can point at Continuity/iPhone.
+  //
+  // Only trust a NON-EMPTY list, though: enumeration legitimately returns an
+  // empty list on a transient error or before permission is granted, and
+  // clearing a valid saved selection over that would destroy the user's
+  // choice for no reason.
+  useEffect(() => {
+    if (!cameraId || cameras.length === 0) return;
+    if (cameras.some((d) => d.deviceId === cameraId)) return;
+    setCameraId("");
+    setCameraLabel("");
+  }, [cameraId, cameras]);
+  useEffect(() => {
+    if (isPseudoMediaDeviceId(micId) || !micId || mics.length === 0) return;
+    if (mics.some((d) => d.deviceId === micId)) return;
+    // The selected mic (e.g. Bluetooth headset unplugged mid-session) is gone.
+    // Prefer rematching by saved label, then fall back to the best available
+    // input so we don't stay pinned to a device that no longer exists.
+    const fallback = chooseFallbackAudioInput(mics, {
+      savedLabel: micLabel,
+      avoidDeviceIds: [micId],
+    });
+    if (!fallback) {
+      // Nothing concrete left; drop to the OS default rather than keeping the
+      // disconnected device selected.
+      setMicId("");
+      setMicLabel("");
+      return;
+    }
+    console.warn(
+      "[clips-recorder] saved mic id was missing; fell back to available input",
+      {
+        previousDeviceId: micId,
+        nextDeviceId: fallback.deviceId,
+        reason: fallback.reason,
+      },
+    );
+    setMicId(fallback.deviceId);
+    setMicLabel(fallback.label);
+  }, [micId, micLabel, mics]);
 
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);

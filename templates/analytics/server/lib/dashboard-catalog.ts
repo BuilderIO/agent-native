@@ -945,6 +945,29 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     buildConfig: () => seedConfig("agent-native-templates-first-party"),
   },
   {
+    id: "agent-observability-llm",
+    name: "Agent LLM Observability",
+    description:
+      "LLM generation volume, latency, errors, token usage, and cost captured as first-party `$ai_generation` tracking events.",
+    category: "Observability",
+    defaultDashboardId: "agent-observability-llm",
+    dataSources: ["first-party"],
+    tags: [
+      "ai",
+      "llm",
+      "observability",
+      "cost",
+      "tokens",
+      "latency",
+      "posthog",
+      "first-party",
+    ],
+    panelCount: 10,
+    version: CATALOG_VERSION,
+    recommended: true,
+    buildConfig: () => seedConfig("agent-observability-llm"),
+  },
+  {
     id: "skills-cli-funnel",
     name: "Skills CLI Funnel",
     description:

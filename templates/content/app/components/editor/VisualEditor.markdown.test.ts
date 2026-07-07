@@ -18,6 +18,7 @@ import { NotionToggle } from "./extensions/NotionExtensions";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
+  getRecentEditPresenceMarkerRect,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -53,6 +54,10 @@ function createFullEditor(content = "") {
       ? parseNfmForEditor(content)
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
+}
+
+function waitForDeferredCallback() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function triggerTextInput(editor: Editor, text: string) {
@@ -99,6 +104,24 @@ afterEach(() => {
 });
 
 describe("VisualEditor markdown round-tripping", () => {
+  it("renders recent edits as presence markers instead of range boxes", () => {
+    const marker = getRecentEditPresenceMarkerRect(
+      new DOMRect(120, 240, 680, 22),
+    );
+
+    expect(marker.left).toBe(120);
+    expect(marker.top).toBe(240);
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(22);
+  });
+
+  it("keeps recent edit markers visible for collapsed caret coordinates", () => {
+    const marker = getRecentEditPresenceMarkerRect(new DOMRect(120, 240, 0, 0));
+
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(18);
+  });
+
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
     const editor = createMarkdownEditor("A\n<empty-block/>\n<empty-block/>\nB");
 
@@ -833,7 +856,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -865,7 +888,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Delete")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -903,7 +926,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("Move me up");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",

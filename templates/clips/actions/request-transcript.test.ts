@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
@@ -25,6 +25,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockGetSetting = vi.hoisted(() => vi.fn());
+const mockGetUserSetting = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: unknown[]) => mockGetSetting(...args),
+  getUserSetting: (...args: unknown[]) => mockGetUserSetting(...args),
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
@@ -139,17 +141,44 @@ vi.mock("./lib/loom-transcript.js", () => ({
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable.",
 }));
 
-import { importLoomTranscriptForRecording } from "./request-transcript";
+import {
+  builderTranscriptionTimeoutMs,
+  importLoomTranscriptForRecording,
+} from "./request-transcript";
 
 const existingSegments = JSON.stringify([
   { startMs: 0, endMs: 1200, text: "Saved transcript." },
 ]);
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("builderTranscriptionTimeoutMs", () => {
+  it("keeps short or unknown recordings on the historical timeout", () => {
+    expect(builderTranscriptionTimeoutMs(null)).toBe(45_000);
+    expect(builderTranscriptionTimeoutMs(30_000)).toBe(45_000);
+  });
+
+  it("scales longer recordings without exceeding the Netlify function budget", () => {
+    expect(builderTranscriptionTimeoutMs(15 * 60_000)).toBe(65_000);
+  });
+
+  it("allows an operator override while preserving safety bounds", () => {
+    vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "120000");
+    expect(builderTranscriptionTimeoutMs(60_000)).toBe(65_000);
+
+    vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "50000");
+    expect(builderTranscriptionTimeoutMs(60_000)).toBe(50_000);
+  });
+});
+
 describe("importLoomTranscriptForRecording", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockGetSetting.mockResolvedValue({ transcriptCleanupEnabled: false });
+    mockGetSetting.mockResolvedValue({ transcriptCleanupEnabled: true });
+    mockGetUserSetting.mockResolvedValue({ transcriptCleanupEnabled: false });
     mockFetchLoomTranscript.mockRejectedValue(
       new Error("temporary Loom error"),
     );
@@ -201,6 +230,14 @@ describe("importLoomTranscriptForRecording", () => {
       shareUrl: "https://www.loom.com/share/abcDEF_123456",
       durationMs: 1200,
     });
+    await vi.waitFor(() =>
+      expect(mockGetUserSetting).toHaveBeenCalledWith(
+        "owner@example.com",
+        "clips-user-prefs",
+      ),
+    );
+    expect(mockGetSetting).not.toHaveBeenCalled();
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
     expect(mockInsertValues).not.toHaveBeenCalled();
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });

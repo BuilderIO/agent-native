@@ -18,11 +18,23 @@
  *      through a same-origin path-only check (modeled on
  *      `safeReturnPath`) before being passed to `sendRedirect` — so a
  *      protocol-relative URL like `//host/evil` falls back to `/`.
+ *
+ * Separately, before ANY token exchange/save happens, this handler verifies
+ * the `notion_oauth_state` HttpOnly cookie set by `buildNotionAuthUrl`
+ * matches the `n` nonce carried in `state`. Without this check the random
+ * nonce in `state.n` is generated but never verified against anything, so
+ * an attacker can start their own OAuth flow, capture the resulting
+ * callback URL, and get a logged-in victim to visit it — silently binding
+ * the victim's account to the attacker's Notion workspace. A missing or
+ * mismatched cookie aborts before exchanging the code or saving tokens.
  */
 import crypto from "node:crypto";
 
+import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
 import {
   defineEventHandler,
+  deleteCookie,
+  getCookie,
   getQuery,
   sendRedirect,
   setResponseStatus,
@@ -31,6 +43,7 @@ import {
 import {
   exchangeNotionCodeForTokens,
   getDocumentOwnerEmail,
+  NOTION_OAUTH_STATE_COOKIE,
   saveNotionTokensForOwner,
 } from "../../../lib/notion.js";
 
@@ -124,14 +137,49 @@ export default defineEventHandler(async (event) => {
     return { error: "Missing authorization code" };
   }
 
-  const owner = await getDocumentOwnerEmail(event);
-  const tokens = await exchangeNotionCodeForTokens(event, code);
-  await saveNotionTokensForOwner(owner, tokens);
-
-  // Decide where to redirect AFTER the token swap. Default to `/` on any
-  // signature failure so a forged state never produces an open redirect.
+  // Decode state up front so we know the (verified, if signed) redirect
+  // target regardless of how the rest of the handler exits.
   const state = decodeStateJson(stateParam);
   const verified = verifyStateSignature(state);
   const target = verified.ok ? safeReturnPathLocal(verified.redirectPath) : "/";
+
+  // CSRF binding: the nonce in `state.n` must match the HttpOnly cookie set
+  // by buildNotionAuthUrl for the session that started this flow. Reject
+  // (without exchanging the code or saving any token) on a missing or
+  // mismatched cookie — do NOT fall back to accepting when the cookie is
+  // absent, that would reopen the hole entirely.
+  const cookieNonce = getCookie(event, NOTION_OAUTH_STATE_COOKIE);
+  const stateNonce = typeof state.n === "string" ? state.n : null;
+  deleteCookie(event, NOTION_OAUTH_STATE_COOKIE, { path: "/" });
+  if (!cookieNonce || !stateNonce) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid OAuth state" };
+  }
+  const cookieBuf = Buffer.from(cookieNonce);
+  const stateBuf = Buffer.from(stateNonce);
+  if (
+    cookieBuf.length !== stateBuf.length ||
+    !crypto.timingSafeEqual(cookieBuf, stateBuf)
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid OAuth state" };
+  }
+
+  const owner = await getDocumentOwnerEmail(event);
+  const tokens = await exchangeNotionCodeForTokens(event, code);
+  try {
+    await saveNotionTokensForOwner(owner, tokens);
+  } catch (err) {
+    if (err instanceof OAuthAccountOwnedByOtherUserError) {
+      const separator = target.includes("?") ? "&" : "?";
+      return sendRedirect(
+        event,
+        `${target}${separator}notionError=account_linked_to_other_user`,
+        302,
+      );
+    }
+    throw err;
+  }
+
   return sendRedirect(event, target, 302);
 });

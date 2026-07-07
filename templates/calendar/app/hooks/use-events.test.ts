@@ -181,12 +181,14 @@ describe("calendar event list cache helpers", () => {
           displayName: "Guest",
           responseStatus: "accepted",
           comment: "See you there",
+          optional: true,
         },
       ],
       [
         {
           email: "new@example.com",
           displayName: "New Guest",
+          optional: true,
         },
         {
           email: "GUEST@example.com",
@@ -201,10 +203,39 @@ describe("calendar event list cache helpers", () => {
         displayName: "Renamed Guest",
         responseStatus: "accepted",
         comment: "See you there",
+        optional: true,
       },
       {
         email: "new@example.com",
         displayName: "New Guest",
+        optional: true,
+      },
+    ]);
+  });
+
+  it("lets addAttendees flip optional without clearing RSVP metadata", () => {
+    const merged = mergeAttendeeLists(
+      [
+        {
+          email: "guest@example.com",
+          responseStatus: "accepted",
+          comment: "See you there",
+        },
+      ],
+      [
+        {
+          email: "guest@example.com",
+          optional: true,
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        email: "guest@example.com",
+        responseStatus: "accepted",
+        comment: "See you there",
+        optional: true,
       },
     ]);
   });

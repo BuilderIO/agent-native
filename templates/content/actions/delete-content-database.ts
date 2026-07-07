@@ -29,6 +29,7 @@ export default defineAction({
     return {
       success: true,
       databaseId,
+      documentId: database.documentId,
       deletedAt,
     };
   },

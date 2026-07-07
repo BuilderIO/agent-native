@@ -16,6 +16,7 @@ import {
   callAction,
   sendToAgentChat,
 } from "@agent-native/core/client";
+import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
 import { useRecordings, type RecordingSummary } from "./use-library";
@@ -53,6 +54,7 @@ interface AiRequest {
   agentsContext?: string;
   thresholdMs?: number;
   message?: string;
+  includeFullVideoInAi?: boolean;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
@@ -139,16 +141,7 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
 
-            sendToAgentChat({
-              message:
-                request.message ??
-                `Handle queued ${request.kind} work for recording ${rec.id}.`,
-              context: JSON.stringify(buildRequestContext(rec, request)),
-              submit: true,
-              openSidebar: false,
-              newTab: true,
-              background: true,
-            });
+            dispatchAiRequest(rec, request);
 
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -203,8 +196,30 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
     agentsContext: request.agentsContext ?? "",
     transcriptStatus: request.transcriptStatus ?? "ready",
     transcriptSegments: parseJsonArray(request.segmentsJson),
+    includeFullVideoInAi: request.includeFullVideoInAi === true,
     request,
   };
+}
+
+function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
+  const includeFullVideo = request.includeFullVideoInAi === true;
+  const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
+  sendToAgentChat({
+    message:
+      request.message ??
+      `Handle queued ${request.kind} work for recording ${rec.id}.`,
+    context: JSON.stringify(buildRequestContext(rec, request)),
+    submit: true,
+    openSidebar: false,
+    newTab: true,
+    background: true,
+    ...(gemini
+      ? {
+          engine: gemini.engine,
+          model: gemini.model,
+        }
+      : {}),
+  });
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

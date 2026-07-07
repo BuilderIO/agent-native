@@ -1,0 +1,36 @@
+---
+title: "Toolkit Shell & Hooks"
+description: "Shared shell helpers and hooks that templates can compose through local adapters."
+---
+
+# Toolkit Shell & Hooks
+
+Toolkit includes small shell helpers and hooks that are useful across apps:
+
+<WireframeBlock id="doc-block-toolkit-shell-hooks">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:480px;box-sizing:border-box;padding:28px;display:grid;grid-template-columns:230px 1fr;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Shell</strong><div class='wf-pill'>Header actions</div><div class='wf-pill'>Mobile state</div><div class='wf-pill'>Toasts</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Page title</h2><div style='flex:1'></div><button>Export</button><button class='primary'>Create</button></div><div class='wf-box' style='height:250px'>App content using shared shell hooks</div><div class='wf-box'>Toast: Saved changes</div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+```tsx
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+```
+
+Apps can wrap these through local adapters when they want the same customization
+point as UI primitives:
+
+```tsx
+export * from "@agent-native/toolkit/hooks/use-mobile";
+```
+
+Keep shell helpers in Toolkit when they are reusable and do not own app data.
+Keep app-specific navigation, command entries, and domain state in the template.
+
+Core remains responsible for framework-wide shell behavior such as app providers,
+agent chat, app state, auth, and runtime sync.

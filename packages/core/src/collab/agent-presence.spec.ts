@@ -10,32 +10,45 @@ vi.mock("./ydoc-manager.js", () => ({
 
 import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import {
+  AGENT_PRESENCE_LINGER_MS,
   agentEnterDocument,
   agentLeaveDocument,
+  agentTouchDocument,
   agentUpdateSelection,
   agentApplyEditsIncrementally,
   agentApplyPatchesIncrementally,
 } from "./agent-presence.js";
-import { getDocAwareness } from "./awareness.js";
+import {
+  AWARENESS_CHANGE_EVENT,
+  getAwarenessEmitter,
+  getDocAwareness,
+  rememberAwarenessScope,
+  type AwarenessChangeEvent,
+} from "./awareness.js";
+import { RECENT_EDITS_MAX } from "./recent-edits.js";
 
 function agentState(docId: string): Record<string, any> | undefined {
   const entry = getDocAwareness(docId).get(AGENT_CLIENT_ID);
   return entry ? JSON.parse(entry.state) : undefined;
 }
 
+/** Fire any pending linger removal for deterministic cleanup. */
+function flushLinger(): void {
+  vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS + 1);
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
 afterEach(() => {
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
   mockSearchAndReplace.mockReset();
   mockApplyPatchOps.mockReset();
 });
 
 describe("agentEnterDocument / agentLeaveDocument", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("sets an awareness entry with the agent identity on enter", () => {
     const docId = "presence-enter";
     agentEnterDocument(docId);
@@ -51,6 +64,7 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     });
 
     agentLeaveDocument(docId);
+    flushLinger();
   });
 
   it("merges extra metadata into the awareness state", () => {
@@ -61,6 +75,7 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
       selection: { trackId: "t1" },
     });
     agentLeaveDocument(docId);
+    flushLinger();
   });
 
   it("ref-counts: stays present until the last leave drains the count", () => {
@@ -69,9 +84,49 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     agentEnterDocument(docId);
 
     agentLeaveDocument(docId); // count 2 -> 1, still present
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
 
-    agentLeaveDocument(docId); // count 1 -> 0, removed
+    agentLeaveDocument(docId); // count 1 -> 0, linger then removed
+    flushLinger();
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+
+  it("lingers after the final leave, then clears", () => {
+    const docId = "presence-linger";
+    agentEnterDocument(docId);
+    agentLeaveDocument(docId);
+
+    // Still present immediately after leave — viewers get a beat to see it.
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+
+    vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 1000);
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+
+    vi.advanceTimersByTime(2000);
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+
+  it("clears immediately when lingerMs is 0", () => {
+    const docId = "presence-no-linger";
+    agentEnterDocument(docId);
+    agentLeaveDocument(docId, { lingerMs: 0 });
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+
+  it("re-entering during the linger window cancels the removal", () => {
+    const docId = "presence-relinger";
+    agentEnterDocument(docId);
+    agentLeaveDocument(docId);
+
+    vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 1000);
+    agentEnterDocument(docId); // back in before the linger fires
+
+    vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS * 2);
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+
+    agentLeaveDocument(docId);
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 
@@ -88,10 +143,11 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
 
     agentLeaveDocument(docId);
     agentLeaveDocument(docId);
+    flushLinger();
     setIntervalSpy.mockRestore();
   });
 
-  it("heartbeat refreshes lastSeen while present", () => {
+  it("heartbeat refreshes lastSeen while present (including linger)", () => {
     const docId = "presence-tick";
     vi.setSystemTime(0);
     agentEnterDocument(docId);
@@ -103,11 +159,13 @@ describe("agentEnterDocument / agentLeaveDocument", () => {
     expect(getDocAwareness(docId).get(AGENT_CLIENT_ID)?.lastSeen).toBe(10_000);
 
     agentLeaveDocument(docId);
+    flushLinger();
   });
 
   it("leave on a never-entered doc does not throw and leaves no entry", () => {
     const docId = "presence-never-entered";
     expect(() => agentLeaveDocument(docId)).not.toThrow();
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 });
@@ -124,7 +182,8 @@ describe("agentUpdateSelection", () => {
     });
 
     agentLeaveDocument(docId);
-    agentLeaveDocument(docId); // drain both refs (enter + leave symmetry)
+    flushLinger();
+    getDocAwareness(docId).clear();
   });
 
   it("falls back to default identity when there is no existing entry", () => {
@@ -162,8 +221,112 @@ describe("agentUpdateSelection", () => {
   });
 });
 
+describe("agentTouchDocument", () => {
+  it("emits awareness-change events for agent presence updates and removal", () => {
+    const docId = "touch-emits";
+    rememberAwarenessScope(docId, {
+      owner: "owner@example.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    const received: AwarenessChangeEvent[] = [];
+    const onEvent = (event: AwarenessChangeEvent) => received.push(event);
+    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, onEvent);
+
+    agentTouchDocument(docId, { edit: { descriptor: { kind: "doc" } } });
+    flushLinger();
+
+    getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, onEvent);
+    expect(received).toHaveLength(2);
+    expect(received[0]).toMatchObject({
+      docId,
+      owner: "owner@example.com",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    expect(received[0].states.some((s) => s.clientId === AGENT_CLIENT_ID)).toBe(
+      true,
+    );
+    expect(received[1].states.some((s) => s.clientId === AGENT_CLIENT_ID)).toBe(
+      false,
+    );
+  });
+
+  it("creates presence with a recentEdits entry and lastEditAt", () => {
+    const docId = "touch-basic";
+    vi.setSystemTime(1000);
+
+    agentTouchDocument(docId, {
+      edit: { descriptor: { kind: "text", quote: "hello" }, label: "Intro" },
+    });
+
+    const state = agentState(docId);
+    expect(state).toMatchObject({
+      user: { email: DEFAULT_AGENT_IDENTITY.email },
+      lastEditAt: 1000,
+    });
+    expect(state?.recentEdits).toEqual([
+      {
+        descriptor: { kind: "text", quote: "hello" },
+        label: "Intro",
+        at: 1000,
+      },
+    ]);
+
+    flushLinger();
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+
+  it("caps the recentEdits ring", () => {
+    const docId = "touch-ring";
+    for (let i = 0; i < RECENT_EDITS_MAX + 3; i++) {
+      agentTouchDocument(docId, {
+        edit: { descriptor: { kind: "text", quote: `edit-${i}` } },
+      });
+    }
+    const ring = agentState(docId)?.recentEdits as Array<{
+      descriptor: { quote: string };
+    }>;
+    expect(ring).toHaveLength(RECENT_EDITS_MAX);
+    expect(ring[ring.length - 1].descriptor.quote).toBe(
+      `edit-${RECENT_EDITS_MAX + 2}`,
+    );
+    flushLinger();
+  });
+
+  it("does not auto-clear while an explicit enter/leave pair is active", () => {
+    const docId = "touch-during-enter";
+    agentEnterDocument(docId);
+    agentTouchDocument(docId, {
+      edit: { descriptor: { kind: "doc" } },
+    });
+
+    flushLinger();
+    // Still present: the explicit operation owns the lifecycle.
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+
+    agentLeaveDocument(docId);
+    flushLinger();
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+
+  it("successive touches keep refreshing the linger window", () => {
+    const docId = "touch-refresh";
+    agentTouchDocument(docId, { edit: { descriptor: { kind: "doc" } } });
+
+    vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 500);
+    agentTouchDocument(docId, { edit: { descriptor: { kind: "doc" } } });
+
+    vi.advanceTimersByTime(AGENT_PRESENCE_LINGER_MS - 500);
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+
+    vi.advanceTimersByTime(1000);
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
+  });
+});
+
 describe("agentApplyEditsIncrementally", () => {
-  it("enters, applies each edit via searchAndReplace, then leaves", async () => {
+  it("enters, applies each edit via searchAndReplace, then lingers and leaves", async () => {
     const docId = "presence-edits";
     mockSearchAndReplace.mockResolvedValue({
       found: true,
@@ -194,11 +357,14 @@ describe("agentApplyEditsIncrementally", () => {
       "d",
       "agent",
     );
-    // Presence cleaned up after completion.
+    // Presence lingers after completion so viewers see who edited…
+    expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(true);
+    // …then clears.
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 
-  it("leaves the document even if an edit throws", async () => {
+  it("clears presence (after linger) even if an edit throws", async () => {
     const docId = "presence-edits-error";
     mockSearchAndReplace.mockRejectedValue(new Error("boom"));
 
@@ -208,6 +374,7 @@ describe("agentApplyEditsIncrementally", () => {
       }),
     ).rejects.toThrow("boom");
 
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 });
@@ -233,10 +400,11 @@ describe("agentApplyPatchesIncrementally", () => {
       "data",
       "agent",
     );
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 
-  it("leaves the document even if a patch throws", async () => {
+  it("clears presence (after linger) even if a patch throws", async () => {
     const docId = "presence-patches-error";
     mockApplyPatchOps.mockRejectedValue(new Error("patch failed"));
 
@@ -249,6 +417,7 @@ describe("agentApplyPatchesIncrementally", () => {
       ),
     ).rejects.toThrow("patch failed");
 
+    flushLinger();
     expect(getDocAwareness(docId).has(AGENT_CLIENT_ID)).toBe(false);
   });
 });

@@ -303,7 +303,6 @@ const messages = {
       'Create a new widget that fits in slot "{{slotId}}". I\'ll describe what it should do next.',
     whatShouldItDo: "ماذا يجب أن تفعل؟",
     createPlaceholder: "قائمة المهام، لوحة تحكم API، آلة حاسبة...",
-    backToApp: "العودة إلى التطبيق",
     title: "الإضافات",
     hiddenShown: "يظهر الإخفاء",
     showHidden: "إظهار المخفية",

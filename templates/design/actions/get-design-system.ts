@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import {
+  hydrateBuilderDesignSystemReference,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -19,6 +23,22 @@ export default defineAction({
     }
 
     const row = access.resource;
+    const builderReference = parseBuilderDesignSystemProxyReference(row.data);
+    const builder = builderReference
+      ? await hydrateBuilderDesignSystemReference(builderReference).catch(
+          (error) => ({
+            ...builderReference,
+            docs: [],
+            tokenValues: {},
+            docCount: 0,
+            warning:
+              error instanceof Error
+                ? error.message
+                : "Builder design-system docs could not be loaded.",
+          }),
+        )
+      : null;
+
     return {
       id: row.id,
       title: row.title,
@@ -30,6 +50,7 @@ export default defineAction({
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      builder,
     };
   },
 });

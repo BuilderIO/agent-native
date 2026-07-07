@@ -29,8 +29,44 @@ describe("document sidebar layout", () => {
     expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
     expect(sidebar).toContain('className="min-w-full w-max py-2 pe-2"');
     expect(treeItem).toContain("const indent = depth * 12 + 12");
-    expect(treeItem).toContain("min-w-56");
+    expect(treeItem).toContain("min-w-0");
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
+  });
+
+  it("keeps row actions inside the visible sidebar at narrow widths", () => {
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+    const rowWidthBlock = treeItem.slice(
+      treeItem.indexOf("const rowWidth ="),
+      treeItem.indexOf("const {", treeItem.indexOf("const rowWidth =")),
+    );
+
+    expect(treeItem).toContain(": Math.max(0, sidebarWidth - 8)");
+    expect(rowWidthBlock).not.toContain("Math.max(224");
+    expect(rowWidthBlock).not.toContain("+ depth * 12");
+    expect(treeItem).toContain("absolute right-1 top-1/2");
+    expect(treeItem).toContain(
+      "group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+    );
+
+    const sidebarWidth = 180;
+    const rowWidth = Math.max(0, sidebarWidth - 8);
+    const actionsRightEdge = rowWidth - 4;
+
+    expect(rowWidth).toBeLessThanOrEqual(sidebarWidth);
+    expect(actionsRightEdge).toBeLessThanOrEqual(sidebarWidth);
+  });
+
+  it("uses one sidebar surface for collapsed and expanded rails", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer flex h-full w-12 flex-col",
+    );
+    expect(sidebar).toContain(
+      "agent-layout-left-drawer relative flex h-full min-h-0 flex-col",
+    );
+    expect(sidebar).toContain("bg-sidebar");
+    expect(sidebar).not.toContain("bg-muted/30");
   });
 
   it("gates page tree actions by document capabilities", () => {
@@ -147,6 +183,7 @@ describe("document sidebar layout", () => {
     const messages = readSidebarSource("../../i18n-data.ts");
 
     expect(sidebar).toContain("useTrashedContentDatabases");
+    expect(sidebar).toContain("useDeleteContentDatabase");
     expect(sidebar).toContain("useRestoreContentDatabase");
     expect(sidebar).toContain("const trashItems =");
     expect(sidebar).toContain("const handleRestoreDatabase = useCallback");
@@ -161,6 +198,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("handlePermanentDeleteDatabase");
     expect(sidebar).toContain("database.documentId");
     expect(sidebar).toContain("database.canPermanentlyDelete");
+    expect(sidebar).toContain("deletedDocument?.database");
+    expect(sidebar).toContain("deleteContentDatabase.mutateAsync");
+    expect(sidebar).toContain("databaseId: deletedDocument.database.id");
     expect(sidebar).toContain('t("sidebar.restoreDatabase")');
     expect(sidebar).toContain('t("sidebar.deletePermanently")');
     expect(sidebar).toContain("{renderTrashSection()}");
@@ -184,6 +224,34 @@ describe("document sidebar layout", () => {
     expect(sidebar.indexOf("{renderLocalFilesNavButton()}")).toBeLessThan(
       sidebar.indexOf("<ExtensionsSidebarSection />"),
     );
+  });
+
+  it("persists tree section collapse state and exposes local file actions", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const localFilesRoute = readSidebarSource(
+      "../../routes/_app.local-files.tsx",
+    );
+    const messages = readSidebarSource("../../i18n-data.ts");
+    const agents = readSidebarSource("../../../AGENTS.md");
+
+    expect(sidebar).toContain("useLocalStorage");
+    expect(sidebar).toContain("content-sidebar-collapsed-sections");
+    expect(sidebar).toContain("normalizeCollapsedSections");
+    expect(sidebar).toContain("renderLocalFilesSectionActions");
+    expect(sidebar).toContain('t("sidebar.localFilesActions")');
+    expect(sidebar).toContain('t("sidebar.manageLocalFolders")');
+    expect(sidebar).toContain('t("sidebar.removeLocalFilesFromSidebar")');
+    expect(sidebar).toContain('"remove-local-file-source"');
+    expect(sidebar).toContain("setRemoveLocalFilesDialogOpen(true)");
+    expect(localFilesRoute).toContain("localSourceDirectoriesFromDocuments");
+    expect(localFilesRoute).toContain("useDocuments()");
+    expect(localFilesRoute).toContain('"remove-local-file-source"');
+    expect(localFilesRoute).toContain('t("localFiles.importedFiles"');
+    expect(localFilesRoute).toContain('t("localFiles.remove")');
+    expect(messages).toContain('localFilesActions: "Local files actions"');
+    expect(messages).toContain('manageLocalFolders: "Manage folders"');
+    expect(messages).toContain('importedSource: "Imported source"');
+    expect(agents).toContain("remove-local-file-source");
   });
 
   it("keeps favorite rows constrained so long titles ellipsize", () => {

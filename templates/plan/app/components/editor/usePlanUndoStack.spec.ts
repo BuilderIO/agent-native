@@ -51,9 +51,16 @@ function makeHarness(
     stack.record(current, next);
     current = next;
   };
+  // Simulate an external/agent edit: it changes the authoritative tree WITHOUT
+  // recording an undo entry (the real editor's content-prop effect calls
+  // setBlocks, not commit) and WITHOUT resetting the stack.
+  const external = (next: PlanBlock[]) => {
+    current = JSON.parse(JSON.stringify(next)) as PlanBlock[];
+  };
   return {
     stack,
     commit,
+    external,
     get: () => current,
   };
 }
@@ -216,6 +223,162 @@ describe("plan undo stack — text coalescing", () => {
     expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
       "",
     );
+  });
+});
+
+describe("plan undo stack — survives external/agent edits", () => {
+  it("undoes the user's own edit normally when nothing external intervened", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User edits block A; no external edit follows.
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+
+    // The entry's baseline still matches the live tree, so it applies.
+    expect(h.stack.undo()).toBe(true);
+    expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
+      "A",
+    );
+  });
+
+  it("does NOT wipe the whole stack when an agent edit lands (the core fix)", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User makes two edits, building real history.
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+    t = 2000;
+    h.commit([rich("a", "A edited"), rich("b", "B edited")]);
+
+    // Agent edits a block (external — the old code called reset() here and lost
+    // ALL of the user's history). The stack must NOT be blanket-wiped.
+    t = 3000;
+    h.external([rich("a", "A edited"), rich("b", "B edited"), rich("c", "C")]);
+    expect(h.stack.canUndo()).toBe(true);
+  });
+
+  it("scoped undo: agent edits a DIFFERENT block → user's text undo still works and never clobbers the agent edit", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User edits A (single-block text entry).
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+
+    // Agent edits a DIFFERENT block B (external). The A entry's full-tree
+    // baseline no longer matches — but block A itself is untouched, so undo
+    // applies SCOPED to block A (Google-Docs behavior), preserving B.
+    t = 200;
+    h.external([rich("a", "A edited"), rich("b", "B agent")]);
+
+    expect(h.stack.undo()).toBe(true);
+    // The user's A edit was reverted…
+    expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
+      "A",
+    );
+    // …and the agent's B edit is untouched.
+    expect((h.get()[1] as { data: { markdown: string } }).data.markdown).toBe(
+      "B agent",
+    );
+
+    // Redo re-applies the user's edit, still scoped, still preserving B.
+    expect(h.stack.redo()).toBe(true);
+    expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
+      "A edited",
+    );
+    expect((h.get()[1] as { data: { markdown: string } }).data.markdown).toBe(
+      "B agent",
+    );
+  });
+
+  it("scoped undo survives the target block MOVING (agent structural edit elsewhere)", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User edits A.
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+
+    // Agent inserts a block and reorders — block A's data is untouched but the
+    // tree shape changed entirely.
+    t = 200;
+    h.external([rich("c", "C"), rich("b", "B"), rich("a", "A edited")]);
+
+    expect(h.stack.undo()).toBe(true);
+    const a = h.get().find((blk) => blk.id === "a") as {
+      data: { markdown: string };
+    };
+    expect(a.data.markdown).toBe("A");
+    // The agent's structural change is fully preserved.
+    expect(h.get().map((blk) => blk.id)).toEqual(["c", "b", "a"]);
+  });
+
+  it("drops a text entry when the agent edited THAT block (no clobber either direction)", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User edits A.
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+
+    // Agent rewrites the SAME block A — the user's entry can no longer apply
+    // safely (scoped baseline for block A mismatches), so it is dropped.
+    t = 200;
+    h.external([rich("a", "A agent"), rich("b", "B")]);
+
+    expect(h.stack.undo()).toBe(false);
+    expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
+      "A agent",
+    );
+  });
+
+  it("skips a stale top entry and undoes the next entry whose baseline still matches", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // Edit 1 (older): edits A. Edit 2 (newer): edits B.
+    t = 100;
+    h.commit([rich("a", "A edited"), rich("b", "B")]);
+    t = 2000;
+    h.commit([rich("a", "A edited"), rich("b", "B edited")]);
+
+    // Agent reverts B back to "B" AND edits A → the NEWER entry's baseline
+    // ({A edited, B edited}) no longer matches, but the OLDER entry's baseline
+    // ({A edited, B}) does once we account for the live tree. Set the live tree so
+    // the newer entry is stale but the older entry matches after the newer is
+    // dropped.
+    t = 3000;
+    h.external([rich("a", "A edited"), rich("b", "B")]);
+
+    // Top entry (edit 2) baseline {A edited, B edited} ≠ live {A edited, B} →
+    // dropped. Next entry (edit 1) baseline {A edited, B} == live → applies,
+    // reverting A.
+    expect(h.stack.undo()).toBe(true);
+    expect((h.get()[0] as { data: { markdown: string } }).data.markdown).toBe(
+      "A",
+    );
+    expect(h.stack.undo()).toBe(false);
+  });
+
+  it("skips a redo entry whose baseline was invalidated by an external edit", () => {
+    let t = 0;
+    const h = makeHarness([rich("a", "A"), rich("b", "B")], () => t);
+
+    // User edits B, then undoes it → the B edit sits on the redo branch, whose
+    // baseline is the just-restored tree {A, B}.
+    t = 100;
+    h.commit([rich("a", "A"), rich("b", "B edited")]);
+    expect(h.stack.undo()).toBe(true);
+    expect(h.stack.canRedo()).toBe(true);
+
+    // Agent removes B (external) → the redo baseline {A, B} no longer matches the
+    // live tree {A}, so redo is skipped instead of resurrecting B.
+    t = 200;
+    h.external([rich("a", "A")]);
+    expect(h.stack.redo()).toBe(false);
+    expect(h.get().map((b) => b.id)).toEqual(["a"]);
   });
 });
 

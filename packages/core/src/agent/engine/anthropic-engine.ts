@@ -8,7 +8,11 @@
  * All providerOptions.anthropic fields are forwarded directly to the SDK.
  */
 
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
 import {
@@ -106,15 +110,43 @@ class AnthropicEngine implements AgentEngine {
       cachedTools[cachedTools.length - 1] = last;
     }
 
+    // Apply a moving cache breakpoint on the last user message's last content
+    // block so the entire conversation prefix (system + tools + growing
+    // history) is cached turn-over-turn as the thread lengthens. Mirrors the
+    // Builder gateway engine's identical handling in builder-engine.ts.
+    let cachedMessages = messages;
+    if (cacheEnabled && messages.length > 0) {
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
+      }
+    }
+
     const requestParams: any = {
       model: opts.model,
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
+        opts.model,
       ),
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
-      messages,
+      messages: cachedMessages,
       ...(opts.temperature !== undefined
         ? { temperature: opts.temperature }
         : {}),
@@ -159,6 +191,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: "ANTHROPIC_API_KEY",
+        value: this.apiKey,
+      });
 
       // Emit stop reason
       const stopReason = finalMessage.stop_reason ?? "end_turn";
@@ -172,10 +208,26 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      const statusCode: number | undefined =
+        typeof err?.status === "number"
+          ? err.status
+          : typeof err?.statusCode === "number"
+            ? err.statusCode
+            : undefined;
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: "ANTHROPIC_API_KEY",
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: err?.message ?? String(err),
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
+        ...(statusCode === 401 ? { errorCode: "http_401", statusCode } : {}),
       };
       throw err;
     }

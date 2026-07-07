@@ -341,4 +341,79 @@ describe("selectReferences", () => {
     ]);
     expect(refs[0].role).toBe("subject_reference");
   });
+
+  it("excludes active skeleton assets from explicit references", async () => {
+    const assets: AssetRow[] = [
+      {
+        id: "skeleton-plate",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-22T00:00:00.000Z",
+        objectKey: "skeleton-plate-bytes",
+        metadata: "{}",
+      },
+      {
+        id: "explicit-style",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        objectKey: "explicit-style-bytes",
+        metadata: "{}",
+      },
+    ];
+    getDbMock.mockReturnValue(createDb({}, assets));
+
+    const refs = await selectReferences({
+      libraryId: "library-1",
+      referenceAssetIds: ["skeleton-plate", "explicit-style"],
+      excludeAssetIds: ["skeleton-plate"],
+      intent: "generate",
+      limit: 4,
+    });
+
+    expect(refs.map((ref) => ref.id)).toEqual(["explicit-style"]);
+  });
+
+  it("excludes skeleton category assets from automatic references", async () => {
+    const assets: AssetRow[] = [
+      {
+        id: "skeleton-plate",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        objectKey: "skeleton-plate-bytes",
+        metadata: JSON.stringify({ category: "skeleton" }),
+      },
+      {
+        id: "legacy-skeleton-plate",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-23T00:00:00.000Z",
+        objectKey: "legacy-skeleton-plate-bytes",
+        metadata: JSON.stringify({ category: "skeleton" }),
+      },
+      {
+        id: "style-ref",
+        role: "style_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        objectKey: "style-ref-bytes",
+        metadata: "{}",
+      },
+    ];
+    getDbMock.mockReturnValue(createDb({}, assets));
+
+    const refs = await selectReferences({
+      libraryId: "library-1",
+      intent: "generate",
+      limit: 4,
+    });
+
+    expect(refs.map((ref) => ref.id)).toEqual(["style-ref"]);
+  });
 });

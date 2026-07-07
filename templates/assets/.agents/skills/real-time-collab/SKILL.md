@@ -249,34 +249,97 @@ type PatchDeckOp =
 Concurrent edits to different slides both succeed at the action level; there
 is no whole-deck LWW. Forms use the same shape with field-level ops.
 
-## Collaborative Undo Scoping (Y.UndoManager)
+## Agent Presence & Lingering Edit Highlights
 
-Scope undo/redo to the local user's own edits so peer and agent changes are
-never accidentally reversed:
+The agent is a *visible* collaborator, not a silent content-swapper. Core
+handles most of this automatically:
 
-```ts
-import * as Y from "yjs";
+- **Auto-presence on agent writes** — any `applyText` / `searchAndReplace` /
+  `applyJson` / `applyPatchOps` call with `requestSource: "agent"` publishes
+  an agent awareness entry plus a `recentEdits` attribution describing what
+  changed. Actions that route writes through the collab layer get full
+  presence UX with zero extra wiring.
+- **Linger** — `agentLeaveDocument` (and the auto-presence path) keeps the
+  agent's awareness entry alive for ~6s (`AGENT_PRESENCE_LINGER_MS`) after the
+  last edit so viewers see who just changed what. Pass `{ lingerMs: 0 }` to
+  clear immediately. On serverless the linger degrades to the 30s awareness
+  expiry.
+- **`agentTouchDocument(docId, { edit, metadata })`** — refcount-neutral
+  presence + attribution for actions that write SQL directly (no collab doc).
+  `edit.descriptor` is one of `{kind:"text",quote}`, `{kind:"selector",selector}`,
+  `{kind:"paths",paths}`, `{kind:"doc"}`.
+- **Durable across instances** — awareness is mirrored to the additive
+  `_collab_awareness` table, so presence written by an action in one
+  serverless invocation is visible to clients polling any other instance.
 
-const LOCAL_EDIT_ORIGIN = "local";
+Client rendering:
 
-const undoManager = new Y.UndoManager(ydoc.getText("content"), {
-  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
-  captureTimeout: 800, // coalesces rapid slider drags into one undo step
-});
+```tsx
+import {
+  usePresence, useRecentEdits, RecentEditHighlights,
+  PresenceBar, LiveCursorOverlay, RemoteSelectionRings,
+} from "@agent-native/core/client";
 
-// Mark local edits with the tracked origin
-ydoc.transact(() => {
-  // apply local change
-}, LOCAL_EDIT_ORIGIN);
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+const recentEdits = useRecentEdits(others); // non-expired, ~6s TTL
 
-undoManager.undo(); // only reverses LOCAL_EDIT_ORIGIN transactions
-undoManager.redo();
+<RecentEditHighlights
+  edits={recentEdits}
+  containerRef={containerRef}
+  resolveRect={(edit) => /* map descriptor → DOMRect, or null */ null}
+/>
 ```
 
-Rules:
-- Pass a `Set` to `trackedOrigins` — not an array.
-- Remote (`"remote"`) and agent (`"agent"`) origins are never captured.
-- Recreate and destroy the manager when the active document changes.
+Humans get the same treatment: call `publishRecentEdit(awareness, { descriptor })`
+from local mutation paths so peers see lingering highlights for human edits
+too. `CollabUser.avatarUrl` puts faces on avatars, cursors, and edit tags.
+
+## Per-User Undo (never revert someone else's work)
+
+Undo must only reverse the local user's edits — and must never restore a
+whole-document snapshot (that clobbers concurrent edits by peers/the agent).
+Core ships two primitives:
+
+**Yjs surfaces — `useCollabUndo`** (wraps `Y.UndoManager` lifecycle):
+
+```ts
+import { useCollabUndo } from "@agent-native/core/client";
+
+const { undo, redo, canUndo, canRedo, transactLocal, localOrigin } =
+  useCollabUndo({
+    ydoc,
+    scope: (doc) => doc.getText("content"),
+    captureTimeout: 500,
+    enableKeyboardShortcuts: true, // Mod+Z / Shift+Mod+Z / Mod+Y
+  });
+
+// Tag every local mutation so it is captured:
+transactLocal(() => { /* mutate shared types */ });
+```
+
+Remote (`"remote"`) and agent (`"agent"`/`"server"`) origins are never
+captured. The manager is recreated/destroyed automatically when `ydoc`
+changes. (TipTap's Collaboration extension already provides this behavior
+for its own editor content.)
+
+**Op-based surfaces (slides/forms) — `useLocalOpUndo`**: record inverse
+granular ops for each local mutation; undo replays the inverse ops through
+your normal granular mutation path:
+
+```ts
+const { push, undo, redo, canUndo, canRedo } = useLocalOpUndo({
+  apply: (ops) => applyGranularOps(ops), // your patch path
+});
+
+push({
+  undo: [{ type: "patch", slideId, fields: prevFields }],
+  redo: [{ type: "patch", slideId, fields: nextFields }],
+  coalesceKey: `${slideId}:content`, // merge rapid bursts into one step
+});
+```
+
+Entries whose target no longer exists should fail soft (skip), never reset
+the whole history — external/agent edits must not wipe the user's undo stack.
 
 ## Common Pitfalls
 

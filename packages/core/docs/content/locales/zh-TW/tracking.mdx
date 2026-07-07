@@ -188,6 +188,67 @@ track("checkout.completed", { total: 49.99, items: 3 });
 
 這與框架的內部瀏覽器遙測（`trackEvent()` /自動頁面瀏覽量 - 請參閱下面的 [Browser defaults](#browser-defaults)）不同，後者為 Agent Native 自己的產品分析提供支援。將 `track()` 用於您的應用自己的分析事件，這些事件應到達您設定的提供者。
 
+## 工作階段重播 {#session-replay}
+
+Agent Native 應用程式可以選擇加入第一方瀏覽器工作階段重播，而無需新增第二個分析 SDK。在瀏覽器根目錄中呼叫一次 `configureTracking()`，並傳入 Analytics 公開金鑰以及收集器端點：
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+當 `sessionReplay.enabled` 為真值時，用戶端會在啟動後動態匯入 `@rrweb/record`，並將重播區塊發佈到重播端點。如果 `endpoint` 以 `/api/analytics/track` 或 `/track` 結尾，重播端點會自動衍生為 `/api/analytics/replay`。當重播收集器位於其他位置時，請使用 `sessionReplay.endpoint` 明確覆寫它。
+
+Agent Native 範本根目錄已經呼叫了 `configureTracking()`。託管範本部署可以透過 Vite/Netlify 環境變數開啟重播，而函式庫使用者則應優先使用上面明確的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+瀏覽器輔助程式也會盡力執行、非阻塞式讀取目前的 Agent Native 驗證工作階段。重播預設僅限已登入使用者：當 `sessionReplay` 啟用時，除非工作階段解析出使用者電子郵件地址，否則不會開始錄製。已登入使用者的重播包含以電子郵件為基礎的 `userId`/`userEmail` 以及 `orgId`。
+
+僅在刻意進行匿名重播部署時，才設定 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。停用驗證閘控後，匿名錄製仍可依匿名訪客、工作階段、應用程式/範本、主機名稱與路徑進行查詢。
+
+工作階段重播是依瀏覽器工作階段進行確定性取樣的。`sampleRate` 為 `0.1` 表示大約記錄 10% 符合條件的工作階段；當符合條件的母體刻意較小時（例如僅限已登入使用者的內部試用），可使用 `1`。
+
+隱私預設值刻意設計得保守，但仍足以支援播放：
+
+- 輸入欄位預設會被遮罩（`maskAllInputs: true`）。
+- 頁面文字保持可見，除非元素被標記為 `.an-mask` 或 `data-an-mask`。
+- 敏感區域會透過選擇器（例如 `[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private`，以及類似信用卡/密碼/社會安全號碼的欄位）進行封鎖。
+- URL 會使用瀏覽器分析所用的同一個 `scrubUrl()` 輔助函式進行清理。
+- 重播擷取僅限於網頁，且為選擇加入；它不會錄製原生桌面畫面。
+
+在錄製期間，工作階段重播還會擷取瀏覽器主控台輸出（`log`、`info`、`warn`、`error`、`debug`，以及視窗的 `error`/`unhandledrejection`）與網路請求元資料（`fetch` 與 XHR），並以帶標籤的 rrweb 自訂事件形式儲存，讓代理與重播檢視器能夠偵錯使用者回報的問題。啟用重播後，擷取功能預設為開啟；可透過 `sessionReplay.console` 與 `sessionReplay.network` 選項進行調整或停用，這兩個選項都接受布林值或選項物件（`{ maxEvents?: number }`，其中 `network` 另外還可接受 `captureErrorBodies` 與 `maxErrorBodyLength`）。請求主體與標頭永遠不會被擷取；回應主體僅在 5xx（伺服器錯誤）回應時才會被擷取，且僅擷取一段有邊界、經過遮蔽處理的片段（`captureErrorBodies`，預設為 `true`，上限為 `maxErrorBodyLength` 個字元，預設 2048）——非 5xx 及網路失敗（狀態碼 0）的回應永遠不會帶有主體。URL 會被清理，訊息會被截斷，記錄器自身的擷取/追蹤流量會被排除，且每個工作階段的預算（1000 個主控台事件／2000 個網路事件）在超過時會加上截斷提示。
+
+Analytics 範本將重播中繼資料儲存在 SQL（`session_recordings`）中，並透過私有 blob 參照（`session_replay_chunks`）儲存區塊。瀏覽器與代理永遠不會收到提供者 URL。播放透過範圍受限的伺服器路由進行，且預設代理工具傳回摘要或範圍受限的重播事件，而非原始區塊資料表存取權。
+
+當您需要將私人錄製內容交給外部代理時，請使用工作階段詳細資料頁面的**複製給代理**控制項。它會產生一個兩小時、僅限該筆錄製的 `agent_access` 連結，在 `/sessions/:recordingId` 上以伺服器端轉譯（SSR）一個小型探索酬載，並僅公開代理內容/事件 JSON API。該筆錄製的可見性不會改變。
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
+
+僅在本機開發時，Analytics 可以在私有 blob 儲存體無法使用時，回退到有上限的 SQL 內嵌區塊。正式環境部署應設定私有或加密的 blob 儲存體，而不是依賴 Postgres 來儲存重播酬載。
+
 ## 進階：自訂提供者和內部結構 {#advanced}
 
 大多數應用程式只需要 `track()` / `identify()` 和內建提供者。表面的其餘部分 - 註冊自訂提供者、`TrackingProvider` 介面、批處理內部結構以及框架自己的瀏覽器遙測 - 如下。

@@ -2,6 +2,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useState } from "react";
 
+declare const __CLIPS_DESKTOP_LOCAL_BUILD__: boolean;
+
 export type UpdateStatus =
   | { state: "idle" }
   | { state: "checking" }
@@ -43,9 +45,15 @@ async function runCheck() {
     const notes = update.body ?? undefined;
     setStatus({ state: "available", version, notes });
 
+    // Download ONLY — do not install here. On macOS `install` swaps the .app
+    // bundle on disk while this process keeps running, which invalidates the
+    // running process's Screen Recording (TCC) grant and breaks capture until
+    // relaunch. We defer the swap to `installAndRestart()` so a downloaded-but-
+    // not-yet-installed update leaves the running app fully functional; the
+    // user records normally until they choose to restart.
     let total = 0;
     let downloaded = 0;
-    await update.downloadAndInstall((event) => {
+    await update.download((event) => {
       if (event.event === "Started") {
         total = event.data.contentLength ?? 0;
         downloaded = 0;
@@ -70,6 +78,10 @@ function startUpdateLoop() {
   started = true;
   // Skip update checks in dev — there's no release endpoint to check.
   if (import.meta.env.DEV) return;
+  // Local release builds are for testing the current checkout. Do not replace
+  // them with the published auto-update channel just because package.json has
+  // a lower development version.
+  if (__CLIPS_DESKTOP_LOCAL_BUILD__) return;
   // Check 3s after launch (let the popover finish first paint), then every
   // 4 hours. Matches the cadence used by the Electron app.
   setTimeout(runCheck, 3000);
@@ -92,8 +104,25 @@ export function useUpdateStatus(): UpdateStatus {
 }
 
 export async function installAndRestart(): Promise<void> {
-  // downloadAndInstall already applied the bundle; relaunch completes it.
+  // Perform the deferred bundle swap now, then relaunch onto the new binary.
+  // Installing immediately before relaunch keeps the window where the on-disk
+  // bundle no longer matches the running process as short as possible — the
+  // process is torn down by `relaunch()` right after, so capture never runs
+  // against a swapped-out bundle.
+  if (pendingUpdate) {
+    await pendingUpdate.install();
+  }
   await relaunch();
+}
+
+/**
+ * True once an update has been downloaded and is waiting for the user to
+ * restart. The recording flow uses this to explain a post-download capture
+ * failure as "restart to finish updating" instead of a misleading "grant
+ * permissions" message — see `app.tsx` recError routing.
+ */
+export function isUpdatePendingRestart(): boolean {
+  return cachedStatus.state === "downloaded";
 }
 
 /**

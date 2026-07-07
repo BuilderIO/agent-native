@@ -198,6 +198,8 @@ export function builderReviewPublicationTransitionsMap(
 const ATTENTION_TAG_EFFECTS: ReadonlySet<BuilderCmsWriteEffect> = new Set([
   "unpublish",
 ]);
+const REVIEW_DIALOG_INITIAL_ROW_LIMIT = 100;
+const REVIEW_DIALOG_ROW_INCREMENT = 100;
 
 function rowEffectTagClass(effect: BuilderCmsWriteEffect) {
   return ATTENTION_TAG_EFFECTS.has(effect)
@@ -246,6 +248,17 @@ export function BuilderSourceReviewDialog({
     writeMode === "publish_updates" &&
     source?.metadata.allowPublicationTransitions === true;
   const reviewRows = useMemo(() => review?.rows ?? [], [review]);
+  const reviewTotalRowCount = review?.totalRowCount ?? reviewRows.length;
+  const [visibleRowLimit, setVisibleRowLimit] = useState(
+    REVIEW_DIALOG_INITIAL_ROW_LIMIT,
+  );
+  useEffect(() => {
+    if (open) setVisibleRowLimit(REVIEW_DIALOG_INITIAL_ROW_LIMIT);
+  }, [open, review]);
+  const visibleReviewRows = reviewRows.slice(0, visibleRowLimit);
+  const hasMoreRenderedRows = visibleReviewRows.length < reviewRows.length;
+  const isServerCapped =
+    reviewTotalRowCount > reviewRows.length && !hasMoreRenderedRows;
   const reviewRowIds = useMemo(
     () => reviewRows.map((row) => row.changeSetId),
     [reviewRows],
@@ -443,7 +456,15 @@ export function BuilderSourceReviewDialog({
                   {t("database.whatChanged")}
                 </div>
                 <div className="grid gap-2">
-                  {reviewRows.map((row) => {
+                  {reviewTotalRowCount > visibleReviewRows.length ? (
+                    <div className="rounded-md border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+                      {t("database.builderReviewShowingRows", {
+                        shown: visibleReviewRows.length,
+                        total: reviewTotalRowCount,
+                      })}
+                    </div>
+                  ) : null}
+                  {visibleReviewRows.map((row) => {
                     const selection = transitionSelections[row.changeSetId];
                     const effect = builderReviewEffectiveRowEffect(
                       row.effect,
@@ -607,6 +628,25 @@ export function BuilderSourceReviewDialog({
                       </div>
                     );
                   })}
+                  {hasMoreRenderedRows ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="justify-self-start"
+                      onClick={() =>
+                        setVisibleRowLimit(
+                          (current) => current + REVIEW_DIALOG_ROW_INCREMENT,
+                        )
+                      }
+                    >
+                      {t("database.builderReviewShowMore")}
+                    </Button>
+                  ) : isServerCapped ? (
+                    <div className="rounded-md border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
+                      {t("database.builderReviewRemainingBatches")}
+                    </div>
+                  ) : null}
                 </div>
               </section>
 

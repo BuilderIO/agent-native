@@ -12,7 +12,11 @@
  * so the core package remains installable without the AI SDK.
  */
 
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
@@ -251,7 +255,12 @@ class AISDKEngine implements AgentEngine {
       opts.tools.length > 0
         ? engineToolsToAISDK(opts.tools, jsonSchema)
         : undefined;
-    const messages = engineMessagesToAISDK(opts.messages);
+    const messages = engineMessagesToAISDK(opts.messages, {
+      // Vision-capable provider translators (anthropic/openai/google/
+      // openrouter) map image parts to native blocks; the rest stringify
+      // tool-result content arrays, so images degrade to their text notes.
+      toolResultImages: this.capabilities.vision,
+    });
 
     // Build providerOptions for Anthropic-native features when using Anthropic provider
     const providerOpts: Record<string, unknown> = {};
@@ -320,6 +329,7 @@ class AISDKEngine implements AgentEngine {
         maxOutputTokens: resolveMaxOutputTokensForEngine(
           this.name,
           opts.maxOutputTokens,
+          opts.model,
         ),
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
@@ -348,6 +358,10 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: PROVIDER_ENV_VARS[this.provider][0],
+        value: this.apiKey,
+      });
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       // Surface structured fields from AI SDK's APICallError so
@@ -357,10 +371,20 @@ class AISDKEngine implements AgentEngine {
         typeof err?.statusCode === "number" ? err.statusCode : undefined;
       const providerRetryable: boolean | undefined =
         typeof err?.isRetryable === "boolean" ? err.isRetryable : undefined;
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: PROVIDER_ENV_VARS[this.provider][0],
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: err?.message ?? String(err),
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
+        ...(statusCode === 401 ? { errorCode: "http_401" } : {}),
         ...(statusCode !== undefined ? { statusCode } : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };

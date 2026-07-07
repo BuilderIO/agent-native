@@ -1,16 +1,11 @@
 ---
-title: "Aplicativos de agente puro"
-description: "Aplicativos em que o agente é o produto completo: o loop app-agent é a porta de entrada e UI é adicionado apenas quando humanos precisam dele."
+title: "Automation-First Apps"
+description: "Apps Agent-Native sem navegador para scheduled jobs, filas, scripts, integration workers e agents externos."
 ---
 
-# Aplicativos de agente puro
+# Automation-First Apps
 
-Um aplicativo de agente puro é o fim mínimo do agente nativo: o loop app-agent é o
-produto, não um painel. Você envia uma solicitação do terminal, Slack, email, um
-trabalho agendado, outro agente ou bate-papo — "resumir meus e-mails não lidos", "postar o
-métricas diárias para Slack" — e o agente atua e retorna o resultado onde quer que esteja
-pertence. Ainda é um aplicativo real: actions, sessões, estado do aplicativo, histórico,
-configurações, credenciais e registros de compartilhamento, todos ativos em SQL.
+Uma automation-first app é uma app Agent-Native sem navegador para scheduled jobs, filas, scripts, integration workers e agents externos. Não é o caminho padrão de Getting Started, mas é útil quando o workflow ainda não precisa de uma página. Ainda é uma app real: actions, sessions, application state, run history, settings, credentials e registros de compartilhamento vivem em SQL.
 
 <Diagram id="doc-block-8brd1i" title={"O loop app-agent é a porta de entrada"} summary={"Muitos pontos de entrada alcançam um loop de agente sobre ações e estados SQL-backed; os resultados retornam para o local de origem da solicitação. A IU é adicionada apenas quando humanos precisam supervisionar."}>
 

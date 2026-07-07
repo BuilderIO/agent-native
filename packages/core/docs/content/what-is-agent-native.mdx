@@ -5,13 +5,13 @@ description: "Why most AI apps feel half-built, what makes an app truly agent-na
 
 # What Is Agent-Native?
 
-Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. That surface can be a headless agent with one custom action, a rich chat, or a full UI. The important part is that agents and humans share the same actions, database, and state.
+Agent-native is a way of building software where the AI agent and the product surface around it are **equal partners**. The usual path starts with chat, adds typed actions, renders structured results inline, and grows into durable app pages around the same SQL state. The important part is that agents and humans share the same actions, database, and state.
 
 If you only remember one thing from this page, remember this: most AI apps today stop one step short of being useful, and that gap is the biggest mistake in the space right now.
 
 ## What it looks like as a user {#what-it-looks-like}
 
-Picture a background worker, inbox, calendar, form builder, or analytics dashboard. Sometimes there is no custom screen yet: you run one action or one headless app-agent prompt. Sometimes the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. Across those shapes, you can:
+Picture a background worker, inbox, calendar, form builder, or analytics dashboard. Often the first screen is chat: you ask what you want, the agent guides setup, shows a table or chart, and opens the right app view. Sometimes chat is docked on the right side of a full application. Sometimes there is no custom screen yet because the workflow is a scheduled job, queue, script, or external-agent integration. Across those shapes, you can:
 
 - **Start with the real operation.** One durable action can run from the CLI, HTTP, MCP, A2A, the app-agent loop, and later a UI.
 - **Click anything you'd normally click when there is a UI.** All the buttons, lists, dashboards, keyboard shortcuts — they all call the same operations the agent can call.
@@ -116,7 +116,7 @@ Even when the agent does all the heavy lifting, humans still need to:
 
 At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native, and the surface can grow from one without a rewrite.
 
-You don't have to choose a shape up front. The agent can run headless, sit behind a rich chat, or live inside a full application around the same action surface — see [Agent Surfaces](/docs/agent-surfaces) for the concrete shapes and APIs.
+You don't have to choose every surface up front. The agent can start in rich chat, render native inline UI, live inside a full application, or run from automation and external-agent channels around the same action surface — see [Agent Surfaces](/docs/agent-surfaces) for the concrete shapes and APIs.
 
 ## Why every app benefits from an agent {#why-every-app-benefits-from-an-agent}
 
@@ -124,7 +124,7 @@ The flip side is just as important. Existing SaaS products keep hitting the same
 
 Agent-native flips that. Because every action in the app is defined once and exposed as both a button and an agent tool, the agent can do everything the buttons can — and more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
 
-The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Even an app where the agent _is_ the product still needs a UI for humans to supervise, configure, and steer it — see [Agent Surfaces — Headless](/docs/agent-surfaces#headless).
+The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Even an automation-first app still needs some surface for humans to supervise, configure, and steer it — usually chat, a job history, or a small status page. See [Agent Surfaces — Automation-first app](/docs/agent-surfaces#headless).
 
 ## Agent + UI parity {#agent-ui-parity}
 
@@ -394,8 +394,8 @@ One action, many surfaces: the agent calls it as a tool, the UI calls it as a ty
 
 ## What's next {#whats-next}
 
-- [**Getting Started**](/docs/getting-started) — start with one action, pick a template, or install a skill
-- [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
+- [**Getting Started**](/docs/getting-started) — start with chat, add an action, render a native result, and grow into a page
+- [**Agent Surfaces**](/docs/agent-surfaces) — choose chat, native inline UI, full app pages, embedded sidecar, automation, or external agent access
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own
 - [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files

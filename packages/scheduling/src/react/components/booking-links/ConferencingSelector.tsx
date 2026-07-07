@@ -1,4 +1,14 @@
 import {
+  Badge,
+  Button,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@agent-native/toolkit/ui";
+import {
   IconBrandGoogle,
   IconBrandZoom,
   IconCheck,
@@ -31,17 +41,6 @@ import {
  *   - `onConnectGoogle` — optional, same shape as onConnectZoom
  */
 import { useId, type ComponentType } from "react";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 
 import { useSchedulingT } from "../../i18n.js";
 

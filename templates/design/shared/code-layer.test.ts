@@ -409,6 +409,16 @@ describe("applyVisualEdit", () => {
       },
       { property: "borderWidth", cssProperty: "border-width", value: "2px" },
       { property: "borderStyle", cssProperty: "border-style", value: "solid" },
+      {
+        property: "-webkit-text-stroke-width",
+        cssProperty: "-webkit-text-stroke-width",
+        value: "2px",
+      },
+      {
+        property: "-webkit-text-stroke-color",
+        cssProperty: "-webkit-text-stroke-color",
+        value: "#0f172a",
+      },
       { property: "overflow", cssProperty: "overflow", value: "hidden" },
       { property: "flexWrap", cssProperty: "flex-wrap", value: "wrap" },
       { property: "rotate", cssProperty: "rotate", value: "15deg" },
@@ -440,6 +450,11 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("border-color: #334155");
     expect(html).toContain("border-width: 2px");
     expect(html).toContain("border-style: solid");
+    // R94 — text glyph-outline stroke longhands must round-trip through the
+    // same deterministic style-edit path border/outline use (see the
+    // VisualStyleProperty allow-list in code-layer.ts).
+    expect(html).toContain("-webkit-text-stroke-width: 2px");
+    expect(html).toContain("-webkit-text-stroke-color: #0f172a");
     expect(html).toContain("overflow: hidden");
     expect(html).toContain("flex-wrap: wrap");
     expect(html).toContain("rotate: 15deg");
@@ -933,15 +948,31 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
-  it("returns unsupported when selected siblings are not contiguous", () => {
+  it("groups non-contiguous same-parent siblings by moving them adjacent to the topmost member first (L6)", () => {
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
       targetIds: ["a", "c"],
     });
 
-    expect(patch.result.status).toBe("unsupported");
-    expect(patch.content).toBe(html);
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.changed).toBe(true);
+    expect(patch.result.wrapperNodeId).toBeTruthy();
+    // Both non-adjacent targets end up inside the wrapper, adjacent to each other.
+    expect(patch.content).toContain(`data-agent-native-node-id="a"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="c"`);
+    const wrapperIdx = patch.content.indexOf(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
+    );
+    const aIdx = patch.content.indexOf(`data-agent-native-node-id="a"`);
+    const cIdx = patch.content.indexOf(`data-agent-native-node-id="c"`);
+    const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
+    expect(wrapperIdx).toBeLessThan(aIdx);
+    expect(aIdx).toBeLessThan(cIdx);
+    // b (not selected) is left behind in the original parent, outside the wrapper.
+    expect(bIdx).toBeGreaterThan(
+      patch.content.indexOf("</div>", cIdx) /* end of wrapper's C child */,
+    );
   });
 
   it("returns conflict when a target node id is not found", () => {
@@ -953,6 +984,89 @@ describe("wrapNodes", () => {
 
     expect(patch.result.status).toBe("conflict");
     expect(patch.content).toBe(html);
+  });
+
+  it("L6: gives a distinct message when targets don't share a parent (not the generic move-failed message)", () => {
+    const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.result.message).toMatch(/same parent/i);
+  });
+
+  it("L6: gives a distinct message for an empty selection", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: [],
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.result.message).toMatch(/select at least one/i);
+  });
+
+  it("L7: names sequential groups Group, Group 2, Group 3 instead of repeating 'Group'", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div><div data-agent-native-node-id="d">D</div></main>`;
+    const first = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+    expect(first.result.status).toBe("applied");
+    expect(first.content).toContain(`data-agent-native-layer-name="Group"`);
+
+    const second = applyVisualEdit(first.content, {
+      kind: "wrapNodes",
+      targetIds: ["c", "d"],
+    });
+    expect(second.result.status).toBe("applied");
+    expect(second.content).toContain(`data-agent-native-layer-name="Group 2"`);
+  });
+
+  it("L7: computes union bounds for a wrapper when all children are absolutely positioned", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="a" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 50px">A</div>` +
+      `<div data-agent-native-node-id="b" style="position: absolute; left: 150px; top: 40px; width: 80px; height: 60px">B</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    // Union: left=10, top=20, right=max(110,230)=230, bottom=max(70,100)=100
+    expect(patch.content).toContain("position: absolute");
+    expect(patch.content).toContain("left: 10px");
+    expect(patch.content).toContain("top: 20px");
+    expect(patch.content).toContain("width: 220px");
+    expect(patch.content).toContain("height: 80px");
+    // Children are rebased relative to the new wrapper origin (10, 20):
+    // a: left 10-10=0, top 20-20=0; b: left 150-10=140, top 40-20=20.
+    expect(patch.content).toContain("left: 0px");
+    expect(patch.content).toContain("top: 0px");
+    expect(patch.content).toContain("left: 140px");
+    expect(patch.content).toContain("top: 20px");
+  });
+
+  it("L7: falls back to a flow wrapper (no geometry) when children are not all absolutely positioned", () => {
+    const html = `<main><div data-agent-native-node-id="a" style="position: absolute; left: 10px; top: 20px; width: 100px; height: 50px">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
+    // No union-bounds style block should have been added to the wrapper div itself.
+    const wrapperOpenTagMatch = patch.content.match(
+      new RegExp(
+        `<div data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*>`,
+      ),
+    );
+    expect(wrapperOpenTagMatch?.[0]).not.toContain("position: absolute");
   });
 });
 
@@ -1006,6 +1120,83 @@ describe("unwrap", () => {
 
     expect(patch.result.status).toBe("conflict");
     expect(patch.content).toBe(html);
+  });
+
+  it("L3: returns unsupported for a leaf element with no element children (safety gate)", () => {
+    const html = `<main><p data-agent-native-node-id="leaf">Just some text, no child elements</p></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "leaf",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+    // The leaf element must be left completely untouched — not spliced away.
+    expect(patch.content).toContain(`data-agent-native-node-id="leaf"`);
+    expect(patch.content).toContain("Just some text, no child elements");
+  });
+
+  it("L3: returns unsupported for an empty/void element", () => {
+    const html = `<main><img data-agent-native-node-id="img" src="x.png" /></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "img",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("L3: still unwraps a container whose only child is a text-bearing leaf element", () => {
+    const html = `<main><div data-agent-native-node-id="wrapper"><p data-agent-native-node-id="child">Hello</p></div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="child"`);
+    expect(patch.content).toContain("Hello");
+  });
+
+  it("L3: rebases absolutely-positioned children by the wrapper's own offset on unwrap", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper" style="position: absolute; left: 50px; top: 30px">` +
+      `<div data-agent-native-node-id="child" style="position: absolute; left: 10px; top: 5px; width: 20px; height: 20px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain(`data-agent-native-node-id="wrapper"`);
+    expect(patch.content).toContain(`data-agent-native-node-id="child"`);
+    // Child's absolute offset must be rebased by the wrapper's own former
+    // offset (50, 30) so it keeps the same absolute screen position once
+    // spliced directly into <main>: 10+50=60, 5+30=35.
+    expect(patch.content).toContain("left: 60px");
+    expect(patch.content).toContain("top: 35px");
+  });
+
+  it("L3: does not rebase children when the wrapper itself is not absolutely positioned", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper">` +
+      `<div data-agent-native-node-id="child" style="position: absolute; left: 10px; top: 5px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 10px");
+    expect(patch.content).toContain("top: 5px");
   });
 });
 
@@ -1351,5 +1542,293 @@ describe("stripEditorOnlyAttributes", () => {
     const html = `<button data-agent-native-node-id="an-z" type="button" class="btn">Click</button>`;
     const result = stripEditorOnlyAttributes(html);
     expect(result).toBe(`<button type="button" class="btn">Click</button>`);
+  });
+});
+
+describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
+  const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
+
+  it("responsive-class with maxWidthPx writes a max-[Npx]: scoped token", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-lg",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("max-[809px]:text-lg");
+    // Base token untouched — the override cascades below 810 only.
+    expect(patch.content).toContain("text-sm");
+  });
+
+  it("responsive-class replace at the same bound swaps the same stem", () => {
+    const withOverride = applyVisualEdit(html, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-lg",
+    } as EditIntent).content;
+
+    const patch = applyVisualEdit(withOverride, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-2xl",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("max-[809px]:text-2xl");
+    expect(patch.content).not.toContain("max-[809px]:text-lg");
+  });
+
+  it("responsive-class remove with maxWidthPx strips only that bound's stem", () => {
+    const withOverrides = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm max-[809px]:text-lg max-[389px]:text-xs">Hello</section></body></html>`;
+    const patch = applyVisualEdit(withOverrides, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "remove",
+      stem: "font-size",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("max-[809px]:text-lg");
+    expect(patch.content).toContain("max-[389px]:text-xs");
+    expect(patch.content).toContain("text-sm");
+  });
+
+  it("breakpoint-style writes a managed @media rule targeting the node id", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      value: "137px",
+      operation: "set",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain('[data-agent-native-node-id="hero"]');
+    expect(patch.content).toContain("left: 137px;");
+    // The element's inline style is NOT touched — base keeps cascading.
+    expect(patch.content).not.toContain('style="left');
+  });
+
+  it("breakpoint-style stamps a node id when the element has none", () => {
+    const bare = `<html><head></head><body><section class="p-4">Hello</section></body></html>`;
+    const projection = buildCodeLayerProjection(bare);
+    const section = projection.nodes.find((node) => node.tag === "section");
+    expect(section).toBeTruthy();
+
+    const patch = applyVisualEdit(bare, {
+      kind: "breakpoint-style",
+      target: { nodeId: section!.id },
+      maxWidthPx: 1279,
+      property: "top",
+      value: "24px",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    const stamped = /data-agent-native-node-id="([^"]+)"/.exec(patch.content);
+    expect(stamped).toBeTruthy();
+    expect(patch.content).toContain(
+      `[data-agent-native-node-id="${stamped![1]}"]`,
+    );
+    expect(patch.content).toContain("top: 24px;");
+  });
+
+  it("breakpoint-style remove prunes the declaration and empty block", () => {
+    const withRule = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      value: "137px",
+    } as EditIntent).content;
+
+    const patch = applyVisualEdit(withRule, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      operation: "remove",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+
+  it("breakpoint-style rejects unsafe values", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "background",
+      value: "url(https://evil.example/x)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style still rejects url() on the background shorthand even though background-image now allows it", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "background",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it.each(["background-size", "background-repeat", "background-position"])(
+    "breakpoint-style accepts the new fill layer property %s",
+    (property) => {
+      const patch = applyVisualEdit(html, {
+        kind: "breakpoint-style",
+        target: { nodeId: "hero" },
+        maxWidthPx: 809,
+        property,
+        value: "cover",
+      } as EditIntent);
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).toContain(`${property}: cover;`);
+    },
+  );
+
+  it("breakpoint-style accepts a safe backgroundImage url() and scopes it to the media block", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain(
+      'background-image: url("https://example.com/fill.png");',
+    );
+    expect(patch.content).not.toContain('style="background');
+  });
+
+  it("breakpoint-style rejects a backgroundImage url() with an unsafe scheme", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style rejects a backgroundImage data: URI that isn't an image", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(data:text/html,<script>alert(1)</script>)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style accepts a data:image/... backgroundImage url()", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(data:image/png;base64,iVBORw0KGgo=)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+  });
+});
+
+describe("style edit property normalization for fill layers", () => {
+  const html = `<button id="cta">Buy</button>`;
+
+  it.each([
+    ["background-size", "cover"],
+    ["backgroundSize", "cover"],
+    ["background-repeat", "no-repeat"],
+    ["backgroundRepeat", "no-repeat"],
+    ["background-position", "center"],
+    ["backgroundPosition", "center"],
+  ])("normalizes and applies the %s style property", (property, value) => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property,
+      value,
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(value);
+  });
+
+  it("applies a safe backgroundImage url() as a base inline style", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("background-image");
+  });
+
+  it("rejects a backgroundImage url() with a javascript: scheme", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects the background shorthand carrying a url(), even a safe-looking one", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "background",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("still applies a plain color value on the background shorthand", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "background",
+      value: "#f5f5f5",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("background: #f5f5f5");
   });
 });

@@ -1,12 +1,14 @@
 import {
   IconAlertTriangle,
   IconArrowLeft,
+  IconCalendarEvent,
   IconCircleCheck,
   IconDownload,
   IconExternalLink,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
+  IconMicrophone2,
   IconRefresh,
   IconTrash,
   IconUpload,
@@ -16,6 +18,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
+  type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
@@ -26,7 +29,6 @@ import {
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
-  ClockIcon,
   CloseIcon,
   GoogleIcon,
   LibraryIcon,
@@ -42,15 +44,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
+import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  getCameraStreamWithFallback,
+  isMediaConstraintFailure,
+} from "./lib/media-capture-constraints";
+import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
+  MACOS_SCREEN_PERMISSION_MESSAGE,
   MACOS_SPEECH_PERMISSION_MESSAGE,
+  MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
@@ -72,6 +81,7 @@ import {
   saveBool,
   saveString,
 } from "./lib/storage";
+import { installAndRestart, isUpdatePendingRestart } from "./lib/updater";
 import { normalizeServerUrl } from "./lib/url";
 import {
   installDesktopVoiceDictation,
@@ -84,14 +94,6 @@ import {
   type LocalRecordingMode,
   type ScreenMemoryStatus,
 } from "./shared/config";
-
-interface RecordingSummary {
-  id: string;
-  title: string;
-  durationMs: number;
-  thumbnailUrl: string | null;
-  updatedAt: string;
-}
 
 interface PendingNativeUpload {
   kind: "native";
@@ -112,6 +114,18 @@ interface PendingNativeUpload {
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
+
+type PopoverView = "recorder" | "settings" | "meetings" | "dictation";
+
+interface PopoverMeeting {
+  id: string;
+  title: string;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  joinUrl: string | null;
+  platform: string | null;
+  transcriptStatus: string | null;
+}
 
 interface LocalRecordingNotice {
   folderPath?: string;
@@ -156,6 +170,7 @@ const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_CUSTOM_SHORTCUT_KEY = "clips:voice-custom-shortcut";
 const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
+const RECORD_CUSTOM_SHORTCUT_KEY = "clips:record-custom-shortcut";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
@@ -174,25 +189,6 @@ const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
-
-function resolveDesktopThumbnailUrl(
-  rawUrl: string | null | undefined,
-  serverUrl: string,
-): string | null {
-  if (!rawUrl) return null;
-  if (
-    rawUrl.startsWith("http://") ||
-    rawUrl.startsWith("https://") ||
-    rawUrl.startsWith("data:") ||
-    rawUrl.startsWith("blob:")
-  ) {
-    return rawUrl;
-  }
-  if (rawUrl.startsWith("/")) {
-    return `${serverUrl.replace(/\/+$/, "")}${rawUrl}`;
-  }
-  return rawUrl;
-}
 
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
@@ -431,6 +427,11 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "auto") return native;
   if (value === "builder") return "builder-gemini";
   if (value === "macos-native" && !isMacPlatform()) return "browser";
+  // Symmetric migration: a persisted "browser" preference from a non-Mac
+  // install (or an older build) silently ran native transcription on Mac
+  // via resolveProvider()'s mic-override branch with zero UI indication.
+  // Normalize the stale value at the source instead (D1).
+  if (value === "browser" && isMacPlatform()) return "macos-native";
   return value === "browser" ||
     value === "macos-native" ||
     value === "whisper" ||
@@ -451,6 +452,78 @@ function formatAgo(iso: string): string {
   } catch {
     return "";
   }
+}
+
+function formatMeetingWhen(meeting: PopoverMeeting): string {
+  const startMs = Date.parse(meeting.scheduledStart ?? "");
+  if (Number.isNaN(startMs)) return "Upcoming";
+
+  const endMs = Date.parse(meeting.scheduledEnd ?? "");
+  const now = Date.now();
+  if (startMs <= now && (Number.isNaN(endMs) || endMs >= now)) {
+    return "Now";
+  }
+
+  if (startMs > now && startMs - now < 60 * 60 * 1000) {
+    return `in ${Math.max(1, Math.round((startMs - now) / 60000))}m`;
+  }
+
+  const start = new Date(startMs);
+  const time = start.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const today = new Date(now);
+  const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
+  if (start.toDateString() === today.toDateString()) return `Today ${time}`;
+  if (start.toDateString() === tomorrow.toDateString()) {
+    return `Tomorrow ${time}`;
+  }
+
+  return `${start.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })} ${time}`;
+}
+
+function meetingCanStartNotes(meeting: PopoverMeeting): boolean {
+  const startMs = Date.parse(meeting.scheduledStart ?? "");
+  if (Number.isNaN(startMs)) return false;
+  const endMs = Date.parse(meeting.scheduledEnd ?? "");
+  const now = Date.now();
+  return (
+    startMs <= now + 10 * 60 * 1000 && (Number.isNaN(endMs) || endMs >= now)
+  );
+}
+
+function voiceShortcutLabel(
+  shortcut: VoiceShortcutPreference,
+  customShortcut: string,
+): string {
+  switch (shortcut) {
+    case "fn":
+      return "Fn";
+    case "cmd-shift-space":
+      return "Cmd+Shift+Space";
+    case "ctrl-shift-space":
+      return "Ctrl+Shift+Space";
+    case "custom":
+      return customShortcut || "Custom shortcut";
+    case "both":
+      return "Fn, Cmd+Shift+Space, or Ctrl+Shift+Space";
+  }
+}
+
+function voiceProviderLabel(provider: VoiceProvider): string {
+  if (provider === "whisper") return "Local Whisper";
+  if (provider === "builder" || provider === "builder-gemini") {
+    return "Builder.io cleanup";
+  }
+  if (provider === "gemini") return "Google Gemini";
+  if (provider === "groq") return "Groq";
+  if (provider === "macos-native") return "macOS on-device";
+  return "Browser speech";
 }
 
 function formatFileSize(bytes: number): string {
@@ -596,6 +669,9 @@ export function App() {
   const [popoverCustomShortcut, setPopoverCustomShortcut] = useState<string>(
     () => loadStringAllowEmpty(POPOVER_CUSTOM_SHORTCUT_KEY, ""),
   );
+  const [recordCustomShortcut, setRecordCustomShortcut] = useState<string>(() =>
+    loadStringAllowEmpty(RECORD_CUSTOM_SHORTCUT_KEY, ""),
+  );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
@@ -611,7 +687,6 @@ export function App() {
   const localRecordingMode: LocalRecordingMode =
     featureConfig?.localRecordingMode ?? "off";
 
-  const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
     [],
   );
@@ -624,11 +699,16 @@ export function App() {
   );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
-  const [showRecent, setShowRecent] = useState(false);
+  const [popoverView, setPopoverView] = useState<PopoverView>("recorder");
+  const [meetings, setMeetings] = useState<PopoverMeeting[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [meetingsError, setMeetingsError] = useState<string | null>(null);
+  const [meetingStartMessage, setMeetingStartMessage] = useState<string | null>(
+    null,
+  );
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
-  const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -656,6 +736,7 @@ export function App() {
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
+  const recordShortcutHandlerRef = useRef<() => void>(() => {});
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
   const bubbleActiveRef = useRef(false);
@@ -779,6 +860,7 @@ export function App() {
     invoke("set_custom_shortcuts", {
       voice: voiceShortcut === "custom" ? voiceCustomShortcut : null,
       popover: popoverCustomShortcut.trim() ? popoverCustomShortcut : null,
+      record: recordCustomShortcut.trim() ? recordCustomShortcut : null,
     })
       .then(() => {
         if (!cancelled) setShortcutRegistrationError(null);
@@ -794,7 +876,12 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [popoverCustomShortcut, voiceCustomShortcut, voiceShortcut]);
+  }, [
+    popoverCustomShortcut,
+    recordCustomShortcut,
+    voiceCustomShortcut,
+    voiceShortcut,
+  ]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -1005,6 +1092,58 @@ export function App() {
     [serverUrl],
   );
 
+  const fetchUpcomingMeetings = useCallback(async () => {
+    if (authStatus !== "authed") {
+      setMeetings([]);
+      setMeetingsError(null);
+      return;
+    }
+
+    setMeetingsLoading(true);
+    setMeetingsError(null);
+    try {
+      const result = await callClipsAction<{ meetings?: unknown[] }>(
+        "list-meetings",
+        { view: "upcoming", limit: 3, upcomingWithinMin: 24 * 60 },
+        { method: "GET" },
+      );
+      const list = Array.isArray(result.meetings) ? result.meetings : [];
+      setMeetings(
+        list.slice(0, 3).map((raw) => {
+          const meeting = raw as Partial<PopoverMeeting>;
+          return {
+            id: String(meeting.id ?? ""),
+            title: meeting.title || "Untitled meeting",
+            scheduledStart: meeting.scheduledStart ?? null,
+            scheduledEnd: meeting.scheduledEnd ?? null,
+            joinUrl: meeting.joinUrl ?? null,
+            platform: meeting.platform ?? null,
+            transcriptStatus: meeting.transcriptStatus ?? null,
+          };
+        }),
+      );
+    } catch (err) {
+      setMeetings([]);
+      setMeetingsError(
+        err instanceof Error ? err.message : "Could not load meetings.",
+      );
+    } finally {
+      setMeetingsLoading(false);
+    }
+  }, [authStatus, callClipsAction]);
+
+  const startMeetingNotes = useCallback((meeting: PopoverMeeting) => {
+    setMeetingStartMessage(`Starting notes for ${meeting.title}…`);
+    emit("meetings:start-transcription", {
+      meetingId: meeting.id,
+      joinUrl: meeting.joinUrl,
+      reason: "user",
+    }).catch((err) => {
+      console.error("[clips-popover] start meeting notes failed:", err);
+      setMeetingStartMessage("Could not start notes. Try again from Meetings.");
+    });
+  }, []);
+
   useMeetingTranscription({
     callClipsAction,
     serverUrl,
@@ -1131,7 +1270,7 @@ export function App() {
     }
     clearDesktopAuthToken(serverUrl);
     await checkAuth();
-    setShowSettings(false);
+    setPopoverView("recorder");
   }
 
   // ---- Esc closes the popover --------------------------------------------
@@ -1347,15 +1486,15 @@ export function App() {
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
 
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          ...(cameraId ? { deviceId: { exact: cameraId } } : {}),
-        },
-        audio: false,
-      })
+    // The saved camera id can go stale (webcam unplugged since last launch).
+    // The fallback helper retries once with the default camera on a
+    // constraint failure instead of leaving the ghost id to fail with
+    // OverconstrainedError; once `loadDevices()` refreshes the list below,
+    // the stale selection itself is cleared by `useMediaDevices`.
+    getCameraStreamWithFallback(cameraId, {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    })
       .then(async (s) => {
         if (cancelled) {
           // Effect re-ran before we resolved — throw this stream away.
@@ -1415,6 +1554,13 @@ export function App() {
           err?.name === "NotAllowedError"
         ) {
           setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+        } else if (isMediaConstraintFailure(err)) {
+          // Even the default-camera retry inside getCameraStreamWithFallback
+          // failed, so no camera is usable right now. Say that plainly
+          // instead of surfacing constraint jargon like "Invalid constraint".
+          setCameraError(
+            "No camera found. Connect a camera, or pick one from the camera menu.",
+          );
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }
@@ -1498,32 +1644,8 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
     disabled: !popoverVisible || isRecording || recordingFlowActive,
-    width: showSettings ? 440 : 360,
+    width: popoverView === "settings" ? 440 : 360,
   });
-
-  // ---- recent list --------------------------------------------------------
-
-  const fetchRecent = useCallback(async () => {
-    if (authStatus !== "authed") return; // don't bother; would just 401
-    try {
-      const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/list-recordings?limit=3&sort=recent`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return;
-      const json = await res.json();
-      const list = Array.isArray(json?.recordings) ? json.recordings : [];
-      setRecordings(
-        list.slice(0, 3).map((r: any) => ({
-          id: r.id,
-          title: r.title ?? "Untitled",
-          durationMs: r.durationMs ?? 0,
-          thumbnailUrl: r.thumbnailUrl ?? null,
-          updatedAt: r.updatedAt ?? r.createdAt,
-        })),
-      );
-    } catch {
-      // ignore — server may be unreachable, we still render the chrome
-    }
-  }, [serverUrl, authStatus]);
 
   const loadPendingUploads = useCallback(async () => {
     try {
@@ -1549,8 +1671,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    fetchRecent();
-  }, [fetchRecent]);
+    if (popoverView === "meetings" && popoverVisible) {
+      void fetchUpcomingMeetings();
+    }
+  }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
 
   useEffect(() => {
     loadPendingUploads();
@@ -1570,6 +1694,10 @@ export function App() {
   useEffect(
     () => saveString(POPOVER_CUSTOM_SHORTCUT_KEY, popoverCustomShortcut),
     [popoverCustomShortcut],
+  );
+  useEffect(
+    () => saveString(RECORD_CUSTOM_SHORTCUT_KEY, recordCustomShortcut),
+    [recordCustomShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
   useEffect(
@@ -1616,7 +1744,6 @@ export function App() {
         });
       }
       await loadPendingUploads();
-      await fetchRecent();
       await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
       getCurrentWindow()
         .hide()
@@ -1754,7 +1881,7 @@ export function App() {
         );
         if (!granted) {
           setReadinessOpen(true);
-          setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return;
         }
@@ -1764,6 +1891,8 @@ export function App() {
         return;
       }
     }
+
+    stopAllMicMeters();
 
     // Latch BEFORE the async work so the popover stays in "recording
     // flow" during the macOS screen-picker focus dance. The bubble
@@ -1941,7 +2070,16 @@ export function App() {
       return;
     }
     if (isHardCapturePermissionError(message)) {
-      setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+      // If an update has finished downloading and is waiting to install, the
+      // safe next step is to restart (which applies the update and gives the
+      // process a clean binary + permission state). Prefer that hint over the
+      // "grant permissions" banner, which is misleading when the readiness
+      // checkmarks are already green.
+      setRecError(
+        isUpdatePendingRestart()
+          ? MACOS_UPDATE_RESTART_MESSAGE
+          : MACOS_CAPTURE_PERMISSION_MESSAGE,
+      );
       return;
     }
     if (isStorageSetupFailureMessage(message)) {
@@ -1951,6 +2089,66 @@ export function App() {
     }
     setRecError(message);
   }
+
+  recordShortcutHandlerRef.current = () => {
+    if (recorder) {
+      emit("clips:recorder-stop").catch(() => {});
+      return;
+    }
+    if (recordingFlowGateRef.current || recordingFlowActive) {
+      emit("clips:countdown-cancel").catch(() => {});
+      return;
+    }
+
+    setPopoverView("recorder");
+    if (authStatus === "anon" && localRecordingMode === "off") {
+      setRecError("Sign in to Clips before using the recording shortcut.");
+      invoke("show_popover").catch(() => {});
+      return;
+    }
+
+    const canStartFromGlobalShortcut =
+      mode === "camera" || nativeFullscreenRecordingActive;
+    if (!canStartFromGlobalShortcut) {
+      setRecError(
+        "Open Clips and click Start recording to use the selected source.",
+      );
+      invoke("show_popover").catch(() => {});
+      return;
+    }
+
+    void handleStartRecording({ ignoreActiveRecorder: true });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen("clips:record-shortcut", () => {
+      recordShortcutHandlerRef.current();
+    })
+      .then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   function updateReadinessOpen(next: boolean) {
     setReadinessOpen(next);
@@ -2042,9 +2240,6 @@ export function App() {
                 .catch(() => {});
               emit("clips:popover-visible", false).catch(() => {});
             }
-            if (!stopResult?.localOnly) {
-              fetchRecent();
-            }
           }
         }
       }),
@@ -2104,7 +2299,7 @@ export function App() {
       });
       unlisteners.length = 0;
     };
-  }, [recorder, fetchRecent, loadPendingUploads]);
+  }, [recorder, loadPendingUploads]);
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
@@ -2118,7 +2313,7 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
-  if (showSettings) {
+  if (popoverView === "settings") {
     return (
       <div className="app app-settings" ref={appRef}>
         <Setup
@@ -2128,6 +2323,7 @@ export function App() {
           voiceShortcut={voiceShortcut}
           voiceCustomShortcut={voiceCustomShortcut}
           popoverCustomShortcut={popoverCustomShortcut}
+          recordCustomShortcut={recordCustomShortcut}
           voiceMode={voiceMode}
           voiceProvider={voiceProvider}
           voiceInstructions={voiceInstructions}
@@ -2135,6 +2331,7 @@ export function App() {
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceCustomShortcutChange={setVoiceCustomShortcut}
           onPopoverCustomShortcutChange={setPopoverCustomShortcut}
+          onRecordCustomShortcutChange={setRecordCustomShortcut}
           onVoiceModeChange={setVoiceMode}
           onVoiceProviderChange={setVoiceProvider}
           onVoiceInstructionsChange={setVoiceInstructions}
@@ -2142,9 +2339,48 @@ export function App() {
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
             setServerUrl(url.replace(/\/+$/, ""));
-            setShowSettings(false);
+            setPopoverView("recorder");
           }}
-          onCancel={() => setShowSettings(false)}
+          onCancel={() => setPopoverView("recorder")}
+        />
+      </div>
+    );
+  }
+
+  if (popoverView === "meetings") {
+    return (
+      <div className="app app-popover-view" ref={appRef}>
+        <MeetingsPopoverView
+          meetings={meetings}
+          loading={meetingsLoading}
+          error={meetingsError}
+          startMessage={meetingStartMessage}
+          meetingsEnabled={featureConfig?.meetingsEnabled !== false}
+          onBack={() => setPopoverView("recorder")}
+          onRefresh={fetchUpcomingMeetings}
+          onOpenMeetings={() => openInBrowser("/meetings")}
+          onOpenMeeting={(meetingId) =>
+            openInBrowser(`/meetings/${encodeURIComponent(meetingId)}`)
+          }
+          onOpenSettings={() => setPopoverView("settings")}
+          onStartNotes={startMeetingNotes}
+        />
+      </div>
+    );
+  }
+
+  if (popoverView === "dictation") {
+    return (
+      <div className="app app-popover-view" ref={appRef}>
+        <DictationPopoverView
+          voiceEnabled={voiceDictationEnabled}
+          voiceShortcut={voiceShortcut}
+          voiceCustomShortcut={voiceCustomShortcut}
+          voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
+          onBack={() => setPopoverView("recorder")}
+          onOpenDictate={() => openInBrowser("/dictate")}
+          onOpenSettings={() => setPopoverView("settings")}
         />
       </div>
     );
@@ -2201,7 +2437,7 @@ export function App() {
           </>
         )}
         <div className="footer">
-          <a className="footer-link" onClick={() => setShowSettings(true)}>
+          <a className="footer-link" onClick={() => setPopoverView("settings")}>
             Settings
           </a>
         </div>
@@ -2286,7 +2522,7 @@ export function App() {
           onToggle={setMicOn}
           systemAudio={systemAudioOn}
           onSystemAudioToggle={setSystemAudioOn}
-          meterActive={popoverVisible && !isRecording}
+          meterActive={popoverVisible && !isRecording && !recordingFlowActive}
         />
       </div>
 
@@ -2317,11 +2553,18 @@ export function App() {
             : "Start local recording"}
       </button>
       {recError ? (
-        recError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        recError === MACOS_UPDATE_RESTART_MESSAGE ? (
+          <UpdateRestartBanner message={recError} />
+        ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+          recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
-            panes={permissionPanesForRecording(mode, cameraOn, micOn)}
+            panes={
+              recError === MACOS_SCREEN_PERMISSION_MESSAGE
+                ? ["screen"]
+                : permissionPanesForRecording(mode, cameraOn, micOn)
+            }
             onRetry={handleStartRecording}
           />
         ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
@@ -2357,45 +2600,22 @@ export function App() {
           onClick={() => openInBrowser("/")}
         />
         <BottomButton
-          icon="settings"
-          label="Settings"
-          onClick={() => setShowSettings(true)}
+          icon="meetings"
+          label="Meetings"
+          onClick={() => setPopoverView("meetings")}
         />
         <BottomButton
-          icon="recent"
-          label="Recent"
+          icon="dictation"
+          label="Dictate"
           badge={undefined}
-          onClick={() => setShowRecent((v) => !v)}
+          onClick={() => setPopoverView("dictation")}
+        />
+        <BottomButton
+          icon="settings"
+          label="Settings"
+          onClick={() => setPopoverView("settings")}
         />
       </div>
-
-      {showRecent && recordings.length > 0 ? (
-        <div className="recent-list">
-          {recordings.map((r) => (
-            <button
-              key={r.id}
-              className="recent-item"
-              onClick={() => openInBrowser(`/r/${r.id}`)}
-            >
-              {r.thumbnailUrl ? (
-                <img
-                  className="thumb"
-                  src={
-                    resolveDesktopThumbnailUrl(r.thumbnailUrl, serverUrl) ?? ""
-                  }
-                  alt=""
-                />
-              ) : (
-                <div className="thumb thumb-placeholder" />
-              )}
-              <div className="recent-meta">
-                <div className="recent-title">{r.title}</div>
-                <div className="recent-sub">{formatAgo(r.updatedAt)}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -2471,6 +2691,30 @@ function PermissionRecoveryBanner({
         ))}
         <button type="button" className="permission-retry" onClick={onRetry}>
           Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function UpdateRestartBanner({ message }: { message: string }) {
+  return (
+    <div className="error-banner permission-banner">
+      <div className="permission-copy">
+        <div className="permission-title">Restart to finish updating</div>
+        <div>{message}</div>
+      </div>
+      <div className="permission-actions">
+        <button
+          type="button"
+          className="permission-retry"
+          onClick={() => {
+            installAndRestart().catch((err) => {
+              console.error("[clips-updater] relaunch failed:", err);
+            });
+          }}
+        >
+          Restart Clips
         </button>
       </div>
     </div>
@@ -2987,13 +3231,236 @@ function SignInForm({
   );
 }
 
+function PopoverSubViewHeader({
+  title,
+  onBack,
+  action,
+}: {
+  title: string;
+  onBack: () => void;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="setup-header popover-view-header">
+      <button
+        type="button"
+        className="setup-back"
+        onClick={onBack}
+        aria-label="Back"
+      >
+        <IconArrowLeft size={18} stroke={1.75} />
+      </button>
+      <h2>{title}</h2>
+      <div className="popover-view-header-spacer" />
+      {action}
+    </div>
+  );
+}
+
+function MeetingsPopoverView({
+  meetings,
+  loading,
+  error,
+  startMessage,
+  meetingsEnabled,
+  onBack,
+  onRefresh,
+  onOpenMeetings,
+  onOpenMeeting,
+  onOpenSettings,
+  onStartNotes,
+}: {
+  meetings: PopoverMeeting[];
+  loading: boolean;
+  error: string | null;
+  startMessage: string | null;
+  meetingsEnabled: boolean;
+  onBack: () => void;
+  onRefresh: () => void;
+  onOpenMeetings: () => void;
+  onOpenMeeting: (meetingId: string) => void;
+  onOpenSettings: () => void;
+  onStartNotes: (meeting: PopoverMeeting) => void;
+}) {
+  return (
+    <div className="setup popover-view">
+      <PopoverSubViewHeader
+        title="Meetings"
+        onBack={onBack}
+        action={
+          <button
+            type="button"
+            className="link-button popover-view-link"
+            onClick={onOpenMeetings}
+          >
+            Open web
+          </button>
+        }
+      />
+
+      <div className="setup-section">
+        <p className="setup-hint">
+          Start Granola-style live notes from calendar meetings without hunting
+          through Settings.
+        </p>
+      </div>
+
+      {!meetingsEnabled ? (
+        <div className="popover-empty-card">
+          <strong>Meeting notes are off</strong>
+          <p>Turn them on to show reminders and start live transcription.</p>
+          <button type="button" className="secondary" onClick={onOpenSettings}>
+            Open meeting settings
+          </button>
+        </div>
+      ) : error ? (
+        <div className="popover-empty-card">
+          <strong>Could not load meetings</strong>
+          <p>{error}</p>
+          <button type="button" className="secondary" onClick={onRefresh}>
+            Try again
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="popover-empty-card">
+          <strong>Loading meetings…</strong>
+          <p>Checking your connected calendar.</p>
+        </div>
+      ) : meetings.length === 0 ? (
+        <div className="popover-empty-card">
+          <strong>No meetings ready</strong>
+          <p>Connect Google Calendar or open the Meetings page to see setup.</p>
+          <button type="button" className="secondary" onClick={onOpenMeetings}>
+            Open Meetings
+          </button>
+        </div>
+      ) : (
+        <div className="popover-list">
+          {meetings.map((meeting) => {
+            const canStart = meetingCanStartNotes(meeting);
+            return (
+              <div className="popover-list-item" key={meeting.id}>
+                <div className="popover-list-icon">
+                  <IconCalendarEvent size={17} stroke={1.75} />
+                </div>
+                <div className="popover-list-main">
+                  <div className="popover-list-title">{meeting.title}</div>
+                  <div className="popover-list-sub">
+                    {formatMeetingWhen(meeting)}
+                    {meeting.platform ? ` · ${meeting.platform}` : ""}
+                  </div>
+                </div>
+                {canStart ? (
+                  <button
+                    type="button"
+                    className="popover-list-action popover-list-action-primary"
+                    onClick={() => onStartNotes(meeting)}
+                  >
+                    Start notes
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="popover-list-action"
+                    onClick={() => onOpenMeeting(meeting.id)}
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {startMessage ? <p className="setup-success">{startMessage}</p> : null}
+    </div>
+  );
+}
+
+function DictationPopoverView({
+  voiceEnabled,
+  voiceShortcut,
+  voiceCustomShortcut,
+  voiceMode,
+  voiceProvider,
+  onBack,
+  onOpenDictate,
+  onOpenSettings,
+}: {
+  voiceEnabled: boolean;
+  voiceShortcut: VoiceShortcutPreference;
+  voiceCustomShortcut: string;
+  voiceMode: VoiceMode;
+  voiceProvider: VoiceProvider;
+  onBack: () => void;
+  onOpenDictate: () => void;
+  onOpenSettings: () => void;
+}) {
+  const shortcut = voiceShortcutLabel(voiceShortcut, voiceCustomShortcut);
+  return (
+    <div className="setup popover-view">
+      <PopoverSubViewHeader
+        title="Dictate"
+        onBack={onBack}
+        action={
+          <button
+            type="button"
+            className="link-button popover-view-link"
+            onClick={onOpenDictate}
+          >
+            Open web
+          </button>
+        }
+      />
+
+      <div className="popover-empty-card">
+        <div className="popover-card-heading">
+          <IconMicrophone2 size={18} stroke={1.75} />
+          <strong>
+            {voiceEnabled ? "Ready to dictate" : "Dictation is off"}
+          </strong>
+        </div>
+        {voiceEnabled ? (
+          <>
+            <p>
+              {voiceMode === "toggle"
+                ? "Press once to start, then press again to stop."
+                : "Hold the shortcut while speaking; release to paste."}
+            </p>
+            <div className="popover-kv">
+              <span>Shortcut</span>
+              <strong>{shortcut}</strong>
+            </div>
+            <div className="popover-kv">
+              <span>Provider</span>
+              <strong>{voiceProviderLabel(voiceProvider)}</strong>
+            </div>
+          </>
+        ) : (
+          <p>Turn on voice dictation to speak to type anywhere on your Mac.</p>
+        )}
+      </div>
+
+      <div className="setup-button-row">
+        <button type="button" className="secondary" onClick={onOpenDictate}>
+          Open Dictate history
+        </button>
+        <button type="button" className="secondary" onClick={onOpenSettings}>
+          Dictation settings
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BottomButton({
   icon,
   label,
   badge,
   onClick,
 }: {
-  icon: "library" | "settings" | "recent";
+  icon: "library" | "settings" | "meetings" | "dictation";
   label: string;
   badge?: string;
   onClick: () => void;
@@ -3005,8 +3472,10 @@ function BottomButton({
           <LibraryIcon />
         ) : icon === "settings" ? (
           <SettingsIcon />
+        ) : icon === "meetings" ? (
+          <IconCalendarEvent size={18} stroke={1.75} />
         ) : (
-          <ClockIcon />
+          <IconMicrophone2 size={18} stroke={1.75} />
         )}
         {badge ? <span className="badge">{badge}</span> : null}
       </span>
@@ -3059,6 +3528,7 @@ function Setup({
   voiceShortcut,
   voiceCustomShortcut,
   popoverCustomShortcut,
+  recordCustomShortcut,
   voiceMode,
   voiceProvider,
   voiceInstructions,
@@ -3066,6 +3536,7 @@ function Setup({
   onVoiceShortcutChange,
   onVoiceCustomShortcutChange,
   onPopoverCustomShortcutChange,
+  onRecordCustomShortcutChange,
   onVoiceModeChange,
   onVoiceProviderChange,
   onVoiceInstructionsChange,
@@ -3079,6 +3550,7 @@ function Setup({
   voiceShortcut: VoiceShortcutPreference;
   voiceCustomShortcut: string;
   popoverCustomShortcut: string;
+  recordCustomShortcut: string;
   voiceMode: VoiceMode;
   voiceProvider: VoiceProvider;
   voiceInstructions: string;
@@ -3086,6 +3558,7 @@ function Setup({
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
   onVoiceCustomShortcutChange: (value: string) => void;
   onPopoverCustomShortcutChange: (value: string) => void;
+  onRecordCustomShortcutChange: (value: string) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
@@ -3966,6 +4439,22 @@ function Setup({
           </div>
         </div>
       </details>
+
+      <div className="setup-section">
+        <SettingLabel
+          label="Start/stop recording shortcut"
+          hint="Optional global shortcut for starting full-screen, region, or camera recordings and stopping the active recording."
+        />
+        <ShortcutRecorder
+          value={recordCustomShortcut}
+          placeholder="Record shortcut"
+          onChange={onRecordCustomShortcutChange}
+        />
+        <p className="setup-hint">
+          Window and browser-tab sources still open Clips first so the picker
+          can use a click.
+        </p>
+      </div>
 
       <div className="setup-section">
         <SettingLabel

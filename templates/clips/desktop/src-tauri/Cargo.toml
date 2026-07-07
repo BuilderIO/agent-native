@@ -26,6 +26,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [
+  "devtools",
   "tray-icon",
   "image-png",
   "macos-private-api",
@@ -71,6 +72,12 @@ libc = "0.2"
 core-foundation = "0.10"
 core-graphics = "0.25"
 objc2 = { version = "0.6", features = ["exception"] }
+# Grapheme-cluster-aware chunking for voice-dictation Unicode typing in
+# terminal apps, so a chunk boundary never splits a multi-scalar emoji/
+# combining-mark sequence across two synthetic keyboard events. Already
+# present transitively (via keyboard-types) at 1.13.2, the current latest
+# minor at the time of writing (verified via `cargo info unicode-segmentation`).
+unicode-segmentation = "1.13"
 # Native on-device dictation via SFSpeechRecognizer + AVAudioEngine.
 # Powers the "browser" voice-dictation provider (free, instant, no API
 # key, no server round-trip — same engine WisprFlow uses for offline).

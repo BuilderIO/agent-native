@@ -202,6 +202,37 @@ export const designLocalhostWriteGrants = table(
 );
 
 /**
+ * Queued AI edit requests for fusion-backed (full app) designs.
+ *
+ * Fusion screens are URL-backed iframes of a real running app, so edits cannot
+ * be applied synchronously to local HTML. Instead they queue here as pending
+ * intents; `apply-fusion-edits` batches pending rows into one prompt for the
+ * in-container app agent and marks them `sent`. The app agent applies the code
+ * changes in the fusion container; screens pick them up on reload.
+ */
+export const designFusionEdits = table("design_fusion_edits", {
+  id: text("id").primaryKey(),
+  designId: text("design_id").notNull(),
+  /** design_files.id of the URL-backed screen this edit targets, when known. */
+  screenFileId: text("screen_file_id"),
+  /** Natural-language edit instruction for the app agent. */
+  instruction: text("instruction").notNull(),
+  /** JSON: optional target context ({ selector, path, url, nodeName }). */
+  target: text("target"),
+  /** 'pending' — queued; 'sent' — dispatched to the app agent; 'error'. */
+  status: text("status", { enum: ["pending", "sent", "error"] })
+    .notNull()
+    .default("pending"),
+  /** Groups edits dispatched together in one agent message. */
+  batchId: text("batch_id"),
+  error: text("error"),
+  sentAt: text("sent_at"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+/**
  * Cached accessibility audit + visual diff results for a design.
  * Keyed by design + optional base/compare design_versions pair + source ref.
  * status: 'pending' | 'ready' | 'error'

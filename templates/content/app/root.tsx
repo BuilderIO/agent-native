@@ -4,6 +4,7 @@ import {
   appPath,
   CommandMenu,
   createAgentNativeQueryClient,
+  ErrorReportActions,
   getLocaleInitScript,
   getThemeInitScript,
   type LocaleCode,
@@ -37,6 +38,7 @@ import {
   useLoaderData,
   useLocation,
   useNavigate,
+  useNavigation,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
@@ -46,6 +48,7 @@ import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 // shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
@@ -205,6 +208,26 @@ function AppSetup() {
   useDbSync();
   useNavigationState();
   return null;
+}
+
+function RouteTransitionIndicator() {
+  const navigation = useNavigation();
+  const pending = navigation.state !== "idle";
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
+      aria-hidden={!pending}
+      role="progressbar"
+      data-pending={pending ? "true" : undefined}
+    >
+      <div
+        className={`h-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-all duration-200 ${
+          pending ? "w-2/3 opacity-100" : "w-0 opacity-0"
+        }`}
+      />
+    </div>
+  );
 }
 
 function ThemeToggleItem() {
@@ -545,9 +568,33 @@ export default function Root() {
 
   if (isPublicPath) {
     return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          disableThemeTransitions={false}
+          toaster={contentToaster}
+          i18n={{
+            catalog: i18nCatalog,
+            initialLocale: loaderData.locale,
+            initialPreference: loaderData.preference,
+            initialMessages: loaderData.messages,
+            persistPreference: false,
+          }}
+        >
+          <Toaster />
+          <PublicAgentShell>
+            <Outlet />
+          </PublicAgentShell>
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  return (
+    <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{
@@ -555,34 +602,15 @@ export default function Root() {
           initialLocale: loaderData.locale,
           initialPreference: loaderData.preference,
           initialMessages: loaderData.messages,
-          persistPreference: false,
         }}
       >
+        <AppSetup />
         <Toaster />
-        <PublicAgentShell>
-          <Outlet />
-        </PublicAgentShell>
+        <RouteTransitionIndicator />
+        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <Outlet />
       </AppProviders>
-    );
-  }
-
-  return (
-    <AppProviders
-      queryClient={queryClient}
-      disableThemeTransitions={false}
-      toaster={contentToaster}
-      i18n={{
-        catalog: i18nCatalog,
-        initialLocale: loaderData.locale,
-        initialPreference: loaderData.preference,
-        initialMessages: loaderData.messages,
-      }}
-    >
-      <AppSetup />
-      <Toaster />
-      <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <Outlet />
-    </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
@@ -627,6 +655,14 @@ function ContentErrorBoundaryBody() {
         >
           Reload
         </button>
+        <ErrorReportActions
+          appName="Content"
+          title={title}
+          details={details}
+          issueTitle={`Content error: ${title}`}
+          className="mt-4"
+          align="center"
+        />
       </div>
     </main>
   );

@@ -319,6 +319,20 @@
   line-height: 1.4;
 }
 
+.plan-diagram-frame[data-frame="show"] {
+  border: 1px solid var(--wf-diagram-line);
+  padding: 10px;
+}
+
+.plan-diagram-frame[data-frame="show"][data-rough-ready] {
+  border-color: transparent;
+}
+
+.plan-diagram-frame[data-frame="hide"] {
+  border: 0;
+  background: transparent;
+}
+
 .plan-diagram-frame[data-theme="dark"] {
   --wf-diagram-line: color-mix(in srgb, var(--wf-sketch) 72%, var(--wf-line));
 }
@@ -339,6 +353,10 @@
   width: 100%;
   padding: 8px 0;
   direction: inherit;
+}
+
+.plan-diagram-frame[data-frame="show"] .plan-diagram-frame-content {
+  padding: 0;
 }
 
 .plan-diagram-frame-content

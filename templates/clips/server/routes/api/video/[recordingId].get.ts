@@ -64,10 +64,13 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { builderCompressedMediaUrl } from "../../../lib/builder-media-compression.js";
+import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
+  organizationId?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -147,46 +150,6 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   }
 }
 
-function compressedBuilderMediaUrl(sourceUrl: string): string | null {
-  try {
-    const url = new URL(sourceUrl);
-    if (!/^cdn(?:-qa)?\.builder\.io$/i.test(url.hostname)) return null;
-    if (url.searchParams.get("optimized") === "true") return null;
-
-    let objectPath: string | null = null;
-    if (url.pathname.startsWith("/o/")) {
-      objectPath = decodeURIComponent(url.pathname.slice("/o/".length));
-    } else if (url.pathname.startsWith("/api/v1/file/")) {
-      objectPath = decodeURIComponent(
-        url.pathname.slice("/api/v1/file/".length),
-      );
-    }
-    if (!objectPath || !objectPath.startsWith("assets/")) return null;
-    if (objectPath.endsWith("/compressed")) return null;
-
-    const parts = objectPath.split("/");
-    const assetId = parts[parts.length - 1];
-    const apiKey = url.searchParams.get("apiKey") || parts[1];
-    if (!assetId || !apiKey) return null;
-
-    const compressedPath = `${objectPath}/compressed`;
-    const compressedUrl = new URL(
-      `/o/${encodeURIComponent(compressedPath)}`,
-      url.origin,
-    );
-    compressedUrl.searchParams.set("apiKey", apiKey);
-    compressedUrl.searchParams.set(
-      "token",
-      url.searchParams.get("token") || assetId,
-    );
-    compressedUrl.searchParams.set("alt", "media");
-    compressedUrl.searchParams.set("optimized", "true");
-    return compressedUrl.toString();
-  } catch {
-    return null;
-  }
-}
-
 function shouldSkipCompressedBuilderMediaProbe(
   compressedSourceUrl: string,
 ): boolean {
@@ -214,13 +177,13 @@ function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
 function shouldFallbackToOriginalMedia(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404, 416].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
 }
 
 function shouldRememberCompressedBuilderMediaMiss(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -349,8 +312,6 @@ function loomEmbedResponse(embedUrl: string): Response {
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy":
-        "default-src 'none'; frame-src https://www.loom.com; style-src 'unsafe-inline'",
     },
   });
 }
@@ -406,7 +367,26 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 404);
           return { error: "Not found" };
         }
-        if (row.visibility !== "public") {
+        // Org-visibility clips are playable by any signed-in member of the
+        // recording's org, mirroring the allowance in
+        // `/api/public-recording.get.ts` so the metadata endpoint and this
+        // media endpoint never disagree about who can play a clip. Never
+        // throw here — this route is anonymous-reachable, so an org-lookup
+        // failure (or no session at all) must fall through to the existing
+        // public-only gate instead of surfacing a 500.
+        let viewerIsOrgMember = false;
+        if (session?.email && row.visibility === "org" && row.organizationId) {
+          try {
+            const orgRole = await getOrganizationRoleForEmail(
+              row.organizationId,
+              session.email,
+            );
+            viewerIsOrgMember = Boolean(orgRole);
+          } catch {
+            viewerIsOrgMember = false;
+          }
+        }
+        if (row.visibility !== "public" && !viewerIsOrgMember) {
           setResponseStatus(event, 403);
           return { error: "Forbidden" };
         }
@@ -512,15 +492,22 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          const compressedSourceUrl = compressedBuilderMediaUrl(sourceUrl);
+          const compressedSourceUrl = builderCompressedMediaUrl(sourceUrl);
           if (
             compressedSourceUrl &&
             !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
           ) {
-            upstream = await fetchProviderMedia(
-              compressedSourceUrl,
-              rangeHeader,
-            );
+            try {
+              upstream = await fetchProviderMedia(
+                compressedSourceUrl,
+                rangeHeader,
+              );
+            } catch (err) {
+              upstream = {
+                status: statusCodeForProviderFetchError(err),
+                error: messageForProviderFetchError(err),
+              };
+            }
             if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
               rememberCompressedBuilderMediaMiss(compressedSourceUrl);
             }

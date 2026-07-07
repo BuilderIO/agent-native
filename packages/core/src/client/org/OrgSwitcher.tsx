@@ -5,7 +5,6 @@ import {
   IconBrain,
   IconBrandJira,
   IconBrush,
-  IconBuilding,
   IconCalendar,
   IconCalendarTime,
   IconChartBar,
@@ -13,7 +12,6 @@ import {
   IconChevronRight,
   IconClipboardList,
   IconCode,
-  IconContract,
   IconFileText,
   IconLayoutBoard,
   IconLoader2,
@@ -34,7 +32,7 @@ import {
   IconUser,
   IconUserPlus,
   IconUsers,
-  IconVideo,
+  IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -109,12 +107,10 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
-  Video: IconVideo,
   BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  Contract: IconContract,
   MessageCircle: IconMessageCircle,
   Route: IconRoute,
   ScreenShare: IconScreenShare,
@@ -289,7 +285,7 @@ function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
       aria-label="Loading organization"
       className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconBuilding className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 opacity-60" />
       <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
       <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
     </button>
@@ -380,7 +376,7 @@ export function OrgSwitcher({
   const personalLabel = personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
-  const ButtonIcon = inOrg ? IconBuilding : IconUser;
+  const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
@@ -444,7 +440,7 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate flex-1 text-start">
                     {o.orgName}
                   </span>
@@ -463,7 +459,7 @@ export function OrgSwitcher({
                       key={inv.id}
                       className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                     >
-                      <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-foreground">
                         {inv.orgName}
                       </span>
@@ -505,7 +501,7 @@ export function OrgSwitcher({
                         key={match.orgId}
                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                       >
-                        <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate flex-1 text-foreground">
                           {match.orgName}
                         </span>

@@ -15,14 +15,13 @@ use tauri::{
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceTargetBundle,
+    DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor, VoiceTargetBundle,
     VoiceWakePopover,
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, set_dictation_active,
-    tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -46,6 +45,9 @@ const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
+const ONBOARDING_LABEL: &str = "onboarding";
+const ONBOARDING_WIDTH_LOGICAL: f64 = 560.0;
+const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -492,6 +494,48 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// First-run onboarding window (ONBOARD-WINDOW). Unlike the transparent,
+/// click-through overlays above, this is a normal decorated, focused window
+/// with its own solid dark background (`.onboarding-root` in styles.css) —
+/// centered on the primary display so it reads as a real app window, not a
+/// HUD. Called once from `lib.rs`'s `setup()` when `onboarding_complete` is
+/// false. Reuses an existing window if one is somehow already open (e.g. a
+/// hot-reload re-triggering setup in dev) instead of building a second one.
+pub fn show_onboarding_window(app: &AppHandle) {
+    if let Some(existing) = app.get_webview_window(ONBOARDING_LABEL) {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return;
+    }
+    let win =
+        match WebviewWindowBuilder::new(app, ONBOARDING_LABEL, build_overlay_url("onboarding"))
+            .title("Welcome to Clips")
+            .inner_size(ONBOARDING_WIDTH_LOGICAL, ONBOARDING_HEIGHT_LOGICAL)
+            .resizable(false)
+            .center()
+            .focused(true)
+            .build()
+        {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[clips-tray] onboarding window build failed: {}", e);
+                return;
+            }
+        };
+    let _ = win.show();
+}
+
+/// Close the first-run onboarding window once the overlay's finish handler
+/// has saved feature config + opened the popover. Idempotent — closing an
+/// already-closed/never-built window is a no-op.
+#[tauri::command]
+pub async fn hide_onboarding_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(ONBOARDING_LABEL) {
         let _ = w.close();
     }
     Ok(())
@@ -1283,7 +1327,13 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
-    set_dictation_active(&app, false);
+    // P1: hide_flow_bar is the one Rust-side chokepoint every dictation
+    // teardown path funnels through (explicit stop/cancel/error from JS, AND
+    // the 15s stale-overlay safety net in show_flow_bar) — routing through
+    // the sync wrapper here guarantees Escape's global registration can
+    // never outlive a dictation session, even if JS never got to run its
+    // own cleanup (crashed webview, hung getUserMedia, etc).
+    crate::shortcuts::set_dictation_active_and_sync_escape(&app, false);
     // Hide (don't close) so the next show_flow_bar can reuse the window
     // and avoid the ~200ms WebKit cold-start that creates the stutter
     // on second/third Fn presses.
@@ -1294,6 +1344,37 @@ pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Bundle ids of messaging apps where Wispr-style dictation strips a lone
+/// trailing period (wispr-ux.md §4) — casual chat contexts read better
+/// without one, and messaging apps rarely expect sentence-final punctuation.
+const MESSAGING_APP_BUNDLES: &[&str] = &[
+    "com.tinyspeck.slackmacgap", // Slack
+    "com.apple.MobileSMS",       // Messages
+    "com.apple.iChat",           // Messages (legacy bundle id)
+    "net.whatsapp.WhatsApp",
+    "com.hnc.Discord",
+    "ru.keepcoder.Telegram",
+];
+
+/// Strip a single trailing `.` (never `...` or `?!`) from single-line text
+/// destined for a messaging app. Pure helper so it's unit-testable without
+/// the macOS-only paste machinery.
+fn strip_trailing_period_for_messaging(text: &str, bundle_id: Option<&str>) -> String {
+    let Some(bundle_id) = bundle_id else {
+        return text.to_string();
+    };
+    if !MESSAGING_APP_BUNDLES.contains(&bundle_id) {
+        return text.to_string();
+    }
+    if text.contains('\n') {
+        return text.to_string();
+    }
+    if text.ends_with('.') && !text.ends_with("..") {
+        return text[..text.len() - 1].to_string();
+    }
+    text.to_string()
+}
+
 #[tauri::command]
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
     let trimmed = text.trim().to_string();
@@ -1301,43 +1382,92 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
         eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
+    if let Some(last) = app.try_state::<LastTranscript>() {
+        if let Ok(mut g) = last.0.lock() {
+            *g = Some(trimmed.clone());
+        }
+    }
+    // Refresh the tray's "Paste Last Dictation" enabled state now that a
+    // transcript exists. Cheap — same pattern as toggle-region-guides.
+    crate::tray::rebuild_tray_menu(&app);
+    insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")
+}
+
+/// Re-insert the most recent dictation on demand (Wispr's `Cmd+Ctrl+V` /
+/// tray "Paste Last Dictation"). Read-only recall — does NOT clear
+/// `LastTranscript`, so it stays repeatable. Silently no-ops if nothing has
+/// been dictated yet this session (never surfaces an error toast for an
+/// empty history — there's nothing actionable for the user to do).
+#[tauri::command]
+pub async fn paste_last_dictation(app: AppHandle) -> Result<(), String> {
+    let text = match app.try_state::<LastTranscript>() {
+        Some(last) => last.0.lock().ok().and_then(|g| g.clone()),
+        None => None,
+    };
+    let Some(text) = text.filter(|t| !t.trim().is_empty()) else {
+        return Ok(());
+    };
+    insert_text_for_frontmost(&app, text.trim(), "paste_last_dictation")
+}
+
+/// Shared insertion path for both a fresh dictation completion and the
+/// paste-last-dictation recall. Recall can fire long after the original
+/// dictation, so it always targets the live frontmost app. Only same-session
+/// completion is allowed to reactivate the remembered voice target.
+fn insert_text_for_frontmost(
+    app: &AppHandle,
+    trimmed: &str,
+    caller: &'static str,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let frontmost_bundle_id = frontmost_bundle_identifier();
     #[cfg(target_os = "macos")]
-    let voice_target_bundle_id = remembered_voice_target_bundle(&app);
+    let voice_target_bundle_id = if caller == "paste_last_dictation" {
+        None
+    } else {
+        remembered_voice_target_bundle(app)
+    };
+    #[cfg(target_os = "macos")]
+    let trimmed = strip_trailing_period_for_messaging(
+        trimmed,
+        voice_target_bundle_id
+            .as_deref()
+            .or(frontmost_bundle_id.as_deref()),
+    );
     #[cfg(target_os = "macos")]
     let strategy = text_insertion_strategy(frontmost_bundle_id.as_deref());
     #[cfg(target_os = "macos")]
     eprintln!(
-        "[clips-tray] complete_voice_dictation: inserting {} chars via {:?} (frontmost={})",
+        "[clips-tray] {caller}: inserting {} chars via {:?} (frontmost={})",
         trimmed.chars().count(),
         strategy,
         frontmost_bundle_id.as_deref().unwrap_or("unknown"),
     );
     #[cfg(not(target_os = "macos"))]
     eprintln!(
-        "[clips-tray] complete_voice_dictation: inserting {} chars",
+        "[clips-tray] {caller}: inserting {} chars",
         trimmed.chars().count(),
     );
-    if let Some(last) = app.try_state::<LastTranscript>() {
-        if let Ok(mut g) = last.0.lock() {
-            *g = Some(trimmed.clone());
-        }
-    }
-    // Keep the clipboard updated so users can Cmd+V again to repeat the
-    // last dictation. For normal GUI apps, paste via the clipboard so
-    // Chrome/Gmail receives one ordinary paste operation instead of a long
-    // stream of synthetic Unicode key events through AppKit text input.
-    // Known terminal apps still use direct Unicode typing because custom
-    // terminal paste bindings can intercept Cmd+V or bypass paste handling.
-    write_clipboard(&trimmed)?;
     #[cfg(target_os = "macos")]
     match strategy {
-        TextInsertionStrategy::ClipboardPaste => paste_clipboard(voice_target_bundle_id),
+        // GUI apps: paste via the clipboard so Chrome/Gmail receives one
+        // ordinary paste operation instead of a long stream of synthetic
+        // Unicode key events through AppKit text input. Save/restore the
+        // prior clipboard around the paste (see paste_clipboard) so
+        // dictation doesn't clobber whatever the user had copied.
+        TextInsertionStrategy::ClipboardPaste => {
+            let prior_clipboard = read_clipboard();
+            write_clipboard(&trimmed)?;
+            paste_clipboard(voice_target_bundle_id, trimmed.clone(), prior_clipboard);
+        }
+        // Terminal apps type directly via CGEventKeyboardSetUnicodeString and
+        // never read the clipboard, so there's nothing to write/restore here
+        // — custom terminal paste bindings can intercept Cmd+V or bypass
+        // paste handling entirely, which is why this path exists.
         TextInsertionStrategy::UnicodeType => type_text_unicode(&trimmed, voice_target_bundle_id),
     }
     #[cfg(not(target_os = "macos"))]
-    type_text_unicode(&trimmed);
+    type_text_unicode(trimmed);
     Ok(())
 }
 
@@ -1390,7 +1520,9 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{text_insertion_strategy, TextInsertionStrategy};
+    use super::{
+        strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
+    };
 
     #[test]
     fn uses_clipboard_paste_for_chrome() {
@@ -1414,6 +1546,91 @@ mod tests {
             text_insertion_strategy(None),
             TextInsertionStrategy::ClipboardPaste
         ));
+    }
+
+    #[test]
+    fn strips_lone_trailing_period_in_slack() {
+        assert_eq!(
+            strip_trailing_period_for_messaging(
+                "let's grab lunch.",
+                Some("com.tinyspeck.slackmacgap")
+            ),
+            "let's grab lunch"
+        );
+    }
+
+    #[test]
+    fn keeps_ellipsis_in_messaging_apps() {
+        assert_eq!(
+            strip_trailing_period_for_messaging("hold on...", Some("net.whatsapp.WhatsApp")),
+            "hold on..."
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_period_in_non_messaging_apps() {
+        assert_eq!(
+            strip_trailing_period_for_messaging("Final report.", Some("com.google.Chrome")),
+            "Final report."
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_period_for_multiline_text() {
+        assert_eq!(
+            strip_trailing_period_for_messaging(
+                "line one\nline two.",
+                Some("com.tinyspeck.slackmacgap")
+            ),
+            "line one\nline two."
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_period_when_bundle_unknown() {
+        assert_eq!(
+            strip_trailing_period_for_messaging("Final report.", None),
+            "Final report."
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    mod macos_only {
+        use super::super::chunk_graphemes_by_utf16_units;
+
+        #[test]
+        fn never_splits_a_zwj_family_emoji_across_chunks() {
+            // Family emoji: man + ZWJ + woman + ZWJ + girl + ZWJ + boy (7 scalars).
+            let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
+            let text = format!("{}{}{}", "a".repeat(18), family, "b".repeat(5));
+            let chunks = chunk_graphemes_by_utf16_units(&text, 20);
+            let rejoined = chunks.concat();
+            assert_eq!(rejoined, text);
+            assert!(
+                chunks.iter().any(|c| c.contains(family)),
+                "family emoji grapheme cluster must stay intact in a single chunk"
+            );
+        }
+
+        #[test]
+        fn never_splits_a_flag_regional_indicator_pair() {
+            // Flag: two regional-indicator scalars for "US".
+            let flag = "\u{1F1FA}\u{1F1F8}";
+            let text = format!("{}{}", "a".repeat(19), flag);
+            let chunks = chunk_graphemes_by_utf16_units(&text, 20);
+            assert!(chunks.iter().any(|c| c.contains(flag)));
+            assert_eq!(chunks.concat(), text);
+        }
+
+        #[test]
+        fn chunks_plain_ascii_at_the_utf16_cap() {
+            let text = "a".repeat(45);
+            let chunks = chunk_graphemes_by_utf16_units(&text, 20);
+            assert_eq!(chunks.len(), 3);
+            assert_eq!(chunks[0].len(), 20);
+            assert_eq!(chunks[1].len(), 20);
+            assert_eq!(chunks[2].len(), 5);
+        }
     }
 }
 
@@ -1442,6 +1659,20 @@ fn write_clipboard(text: &str) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 fn write_clipboard(_text: &str) -> Result<(), String> {
     Err("voice dictation is currently macOS-only".to_string())
+}
+
+/// Read the current clipboard as UTF-8 text via `pbpaste`. Returns `None` on
+/// any failure (non-zero exit, non-UTF8 contents, empty clipboard) — treated
+/// as "nothing to restore" rather than an error, since this is a best-effort
+/// save before we clobber the clipboard for paste. Text-only: images/rich
+/// content on the clipboard are not preserved by the later restore.
+#[cfg(target_os = "macos")]
+fn read_clipboard() -> Option<String> {
+    let out = Command::new("pbpaste").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
 }
 
 #[cfg(target_os = "macos")]
@@ -1478,14 +1709,20 @@ unsafe fn ns_string_to_owned(ptr: *mut objc2::runtime::AnyObject) -> Option<Stri
     Some(cstr.to_string_lossy().into_owned())
 }
 
+/// dictated_text: what we just wrote to the clipboard (to detect whether it's
+/// safe to restore). prior_clipboard: what was on the clipboard beforehand,
+/// if any and if it was text.
 #[cfg(target_os = "macos")]
-fn paste_clipboard(target_bundle_id: Option<String>) {
+fn paste_clipboard(
+    target_bundle_id: Option<String>,
+    dictated_text: String,
+    prior_clipboard: Option<String>,
+) {
     use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
     thread::spawn(move || {
         reactivate_voice_target(target_bundle_id.as_deref());
-        thread::sleep(Duration::from_millis(90));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
             eprintln!("[clips-tray] paste failed: no CGEventSource");
             return;
@@ -1505,6 +1742,24 @@ fn paste_clipboard(target_bundle_id: Option<String>) {
         down.post(CGEventTapLocation::HID);
         thread::sleep(Duration::from_millis(8));
         up.post(CGEventTapLocation::HID);
+
+        // Restore the user's prior clipboard shortly after the paste, but
+        // only if nothing else has touched the clipboard in the meantime
+        // (i.e. it still holds exactly the text we dictated). This keeps
+        // "Cmd+V to repeat the last dictation" working for the first
+        // ~1.2s — long enough to cover an immediate re-paste — while not
+        // permanently stomping whatever the user had copied before.
+        // personal-vocabulary.ts's auto-learn pass does NOT depend on this
+        // window: it reads the focused field via the Accessibility API
+        // (read_focused_field_text), not the clipboard, despite a stale
+        // comment in that file suggesting otherwise.
+        let Some(prior) = prior_clipboard else {
+            return;
+        };
+        thread::sleep(Duration::from_millis(1200));
+        if read_clipboard().as_deref() == Some(dictated_text.as_str()) {
+            let _ = write_clipboard(&prior);
+        }
     });
 }
 
@@ -1522,6 +1777,49 @@ fn reactivate_voice_target(target_bundle_id: Option<&str>) {
     if let Err(err) = Command::new("open").arg("-b").arg(bundle_id).status() {
         eprintln!("[clips-tray] could not reactivate voice target {bundle_id}: {err}");
     }
+    // `open -b` only asks Launch Services to activate the target; it returns
+    // as soon as that request is issued, not once the app is actually
+    // frontmost. Poll briefly so we don't paste into whatever was frontmost
+    // during the app's (possibly cold-launch) activation window. If it never
+    // becomes frontmost in time, proceed anyway at current focus — matching
+    // Wispr's "insert at focus" ethos, since the user may have deliberately
+    // switched apps mid-dictation.
+    for _ in 0..20 {
+        if frontmost_bundle_identifier().as_deref() == Some(bundle_id) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(30));
+    }
+}
+
+/// Group `text` into chunks of whole grapheme clusters, each capped at
+/// `max_utf16_units` UTF-16 code units. A chunk boundary can only fall
+/// between grapheme clusters, never inside one (see R22: a raw scalar-count
+/// chunker can split flag emoji / ZWJ sequences / combining marks across
+/// separate `CGEventKeyboardSetUnicodeString` calls). A single grapheme
+/// cluster longer than the cap is still emitted whole as its own
+/// over-sized chunk rather than split — that's rare and safer than
+/// corrupting the cluster.
+#[cfg(target_os = "macos")]
+fn chunk_graphemes_by_utf16_units(text: &str, max_utf16_units: usize) -> Vec<String> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut units = 0usize;
+    for grapheme in text.graphemes(true) {
+        let grapheme_units = grapheme.encode_utf16().count();
+        if units > 0 && units + grapheme_units > max_utf16_units {
+            out.push(std::mem::take(&mut current));
+            units = 0;
+        }
+        current.push_str(grapheme);
+        units += grapheme_units;
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
 }
 
 #[cfg(target_os = "macos")]
@@ -1532,31 +1830,18 @@ fn type_text_unicode(text: &str, target_bundle_id: Option<String>) {
     let owned = text.to_string();
     thread::spawn(move || {
         reactivate_voice_target(target_bundle_id.as_deref());
-        thread::sleep(Duration::from_millis(90));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
             eprintln!("[clips-tray] type failed: no CGEventSource");
             return;
         };
         // CGEventKeyboardSetUnicodeString has a per-event payload limit
         // (Apple docs: ~20 UTF-16 units, with longer bounded by ~75 char
-        // in practice). Chunk by codepoint to stay safely under that.
-        let chunks: Vec<String> = {
-            let mut out: Vec<String> = Vec::new();
-            let mut current = String::new();
-            let mut count = 0usize;
-            for c in owned.chars() {
-                current.push(c);
-                count += 1;
-                if count >= 20 {
-                    out.push(std::mem::take(&mut current));
-                    count = 0;
-                }
-            }
-            if !current.is_empty() {
-                out.push(current);
-            }
-            out
-        };
+        // in practice). Chunk by grapheme cluster (not raw scalar) and cap
+        // each chunk by UTF-16-unit count, so a chunk boundary never falls
+        // inside a multi-scalar sequence (flag emoji, ZWJ family/skin-tone
+        // emoji, combining marks) — splitting those across two synthetic
+        // keyboard events renders them as separate glyphs.
+        let chunks = chunk_graphemes_by_utf16_units(&owned, 20);
         for chunk in chunks {
             let utf16: Vec<u16> = chunk.encode_utf16().collect();
             let Ok(down) = CGEvent::new_keyboard_event(source.clone(), 0, true) else {
@@ -1594,6 +1879,49 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
         }
     }
     crate::tray::rebuild_tray_menu(&app);
+    Ok(())
+}
+
+/// Set from JS when a live meeting recording/transcription session starts or
+/// stops (see `useMeetingTranscription`). Gates the `ExitRequested` quit
+/// teardown in `lib.rs`: quit stays instant when no meeting is active, and
+/// only waits for a graceful stop when one is.
+#[tauri::command]
+pub async fn set_meeting_active(app: AppHandle, active: bool) -> Result<(), String> {
+    dlog!("[clips-tray] set_meeting_active active={}", active);
+    if let Some(state) = app.try_state::<MeetingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = active;
+        }
+    }
+    Ok(())
+}
+
+/// Guards the quit-teardown handshake in `lib.rs`'s `ExitRequested` handler:
+/// 0 = not requested, 1 = requested (waiting on JS), 2 = done (safe to let
+/// the process exit — including the watchdog's own forced exit, which must
+/// not loop back into `prevent_exit`).
+pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Called by the popover webview once it has finished (or given up on)
+/// stopping an in-progress meeting during app quit. Marks teardown done and
+/// asks Tauri to exit again — this second `app.exit(0)` is the one that
+/// actually terminates the process, since the `ExitRequested` handler only
+/// calls `prevent_exit()` on the FIRST pass (gated on this same atomic).
+///
+/// compare_exchange (not load-then-store) so this and lib.rs's 3s watchdog
+/// can't both observe state==1 and both call `app.exit()` — only whichever
+/// wins the CAS proceeds. If this loses the race (watchdog already fired),
+/// there's nothing left to do: the process is already exiting.
+#[tauri::command]
+pub async fn quit_teardown_done(app: AppHandle) -> Result<(), String> {
+    if QUIT_TEARDOWN_STATE
+        .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        eprintln!("[clips-tray] quit_teardown_done — meeting teardown finished, exiting");
+        app.exit(0);
+    }
     Ok(())
 }
 

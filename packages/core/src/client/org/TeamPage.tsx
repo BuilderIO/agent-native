@@ -1,5 +1,4 @@
 import {
-  IconBuilding,
   IconUserPlus,
   IconTrash,
   IconCrown,
@@ -18,6 +17,7 @@ import {
   IconFileImport,
   IconPlus,
   IconAlertTriangle,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -153,7 +153,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
           >
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600/10">
-                <IconBuilding className="h-4 w-4 text-blue-600" />
+                <IconUsersGroup className="h-4 w-4 text-blue-600" />
               </div>
               <div className="text-sm font-medium">{m.orgName}</div>
             </div>
@@ -324,7 +324,7 @@ function MembersCard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/10">
-            <IconBuilding className="h-5 w-5 text-blue-600" />
+            <IconUsersGroup className="h-5 w-5 text-blue-600" />
           </div>
           <div>
             <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />

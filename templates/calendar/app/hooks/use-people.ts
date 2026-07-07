@@ -15,6 +15,8 @@ export interface PeopleSearchResponse {
 
 const PEOPLE_CONTACTS_STALE_TIME = 10 * 60_000;
 const PEOPLE_CONTACTS_GC_TIME = 30 * 60_000;
+const PEOPLE_SEARCH_STALE_TIME = 60_000;
+const PEOPLE_SEARCH_GC_TIME = 5 * 60_000;
 
 export const PEOPLE_CONTACTS_QUERY_KEY = [
   "action",
@@ -46,6 +48,42 @@ function matchRank(person: PeopleSearchResult, query: string) {
   if (name.includes(q)) return 3;
   if (email.includes(q)) return 4;
   return 5;
+}
+
+export function mergePeopleResults(
+  ...groups: Array<PeopleSearchResult[] | undefined>
+) {
+  const people = new Map<string, PeopleSearchResult>();
+
+  for (const group of groups) {
+    for (const person of group ?? []) {
+      const email = person.email.trim();
+      const key = email.toLowerCase();
+      if (!key) continue;
+
+      const existing = people.get(key);
+      if (!existing) {
+        people.set(key, { ...person, email });
+        continue;
+      }
+
+      if (sourceRank(person.source) < sourceRank(existing.source)) {
+        existing.source = person.source;
+      }
+      if (
+        person.name &&
+        person.name !== person.email &&
+        (!existing.name || existing.name === existing.email)
+      ) {
+        existing.name = person.name;
+      }
+      if (!existing.photoUrl && person.photoUrl) {
+        existing.photoUrl = person.photoUrl;
+      }
+    }
+  }
+
+  return Array.from(people.values());
 }
 
 export function filterPeopleResults(
@@ -103,6 +141,23 @@ export function usePeopleContacts(enabled = true) {
     enabled,
     staleTime: PEOPLE_CONTACTS_STALE_TIME,
     gcTime: PEOPLE_CONTACTS_GC_TIME,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function usePeopleSearch(query: string, enabled = true) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ["action", "search-people", { q, scope: "all" }],
+    queryFn: () =>
+      callAction<PeopleSearchResponse>(
+        "search-people",
+        { q, scope: "all" },
+        { method: "GET" },
+      ),
+    enabled: enabled && q.length > 0,
+    staleTime: PEOPLE_SEARCH_STALE_TIME,
+    gcTime: PEOPLE_SEARCH_GC_TIME,
     refetchOnWindowFocus: false,
   });
 }

@@ -1,12 +1,13 @@
 import {
   IconAlertTriangle,
-  IconBuilding,
   IconLoader2,
   IconUserPlus,
   IconAt,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { ReactNode, useState } from "react";
 
+import { ErrorReportActions } from "../ErrorReportActions.js";
 import { useT } from "../i18n.js";
 import {
   useAcceptInvitation,
@@ -115,6 +116,17 @@ function ErrorPane({
         >
           {t("org.tryAgain")}
         </button>
+        <ErrorReportActions
+          appName="Organization"
+          title={t("org.loadErrorTitle")}
+          details={message}
+          issueTitle="Organization load error"
+          feedbackLabel={t("org.sendFeedback")}
+          feedbackPlaceholder={t("org.feedbackPlaceholder")}
+          githubLabel={t("org.openGitHubIssue")}
+          className="mt-4 justify-start"
+          align="start"
+        />
       </div>
     </div>
   );
@@ -165,7 +177,7 @@ function CreateOrgPane({
     >
       <div className="my-auto w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 flex items-center gap-2">
-          <IconBuilding className="h-5 w-5 text-muted-foreground" />
+          <IconUsersGroup className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">{title}</h1>
         </div>
         <p className="mb-6 text-sm text-muted-foreground">{description}</p>

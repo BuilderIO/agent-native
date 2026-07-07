@@ -3,7 +3,6 @@ import {
   IconX,
   IconTrash,
   IconLock,
-  IconBuilding,
   IconWorld,
   IconCheck,
   IconCopy,
@@ -11,6 +10,7 @@ import {
   IconMail,
   IconCode,
   IconChevronDown,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -117,7 +117,7 @@ const BUTTON_GHOST_ICON = cn(
 
 const VIS_ICONS: Record<Visibility, typeof IconLock> = {
   private: IconLock,
-  org: IconBuilding,
+  org: IconUsersGroup,
   public: IconWorld,
 };
 
@@ -376,6 +376,7 @@ function LinkTab(props: {
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) return;
     setVisibility.mutate(
       { resourceType, resourceId, visibility: next } as any,
       { onSuccess: () => sharesQuery.refetch() },
@@ -490,6 +491,7 @@ function InviteTab(props: {
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) return;
     setVisibility.mutate(
       { resourceType, resourceId, visibility: next } as any,
       { onSuccess: () => sharesQuery.refetch() },
@@ -762,10 +764,20 @@ function VisibilitySelect(props: {
   value: Visibility;
   onChange: (v: Visibility) => void;
   disabled?: boolean;
+  allowPrivate?: boolean;
+  allowPublic?: boolean;
 }) {
   const t = useT();
   const visibilityMeta = useVisibilityMeta();
   const current = visibilityMeta[props.value];
+  const allowPrivate = props.allowPrivate !== false;
+  const allowPublic = props.allowPublic !== false;
+  const options = (Object.keys(VIS_ICONS) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
   return (
     <Select.Root
       value={props.value}
@@ -792,7 +804,7 @@ function VisibilitySelect(props: {
         >
           <Select.Viewport>
             <SelectItems
-              items={(Object.keys(VIS_ICONS) as Visibility[]).map((k) => ({
+              items={options.map((k) => ({
                 value: k,
                 label: visibilityMeta[k].label,
                 description: visibilityMeta[k].description,
@@ -812,7 +824,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
       {org ? (
-        <IconBuilding size={14} strokeWidth={1.75} />
+        <IconUsersGroup size={14} strokeWidth={1.75} />
       ) : (
         (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
       )}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildReplayMarkers,
   fetchSessionReplayPlayback,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -11,6 +12,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -157,6 +159,115 @@ describe("session replay sanitization", () => {
     expect(styleNode.childNodes[0].textContent).not.toMatch(/@import|url\(/i);
   });
 
+  it("keeps rrweb inlined stylesheet text without live resource loads", () => {
+    const [fullSnapshot, mutation] = sanitizeReplayEvents([
+      {
+        type: 2,
+        timestamp: 1000,
+        data: {
+          node: {
+            type: 2,
+            tagName: "html",
+            attributes: {},
+            childNodes: [
+              {
+                type: 2,
+                tagName: "head",
+                attributes: {},
+                childNodes: [
+                  {
+                    type: 2,
+                    tagName: "link",
+                    attributes: {
+                      rel: "stylesheet",
+                      href: "https://cdn.example.test/app.css",
+                      _cssText:
+                        '@import "https://cdn.example.test/fonts.css"; body { background: url(https://cdn.example.test/bg.png); color: red; }',
+                    },
+                    childNodes: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        type: 3,
+        timestamp: 1100,
+        data: {
+          source: 0,
+          attributes: [
+            {
+              id: 10,
+              attributes: {
+                _cssText:
+                  '.loaded { background-image: url("https://cdn.example.test/loaded.png"); color: blue; }',
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const linkAttributes =
+      fullSnapshot?.data.node.childNodes[0].childNodes[0].attributes;
+    expect(linkAttributes).toEqual({
+      rel: "stylesheet",
+      _cssText: " body { background: none; color: red; }",
+    });
+    expect(mutation?.data.attributes[0].attributes).toEqual({
+      _cssText: ".loaded { background-image: none; color: blue; }",
+    });
+  });
+
+  it("keeps safe embedded CSS urls while stripping live replay resource loads", () => {
+    const [event] = sanitizeReplayEvents([
+      {
+        type: 2,
+        timestamp: 1000,
+        data: {
+          node: {
+            type: 2,
+            tagName: "html",
+            attributes: {},
+            childNodes: [
+              {
+                type: 2,
+                tagName: "head",
+                attributes: {},
+                childNodes: [
+                  {
+                    type: 2,
+                    tagName: "link",
+                    attributes: {
+                      rel: "stylesheet",
+                      _cssText:
+                        ".safe { cursor: url(data:image/png;base64,abc), auto; mask: url('#icon'); background: url(blob:https://app.example.test/asset); border-image: url(https://cdn.example.test/border.png); }",
+                    },
+                    childNodes: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    const linkAttributes =
+      event?.data.node.childNodes[0].childNodes[0].attributes;
+    expect(linkAttributes?._cssText).toContain(
+      "url(data:image/png;base64,abc)",
+    );
+    expect(linkAttributes?._cssText).toContain("url('#icon')");
+    expect(linkAttributes?._cssText).toContain(
+      "url(blob:https://app.example.test/asset)",
+    );
+    expect(linkAttributes?._cssText).toContain("border-image: none");
+    expect(linkAttributes?._cssText).not.toContain("https://cdn.example.test");
+  });
+
   it("strips replay text mutations that can inject stylesheet fetches", () => {
     const [event] = sanitizeReplayEvents([
       {
@@ -205,7 +316,115 @@ describe("session replay sanitization", () => {
   });
 });
 
+describe("session replay timeline markers", () => {
+  it("keeps network diagnostics out of the event timeline", () => {
+    const markers = buildReplayMarkers([
+      {
+        type: 4,
+        timestamp: 1_000,
+        data: { width: 1280, height: 720, href: "https://app.example.test/" },
+      },
+      {
+        type: 5,
+        timestamp: 1_500,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "GET",
+            url: "https://api.example.test/noisy",
+            status: 200,
+            ok: true,
+          },
+        },
+      },
+      {
+        type: 3,
+        timestamp: 2_000,
+        data: { source: 2, type: 2, id: 7, x: 24, y: 32 },
+      },
+    ]);
+
+    expect(markers.map((marker) => marker.kind)).toEqual([
+      "navigation",
+      "click",
+    ]);
+  });
+
+  it("keeps only warning and error console diagnostics in the event timeline", () => {
+    const markers = buildReplayMarkers([
+      { type: 4, timestamp: 1_000, data: { width: 1280, height: 720 } },
+      {
+        type: 5,
+        timestamp: 1_100,
+        data: {
+          tag: "agent-native.console",
+          payload: { level: "log", message: "routine" },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 1_200,
+        data: {
+          tag: "agent-native.console",
+          payload: { level: "error", message: "boom" },
+        },
+      },
+    ]);
+
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({
+      kind: "console",
+      severity: "error",
+      detail: "boom",
+    });
+  });
+});
+
 describe("session replay chunk loading", () => {
+  it("keeps copied agent access tokens on manifest and chunk fetches", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "?agent_access=agent-token",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "?agent_access=agent-token",
+    });
+    const seenUrls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      seenUrls.push(url);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: [
+            replayChunkManifest(
+              1,
+              "/api/session-replay/recordings/sr_1/chunks/1",
+            ),
+          ],
+        });
+      }
+      if (url.includes("/chunks/1")) {
+        return jsonResponse({ events: [{ type: 4, timestamp: 1000 }] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await fetchSessionReplayPlayback("sr_1", {
+      agentAccessToken: "agent-token",
+    });
+
+    expect(seenUrls).toHaveLength(2);
+    expect(seenUrls[0]).toContain("agent_access=agent-token");
+    expect(seenUrls[1]).toContain("agent_access=agent-token");
+  });
+
   it("keeps explicitly unavailable chunks as partial replay segments", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

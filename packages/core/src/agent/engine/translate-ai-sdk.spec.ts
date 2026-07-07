@@ -243,6 +243,81 @@ describe("engineMessagesToAISDK", () => {
   });
 });
 
+describe("engineMessagesToAISDK tool-result images", () => {
+  const messagesWithImages = (
+    images: import("./types.js").EngineToolResultImagePart[],
+    isError = false,
+  ): EngineMessage[] => [
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc-1",
+          toolName: "screenshot",
+          toolInput: "{}",
+          content: "Captured",
+          images,
+          ...(isError ? { isError: true } : {}),
+        },
+      ],
+    },
+  ];
+
+  const firstToolResult = (result: any[]) =>
+    (result[0].content as any[]).find((p: any) => p.type === "tool-result");
+
+  it("emits content output with image-url and image-data when enabled", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([
+        { url: "https://cdn.example.com/shot.png" },
+        { data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ]),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "content",
+      value: [
+        { type: "text", text: "Captured" },
+        { type: "image-url", url: "https://cdn.example.com/shot.png" },
+        { type: "image-data", data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ],
+    });
+  });
+
+  it("degrades to plain text output when the flag is off (default)", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "text",
+      value: "Captured",
+    });
+  });
+
+  it("degrades to plain text output when all image entries are malformed", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ label: "nothing usable" } as any]),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "text",
+      value: "Captured",
+    });
+  });
+
+  it("keeps error-text output for error results even with images", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ url: "https://cdn.example.com/shot.png" }], true),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "error-text",
+      value: "Captured",
+    });
+  });
+});
+
 describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
   it("emits text-delta from v6 text-delta part (uses `text` field)", () => {
     const events = aiSdkPartToEngineEvents({

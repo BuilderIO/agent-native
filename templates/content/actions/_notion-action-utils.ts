@@ -12,15 +12,23 @@ export function getCurrentNotionOwner() {
 
 export async function getNotionDocumentOwner(documentId: string) {
   const userEmail = getCurrentNotionOwner();
-  await assertAccess("document", documentId, "editor", {
+  const access = await assertAccess("document", documentId, "editor", {
     userEmail,
     orgId: getRequestOrgId(),
   });
-  return userEmail;
+  const owner = access?.resource?.ownerEmail;
+  if (typeof owner !== "string" || owner.length === 0) {
+    throw new Error("Document not found");
+  }
+  return owner;
 }
 
 export function resolveDocumentId(args: { documentId?: string; id?: string }) {
-  const documentId = args.documentId || args.id;
-  if (!documentId) throw new Error("documentId is required");
+  const documentId = args.documentId?.trim() || args.id?.trim();
+  if (!documentId) {
+    throw Object.assign(new Error("documentId is required"), {
+      statusCode: 400,
+    });
+  }
   return documentId;
 }

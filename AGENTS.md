@@ -189,6 +189,7 @@ Read the relevant skill before making changes in that area:
 - `adding-a-feature` for the four-area checklist.
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
+- `data-programs` for stored, cached data-source scripts bound to app panels.
 - `storing-data`, `portability`, `security`, `sharing` for data work.
 - `audit-log` for the automatic action-level audit trail (who changed what,
   when, agent vs human) and the scoped `list-audit-events` read surface.
@@ -201,6 +202,9 @@ Read the relevant skill before making changes in that area:
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
+- `agent-native-toolkit` for deciding whether settings, app chrome,
+  collaboration, sharing, navigation, organization, comments, or history belong
+  in reusable framework/toolkit primitives.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.

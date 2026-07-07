@@ -2,18 +2,30 @@ import { useT } from "@agent-native/core/client";
 import {
   IconChevronDown,
   IconChevronRight,
+  IconClipboard,
+  IconCopy,
   IconEye,
   IconEyeOff,
+  IconFlipHorizontal,
+  IconFlipVertical,
+  IconFrame,
+  IconLayersSubtract,
+  IconLayersUnion,
   IconLock,
   IconLockOpen,
   IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
+  IconStackBack,
+  IconStackFront,
 } from "@tabler/icons-react";
 import {
+  forwardRef,
+  memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -22,6 +34,8 @@ import {
   type DragEvent,
   type MouseEvent,
   type ReactNode,
+  type Ref,
+  type RefObject,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +44,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
@@ -39,9 +54,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-
-const LAYER_ROW_BASE_INDENT = 4;
-const LAYER_ROW_DEPTH_INDENT = 18;
 
 export type LayersPanelNodeType =
   | "file"
@@ -144,6 +156,15 @@ export interface LayersPanelLabels {
   hide: string;
   show: string;
   rename: string;
+  copy: string;
+  pasteToReplace: string;
+  group: string;
+  ungroup: string;
+  frameSelection: string;
+  bringToFront: string;
+  sendToBack: string;
+  flipHorizontal: string;
+  flipVertical: string;
 }
 
 export interface LayersPanelProps {
@@ -179,6 +200,62 @@ export interface LayersPanelProps {
   // Board elements — top-level layer nodes projected from the board file.
   // When absent the panel is unchanged.
   boardElements?: LayersPanelNode[];
+  // Id of a layer currently hovered elsewhere (e.g. on the canvas). When set,
+  // the matching row gets a subtle hover-highlight background, visually
+  // distinct from selection. This is display-only: it never triggers the
+  // row's scroll-into-view behavior (that only follows selectedIds), and it
+  // never affects keyboard focus. Optional — the panel is unchanged when
+  // absent.
+  hoveredLayerId?: string | null;
+  // Figma-parity row context-menu actions beyond rename/lock/hide. Each item
+  // renders only when its callback prop is provided, so the panel keeps
+  // working correctly before every callback is wired up from the caller. See
+  // the LayerRow context menu below for the exact order/separators/shortcut
+  // hints — LIVE-VERIFIED against real Figma's layer-row menu: Copy, Paste
+  // to replace, Bring to front, Send to back, Group selection, Frame
+  // selection, Rename, Show/Hide, Lock/Unlock, Flip horizontal, Flip
+  // vertical. Real Figma has NO Duplicate/Delete/Paste-here on this menu
+  // (those are keyboard-only there), and NO Ungroup on a plain row — only on
+  // a container row (see onUngroupSelection below).
+  onCopyLayer?: (ids: string[]) => void;
+  // Kept for callers that still wire it (e.g. a future keyboard shortcut or
+  // a different surface); intentionally never rendered in the row menu
+  // itself, matching Figma (no "Paste here" on layer rows).
+  onPasteHere?: (targetId: string) => void;
+  onPasteToReplace?: (ids: string[]) => void;
+  // Kept for callers/back-compat; intentionally never rendered in the row
+  // menu itself, matching Figma (Duplicate is keyboard-only there).
+  onDuplicateLayer?: (ids: string[]) => void;
+  // Kept for callers/back-compat; intentionally never rendered in the row
+  // menu itself, matching Figma (Delete is keyboard-only there).
+  onDeleteLayer?: (ids: string[]) => void;
+  onGroupSelection?: (ids: string[]) => void;
+  onFrameSelection?: (ids: string[]) => void;
+  // Real Figma only offers Ungroup on a CONTAINER row (a group/frame you can
+  // ungroup), not on a plain leaf row. The row gates rendering this on
+  // `row.canAcceptChildren` (see showContextMenu/LayerRow below) in addition
+  // to this callback being provided.
+  onUngroupSelection?: (ids: string[]) => void;
+  onReorderLayer?: (
+    ids: string[],
+    direction: "front" | "forward" | "backward" | "back",
+  ) => void;
+  onFlipHorizontal?: (ids: string[]) => void;
+  onFlipVertical?: (ids: string[]) => void;
+}
+
+// L12: imperative handle so an external trigger (Cmd+R hotkey, canvas
+// context-menu Rename item) can start the panel's inline rename editor on a
+// specific layer, matching Figma. See beginRename below for what it does.
+export interface LayersPanelHandle {
+  /**
+   * Starts inline rename for the given layer id. Returns false (and does
+   * nothing) when the id doesn't resolve to a renamable row — i.e. it isn't
+   * in the current tree, or the node has `renamable === false`. On success,
+   * expands the layer's collapsed ancestors so the row is visible, scrolls
+   * it into view, and focuses+selects the rename input once it mounts.
+   */
+  beginRename: (layerId: string) => boolean;
 }
 
 export interface FlatLayerRow {
@@ -215,10 +292,13 @@ let activeDropIntent: LayersPanelMoveIntent | null = null;
 
 const ROW_BASE_INDENT = 4;
 const ROW_INDENT_STEP = 28;
-const ROW_MAX_INDENT = 96;
 
+// No indent cap: deeply nested trees (Figma-style component instances easily
+// exceed 4 levels) must stay visually distinguishable by depth. A previous
+// 96px cap made every row at depth >= 4 render at the same indent, making
+// nested structure ambiguous in the panel.
 function rowIndent(depth: number): number {
-  return Math.min(ROW_BASE_INDENT + depth * ROW_INDENT_STEP, ROW_MAX_INDENT);
+  return ROW_BASE_INDENT + depth * ROW_INDENT_STEP;
 }
 
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
@@ -241,6 +321,15 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     hide: t("layersPanel.hide"),
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
+    copy: t("layersPanel.copy"),
+    pasteToReplace: t("layersPanel.pasteToReplace"),
+    group: t("layersPanel.group"),
+    ungroup: t("layersPanel.ungroup"),
+    frameSelection: t("layersPanel.frameSelection"),
+    bringToFront: t("layersPanel.bringToFront"),
+    sendToBack: t("layersPanel.sendToBack"),
+    flipHorizontal: t("layersPanel.flipHorizontal"),
+    flipVertical: t("layersPanel.flipVertical"),
   };
 }
 
@@ -348,7 +437,24 @@ function filterNode(
   return null;
 }
 
-function flattenRows(
+// ORDER CONVENTION (L5): the panel's top row within a sibling group is the
+// topmost-RENDERED layer, matching Figma. LayersPanelNode.children arrives in
+// DOM order (first array element = first DOM child = bottom of the paint
+// stack for overlapping siblings; last DOM child = topmost paint). So the
+// panel must display each sibling group in REVERSE DOM order. This is the
+// single place that convention is applied — everything else (drop-placement
+// mapping in dropPlacementForEvent/handleDrop callers, and the CL:2769
+// moveNode "inside" insertion point) is written to agree with it:
+//   - drop "above row X" (before X in the reversed panel list) => DOM order
+//     "after" X (closer to the paint-top), i.e. inserted after X in the DOM.
+//   - drop "below row X" (after X in the reversed panel list) => DOM order
+//     "before" X, i.e. inserted before X in the DOM.
+//   - "inside" a container drops at the END of the panel's child list, i.e.
+//     the FIRST DOM child position (contentStart), so the dropped node
+//     becomes the bottom-most-painted / top-of-panel-list child. See
+//     mapPanelPlacementToDomPlacement below and its use at the LP/DE drop
+//     boundary.
+export function flattenRows(
   nodes: LayersPanelNode[],
   expandedIds: ReadonlySet<string>,
   forceExpanded: boolean,
@@ -357,7 +463,8 @@ function flattenRows(
   ancestorIds: string[] = [],
   rows: FlatLayerRow[] = [],
 ) {
-  nodes.forEach((node, index) => {
+  const displayOrder = [...nodes].reverse();
+  displayOrder.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
     const canAcceptChildren = CONTAINER_TYPES.has(node.type);
@@ -385,6 +492,33 @@ function flattenRows(
   return rows;
 }
 
+/**
+ * Maps a panel-order drop placement (computed from where the user dropped
+ * relative to a row's position in the reversed, top-row-is-topmost panel
+ * list) to the DOM-order placement the underlying moveNode/applyMoveNodeEdit
+ * primitive expects (see CL applyMoveNodeEdit: "before" = anchor.start,
+ * "after" = anchor.end, "inside" = anchor.contentEnd i.e. last DOM child).
+ *
+ * Because the panel displays each sibling group in reverse DOM order:
+ *   - "before" in the panel (drop above row X, i.e. towards the top/topmost)
+ *     means the moved node should render ABOVE X, i.e. paint AFTER X in the
+ *     DOM => DOM placement "after".
+ *   - "after" in the panel (drop below row X, towards the bottom/backmost)
+ *     means the moved node should render BELOW X, i.e. paint BEFORE X in the
+ *     DOM => DOM placement "before".
+ *   - "inside" is unchanged in kind, but the DOM primitive already inserts at
+ *     contentEnd (last DOM child), which is exactly the panel's "top of this
+ *     group's list" — i.e. inside-drops naturally land at the top of the
+ *     panel's child list with no further mapping needed.
+ */
+export function mapPanelPlacementToDomPlacement(
+  placement: LayersPanelMoveIntent["placement"],
+): LayersPanelMoveIntent["placement"] {
+  if (placement === "before") return "after";
+  if (placement === "after") return "before";
+  return "inside";
+}
+
 function nextExpandedIds(
   ids: readonly string[],
   nodeId: string,
@@ -397,6 +531,68 @@ function nextExpandedIds(
     next.delete(nodeId);
   }
   return Array.from(next);
+}
+
+// Alt-click on a row's expand chevron (Figma behavior): expand/collapse the
+// node AND every descendant that can itself have children, in one batched
+// state change. Pure tree walk — collects every node id with a non-empty
+// children array so nextExpandedIdsForSubtree can add/remove them all at
+// once instead of the caller looping many onExpandedIdsChange calls.
+export function collectDescendantContainerIds(node: LayersPanelNode): string[] {
+  const ids: string[] = [];
+  function visit(current: LayersPanelNode) {
+    const children = current.children ?? [];
+    if (children.length === 0) return;
+    ids.push(current.id);
+    children.forEach(visit);
+  }
+  visit(node);
+  return ids;
+}
+
+export function nextExpandedIdsForSubtree(
+  ids: readonly string[],
+  node: LayersPanelNode,
+  expanded: boolean,
+): string[] {
+  const subtreeIds = collectDescendantContainerIds(node);
+  const next = new Set(ids);
+  subtreeIds.forEach((id) => {
+    if (expanded) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+  });
+  return Array.from(next);
+}
+
+/**
+ * L1: pure computation for the auto-expand-ancestors-of-selection effect.
+ * Given the current selection's ancestor ids and the CURRENT expanded set,
+ * returns the next expanded id list with any missing ancestors added, or
+ * null if nothing needs to change. Extracted as a pure function (mirroring
+ * shouldResyncLayerSelectionAnchor) so the auto-expand decision is testable
+ * without mounting the component. The caller is responsible for only
+ * invoking this once per NEW selection signature — see the
+ * lastAutoExpandedSelectionRef gate in the effect below, which is what
+ * actually fixes the collapse-bounces-back-instantly bug (this function
+ * itself is a straightforward set-union and isn't where that bug lived).
+ */
+export function nextAutoExpandedIds(args: {
+  selectedAncestorIds: readonly string[];
+  expandedIds: readonly string[];
+}): string[] | null {
+  if (args.selectedAncestorIds.length === 0) return null;
+  const next = new Set(args.expandedIds);
+  let changed = false;
+  args.selectedAncestorIds.forEach((id) => {
+    if (!next.has(id)) {
+      next.add(id);
+      changed = true;
+    }
+  });
+  return changed ? Array.from(next) : null;
 }
 
 function collectAncestorIds(
@@ -422,6 +618,54 @@ function collectAncestorIds(
 
   nodes.forEach((node) => visit(node, []));
   return Array.from(ancestors);
+}
+
+// Full-tree ancestor map (id -> ancestor id chain from root), independent of
+// expand/collapse or search-filter state. Used at drag start to correctly
+// identify selected descendants even when their row is currently not
+// rendered in visibleRows (e.g. inside a collapsed ancestor) — see
+// getDraggedLayerIdsForRows below.
+export function buildAncestorIdMap(
+  nodes: LayersPanelNode[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+
+  function visit(node: LayersPanelNode, ancestorIds: string[]) {
+    map.set(node.id, ancestorIds);
+    const children = node.children ?? [];
+    children.forEach((child) => visit(child, [...ancestorIds, node.id]));
+  }
+
+  nodes.forEach((node) => visit(node, []));
+  return map;
+}
+
+// L12: find a node anywhere in the full (unfiltered) tree by id, alongside
+// its ancestor id chain. Used by beginRename to validate the target and to
+// know which ancestors must be expanded for the row to become visible,
+// independent of the current search/expand state.
+export function findNodeWithAncestors(
+  nodes: LayersPanelNode[],
+  targetId: string,
+): { node: LayersPanelNode; ancestorIds: string[] } | null {
+  function visit(
+    node: LayersPanelNode,
+    ancestorIds: string[],
+  ): { node: LayersPanelNode; ancestorIds: string[] } | null {
+    if (node.id === targetId) return { node, ancestorIds };
+    const children = node.children ?? [];
+    for (const child of children) {
+      const found = visit(child, [...ancestorIds, node.id]);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const node of nodes) {
+    const found = visit(node, []);
+    if (found) return found;
+  }
+  return null;
 }
 
 export function getLayerSelectionAnchorFromExternalSelection(args: {
@@ -451,21 +695,66 @@ export function getTreeOrderedLayerIds(
   ];
 }
 
+// Shift-range selection is a straight slice through the flattened visible
+// rows, so when the range spans an expanded parent AND some of its children,
+// both end up selected. Figma normalizes this away: selecting an ancestor
+// already implies its descendants for move/visual purposes, so a descendant
+// whose ancestor is also in the resulting set should be dropped from the
+// selection (the ancestor "wins"). Order-preserving.
+export function dropDescendantsOfSelectedAncestors(
+  ids: readonly string[],
+  visibleRows: readonly FlatLayerRow[],
+): string[] {
+  const idSet = new Set(ids);
+  const ancestorIdsById = new Map(
+    visibleRows.map((row) => [row.node.id, row.ancestorIds] as const),
+  );
+  return ids.filter((id) => {
+    const ancestorIds = ancestorIdsById.get(id);
+    return !ancestorIds?.some((ancestorId) => idSet.has(ancestorId));
+  });
+}
+
 export function getDraggedLayerIdsForRows(args: {
   selectedIds: readonly string[];
   nodeId: string;
   visibleRows: readonly FlatLayerRow[];
+  // Full-tree ancestor map (see buildAncestorIdMap), independent of
+  // expand/collapse or search-filter state. Required to correctly drop
+  // selected descendants whose row is currently not in visibleRows (e.g.
+  // inside a collapsed dragged parent) — falling back to visibleRows-only
+  // ancestor lookup would treat those as separate top-level drags and
+  // extract them from the parent being dragged. Optional only for
+  // call-site/back-compat convenience; always pass it in the real panel.
+  ancestorIdMap?: ReadonlyMap<string, string[]>;
 }): string[] {
   const rawDraggedIds = args.selectedIds.includes(args.nodeId)
     ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
     : [args.nodeId];
   const draggedIdSet = new Set(rawDraggedIds);
   return rawDraggedIds.filter((id) => {
-    const rowForId = args.visibleRows.find((row) => row.node.id === id);
-    return !rowForId?.ancestorIds.some((ancestorId) =>
-      draggedIdSet.has(ancestorId),
-    );
+    const ancestorIds =
+      args.ancestorIdMap?.get(id) ??
+      args.visibleRows.find((row) => row.node.id === id)?.ancestorIds;
+    return !ancestorIds?.some((ancestorId) => draggedIdSet.has(ancestorId));
   });
+}
+
+// Row context-menu actions (copy/duplicate/delete/group/reorder) operate on
+// the whole current selection when the right-clicked row is already part of
+// it (matching Figma), or on just that row otherwise (right-clicking an
+// unselected layer acts on that layer alone). Mirrors the same shape as
+// getDraggedLayerIdsForRows's selection-vs-single-row resolution, kept
+// separate since context-menu actions don't need the descendant-exclusion
+// step a drag payload does.
+export function getContextMenuTargetIds(args: {
+  selectedIds: readonly string[];
+  nodeId: string;
+  visibleRows: readonly FlatLayerRow[];
+}): string[] {
+  return args.selectedIds.includes(args.nodeId)
+    ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
+    : [args.nodeId];
 }
 
 export function shouldResyncLayerSelectionAnchor(args: {
@@ -491,44 +780,95 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
-export function LayersPanel({
-  screens,
-  activeScreenId,
-  screenOverviewActive = false,
-  files,
-  layers,
-  codeLayers,
-  elementLayers,
-  selectedIds,
-  expandedIds,
-  searchQuery,
-  className,
-  footer,
-  labels: labelsProp,
-  onSearchQueryChange,
-  onScreenSelect,
-  onScreenOverview,
-  onAddScreen,
-  onExpandedIdsChange,
-  onSelectionChange,
-  onRename,
-  onToggleLocked,
-  onToggleHidden,
-  onHoverLayer,
-  onLeaveLayer,
-  onMoveLayer,
-  canMoveLayer,
-  boardElements,
-}: LayersPanelProps) {
+// PF8: DesignEditor re-renders on many state changes unrelated to the layers
+// tree (drag gestures, zoom, canvas hover, etc). All of LayersPanel's call-site
+// props are already stabilized (useMemo/useCallback/plain state — see
+// DesignEditor.tsx's layerPanelFiles/overviewLayerPanelFiles/
+// activeLayerPanelNodes/boardElements and the onXxx handlers passed to
+// <LayersPanel>), so a default shallow-prop comparator is sufficient here;
+// no custom comparator is needed or wanted since it would risk silently
+// ignoring a genuinely-changed prop.
+// L12: forwardRef is composed OUTSIDE memo (memo(forwardRef(...))) — this is
+// the standard ordering and keeps the default shallow-prop memo comparator
+// applying to the same props as before; the ref itself is never part of that
+// comparison (React handles ref identity separately from memo's prop diff).
+function LayersPanelImpl(
+  {
+    screens,
+    activeScreenId,
+    screenOverviewActive = false,
+    files,
+    layers,
+    codeLayers,
+    elementLayers,
+    selectedIds,
+    expandedIds,
+    searchQuery,
+    className,
+    footer,
+    labels: labelsProp,
+    onSearchQueryChange,
+    onScreenSelect,
+    onScreenOverview,
+    onAddScreen,
+    onExpandedIdsChange,
+    onSelectionChange,
+    onRename,
+    onToggleLocked,
+    onToggleHidden,
+    onHoverLayer,
+    onLeaveLayer,
+    onMoveLayer,
+    canMoveLayer,
+    boardElements,
+    hoveredLayerId,
+    onCopyLayer,
+    onPasteHere,
+    onPasteToReplace,
+    onDuplicateLayer,
+    onDeleteLayer,
+    onGroupSelection,
+    onFrameSelection,
+    onUngroupSelection,
+    onReorderLayer,
+    onFlipHorizontal,
+    onFlipVertical,
+  }: LayersPanelProps,
+  ref: Ref<LayersPanelHandle>,
+) {
   const t = useT();
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedIdsRef = useRef<readonly string[]>(selectedIds);
+  // Rows need the full visible-row order for keyboard navigation and
+  // multi-drag payload ordering, but that's whole-tree state, not a per-row
+  // primitive. Route it through a stable ref instead of a prop so passing it
+  // to LayerRow doesn't defeat React.memo (the ref object identity never
+  // changes; only .current does).
+  const visibleRowsRef = useRef<FlatLayerRow[]>([]);
+  // Full (unfiltered-by-expand/collapse) root nodes, threaded the same way so
+  // drag start can build a full-tree ancestor map (see buildAncestorIdMap)
+  // without adding a per-row array prop that would defeat React.memo.
+  const rootsRef = useRef<LayersPanelNode[]>([]);
+  // Same idea for expandedIds: onToggleExpanded needs the current expanded
+  // set to compute the next one, but reading it from a ref lets the
+  // per-row callback stay referentially stable across renders.
+  const expandedIdsRef = useRef<readonly string[]>(expandedIds);
+  expandedIdsRef.current = expandedIds;
   const lastPanelSelectionSignatureRef = useRef(selectedIds.join("\0"));
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const lastSelectionAnchorRef = useRef<string | null>(selectedIds[0] ?? null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const rowElementRefs = useRef(new Map<string, HTMLDivElement>());
+  // L20: edge auto-scroll during a row drag. scrollContainerRef is the
+  // scrollable rows list; autoScrollFrameRef holds the active rAF handle (or
+  // null when idle); autoScrollDirectionRef holds the current scroll
+  // direction/speed so the rAF loop keeps scrolling smoothly across frames
+  // without needing dragover to fire every frame (dragover cadence is
+  // browser-throttled and not reliable enough on its own for smooth scroll).
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollSpeedRef = useRef(0);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const renameOriginalNameRef = useRef<string>("");
@@ -570,6 +910,13 @@ export function LayersPanel({
     [visibleRows],
   );
 
+  // Keep the row-facing refs current every render. This runs during render
+  // (not an effect) so event handlers created during this same commit already
+  // see the latest arrays; it never triggers a re-render itself since only
+  // `.current` is written.
+  visibleRowsRef.current = visibleRows;
+  rootsRef.current = roots;
+
   useLayoutEffect(() => {
     selectedIdsRef.current = selectedIds;
     const signature = selectedIds.join("\0");
@@ -591,18 +938,28 @@ export function LayersPanel({
       });
   }, [selectableVisibleIds, selectedIds]);
 
+  // Auto-expand ancestors of the current selection. This must run only when
+  // the SELECTION changes (a new selection signature), not whenever
+  // expandedIds changes — otherwise collapsing an ancestor of the selected
+  // layer (which changes expandedIds but not the selection) would
+  // immediately re-expand it, since selectedAncestorIds still contains it.
+  // Track the selection signature we last auto-expanded for in a ref so the
+  // effect can bail out on every render triggered purely by a collapse.
+  const lastAutoExpandedSelectionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (selectedAncestorIds.length === 0) return;
-    const next = new Set(expandedIds);
-    let changed = false;
-    selectedAncestorIds.forEach((id) => {
-      if (!next.has(id)) {
-        next.add(id);
-        changed = true;
-      }
+    const signature = selectedIds.join("\0");
+    if (lastAutoExpandedSelectionRef.current === signature) return;
+    lastAutoExpandedSelectionRef.current = signature;
+    const nextExpanded = nextAutoExpandedIds({
+      selectedAncestorIds,
+      expandedIds: expandedIdsRef.current,
     });
-    if (changed) onExpandedIdsChange(Array.from(next));
-  }, [expandedIds, onExpandedIdsChange, selectedAncestorIds]);
+    if (nextExpanded) onExpandedIdsChange(nextExpanded);
+    // Intentionally NOT depending on expandedIds: this effect must only react
+    // to selection changes (selectedIds / selectedAncestorIds), and reads the
+    // current expanded set from expandedIdsRef so a collapse doesn't retrigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onExpandedIdsChange, selectedAncestorIds, selectedIds]);
 
   const selectedScrollId = selectedIds[selectedIds.length - 1] ?? null;
   const selectedScrollRowKey = useMemo(() => {
@@ -656,9 +1013,17 @@ export function LayersPanel({
         if (from >= 0 && to >= 0) {
           const [start, end] = from < to ? [from, to] : [to, from];
           const rangeIds = selectableVisibleIds.slice(start, end + 1);
-          nextIds = options.additive
+          const merged = options.additive
             ? Array.from(new Set([...currentSelectedIds, ...rangeIds]))
             : rangeIds;
+          // A range that spans an expanded parent and some of its children
+          // would otherwise co-select both. Normalize so a selected
+          // descendant whose ancestor is also selected gets dropped — the
+          // ancestor selection already implies it.
+          nextIds = dropDescendantsOfSelectedAncestors(
+            merged,
+            visibleRowsRef.current,
+          );
         } else {
           nextIds = [id];
         }
@@ -718,6 +1083,91 @@ export function LayersPanel({
     [],
   );
 
+  // L12: id of a layer whose rename was started externally (beginRename) and
+  // is waiting for its row to become visible/mounted so the input can be
+  // focused. Ancestor expansion is asynchronous (it flows out through
+  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
+  // synchronously focus the input the same tick beginRename runs — the row
+  // may not exist in the DOM yet. The effect below watches for the row to
+  // appear in rowElementRefs and finishes the job once it does.
+  const pendingRenameFocusIdRef = useRef<string | null>(null);
+
+  const beginRename = useCallback(
+    (layerId: string): boolean => {
+      if (!onRename) return false;
+      const found = findNodeWithAncestors(rootsRef.current, layerId);
+      if (!found || found.node.renamable === false) return false;
+      const { node, ancestorIds } = found;
+
+      renameOriginalNameRef.current = node.name;
+      setRenamingId(node.id);
+      setRenameDraft(node.name);
+
+      const nextExpanded = nextAutoExpandedIds({
+        selectedAncestorIds: ancestorIds,
+        expandedIds: expandedIdsRef.current,
+      });
+      if (nextExpanded) onExpandedIdsChange(nextExpanded);
+
+      pendingRenameFocusIdRef.current = node.id;
+      return true;
+    },
+    [onExpandedIdsChange, onRename],
+  );
+
+  useImperativeHandle(ref, () => ({ beginRename }), [beginRename]);
+
+  // Finishes an in-flight beginRename once its row is mounted: scrolls it
+  // into view and focuses+selects the rename input (the input already
+  // select-on-focuses via its own onFocus handler below). Depends on
+  // renamingId and visibleRows so it re-checks whenever either the rename
+  // target or ancestor-expansion state changes — the row can become visible
+  // either on this same render (already expanded) or a later one (ancestors
+  // needed expanding first, which round-trips through onExpandedIdsChange).
+  useEffect(() => {
+    const pendingId = pendingRenameFocusIdRef.current;
+    if (!pendingId || renamingId !== pendingId) return;
+    const rowKey = visibleRows.find((row) => row.node.id === pendingId)?.rowKey;
+    if (!rowKey) return;
+    const frame = window.requestAnimationFrame(() => {
+      const rowElement = rowElementRefs.current.get(rowKey);
+      rowElement?.scrollIntoView({ block: "nearest" });
+      rowElement
+        ?.querySelector<HTMLInputElement>("input")
+        ?.focus({ preventScroll: true });
+    });
+    pendingRenameFocusIdRef.current = null;
+    return () => window.cancelAnimationFrame(frame);
+  }, [renamingId, visibleRows]);
+
+  // Id-first, stable callbacks for LayerRow. Each reads current
+  // expandedIds/onExpandedIdsChange/onRename from refs/closure-captured
+  // props at call time rather than recreating a fresh per-row closure every
+  // render — this keeps LayerRow's props referentially stable so
+  // React.memo(LayerRow) actually skips re-renders.
+  const handleToggleExpanded = useCallback(
+    (id: string, expanded: boolean, node?: LayersPanelNode) => {
+      // Alt-click (see LayerRow's chevron onClick): expand/collapse this node
+      // AND all of its descendants in one batched state change, matching
+      // Figma. Only takes this path when the caller passes the node (the
+      // plain toggle path below stays a single-id update).
+      if (node) {
+        onExpandedIdsChange(
+          nextExpandedIdsForSubtree(expandedIdsRef.current, node, expanded),
+        );
+        return;
+      }
+      onExpandedIdsChange(
+        nextExpandedIds(expandedIdsRef.current, id, expanded),
+      );
+    },
+    [onExpandedIdsChange],
+  );
+
+  const handleCancelRename = useCallback(() => {
+    setRenamingId(null);
+  }, []);
+
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const openSearch = useCallback(() => {
@@ -744,6 +1194,65 @@ export function LayersPanel({
       expandedIds.filter((expandedId) => expandedId !== collapseTargetId),
     );
   }, [collapseTargetId, expandedIds, onExpandedIdsChange]);
+
+  // L20: auto-scroll the rows list while dragging near the top/bottom edge.
+  // Runs a rAF loop so the scroll speed stays smooth and independent of the
+  // browser's dragover event cadence.
+  const AUTO_SCROLL_EDGE_PX = 40;
+  const AUTO_SCROLL_MAX_SPEED_PX = 14;
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+    autoScrollSpeedRef.current = 0;
+  }, []);
+
+  const runAutoScrollFrame = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const speed = autoScrollSpeedRef.current;
+    if (!container || speed === 0) {
+      autoScrollFrameRef.current = null;
+      return;
+    }
+    container.scrollTop += speed;
+    autoScrollFrameRef.current =
+      window.requestAnimationFrame(runAutoScrollFrame);
+  }, []);
+
+  const handleRowsDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!activeDragState) {
+        stopAutoScroll();
+        return;
+      }
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const offsetFromTop = event.clientY - rect.top;
+      const offsetFromBottom = rect.bottom - event.clientY;
+      let speed = 0;
+      if (offsetFromTop < AUTO_SCROLL_EDGE_PX) {
+        const intensity = 1 - Math.max(0, offsetFromTop) / AUTO_SCROLL_EDGE_PX;
+        speed = -Math.ceil(intensity * AUTO_SCROLL_MAX_SPEED_PX);
+      } else if (offsetFromBottom < AUTO_SCROLL_EDGE_PX) {
+        const intensity =
+          1 - Math.max(0, offsetFromBottom) / AUTO_SCROLL_EDGE_PX;
+        speed = Math.ceil(intensity * AUTO_SCROLL_MAX_SPEED_PX);
+      }
+      autoScrollSpeedRef.current = speed;
+      if (speed !== 0 && autoScrollFrameRef.current === null) {
+        autoScrollFrameRef.current =
+          window.requestAnimationFrame(runAutoScrollFrame);
+      } else if (speed === 0) {
+        stopAutoScroll();
+      }
+    },
+    [runAutoScrollFrame, stopAutoScroll],
+  );
+
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
 
   return (
     <aside
@@ -866,55 +1375,82 @@ export function LayersPanel({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto overscroll-contain py-2">
+      <div
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
+        onDragOver={handleRowsDragOver}
+        onDrop={stopAutoScroll}
+        onDragEnd={stopAutoScroll}
+      >
         {visibleRows.length ? (
           <div
             className="w-max min-w-full px-2"
             role="tree"
             aria-label={labels.title}
           >
-            {visibleRows.map((row) => (
-              <LayerRow
-                key={row.rowKey}
-                row={row}
-                labels={labels}
-                isExpanded={expandedIdSet.has(row.node.id)}
-                isSelected={selectedIdSet.has(row.node.id)}
-                isInSelectedSubtree={row.ancestorIds.some((id) =>
-                  selectedIdSet.has(id),
-                )}
-                isActiveScreen={
-                  row.node.id === activeScreenId &&
-                  (row.node.type === "file" ||
-                    row.node.type === "screen" ||
-                    row.node.type === "frame")
-                }
-                isRenaming={renamingId === row.node.id}
-                rowRef={(element) => registerRowElement(row.rowKey, element)}
-                renameDraft={renameDraft}
-                onRenameDraftChange={setRenameDraft}
-                onCommitRename={commitRename}
-                onCancelRename={() => setRenamingId(null)}
-                onStartRename={startRename}
-                onRename={onRename}
-                onSelect={selectNode}
-                onToggleExpanded={(expanded) =>
-                  onExpandedIdsChange(
-                    nextExpandedIds(expandedIds, row.node.id, expanded),
-                  )
-                }
-                onToggleLocked={onToggleLocked}
-                onToggleHidden={onToggleHidden}
-                onHoverLayer={onHoverLayer}
-                onLeaveLayer={onLeaveLayer}
-                onMoveLayer={onMoveLayer}
-                canMoveLayer={canMoveLayer}
-                dropIndicator={dropIndicator}
-                onDropIndicatorChange={setDropIndicator}
-                selectedIds={selectedIds}
-                visibleRows={visibleRows}
-              />
-            ))}
+            {visibleRows.map((row) => {
+              // Per-row primitives computed here (not inside LayerRow) so the
+              // row only receives booleans/strings it needs — no whole-tree
+              // arrays that would force a re-render every time any other
+              // row's selection state changes.
+              const isSelected = selectedIdSet.has(row.node.id);
+              const isInSelectedSubtree = row.ancestorIds.some((id) =>
+                selectedIdSet.has(id),
+              );
+              const isHovered =
+                hoveredLayerId != null && row.node.id === hoveredLayerId;
+              const isActiveScreen =
+                row.node.id === activeScreenId &&
+                (row.node.type === "file" ||
+                  row.node.type === "screen" ||
+                  row.node.type === "frame");
+              const isRenaming = renamingId === row.node.id;
+              const activeDropPlacement =
+                dropIndicator?.targetId === row.node.id
+                  ? dropIndicator.placement
+                  : null;
+              return (
+                <LayerRow
+                  key={row.rowKey}
+                  row={row}
+                  labels={labels}
+                  isExpanded={expandedIdSet.has(row.node.id)}
+                  isSelected={isSelected}
+                  isInSelectedSubtree={isInSelectedSubtree}
+                  isActiveScreen={isActiveScreen}
+                  isHovered={isHovered}
+                  isRenaming={isRenaming}
+                  renameDraft={isRenaming ? renameDraft : ""}
+                  registerRowElement={registerRowElement}
+                  onRenameDraftChange={setRenameDraft}
+                  onCommitRename={commitRename}
+                  onCancelRename={handleCancelRename}
+                  onStartRename={startRename}
+                  onRename={onRename}
+                  onSelect={selectNode}
+                  onToggleExpanded={handleToggleExpanded}
+                  onToggleLocked={onToggleLocked}
+                  onToggleHidden={onToggleHidden}
+                  onHoverLayer={onHoverLayer}
+                  onLeaveLayer={onLeaveLayer}
+                  onMoveLayer={onMoveLayer}
+                  canMoveLayer={canMoveLayer}
+                  activeDropPlacement={activeDropPlacement}
+                  onDropIndicatorChange={setDropIndicator}
+                  selectedIdsRef={selectedIdsRef}
+                  visibleRowsRef={visibleRowsRef}
+                  rootsRef={rootsRef}
+                  onCopyLayer={onCopyLayer}
+                  onPasteToReplace={onPasteToReplace}
+                  onGroupSelection={onGroupSelection}
+                  onFrameSelection={onFrameSelection}
+                  onUngroupSelection={onUngroupSelection}
+                  onReorderLayer={onReorderLayer}
+                  onFlipHorizontal={onFlipHorizontal}
+                  onFlipVertical={onFlipVertical}
+                />
+              );
+            })}
           </div>
         ) : (
           <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
@@ -927,15 +1463,99 @@ export function LayersPanel({
   );
 }
 
-function LayerRow({
+// L12: forwardRef wraps the implementation function, and memo wraps the
+// forwardRef result — memo(forwardRef(Impl)), the standard composition order.
+// displayName is set explicitly because forwardRef's returned object doesn't
+// inherit the inner function's name the way a plain function component would
+// (React devtools/debugging would otherwise show "ForwardRef").
+const LayersPanelWithRef = forwardRef(LayersPanelImpl);
+LayersPanelWithRef.displayName = "LayersPanel";
+export const LayersPanel = memo(LayersPanelWithRef);
+
+interface LayerRowProps {
+  row: FlatLayerRow;
+  labels: LayersPanelLabels;
+  isExpanded: boolean;
+  isSelected: boolean;
+  isInSelectedSubtree: boolean;
+  isActiveScreen: boolean;
+  // Display-only hover highlight (e.g. mirroring canvas hover), distinct from
+  // selection. Never drives scroll-into-view or focus — see hoveredLayerId on
+  // LayersPanelProps.
+  isHovered: boolean;
+  isRenaming: boolean;
+  registerRowElement: (rowKey: string, element: HTMLDivElement | null) => void;
+  renameDraft: string;
+  onRenameDraftChange: (value: string) => void;
+  onCommitRename: (id: string) => void;
+  onCancelRename: (id: string) => void;
+  onStartRename: (node: LayersPanelNode) => void;
+  onRename?: (id: string, name: string) => void;
+  onSelect: (
+    id: string,
+    options: {
+      additive: boolean;
+      currentSelectedIds?: string[];
+      range: boolean;
+      source: "keyboard" | "pointer";
+    },
+  ) => void;
+  // node is optional; passed on alt-click so the caller can batch-expand the
+  // whole subtree in one state change instead of a single-id toggle.
+  onToggleExpanded: (
+    id: string,
+    expanded: boolean,
+    node?: LayersPanelNode,
+  ) => void;
+  onToggleLocked?: (id: string, locked: boolean) => void;
+  onToggleHidden?: (id: string, hidden: boolean) => void;
+  onHoverLayer?: (id: string) => void;
+  onLeaveLayer?: (id: string) => void;
+  onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
+  canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
+  // Only this row's own drop-indicator placement ("before" | "after" |
+  // "inside" | null) — not the whole dropIndicator object, so a dragover on
+  // one row doesn't force every other row to re-render.
+  activeDropPlacement: LayersPanelMoveIntent["placement"] | null;
+  onDropIndicatorChange: (intent: LayersPanelMoveIntent | null) => void;
+  // Whole-tree state needed for keyboard nav / multi-drag ordering, threaded
+  // through stable refs instead of arrays so it never defeats memo — see the
+  // comment where these refs are created in LayersPanel.
+  selectedIdsRef: RefObject<readonly string[]>;
+  visibleRowsRef: RefObject<FlatLayerRow[]>;
+  // Full (unfiltered) root nodes, used only at drag start to build a
+  // full-tree ancestor map — see buildAncestorIdMap and L13 in the drag-start
+  // handler below.
+  rootsRef: RefObject<LayersPanelNode[]>;
+  // Figma-parity context-menu actions. Each is optional; the corresponding
+  // menu item only renders when its callback is provided (see showContextMenu
+  // / the ContextMenuContent below). Note: onPasteHere/onDuplicateLayer/
+  // onDeleteLayer are NOT threaded down to the row — real Figma's layer-row
+  // menu has no Paste here/Duplicate/Delete items (see LayersPanelProps for
+  // the full back-compat callback surface).
+  onCopyLayer?: (ids: string[]) => void;
+  onPasteToReplace?: (ids: string[]) => void;
+  onGroupSelection?: (ids: string[]) => void;
+  onFrameSelection?: (ids: string[]) => void;
+  onUngroupSelection?: (ids: string[]) => void;
+  onReorderLayer?: (
+    ids: string[],
+    direction: "front" | "forward" | "backward" | "back",
+  ) => void;
+  onFlipHorizontal?: (ids: string[]) => void;
+  onFlipVertical?: (ids: string[]) => void;
+}
+
+const LayerRow = memo(function LayerRow({
   row,
   labels,
   isExpanded,
   isSelected,
   isInSelectedSubtree,
   isActiveScreen,
+  isHovered,
   isRenaming,
-  rowRef,
+  registerRowElement,
   renameDraft,
   onRenameDraftChange,
   onCommitRename,
@@ -950,67 +1570,70 @@ function LayerRow({
   onLeaveLayer,
   onMoveLayer,
   canMoveLayer,
-  dropIndicator,
+  activeDropPlacement,
   onDropIndicatorChange,
-  selectedIds,
-  visibleRows,
-}: {
-  row: FlatLayerRow;
-  labels: LayersPanelLabels;
-  isExpanded: boolean;
-  isSelected: boolean;
-  isInSelectedSubtree: boolean;
-  isActiveScreen: boolean;
-  isRenaming: boolean;
-  rowRef: (element: HTMLDivElement | null) => void;
-  renameDraft: string;
-  onRenameDraftChange: (value: string) => void;
-  onCommitRename: (id: string) => void;
-  onCancelRename: () => void;
-  onStartRename: (node: LayersPanelNode) => void;
-  onRename?: (id: string, name: string) => void;
-  onSelect: (
-    id: string,
-    options: {
-      additive: boolean;
-      currentSelectedIds?: string[];
-      range: boolean;
-      source: "keyboard" | "pointer";
-    },
-  ) => void;
-  onToggleExpanded: (expanded: boolean) => void;
-  onToggleLocked?: (id: string, locked: boolean) => void;
-  onToggleHidden?: (id: string, hidden: boolean) => void;
-  onHoverLayer?: (id: string) => void;
-  onLeaveLayer?: (id: string) => void;
-  onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
-  canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
-  dropIndicator: LayersPanelMoveIntent | null;
-  onDropIndicatorChange: (intent: LayersPanelMoveIntent | null) => void;
-  selectedIds: readonly string[];
-  visibleRows: FlatLayerRow[];
-}) {
+  selectedIdsRef,
+  visibleRowsRef,
+  rootsRef,
+  onCopyLayer,
+  onPasteToReplace,
+  onGroupSelection,
+  onFrameSelection,
+  onUngroupSelection,
+  onReorderLayer,
+  onFlipHorizontal,
+  onFlipVertical,
+}: LayerRowProps) {
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
-  const dragEligible = selectable && !node.locked && !node.hidden;
-  const draggable = dragEligible && Boolean(onMoveLayer);
+  // L8: being a valid DRAG SOURCE and being a valid DROP ANCHOR (before/
+  // after/inside target) are different concerns and must not share one gate.
+  // - dragSourceEligible: only "locked" should block picking this row up to
+  //   drag it — locked means "don't let me move", not "don't let me be
+  //   referenced". Hidden no longer blocks dragging a row: visibility is
+  //   orthogonal to whether the layer can be reordered.
+  // - anchorEligible: locked/hidden rows must still be usable as before/
+  //   after/inside drop targets so the user can position new layers next to
+  //   or inside a locked/hidden one without having to unlock/show it first.
+  //   (The corresponding DE:15181 canMoveLayer gate is fixed separately by
+  //   the DesignEditor owner; this only removes LP's OWN early-return that
+  //   would otherwise block reaching canMoveLayer at all.)
+  const dragSourceEligible = selectable && !node.locked;
+  const anchorEligible = selectable;
+  const draggable = dragSourceEligible && Boolean(onMoveLayer);
   const canDropInside = layerCanDropInside(
     node,
     hasChildren,
     canAcceptChildren,
   );
-  const activeDrop =
-    dropIndicator?.targetId === node.id ? dropIndicator.placement : null;
+  // L10: whether this row's bottom hover zone should resolve to "inside"
+  // instead of "after" — see dropPlacementForEvent.
+  const isExpandedWithChildren = hasChildren && isExpanded;
+  const activeDrop = activeDropPlacement;
   // Tracks whether the user pressed Escape to cancel rename so that the
   // subsequent blur event does not commit the edit.
   const renameCancelledRef = useRef(false);
+  // L20: spring-loaded expand. Tracks the pending timer id for "hovering
+  // this collapsed container during a drag" so a sustained hover expands it
+  // (Figma-style) without requiring the user to drop and re-drag. Cleared on
+  // drag-leave/drop/dragend and whenever the hover target/placement changes.
+  const springLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SPRING_LOAD_DELAY_MS = 600;
+  const clearSpringLoadTimer = () => {
+    if (springLoadTimerRef.current !== null) {
+      clearTimeout(springLoadTimerRef.current);
+      springLoadTimerRef.current = null;
+    }
+  };
+  useEffect(() => clearSpringLoadTimer, []);
 
   const readSelectedIdsFromTree = (target: HTMLElement): string[] => {
     const tree = target.closest('[role="tree"]');
-    if (!tree) return selectedIds.filter((id) => !id.startsWith("__"));
+    if (!tree)
+      return selectedIdsRef.current.filter((id) => !id.startsWith("__"));
     return Array.from(
       tree.querySelectorAll<HTMLElement>(
         '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
@@ -1037,36 +1660,19 @@ function LayerRow({
     });
   };
 
+  // GROUND TRUTH (live-verified against real Figma): after clicking a layer
+  // row, ArrowUp/ArrowDown/Home/End do NOT navigate the layers list and must
+  // NOT be intercepted here at all — no preventDefault, no focus move, no
+  // selection change. Figma's list focus does not consume those keys; they
+  // fall through to the app's global hotkey nudge handler, which moves the
+  // SELECTED OBJECT on canvas by 1px (arrow) or listens for its own Home/End
+  // handling. A previous revision made this row intercept those keys (first
+  // to move DOM focus, later to change selection directly) — both were wrong
+  // and are removed here. ArrowLeft/ArrowRight are the one exception Figma
+  // keeps at the list level: they only toggle the focused row's own
+  // expand/collapse (chevron) state, and must NOT change selection while
+  // doing so.
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const getFocusableButtons = () => {
-      const tree = event.currentTarget.closest('[role="tree"]');
-      if (!tree) return [];
-      return Array.from(
-        tree.querySelectorAll<HTMLButtonElement>("[data-layer-row-button]"),
-      ).filter((button) => !button.disabled);
-    };
-    const focusVisibleButton = (nextIndex: number) => {
-      const buttons = getFocusableButtons();
-      const target =
-        buttons[Math.max(0, Math.min(buttons.length - 1, nextIndex))];
-      target?.focus();
-      return Boolean(target);
-    };
-    const focusNodeButton = (nodeId: string) => {
-      const tree = event.currentTarget.closest('[role="tree"]');
-      const target = tree?.querySelector<HTMLButtonElement>(
-        `[data-layer-node-id="${CSS.escape(nodeId)}"]`,
-      );
-      if (!target || target.disabled) return false;
-      target.focus();
-      return true;
-    };
-    const currentIndex = visibleRows.findIndex(
-      (visibleRow) => visibleRow.rowKey === row.rowKey,
-    );
-    const focusableButtons = getFocusableButtons();
-    const currentFocusableIndex = focusableButtons.indexOf(event.currentTarget);
-
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       if (!selectable) return;
@@ -1083,52 +1689,15 @@ function LayerRow({
       onStartRename(node);
       return;
     }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusVisibleButton(currentFocusableIndex + 1);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusVisibleButton(currentFocusableIndex - 1);
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      focusVisibleButton(0);
-      return;
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      focusVisibleButton(focusableButtons.length - 1);
-      return;
-    }
     if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
       event.preventDefault();
-      onToggleExpanded(true);
-      return;
-    }
-    if (event.key === "ArrowRight" && hasChildren && isExpanded) {
-      event.preventDefault();
-      const nextButton = focusableButtons[currentFocusableIndex + 1];
-      const childId = nextButton?.dataset.layerNodeId;
-      const child = childId
-        ? visibleRows.find((visibleRow) => visibleRow.node.id === childId)
-        : null;
-      if (child?.ancestorIds.includes(node.id)) {
-        focusVisibleButton(currentFocusableIndex + 1);
-      }
+      onToggleExpanded(node.id, true);
       return;
     }
     if (event.key === "ArrowLeft" && hasChildren && isExpanded) {
       event.preventDefault();
-      onToggleExpanded(false);
+      onToggleExpanded(node.id, false);
       return;
-    }
-    if (event.key === "ArrowLeft" && row.ancestorIds.length > 0) {
-      event.preventDefault();
-      const parentId = row.ancestorIds[row.ancestorIds.length - 1];
-      if (parentId) focusNodeButton(parentId);
     }
   };
 
@@ -1137,10 +1706,18 @@ function LayerRow({
       event.preventDefault();
       return;
     }
+    // Build the full-tree ancestor map once, here at drag start, rather than
+    // on every render — this is O(tree size) so it must not run per-row per
+    // render. It uses the FULL root tree (not visibleRows) so a selected
+    // descendant nested inside a currently-collapsed dragged ancestor is
+    // still correctly recognized as a descendant and excluded from the drag
+    // payload (see L13 / buildAncestorIdMap).
+    const ancestorIdMap = buildAncestorIdMap(rootsRef.current);
     const draggedIds = getDraggedLayerIdsForRows({
-      selectedIds,
+      selectedIds: selectedIdsRef.current,
       nodeId: node.id,
-      visibleRows,
+      visibleRows: visibleRowsRef.current,
+      ancestorIdMap,
     });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-design-layer-id", node.id);
@@ -1153,31 +1730,81 @@ function LayerRow({
     activeDragState = { sourceId: node.id, draggedIds };
   };
 
+  // A dragover that is rejected (any early-return path below) must clear a
+  // stale indicator that a PRIOR dragover on this same row left behind — e.g.
+  // hovering near the row edge changes the placement from "inside" to
+  // "before", which canMoveLayer may now reject even though the previous
+  // placement was accepted. Without this, the indicator line/ring lingers on
+  // a row that no longer has a valid drop target.
+  const clearStaleIndicatorForThisRow = () => {
+    if (activeDropIntent?.targetId === node.id) activeDropIntent = null;
+    if (activeDropPlacement !== null) onDropIndicatorChange(null);
+    clearSpringLoadTimer();
+  };
+
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !dragEligible) return;
+    if (!onMoveLayer || !anchorEligible) {
+      clearStaleIndicatorForThisRow();
+      return;
+    }
     // dataTransfer.getData() always returns "" during dragover per spec.
     // Read from the module-level activeDragState set in handleDragStart instead.
-    if (!activeDragState) return;
+    if (!activeDragState) {
+      clearStaleIndicatorForThisRow();
+      return;
+    }
     const { sourceId, draggedIds } = activeDragState;
-    if (sourceId === node.id) return;
+    if (sourceId === node.id) {
+      clearStaleIndicatorForThisRow();
+      return;
+    }
     const cleanedIds = draggedIds.filter(
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
-    if (cleanedIds.length === 0) return;
+    if (cleanedIds.length === 0) {
+      clearStaleIndicatorForThisRow();
+      return;
+    }
     const intent = {
       draggedIds: cleanedIds,
       targetId: node.id,
-      placement: dropPlacementForEvent(event, canDropInside),
+      placement: dropPlacementForEvent(
+        event,
+        canDropInside,
+        isExpandedWithChildren,
+      ),
     } satisfies LayersPanelMoveIntent;
-    if (canMoveLayer && !canMoveLayer(intent)) return;
+    if (canMoveLayer && !canMoveLayer(intent)) {
+      clearStaleIndicatorForThisRow();
+      return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     activeDropIntent = intent;
     onDropIndicatorChange(intent);
+
+    // L20 spring-loaded expand: sustained "inside" hover over a collapsed
+    // container expands it after a delay so the user can drop into nested
+    // children without a separate drop-then-redrag step. Only arm the timer
+    // once per qualifying hover — if a timer is already pending for this row
+    // we leave it running rather than resetting it on every dragover tick.
+    if (
+      intent.placement === "inside" &&
+      hasChildren &&
+      !isExpanded &&
+      springLoadTimerRef.current === null
+    ) {
+      springLoadTimerRef.current = setTimeout(() => {
+        springLoadTimerRef.current = null;
+        onToggleExpanded(node.id, true);
+      }, SPRING_LOAD_DELAY_MS);
+    } else if (intent.placement !== "inside" || !hasChildren || isExpanded) {
+      clearSpringLoadTimer();
+    }
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!onMoveLayer || !dragEligible) {
+    if (!onMoveLayer || !anchorEligible) {
       onDropIndicatorChange(null);
       return;
     }
@@ -1216,7 +1843,11 @@ function LayerRow({
           : ({
               draggedIds: cleanedIds,
               targetId: node.id,
-              placement: dropPlacementForEvent(event, canDropInside),
+              placement: dropPlacementForEvent(
+                event,
+                canDropInside,
+                isExpandedWithChildren,
+              ),
             } satisfies LayersPanelMoveIntent);
       if (!canMoveLayer || canMoveLayer(intent)) {
         onMoveLayer(intent);
@@ -1224,17 +1855,53 @@ function LayerRow({
     }
     activeDropIntent = null;
     onDropIndicatorChange(null);
+    clearSpringLoadTimer();
   };
+
+  // Right-clicking a row that's already part of the current selection acts on
+  // the whole selection (matching Figma); right-clicking an unselected row
+  // acts on just that row. Computed lazily at action time (not memoized on
+  // render) so it always reflects the live selectedIdsRef/visibleRowsRef —
+  // both are refs updated outside the render cycle (see their declarations in
+  // LayersPanel), so a render-time useMemo could see stale values by the time
+  // the user actually picks a menu item.
+  const getContextMenuTargetIdsForRow = () =>
+    getContextMenuTargetIds({
+      selectedIds: selectedIdsRef.current,
+      nodeId: node.id,
+      visibleRows: visibleRowsRef.current,
+    });
+
+  // Real Figma only offers Ungroup on a container row (something you could
+  // actually ungroup), never on a plain leaf row — gate it on
+  // canAcceptChildren in addition to the callback being provided. Duplicate/
+  // Delete/Paste-here are intentionally excluded here: real Figma's layer
+  // row menu doesn't have them (they're keyboard-only there), so they must
+  // not factor into whether the menu/trigger renders at all.
+  const canUngroupThisRow = Boolean(onUngroupSelection && canAcceptChildren);
+  const hasEditActions = Boolean(
+    onCopyLayer ||
+    onPasteToReplace ||
+    onGroupSelection ||
+    onFrameSelection ||
+    canUngroupThisRow ||
+    onReorderLayer ||
+    onFlipHorizontal ||
+    onFlipVertical,
+  );
 
   const showContextMenu =
     selectable &&
-    (Boolean(onRename && node.renamable !== false) || lockable || hideable);
+    (Boolean(onRename && node.renamable !== false) ||
+      lockable ||
+      hideable ||
+      hasEditActions);
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={!showContextMenu}>
         <div
-          ref={rowRef}
+          ref={(element) => registerRowElement(row.rowKey, element)}
           role="treeitem"
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
@@ -1253,21 +1920,29 @@ function LayerRow({
               return;
             if (activeDropIntent?.targetId === node.id) activeDropIntent = null;
             onDropIndicatorChange(null);
+            clearSpringLoadTimer();
           }}
           onDrop={handleDrop}
           onDragEnd={() => {
             activeDragState = null;
             activeDropIntent = null;
             onDropIndicatorChange(null);
+            clearSpringLoadTimer();
           }}
           onMouseEnter={() => onHoverLayer?.(node.id)}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
-            <span className="pointer-events-none absolute left-2 right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]" />
+            <span
+              className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
+              style={{ left: rowIndent(depth) }}
+            />
           ) : null}
           {activeDrop === "after" ? (
-            <span className="pointer-events-none absolute bottom-0 left-2 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]" />
+            <span
+              className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
+              style={{ left: rowIndent(depth) }}
+            />
           ) : null}
           <div
             className={cn(
@@ -1290,6 +1965,15 @@ function LayerRow({
                 !isInSelectedSubtree &&
                 !isActiveScreen &&
                 "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
+              // Canvas-hover highlight (hoveredLayerId): a subtle background,
+              // visually distinct from selection/subtree/active-screen state.
+              // Only applied when none of those stronger states already own
+              // the row's background, and never triggers scroll-into-view.
+              isHovered &&
+                !isSelected &&
+                !isInSelectedSubtree &&
+                !isActiveScreen &&
+                "bg-[var(--design-editor-layer-hover-color)] text-foreground",
               node.hidden && "text-muted-foreground",
             )}
             style={{ paddingLeft: rowIndent(depth) }}
@@ -1303,7 +1987,13 @@ function LayerRow({
                 aria-label={isExpanded ? labels.collapse : labels.expand}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onToggleExpanded(!isExpanded);
+                  // Alt-click (Figma behavior): expand/collapse this node AND
+                  // all of its descendants in one batched update.
+                  onToggleExpanded(
+                    node.id,
+                    !isExpanded,
+                    event.altKey ? node : undefined,
+                  );
                 }}
               >
                 {isExpanded ? (
@@ -1345,6 +2035,7 @@ function LayerRow({
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}
+                  onFocus={(event) => event.currentTarget.select()}
                   onBlur={() => {
                     // Escape sets renameCancelledRef before blur fires; skip commit.
                     if (renameCancelledRef.current) {
@@ -1373,7 +2064,7 @@ function LayerRow({
                       event.preventDefault();
                       event.stopPropagation();
                       renameCancelledRef.current = true;
-                      onCancelRename();
+                      onCancelRename(node.id);
                     }
                   }}
                   className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
@@ -1385,7 +2076,6 @@ function LayerRow({
                     "min-w-0 flex-1 truncate font-medium leading-none",
                     isComponentLayer &&
                       "text-[var(--design-editor-component-color)]",
-                    node.hidden && "line-through",
                   )}
                   title={node.name}
                 >
@@ -1467,7 +2157,98 @@ function LayerRow({
         </div>
       </ContextMenuTrigger>
       {showContextMenu ? (
-        <ContextMenuContent className="z-[300] min-w-[160px] text-[12px]">
+        <ContextMenuContent className="z-[300] min-w-[200px] text-[12px]">
+          {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
+              replace — Bring to front, Send to back — Group selection,
+              (Ungroup, container rows only), Frame selection, Rename —
+              Show/Hide, Lock/Unlock — Flip horizontal, Flip vertical. Real
+              Figma has no Duplicate/Delete/Paste-here on this menu (those
+              are keyboard-only there — see ⌘D/Delete). Each item only
+              renders when its callback prop is provided, so the menu
+              degrades gracefully before every callback is wired up from the
+              caller. */}
+          {onCopyLayer ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
+            >
+              <IconCopy className="size-3.5 text-muted-foreground" />
+              {labels.copy}
+              <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onPasteToReplace ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onPasteToReplace(getContextMenuTargetIdsForRow())}
+            >
+              <IconClipboard className="size-3.5 text-muted-foreground" />
+              {labels.pasteToReplace}
+              <ContextMenuShortcut>
+                {"⇧⌘R" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+
+          {(onCopyLayer || onPasteToReplace) && onReorderLayer ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onReorderLayer ? (
+            <>
+              <ContextMenuItem
+                className="gap-2 text-[12px]"
+                onSelect={() =>
+                  onReorderLayer(getContextMenuTargetIdsForRow(), "front")
+                }
+              >
+                <IconStackFront className="size-3.5 text-muted-foreground" />
+                {labels.bringToFront}
+                <ContextMenuShortcut>]</ContextMenuShortcut>
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="gap-2 text-[12px]"
+                onSelect={() =>
+                  onReorderLayer(getContextMenuTargetIdsForRow(), "back")
+                }
+              >
+                <IconStackBack className="size-3.5 text-muted-foreground" />
+                {labels.sendToBack}
+                <ContextMenuShortcut>[</ContextMenuShortcut>
+              </ContextMenuItem>
+            </>
+          ) : null}
+
+          {onReorderLayer &&
+          (onGroupSelection ||
+            canUngroupThisRow ||
+            onFrameSelection ||
+            onRename) ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onGroupSelection ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onGroupSelection(getContextMenuTargetIdsForRow())}
+            >
+              <IconLayersUnion className="size-3.5 text-muted-foreground" />
+              {labels.group}
+              <ContextMenuShortcut>⌘G</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onFrameSelection ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFrameSelection(getContextMenuTargetIdsForRow())}
+            >
+              <IconFrame className="size-3.5 text-muted-foreground" />
+              {labels.frameSelection}
+              <ContextMenuShortcut>
+                {"⌥⌘G" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
           {onRename && node.renamable !== false ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
@@ -1475,23 +2256,33 @@ function LayerRow({
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}
+              <ContextMenuShortcut>⌘R</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
-          {onRename && node.renamable !== false && (lockable || hideable) ? (
-            <ContextMenuSeparator />
-          ) : null}
-          {lockable ? (
+
+          {/* Real Figma only shows Ungroup on a container row — a plain row
+              never gets it, even when the callback is wired up. */}
+          {canUngroupThisRow ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
-              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
+              onSelect={() =>
+                onUngroupSelection?.(getContextMenuTargetIdsForRow())
+              }
             >
-              {node.locked ? (
-                <IconLockOpen className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconLock className="size-3.5 text-muted-foreground" />
-              )}
-              {node.locked ? labels.unlock : labels.lock}
+              <IconLayersSubtract className="size-3.5 text-muted-foreground" />
+              {labels.ungroup}
+              <ContextMenuShortcut>
+                {"⇧⌘G" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
             </ContextMenuItem>
+          ) : null}
+
+          {(onGroupSelection ||
+            canUngroupThisRow ||
+            onFrameSelection ||
+            (onRename && node.renamable !== false)) &&
+          (lockable || hideable) ? (
+            <ContextMenuSeparator />
           ) : null}
           {hideable ? (
             <ContextMenuItem
@@ -1504,13 +2295,57 @@ function LayerRow({
                 <IconEyeOff className="size-3.5 text-muted-foreground" />
               )}
               {node.hidden ? labels.show : labels.hide}
+              <ContextMenuShortcut>
+                {"⇧⌘H" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {lockable ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
+            >
+              {node.locked ? (
+                <IconLockOpen className="size-3.5 text-muted-foreground" />
+              ) : (
+                <IconLock className="size-3.5 text-muted-foreground" />
+              )}
+              {node.locked ? labels.unlock : labels.lock}
+              <ContextMenuShortcut>
+                {"⇧⌘L" /* i18n-ignore keyboard shortcut glyph */}
+              </ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+
+          {(lockable || hideable) && (onFlipHorizontal || onFlipVertical) ? (
+            <ContextMenuSeparator />
+          ) : null}
+
+          {onFlipHorizontal ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFlipHorizontal(getContextMenuTargetIdsForRow())}
+            >
+              <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
+              {labels.flipHorizontal}
+              <ContextMenuShortcut>⇧H</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : null}
+          {onFlipVertical ? (
+            <ContextMenuItem
+              className="gap-2 text-[12px]"
+              onSelect={() => onFlipVertical(getContextMenuTargetIdsForRow())}
+            >
+              <IconFlipVertical className="size-3.5 text-muted-foreground" />
+              {labels.flipVertical}
+              <ContextMenuShortcut>⇧V</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
         </ContextMenuContent>
       ) : null}
     </ContextMenu>
   );
-}
+});
 
 function IconTooltipButton({
   label,
@@ -2019,13 +2854,29 @@ function layerCanDropInside(
   );
 }
 
-function dropPlacementForEvent(
+/**
+ * L10: for an EXPANDED container that already has children, the bottom hover
+ * zone sits (visually, in the panel) directly above that container's
+ * first-listed child row — not above its next sibling. A plain "after"
+ * placement there would target the position following the container's
+ * ENTIRE subtree (anchor.end in applyMoveNodeEdit), which visually
+ * contradicts the indicator's position between the container and its first
+ * child. Resolve that zone to "inside" instead (still targeting the
+ * container), which inserts at contentEnd — under the L5 reversed-order
+ * convention that is exactly the container's first-panel-row / topmost-paint
+ * child slot, matching what the indicator visually promises.
+ */
+export function dropPlacementForEvent(
   event: DragEvent<HTMLDivElement>,
   canDropInside: boolean,
+  isExpandedWithChildren = false,
 ): LayersPanelMoveIntent["placement"] {
   const rect = event.currentTarget.getBoundingClientRect();
   const offset = event.clientY - rect.top;
   if (offset < rect.height * 0.3) return "before";
-  if (offset > rect.height * 0.7) return "after";
+  if (offset > rect.height * 0.7) {
+    if (canDropInside && isExpandedWithChildren) return "inside";
+    return "after";
+  }
   return canDropInside ? "inside" : "after";
 }

@@ -1,5 +1,5 @@
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  "delete-file": "delete screen",
+  "delete-file": "remove screen",
   "get-design-snapshot": "get screen snapshot",
   "edit-design": "edit screen",
 };

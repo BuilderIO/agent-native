@@ -117,6 +117,10 @@ const messages = {
     restoreFailed: "恢復失敗",
     permanentlyDeleted: "已永久刪除",
     deleteFailed: "刪除失敗",
+    clipsRestored: "已恢復 {{count}} 個剪輯",
+    clipsRestoreFailed: "{{count}} 個剪輯無法恢復",
+    clipsPermanentlyDeleted: "已永久刪除 {{count}} 個剪輯",
+    clipsDeleteFailed: "{{count}} 個剪輯無法刪除",
   },
   recordingRoute: {
     pageTitle: "剪輯錄製 · Clips",
@@ -187,6 +191,11 @@ const messages = {
     edit: "編輯",
     aiTools: "AI 工具",
     enhanceRecording: "強化此錄製",
+    includeFullVideo: "包含完整影片",
+    includeFullVideoDescription:
+      "開啟時，AI 工具會觀看錄製內容（僅 Gemini）以取得螢幕脈絡，而不只是音訊文字紀錄。也適用於預設標題與說明產生。需透過 Builder 或 GEMINI_API_KEY 使用 Gemini 模型。",
+    includeFullVideoOn: "AI 工具將使用完整影片（Gemini）",
+    includeFullVideoOff: "AI 工具將只使用文字紀錄",
     regenerateTitle: "重新產生標題",
     regenerateDescription: "重新產生描述",
     autoChapters: "自動章節",
@@ -310,7 +319,7 @@ const messages = {
     removing: "正在刪除...",
     remove: "移除",
     desktopHint:
-      "從 Clips 桌面應用程式記錄本次會議的即時筆記；逐字稿和 AI 筆記將自動出現在此處。",
+      "若要開始筆記，請從選單列開啟 Clips Desktop 並選擇 Start Meeting Notes，或在提醒出現時按 Start notes。Clips 會擷取麥克風和系統音訊，並在這裡寫入逐字稿。",
     getDesktopApp: "取得桌面應用程式",
     generateNotesFailed: "無法產生筆記。請再試一次。",
     attendee_one: "{{count}} 與會者",
@@ -325,6 +334,13 @@ const messages = {
     segments: "{{count}} 段",
     copyTranscript: "複製逐字稿",
     copyFullTranscript: "複製完整逐字稿",
+    timeRemaining_one: "還剩 {{count}} 分鐘",
+    timeRemaining_other: "還剩 {{count}} 分鐘",
+    endMeeting: "結束會議",
+    endThisMeeting: "結束這次會議嗎？",
+    endMeetingDescription:
+      "這會停止本次會議的錄製與轉錄。您仍然可以根據目前擷取的內容產生筆記。",
+    couldNotEndMeeting: "無法結束會議",
   },
   transcriptPanel: {
     transcribing: "正在轉錄…",
@@ -399,8 +415,13 @@ const messages = {
     embed: "嵌入",
     shareLink: "分享連結",
     shareWithAgents: "與 Agent 分享",
+    copyAgentPrompt: "複製 Agent 提示",
+    agentPrompt:
+      "取得這個 Clips Agent 脈絡 URL：{{agentContextUrl}}。使用 transcript.segments 讀取語音脈絡，取得 recommendedFrames 或影格 API URL 來查看螢幕，並在 browserDiagnostics 存在時檢查已遮蔽的主控台記錄和 fetch/XHR 請求中繼資料。",
     agentTokenDescription:
-      "此 Agent URL 使用短期權杖，因此 Agent 可以在不暴露密碼的情況下讀取剪輯。",
+      "這個臨時 Agent URL 可讓 Agent 讀取剪輯，而不必將其設為公開。它會在兩小時後過期。",
+    agentLinkUnavailable: "無法建立 Agent 連結。",
+    retryAgentLink: "重試",
     gifPreview: "GIF 預覽",
     openPlayer: "開啟播放器",
     downloadMp4: "下載 MP4",
@@ -412,6 +433,7 @@ const messages = {
     askOwnerPublic: "請樓主公開一下。",
     responsive: "反應靈敏 (16:9)",
     fixedSize: "固定尺寸",
+    embedIframeTitle: "Clips 影片",
     width: "寬度",
     height: "高度",
     autoplay: "自動播放",
@@ -468,6 +490,12 @@ const messages = {
     placeholder: "詢問任何事情...",
     send: "傳送",
     sentToChat: "已傳送至聊天 - 請參閱代理側邊欄以取得回覆。",
+    suggestQuestions: "為我建議可以提出的問題",
+    suggestQuestionsPrompt:
+      "根據本次會議目前為止討論的內容，建議我接下來可以提出的幾個好問題。",
+    makeMeSoundSmart: "讓我聽起來更聰明",
+    makeMeSoundSmartPrompt:
+      "根據本次會議目前為止的內容，給我一個現在就能補充的犀利、有見地的評論或問題。",
   },
   brandingEditor: {
     title: "品牌推廣",
@@ -603,6 +631,9 @@ const messages = {
     s3SecretAccessKeyLabel: "秘密存取金鑰",
     s3RegionLabel: "區域",
     s3PublicBaseUrlLabel: "公開基礎 URL",
+    s3UrlInvalid: "必須是有效的 URL（例如 https://s3.us-east-1.amazonaws.com）",
+    s3BucketInvalid: "儲存貯體名稱必須為 3–63 個小寫字母、數字或連字號",
+    s3RegionInvalid: '必須是有效的區域（例如 us-east-1）或 "auto"',
     apiSetup: "AI 設定",
     apiSetupDescription: "使用 Builder.io 免費額度或您自己的 LLM 金鑰連線 AI。",
     builderEasySetup: "Builder.io 免費額度",
@@ -615,6 +646,8 @@ const messages = {
     providerKeysSet: "已設定 {{count}} 個",
     checkingProviderKeys: "正在檢查提供方金鑰…",
     keySet: "已設定",
+    keyCleared: "儲存憑證已清除",
+    clearAllS3: "清除憑證",
     replaceKey: "替換金鑰…",
     pasteProviderKey: "請先貼上提供方金鑰。",
     apiKeySaved: "API 金鑰已儲存",
@@ -708,6 +741,9 @@ const messages = {
     anonymous: "匿名",
     anon: "匿名",
     moreViewers: "+{{count}} 更多",
+    viewedBy: "觀看者",
+    someone: "有人",
+    noViewsYet: "尚無觀看紀錄。",
   },
   libraryGrid: {
     spaceRoot: "空間根目錄",
@@ -726,6 +762,9 @@ const messages = {
     clipsArchiveFailed: "{{count}} 個剪輯無法封存",
     clipsMovedToTrash: "已將 {{count}} 個剪輯移至廢紙簍",
     clipsTrashFailed: "{{count}} 個剪輯無法移至廢紙簍",
+    loadFailedTitle: "無法載入你的錄製",
+    loadFailedBody: "載入此清單時發生問題。你的錄製是安全的 —— 請重試。",
+    retry: "重試",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -859,6 +898,8 @@ const messages = {
     noVideo: "沒有可用影片",
     thanks: "感謝觀看",
     playClip: "播放剪輯",
+    unsupportedFormat:
+      "此瀏覽器無法播放此影片。請嘗試在 Chrome、Edge 或 Firefox 中開啟連結。",
   },
   searchBar: {
     placeholder: "搜尋錄製…",
@@ -913,7 +954,9 @@ const messages = {
     inHours: "{{count}} 小時後",
     join: "加入",
     openNotes: "開啟筆記",
-    open: "開啟",
+    open: "開啟筆記",
+    startFromDesktopNow: "從桌面提醒或選單列開始即時筆記。",
+    startFromDesktopLater: "時間到了，Clips Desktop 會顯示 Start notes。",
   },
   transcriptBubbles: {
     listening: "正在聆聽…",
@@ -921,6 +964,13 @@ const messages = {
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
+    searchTranscript: "搜尋逐字稿",
+    searchPlaceholder: "搜尋逐字稿…",
+    searchMatchCount: "第 {{current}} 項，共 {{total}} 項",
+    searchNoMatches: "沒有符合項目",
+    searchPrevMatch: "上一個符合項目",
+    searchNextMatch: "下一個符合項目",
+    searchClose: "關閉搜尋",
   },
   editorLayout: {
     trimmed: "已修剪",
@@ -1179,6 +1229,11 @@ const messages = {
     browserDictation: "瀏覽器聽寫",
     browserDictationDescription:
       "使用此頁面上的按鈕，或在此分頁取得焦點時按快捷鍵。瀏覽器聽寫會儲存在這裡，供您複製與清理。",
+    browserDictationDescriptionDesktop:
+      "使用下方的按鈕，直接在此頁面擷取一則筆記。它不會貼到其他應用程式——如需這項功能，請使用右側的桌面快捷鍵。",
+    quickNoteTitle: "快速聽寫筆記",
+    quickNoteHint:
+      "不必離開此頁面即可在此擷取內容——它不會貼到其他應用程式。使用按鈕開始與停止。",
     desktopShortcuts: "桌面快捷鍵",
     desktopShortcutsDescriptionSuffix: "，於桌面應用程式中。",
     holdFn: "按住 Fn",
@@ -1209,6 +1264,18 @@ const messages = {
       "具備 AI 清理功能的語音轉文字聽寫。取得桌面應用程式，即可用全域快捷鍵在任何地方聽寫。",
     loadFailed: "無法載入聽寫。",
     noFilterMatches: "沒有符合此篩選條件的聽寫。",
+    dictionaryTitle: "字典",
+    dictionaryDescription:
+      "這裡的詞彙會讓語音辨識偏向您慣用的拼寫——可從修正中自動學得，或自行新增。",
+    dictionaryTermPlaceholder: "詞彙",
+    dictionaryReplacementPlaceholder: "替換內容（選填）",
+    dictionaryAdd: "新增",
+    dictionaryLoading: "正在載入字典...",
+    dictionaryEmpty: "尚無已學習的詞彙。",
+    dictionaryUsesCount: "已使用 {{count}} 次",
+    dictionaryRemove: "移除",
+    vocabularyAddFailed: "無法新增詞彙",
+    vocabularyRemoveFailed: "無法移除詞彙",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "在播放頭處分割 (S)",
@@ -1299,23 +1366,35 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
-    desktopReminder: "會議開始時取得桌面提醒，錄製筆記就會自動存入此歷史記錄。",
+    desktopReminder:
+      "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",
-    requiredForReminders: "會議提醒與轉錄需要此功能。",
+    requiredForReminders: "桌面應用程式會擷取麥克風和系統音訊以轉錄會議。",
     calendarConnected: "日曆已連線",
     calendarDisconnected: "日曆已中斷連線",
     calendarSettings: "日曆設定",
     connectCalendarReminder: "連線 Google Calendar 以取得會議提醒。",
     disconnectGoogleCalendarTitle: "要中斷連線 Google Calendar 嗎？",
     title: "會議",
-    intro: "即將到來的日曆會議與您的錄製筆記。",
+    intro:
+      "即將到來的日曆會議與您的錄製筆記。會議時間到了，請從 Clips Desktop 開始即時筆記。",
     searchPlaceholder: "搜尋會議...",
     clearSearch: "清除搜尋",
     noMeetingsYet: "還沒有會議",
     noMeetingsDescription:
-      "即將到來的日曆會議會顯示在這裡，完成的錄製也會在您做筆記後出現在這裡。",
+      "連線您的日曆並保持 Clips Desktop 開啟。會議開始時，請從提醒或選單列使用 Start notes。",
     noMeetingsMatch: "沒有符合「{{query}}」的會議",
     refreshing: "正在重新整理…",
+    howToTriggerTitle: "如何觸發會議筆記",
+    howToTriggerDescription:
+      "會議筆記是 Clips 中類似 Granola 的流程：日曆事件會顯示在這裡，桌面應用程式會擷取麥克風和系統音訊，逐字稿和 AI 筆記會回到這個歷史記錄。",
+    guideCalendarTitle: "連線 Google Calendar",
+    guideCalendarDescription: "Clips 會從您的日曆讀取會議，才知道何時提醒您。",
+    guideDesktopTitle: "保持 Clips Desktop 開啟",
+    guideDesktopDescription: "需要桌面擷取才能同時轉錄麥克風和系統音訊。",
+    guideStartTitle: "點選 Start notes",
+    guideStartDescription:
+      "通話開始時，使用桌面提醒或選單列中的 Start Meeting Notes 項目。",
   },
 };
 

@@ -1,16 +1,11 @@
 ---
-title: "Aplicaciones de agente puro"
-description: "Aplicaciones donde el agente es el producto completo: el bucle aplicación-agente es la puerta de entrada y UI se agrega solo cuando los humanos lo necesitan."
+title: "Automation-First Apps"
+description: "Apps Agent-Native sin navegador para scheduled jobs, colas, scripts, integration workers y agents externos."
 ---
 
-# Aplicaciones de agente puro
+# Automation-First Apps
 
-Una aplicación de agente puro es el extremo mínimo de un agente nativo: el bucle aplicación-agente es el
-producto, no un tablero. Envías una solicitud desde la terminal, Slack, correo electrónico, a
-trabajo programado, otro agente o Chat: "resumir mis correos electrónicos no leídos", "publicar el
-métricas diarias a Slack" — y el agente actúa y devuelve el resultado dondequiera que esté
-pertenece. Sigue siendo una aplicación real: actions, sesiones, estado de la aplicación, historial,
-La configuración, las credenciales y los registros compartidos se encuentran todos en SQL.
+Una automation-first app es una app Agent-Native sin navegador para scheduled jobs, colas, scripts, integration workers y agents externos. No es el camino predeterminado de Getting Started, pero es útil cuando el workflow todavía no necesita una página. Sigue siendo una app real: actions, sessions, application state, run history, settings, credentials y registros compartidos viven en SQL.
 
 <Diagram id="doc-block-16rgm92" title={"El bucle aplicación-agente es la puerta de entrada"} summary={"Muchos puntos de entrada llegan a un bucle de agente sobre SQL-backed acciones y estado; los resultados regresan al lugar de donde vino la solicitud. La interfaz de usuario se agrega solo cuando los humanos necesitan supervisar."}>
 

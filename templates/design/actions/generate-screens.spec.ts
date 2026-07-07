@@ -151,4 +151,88 @@ describe("generate-screens", () => {
       }).success,
     ).toBe(false);
   });
+
+  // B5-10: AI-generated desktop designs were being placed in mobile-width
+  // screens because every screen got the same fixed region regardless of
+  // content. deviceType (and explicit width/height) now flow end-to-end from
+  // the requested screen into the returned canvasFrame.
+  describe("device-aware canvas region sizing (B5-10)", () => {
+    it("defaults an untyped screen to a desktop-sized region", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Build a dashboard",
+        screens: [{ title: "Dashboard" }],
+      });
+
+      expect(result.targets[0]!.canvasFrame).toMatchObject({
+        width: 1440,
+        height: 1024,
+      });
+    });
+
+    it("sizes a deviceType: 'mobile' screen to a phone-width region", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Build a mobile onboarding flow",
+        screens: [{ title: "Onboarding", deviceType: "mobile" }],
+      });
+
+      expect(result.targets[0]!.canvasFrame).toMatchObject({
+        width: 390,
+        height: 844,
+      });
+    });
+
+    it("sizes a deviceType: 'tablet' screen to a tablet-width region", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Build a tablet layout",
+        screens: [{ title: "Tablet view", deviceType: "tablet" }],
+      });
+
+      expect(result.targets[0]!.canvasFrame).toMatchObject({
+        width: 768,
+        height: 1024,
+      });
+    });
+
+    it("honors explicit width/height over deviceType", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Build a custom-width screen",
+        screens: [
+          { title: "Custom", deviceType: "mobile", width: 500, height: 900 },
+        ],
+      });
+
+      expect(result.targets[0]!.canvasFrame).toMatchObject({
+        width: 500,
+        height: 900,
+      });
+    });
+
+    it("sizes each screen in a mixed batch independently, not uniformly", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Build a responsive flow",
+        screens: [
+          { title: "Phone home", deviceType: "mobile" },
+          { title: "Desktop dashboard", deviceType: "desktop" },
+          { title: "Tablet detail", deviceType: "tablet" },
+        ],
+      });
+
+      expect(result.targets[0]!.canvasFrame).toMatchObject({ width: 390 });
+      expect(result.targets[1]!.canvasFrame).toMatchObject({ width: 1440 });
+      expect(result.targets[2]!.canvasFrame).toMatchObject({ width: 768 });
+
+      // Non-overlapping: each screen still gets a distinct x/y placement.
+      const positions = result.targets.map((target) => ({
+        x: target.canvasFrame!.x,
+        y: target.canvasFrame!.y,
+      }));
+      const unique = new Set(positions.map((p) => `${p.x},${p.y}`));
+      expect(unique.size).toBe(3);
+    });
+  });
 });

@@ -5,12 +5,7 @@ description: "Agent-Native Plans verwandelt den Plan Ihres Programmieragenten in
 
 # Visuelle Pläne
 
-> **Die meisten Leute installieren Plan als Skill und nicht als Gerüst-App.** Ein CLI-Befehl
-> fügt `/visual-plan` und `/visual-recap` skills sowie den gehosteten Plan hinzu
-> -Connector zu Ihrem Codierungsagenten – siehe [Plan plugin & marketplace](/docs/plan-plugin)
-> für die Plugin- und Marktplatzrouten. Forken der Planvorlage (behandelt unter
-> [For developers](#for-developers)) ist der sekundäre Pfad für Selbsthosting oder
-> baut auf Plan selbst auf.
+> **Die meisten Leute installieren Plan als Skill und nicht als Gerüst-App.** Ein CLI-Befehl fügt die Skills `/visual-plan`, `/visual-recap` und `/visualize-repo` sowie den gehosteten Plan-Connector zu Ihrem Codierungsagenten hinzu — siehe [Plan plugin & marketplace](/docs/plan-plugin) für die Plugin- und Marktplatzrouten. Das Forken der Planvorlage (unter [For developers](#for-developers)) ist der sekundäre Pfad für Selbsthosting oder das Bauen auf Plan selbst.
 
 Agent-Native Plans ist ein visueller Planmodus für Codierungsagenten. Es wird zu einem gewöhnlichen
 Codex-, Claude-Code, Markdown oder eingefügter Implementierungsplan in eine strukturierte Datei
@@ -117,7 +112,7 @@ gegen eine OAuth-Wand stoßen:
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-Der Befehl installiert beide Befehle: `/visual-plan` und `/visual-recap`.
+Der Befehl installiert drei Befehle: `/visual-plan`, `/visual-recap` und `/visualize-repo`.
 
 Wenn Sie einen Chat-basierten Host verwenden, der MCP-Connector URLs direkt akzeptiert
 (anstelle eines CLI-konfigurierten Clients) verbinden Sie den gehosteten Plans-Connector unter
@@ -360,6 +355,25 @@ und kommentieren und gibt den gehosteten URL zurück. Der Modus „Lokale Dateie
 Machen Sie LLM Ihres Codierungsagenten automatisch lokal. Wählen Sie ein lokales oder zugelassenes
 Modell, wenn diese Datenschutzgrenze ebenfalls wichtig ist.
 
+## Visuelle Repo-Dokumentation {#visualize-repo}
+
+Verwenden Sie `/visualize-repo`, wenn Sie eine dauerhafte visuelle Dokumentationsschicht für eine Codebase statt eines einmaligen Plans oder Recaps wollen. Der Befehl erstellt oder öffnet einen lokalen Plan-MDX-Arbeitsbereich, aktualisiert `agent-native.json` mit einem `apps.visualize-repo`-Abschnitt im local-files-Modus und stellt die Dokumentation über dieselbe localhost-Bridge bereit:
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+Wenn kein `agent-native.json` existiert, legt der Befehl eines an und empfiehlt aus der Repo-Struktur einen kleinen Startsatz, zum Beispiel `actions/`, `app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`, `templates/`, `docs/` oder `content/`. Sie können bestimmte Source-Anker angeben:
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+Der Starter-Ordner liegt standardmäßig unter `.agent-native/visual-docs/repo-overview`. Kommentare bleiben lokal in `comments.json`, sodass Reviewer Abschnitte für einen Coding-Agent markieren können und der Agent Code und MDX in derselben Änderung aktualisieren kann. Führen Sie `visualize-repo check` für lokales Linting aus und `visualize-repo verify`, wenn das Plan-Renderer-Schema das MDX validieren soll.
+
 ## Lokale Desktop-Dateisynchronisierung {#desktop-local-sync}
 
 Agent Native Desktop bietet gehosteten Plänen außerdem eine native lokale Ordnerbrücke. Dies
@@ -411,6 +425,8 @@ lokale Dateien berühren.
 - „Führen Sie `/visual-recap` auf diesem PR aus, damit ich zuerst die Form der Änderung überprüfen kann.“
 - „Verwenden Sie `/visual-recap` für den Unterschied zwischen `main` und diesem Zweig.“
 - „Verwenden Sie `/visual-recap` im lokalen Dateimodus, damit kein Zusammenfassungsinhalt in die Plan-Datenbank geschrieben wird.“
+
+- „Führen Sie `/visualize-repo` aus und beginnen Sie mit unseren öffentlichen API-Actions und dem Schema.“
 
 ## Wiederherstellung nach Authentifizierungsfehlern {#auth-errors}
 

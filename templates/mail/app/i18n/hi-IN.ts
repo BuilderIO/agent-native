@@ -42,6 +42,8 @@ const messages = {
       placeholder: "खोजें...",
       clear: "Clear search (Esc)",
       noMatches: "कोई परिणाम नहीं",
+      localResults: "इस इनबॉक्स में",
+      searchingGmail: "Gmail खोजा जा रहा है...",
     },
     tabSettings: {
       views: "दृश्य",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "ब्लॉक",
       media: "मीडिया",
       ai: "AI",
+      snippets: "स्निपेट्स",
     },
     mobileActions: {
       archive: "आर्काइव",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "शेड्यूल ईमेल रद्द हुआ।",
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "छवि अपलोड करने में विफल",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -534,6 +538,19 @@ const messages = {
     whatsNew: "नया क्या है",
     whatsNewDescription: "Agent-Native Mail में हाल के user-facing बदलाव।",
     drafting: "Drafting",
+    snippets: "स्निपेट्स",
+    snippetsDescription:
+      "सेव किए गए जवाब जिन्हें आप / और स्निपेट का नाम टाइप करके कंपोज़ ड्राफ्ट में डाल सकते हैं।",
+    newSnippet: "नया स्निपेट",
+    noSnippets: "अभी तक कोई स्निपेट नहीं है। शुरू करने के लिए एक बनाएं।",
+    snippetName: "स्निपेट का नाम",
+    snippetNamePlaceholder: "जैसे, Pricing follow-up",
+    snippetBody: "स्निपेट टेक्स्ट",
+    snippetBodyPlaceholder: "इस स्निपेट का उपयोग होने पर डाला जाने वाला टेक्स्ट...",
+    editSnippet: "स्निपेट संपादित करें",
+    deleteSnippet: "स्निपेट हटाएं",
+    deleteSnippetDescription:
+      'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",

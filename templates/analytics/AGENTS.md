@@ -53,11 +53,12 @@ details live in `.agents/skills/`.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
-- For HubSpot deal cohorts, use structured `hubspot-deals` filters for the
-  cohort definition: `product` for the `products` field, `pipeline` for deal
-  pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
-  `closedDateTo` for close-date windows. `query` is full-text search across
-  deals and is not valid proof that a specific property matched.
+- For HubSpot deal cohorts, prefer structured `hubspot-deals` filters
+  (`product`, `pipeline`, `closedStatus`, `closedDateFrom`/`closedDateTo`) for
+  the common case. `query` is full-text search and is not proof a specific
+  property matched. When a cohort needs an arbitrary property filter, an
+  IN-search, or a join against another provider, use the generic
+  provider-access pattern below instead of asking for a new action.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
@@ -71,6 +72,27 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- Agent LLM observability is collected through the same first-party tracking
+  API as product analytics. Core emits PostHog-compatible `$ai_generation`
+  events when emitting apps are configured with `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`
+  and `AGENT_NATIVE_ANALYTICS_ENDPOINT` (or the default hosted endpoint). Query
+  these with `query-agent-native-analytics` using `event_name = '$ai_generation'`;
+  useful JSON properties include `$ai_trace_id` / `run_id`, `$ai_session_id` /
+  `thread_id`, `$ai_model` / `model`, `$ai_provider` / `provider`,
+  `$ai_input_tokens`, `$ai_output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `cost_cents_x100`, `$ai_total_cost_usd`, `duration_ms`
+  / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
+  and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
+  responses in these tracked events by default.
+- `/agents` is the Analytics home for core agent-admin surfaces. The default
+  Monitoring view embeds the shared observability dashboard for traces,
+  conversations, evals, experiments, and feedback. The Advanced menu opens
+  `/agents?view=database`, where organization owners/admins can connect other
+  agent-native app databases and use the shared database admin tool for table
+  browsing, row editing, and SQL inspection. This surface is for connected
+  target app databases, not broad access to all Analytics data. Keep future
+  agent-admin additions inside this route instead of adding many top-level
+  sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -128,14 +150,17 @@ details live in `.agents/skills/`.
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
   External cron callers can POST `/api/analytics-alerts/run` with
   `Authorization: Bearer $ANALYTICS_ALERTS_CRON_SECRET`.
+  Users can view and manage these rules in Settings under the Alerts card, which
+  uses the same action surface as the agent.
 
 ## Application State
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
 - `navigate` moves the user to the relevant analytics view, including
-  `view="catalog"` for the template catalog and `view="sessions"` for session
-  replay.
+  `view="catalog"` for the template catalog, `view="sessions"` for session
+  replay, and `view="agents"` / `agentsView="database"` with optional
+  `dbAdminConnectionId` for agent monitoring or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -148,6 +173,30 @@ details live in `.agents/skills/`.
   `get-session-replay-summary` and fetches rrweb payloads only through scoped
   chunk routes. Do not expose storage/provider URLs, raw chunk table access, or
   unscoped replay blobs in UI, actions, dashboards, docs, or prompts.
+- The session detail page can mint a temporary `Copy for agent` link through
+  `create-session-replay-agent-link`. That URL carries an `agent_access` token
+  scoped to one recording for two hours; SSR embeds an agent discovery payload
+  and the JSON APIs expose only summary/timeline metadata plus bounded event
+  reads.
+- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+  helpers for scoped token mint/verify and bot-visible URL construction. Keep
+  replay chunk/blob authorization, diagnostics payloads, and the session detail
+  UI in Analytics.
+- Recordings also capture console logs and network request metadata (request
+  bodies/headers never captured; response bodies captured only as bounded,
+  redacted 5xx snippets; scrubbed URLs, truncated messages, per-session
+  budgets); ingest derives `errorCount`/`networkErrorCount` and adds
+  `console-error`/`network-error` timeline markers.
+- The agent context includes a bounded `diagnostics` section (errors first) and
+  advertises `GET /api/session-replay/agent-diagnostics.json` with
+  `kind`/`level`/`limit` params (limit max 500) under the same `agent_access`
+  token — the primary signal when debugging a user-reported issue. `offset` and
+  `fromMs`/`toMs` page/window the same endpoint in strictly chronological order
+  (with `hasMore`/`truncated` per kind) so an agent can enumerate every
+  captured entry in a large session.
+- The replay player has a Dev Tools panel with Console and Network tabs
+  (filters, search, jump-to-seek, error badge); extend it rather than adding a
+  separate replay debugging surface. See the `session-replay` skill.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.
@@ -167,6 +216,9 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
+- The LLM observability dashboard template is `agent-observability-llm`. Install
+  it when the user wants model cost, token volume, latency, error rate, or top
+  expensive agent-run visibility from first-party `$ai_generation` events.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already
@@ -250,33 +302,28 @@ For analyses spanning 30+ accounts, deals, or calls:
 
 Do not try to hold 30+ full records in one context pass.
 
-### Corpus-First Provider Analysis
+### Provider Access & Dashboard Data Programs
 
-For broad provider searches, cross-source joins, mention counts, classifications,
-or questions where absence matters:
+One generic pattern covers arbitrary provider access, cross-source joins,
+corpus search, and turning any of that into a live dashboard panel — there is
+no separate per-vendor workflow:
 
-1. Inspect the provider catalog/docs when a canned action cannot express the
-   exact endpoint, filter, body, or pagination needed.
-2. Fetch the full relevant cohort, or an explicit bounded cohort, using
-   `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
-   the payload is large.
-3. Use `run-code` with `providerSearchAll` for broad mention/phrase/term/regex
-   searches across transcripts, messages, tickets, issues, notes, events, or
-   documents; it preserves provider item IDs, snippets, paths, page/item counts,
-   and pagination status. Use `providerFetch`, `appAction`, and
-   Resources-backed workspace helpers to join, classify, count, and aggregate
-   without flooding chat context. Write temporary files under `scratch/`; write
-   durable, user-facing files under a descriptive Resources folder only when
-   they should remain visible after the analysis.
-   Give durable corpus jobs descriptive, source-neutral names and preserve the
-   `jobId`; completed, quota-waiting, and failed jobs are surfaced in the app
-   with their coverage counts so the user can resume or inspect the exact run.
-4. Report coverage: source, filters, time window, row/record counts, joins,
-   failed/aborted pages, truncation, and any remaining gaps.
+1. `provider-api-catalog` / `provider-api-docs` to confirm the endpoint,
+   params, and auth (check `corpusRecipes` for broad body-text searches).
+2. `provider-api-request` for a one-off call, or `run-code`'s `providerFetch` /
+   `providerFetchAll` / `providerSearchAll` to fetch/join/filter/aggregate
+   server-side so big intermediates never enter chat context (`stageAs` +
+   `query-staged-dataset` for a large single-source pull).
+3. `save-data-program` to persist that run-code script as a live dashboard
+   panel feed: it dry-runs before saving, the panel binds with
+   `source: "program"`, and refresh policy (ttl/manual/background) lives on
+   the program — the agent does not re-run it per view.
+4. Report coverage: source, filters, time window, row counts, joins,
+   failed/aborted pages, truncation, and remaining gaps. Never turn sampled or
+   truncated results into a confident "none found" or exhaustive conclusion.
 
-Never turn sampled records, default limits, truncated excerpts, or aborted tool
-calls into a confident "none found", "all records", or exhaustive conclusion.
-Recover coverage first, or answer as explicitly partial.
+See the `provider-api` and `data-programs` skills for the full API surface,
+caching model, and a worked HubSpot x Pylon join example.
 
 ### Learnings Flywheel
 
@@ -310,6 +357,9 @@ Read the relevant skill before deeper work:
 - `prometheus` for metrics queries and incident investigation pattern.
 - `actions` for the shared provider API pattern when a first-class action is too
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
+- `data-programs` for turning a run-code script into a stored, refreshable
+  dashboard data source: the `emit(rows, schema)` contract, caching/refresh
+  model, limits, and the Risk Meeting worked example.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
 - `analysis-workspace` for large-scale multi-source analyses: Resources-backed

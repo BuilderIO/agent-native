@@ -5,9 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  subscribeSyncEvents,
   useDbSync,
   useScreenRefreshKey,
   _resetSyncTransportRegistryForTests,
+  type SyncEvent,
 } from "./use-db-sync.js";
 
 class QueryClientProbe {
@@ -34,11 +36,15 @@ class QueryClientProbe {
 function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
+  suppressActionInvalidationFor,
+  onEvent,
 }: {
   queryClient: QueryClientProbe;
   actionInvalidatePredicate?: (query: {
     queryKey: readonly unknown[];
   }) => boolean;
+  suppressActionInvalidationFor?: string[];
+  onEvent?: (data: any) => void;
 }) {
   useDbSync({
     queryClient,
@@ -46,6 +52,8 @@ function SyncProbe({
     interval: 50,
     pauseWhenHidden: false,
     actionInvalidatePredicate,
+    suppressActionInvalidationFor,
+    onEvent,
   });
   return null;
 }
@@ -82,6 +90,14 @@ async function renderWithEvent(event: Record<string, unknown>) {
   });
 
   return { container, fetchMock, queryClient, root };
+}
+
+function resultlessActionInvalidations(
+  calls: QueryClientProbe["calls"],
+): QueryClientProbe["calls"] {
+  return calls.filter(
+    (call) => call === undefined || call?.queryKey?.[0] === "action",
+  );
 }
 
 describe("useDbSync", () => {
@@ -161,6 +177,106 @@ describe("useDbSync", () => {
     expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
   });
 
+  it("can suppress action-query invalidation for high-volume background actions", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "process-builder-body-hydration",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const forwardedEvents: any[] = [];
+    await act(async () => {
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          suppressActionInvalidationFor={["process-builder-body-hydration"]}
+          onEvent={(evt) => forwardedEvents.push(evt)}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(resultlessActionInvalidations(queryClient.calls)).toHaveLength(0);
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extension"] });
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extensions"] });
+    expect(queryClient.calls).not.toContainEqual({
+      queryKey: ["slot-installs"],
+    });
+    // Suppression must not swallow the events themselves — templates layer
+    // surgical logic on onEvent and must still see suppressed-action batches.
+    expect(forwardedEvents).toContainEqual(
+      expect.objectContaining({ key: "process-builder-body-hydration" }),
+    );
+  });
+
+  it("keeps framework invalidations for mixed suppressed and unsuppressed batches", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "process-builder-body-hydration",
+              },
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "update-document",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          suppressActionInvalidationFor={["process-builder-body-hydration"]}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.calls).toContainEqual(undefined);
+    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toContainEqual({ queryKey: ["extension"] });
+  });
+
   it("keeps non-action events on targeted framework invalidations", async () => {
     const result = await renderWithEvent({
       version: 1,
@@ -174,6 +290,111 @@ describe("useDbSync", () => {
     expect(result.fetchMock).toHaveBeenCalled();
     expect(result.queryClient.calls).not.toContainEqual(undefined);
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("backs off polling after repeated failures and resets on success", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let failing = true;
+    const fetchMock = vi.fn(async () =>
+      failing
+        ? new Response("oops", { status: 500 })
+        : new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Mount poll = failure #1.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Base interval is 50ms, but after one failure the next poll is delayed
+    // to 50 * 2^1 = 100ms — advancing past the base interval alone must NOT
+    // trigger another poll.
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(50); // 110ms total ≥ 100ms backoff
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Failure #2 → next delay 50 * 2^2 = 200ms.
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    failing = false;
+    await act(async () => {
+      vi.advanceTimersByTime(60); // crosses the 200ms mark → poll #3 succeeds
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // Success resets the backoff to the base 50ms interval.
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 7,
+            events: [{ version: 7, source: "collab", docId: "d1" }],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const received: SyncEvent[] = [];
+    const sseStates: boolean[] = [];
+    const unsubscribe = subscribeSyncEvents({
+      onEvents: (events) => received.push(...events),
+      onSseStateChange: (connected) => sseStates.push(connected),
+      sseUrl: false,
+      interval: 50,
+      pauseWhenHidden: false,
+    });
+
+    // Joining reports the current SSE state immediately (disabled here).
+    expect(sseStates).toEqual([false]);
+
+    // The transport polls on start; events fan out to plain subscribers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).toHaveBeenCalled();
+    expect(
+      received.some(
+        (event) => event.source === "collab" && event.docId === "d1",
+      ),
+    ).toBe(true);
+
+    unsubscribe();
   });
 
   it("backs off polling after an auth failure", async () => {

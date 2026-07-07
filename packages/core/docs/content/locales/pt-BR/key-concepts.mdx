@@ -239,21 +239,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Ações principais para inspeção rápida do banco de dados e manutenção pontual
+# Ações principais para inspeção rápida do banco de dados
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Cirúrgico find/replace em uma coluna de texto grande — envia uma comparação, não o valor inteiro
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-O plug-in de bate-papo do agente de produção permite gravações de banco de dados brutos por padrão
-(`databaseTools: "write"`) para que os agentes possam corrigir dados de propriedade do aplicativo sem esperar por um
-nova ação digitada. Essas gravações têm como escopo o usuário/organização autenticado. Definir
-`databaseTools: "read"` para manter apenas a inspeção `db-schema` / `db-query` ou
-`databaseTools: "off"` / `false` para exigir o aplicativo digitado actions para todos os dados
-acesso.
+O plug-in de bate-papo do agente de produção deixa as ferramentas SQL brutas em modo somente leitura por padrão
+(`databaseTools: "read"`). Os agentes inspecionam dados do app com `db-schema` /
+`db-query` e escrevem por meio de actions tipadas do app. Defina
+`databaseTools: "write"` (ou `true`) apenas para superfícies de manutenção
+intencionais que também devam expor `db-exec` / `db-patch` com escopo; use
+`databaseTools: "off"` / `false` para exigir actions tipadas para todo acesso a dados.
 
 ## Ponte de bate-papo do agente {#agent-chat-bridge}
 
@@ -437,6 +433,7 @@ Eles estão no mesmo contrato e têm seus próprios aprofundamentos:
 
 - **[Dispatch](/docs/dispatch)** — o plano de controle do espaço de trabalho: caixa de entrada compartilhada, cofre de segredos, trabalhos agendados e um orquestrador que delega A2A a aplicativos especializados.
 - **[Extensions](/docs/extensions)** — miniaplicativos Alpine.js em sandbox que o agente cria em tempo de execução, sem alterações de origem ou migrações.
+- **[Programas de dados](/docs/data-programs)** — scripts `run-code` armazenados e escritos pelo agente que fornecem aos painéis de dashboard um resultado em cache e atualizável, em vez de uma action de provedor codificada.
 - **[A2A Protocol](/docs/a2a-protocol)** — como aplicativos no mesmo espaço de trabalho descobrem e chamam uns aos outros por meio de JSON-RPC.
 
 ## O que você ganha de graça {#what-you-get-for-free}

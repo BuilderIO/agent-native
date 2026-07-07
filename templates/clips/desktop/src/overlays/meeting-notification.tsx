@@ -23,9 +23,8 @@ const DEFAULT_AUTO_HIDE_MS = 30_000;
 const SNOOZE_MS = 5 * 60_000;
 
 /**
- * Open a meeting join URL via the Tauri shell plugin. Centralized here so
- * both the notification's "Take Notes" and the watcher's
- * `meetings:start-transcription` event use the same path.
+ * Open a meeting join URL via the Tauri shell plugin. Used by the
+ * notification's dedicated Join CTA (notes start is a separate action).
  */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
@@ -41,7 +40,7 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
  * Variants:
  *
  *   - Calendar event: solid left bar (green), meeting title, time,
- *     "Start notes" + "Snooze 5 min" buttons.
+ *     "Start notes" + optional "Join" + "Snooze 5 min" buttons.
  *   - Ad-hoc call: dashed left bar (slate), "Call detected", app name,
  *     same controls.
  *
@@ -170,11 +169,6 @@ export function MeetingNotification() {
     if (!data || pending) return;
     setPending(true);
     setError(null);
-    // Open the join URL right away so the user feels the click — the
-    // recording action runs in parallel.
-    if (data.joinUrl) {
-      openJoinUrl(data.joinUrl);
-    }
     emit("meetings:start-transcription", {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
@@ -185,25 +179,20 @@ export function MeetingNotification() {
     });
   }
 
+  async function joinMeeting() {
+    if (!data?.joinUrl) return;
+    await openJoinUrl(data.joinUrl);
+  }
+
   function snooze() {
     if (!data) return;
     // Hand the snooze to the Rust watcher so the reminder re-fires after the
     // delay even though this overlay window closes right away. A setTimeout
-    // here would be torn down with the window and never fire, and re-emitting
-    // immediately (as before) just re-showed the same banner instantly.
+    // here would be torn down with the window and never fire.
     invoke("meetings_snooze", {
       meetingId: data.meetingId,
       minutes: Math.round(SNOOZE_MS / 60_000),
     }).catch(() => {});
-    const payload = data;
-    // Hide the current banner and re-fire the same payload after the snooze
-    // delay. We re-emit through Tauri so the in-app banner overlay window
-    // (which is what hosts this React component) can rerender with a fresh
-    // auto-hide timer.
-    emit("meetings:show-notification", {
-      ...payload,
-      subtitle: `${payload.subtitle} (snoozed)`,
-    } as NotificationData).catch(() => {});
     hideNotification();
   }
 
@@ -212,6 +201,7 @@ export function MeetingNotification() {
   }
 
   const isCalendar = data.type === "calendar";
+  const hasJoin = Boolean(data.joinUrl);
 
   return (
     <div
@@ -227,7 +217,9 @@ export function MeetingNotification() {
         scheduleAutoHide(DEFAULT_AUTO_HIDE_MS);
       }}
     >
-      <div className="meeting-notification">
+      <div
+        className={`meeting-notification${hasJoin ? " meeting-notification-with-join" : ""}`}
+      >
         <div
           className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
         />
@@ -243,13 +235,22 @@ export function MeetingNotification() {
         </div>
         <div className="meeting-notification-actions">
           <button
-            className="meeting-notification-btn"
+            className="meeting-notification-btn meeting-notification-btn-primary"
             onClick={takeNotes}
             disabled={pending}
             data-no-drag
           >
             {pending ? "Starting…" : "Start notes"}
           </button>
+          {hasJoin ? (
+            <button
+              className="meeting-notification-btn meeting-notification-btn-secondary"
+              onClick={joinMeeting}
+              data-no-drag
+            >
+              Join
+            </button>
+          ) : null}
           <button
             className="meeting-notification-btn meeting-notification-btn-secondary"
             onClick={snooze}

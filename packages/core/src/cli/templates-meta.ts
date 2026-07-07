@@ -102,18 +102,6 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
-    name: "videos",
-    label: "Video",
-    hint: "Agent-native video editing with Remotion",
-    icon: "Video",
-    color: "#EF4444",
-    colorRgb: "239 68 68",
-    devPort: 8087,
-    prodUrl: "https://videos.agent-native.com",
-    defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
-  },
-  {
     name: "analytics",
     label: "Analytics",
     hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
@@ -254,7 +242,6 @@ export function coreTemplates(): TemplateMeta[] {
 export function getTemplate(name: string): TemplateMeta | undefined {
   // Tolerate legacy / renamed aliases.
   if (name === "starter") name = "chat";
-  if (name === "video") name = "videos";
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
   }

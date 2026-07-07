@@ -57,6 +57,7 @@ import {
   exchangeCode,
   getAuthUrl,
   getAuthStatus,
+  getClientsWithErrors,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   listEvents,
@@ -242,6 +243,94 @@ describe("calendar Google auth status", () => {
 
     await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
       "https://lh3.googleusercontent.com/a/auth-photo",
+    );
+  });
+});
+
+describe("calendar unusable OAuth token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    resolveGoogleProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null,
+    );
+    resolveGoogleLegacyProviderCredentialsMock.mockReturnValue(null);
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+  });
+
+  it("reports disconnected without deleting the row when a record parses to an empty object", async () => {
+    // A stored row that fails to decrypt (key rotation / wrong key) parses to
+    // `{}` in core's parseStoredTokens. The account must read as disconnected
+    // — but the row must NOT be deleted, because this process may simply hold
+    // the wrong key while the row is still decryptable elsewhere.
+    getOAuthAccountsMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const status = await getAuthStatus("steve@example.com");
+
+    expect(status.connected).toBe(false);
+    expect(status.accounts).toEqual([]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+    expect(createOAuth2ClientMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a reconnect error instead of an undefined bearer token", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(clients).toEqual([]);
+    expect(errors).toEqual([
+      {
+        email: "steve@example.com",
+        error: expect.stringContaining("please reconnect"),
+      },
+    ]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes instead of returning undefined when only a refresh token survives", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: { refresh_token: "refresh-token" },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-token",
+        expiry_date: Date.now() + 3_600_000,
+      }),
+    });
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(errors).toEqual([]);
+    expect(clients).toEqual([
+      { email: "steve@example.com", accessToken: "fresh-token" },
+    ]);
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "steve@example.com",
+      expect.objectContaining({ access_token: "fresh-token" }),
+      "steve@example.com",
     );
   });
 });

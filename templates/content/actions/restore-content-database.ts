@@ -63,6 +63,7 @@ export default defineAction({
     return {
       success: true,
       databaseId,
+      documentId: ownership.database.documentId,
       deletedAt: null,
     };
   },

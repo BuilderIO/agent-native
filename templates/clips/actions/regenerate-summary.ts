@@ -14,10 +14,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
   description:
-    "Ask the agent to regenerate this recording's description/summary based on its transcript.",
+    "Ask the agent to regenerate this recording's description/summary based on its transcript (and the full video when Include full video is enabled).",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -42,6 +44,27 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
+    const includeFullVideoInAi = await readIncludeFullVideoInAi();
+
+    if (
+      !includeFullVideoInAi &&
+      (transcript?.status !== "ready" || !transcript.fullText?.trim())
+    ) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_not_ready",
+        recordingId: args.recordingId,
+        transcriptStatus: transcript?.status ?? "missing",
+      };
+    }
+
+    const baseMessage =
+      `Regenerate the description for recording ${args.recordingId}. ` +
+      `Read the transcript in this request's context and call ` +
+      `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
+      `sentence summary of what the recording covers. Title: "${rec.title}".`;
+
     const request = {
       kind: "regenerate-summary" as const,
       recordingId: args.recordingId,
@@ -50,11 +73,12 @@ export default defineAction({
       currentDescription: rec.description,
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText: transcript?.fullText ?? "",
-      message:
-        `Regenerate the description for recording ${args.recordingId}. ` +
-        `Read the transcript in this request's context and call ` +
-        `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
-        `sentence summary of what the recording covers. Title: "${rec.title}".`,
+      includeFullVideoInAi,
+      message: withFullVideoAiInstructions(
+        baseMessage,
+        args.recordingId,
+        includeFullVideoInAi,
+      ),
     };
 
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
@@ -63,6 +87,10 @@ export default defineAction({
     console.log(
       `Delegation queued: regenerate-summary for ${args.recordingId}`,
     );
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      recordingId: args.recordingId,
+      includeFullVideoInAi,
+    };
   },
 });

@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
+import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "@shared/comment-context";
 import type { PlanBundle } from "@shared/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { planBundleQueryKey } from "@/hooks/use-plans";
 
@@ -9,10 +10,13 @@ import {
   addPlanCommentToBundle,
   buildNativeAnchorFromElement,
   buildCommentThreads,
+  canSubmitInlineCommentDraft,
   canEditPlanContentRole,
   commentAuthorEmails,
   commentThreadsForVisualSurfaceMode,
   commentThreadsForVisibility,
+  defaultInlineCommentDraftForPlanContext,
+  isPlanCommentShortcutEditableTarget,
   mentionQueryAtCaret,
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
@@ -25,7 +29,9 @@ import {
   shouldRetryLocalPlanBridgeBundle,
   shouldShowPlanLoadError,
   shouldKeepCommentPopoverOpenForTarget,
+  shouldHandlePlanCommentShortcut,
   resolvePlanOrgAccessPrompt,
+  resetPlanReaderScrollPosition,
 } from "./PlansPage";
 
 type PlanComment = PlanBundle["comments"][number];
@@ -100,6 +106,52 @@ function rect(left: number, top: number, width: number, height: number) {
 }
 
 describe("plan comment thread UI model", () => {
+  it("resets the plan reader and window scroll to the top", () => {
+    const windowScrollTo = vi.fn();
+    const originalWindowScrollTo = window.scrollTo;
+    Object.defineProperty(window, "scrollTo", {
+      value: windowScrollTo,
+      configurable: true,
+    });
+
+    const reader = document.createElement("div");
+    const readerScrollTo = vi.fn(
+      (options?: ScrollToOptions | number, y?: number) => {
+        if (typeof options === "number") {
+          reader.scrollLeft = options;
+          reader.scrollTop = y ?? 0;
+          return;
+        }
+        reader.scrollLeft = options?.left ?? reader.scrollLeft;
+        reader.scrollTop = options?.top ?? reader.scrollTop;
+      },
+    );
+    Object.defineProperty(reader, "scrollTo", {
+      value: readerScrollTo,
+      configurable: true,
+    });
+    reader.scrollLeft = 40;
+    reader.scrollTop = 320;
+
+    try {
+      resetPlanReaderScrollPosition(reader);
+    } finally {
+      Object.defineProperty(window, "scrollTo", {
+        value: originalWindowScrollTo,
+        configurable: true,
+      });
+    }
+
+    expect(readerScrollTo).toHaveBeenCalledWith({
+      left: 0,
+      top: 0,
+      behavior: "auto",
+    });
+    expect(reader.scrollLeft).toBe(0);
+    expect(reader.scrollTop).toBe(0);
+    expect(windowScrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
   it("uses the exact get-visual-plan query key for optimistic bundle updates", () => {
     expect(planBundleQueryKey("plan_1")).toEqual([
       "action",
@@ -498,6 +550,106 @@ describe("plan comment thread UI model", () => {
       resolutionTarget: "human",
       mentions: [{ label: "Tiana", email: "tiana@example.com" }],
     });
+  });
+
+  it("defaults recap human comments to the source author instead of the owner", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      sourceAuthorName: "Sami",
+      sourceAuthorLogin: "sami",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: `@[Sami](mailto:${encodeURIComponent(SOURCE_AUTHOR_COMMENT_MENTION_EMAIL)}) `,
+      mentions: [
+        {
+          email: SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
+          label: "Sami",
+          role: "source-author",
+        },
+      ],
+      resolutionTarget: "human",
+    });
+  });
+
+  it("does not fall back to the recap service owner when source author email is absent", () => {
+    const draft = defaultInlineCommentDraftForPlanContext({
+      planKind: "recap",
+      ownerEmail: "svc-pr-recap@builder.io",
+      accessRole: "viewer",
+      currentEmail: "steve@builder.io",
+    });
+
+    expect(draft).toEqual({
+      message: "",
+      mentions: [],
+      resolutionTarget: "agent",
+    });
+  });
+
+  it("does not submit human-targeted inline comments without a mention", () => {
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "human",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitInlineCommentDraft({
+        draft: {
+          message: "please check this",
+          mentions: [],
+          resolutionTarget: "agent",
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("handles comment shortcuts only outside editable targets", () => {
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(false);
+
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.setAttribute("contenteditable", "true");
+    document.body.append(input, editor);
+    input.focus();
+    expect(
+      shouldHandlePlanCommentShortcut(
+        new KeyboardEvent("keydown", { key: "c" }),
+      ),
+    ).toBe(false);
+    expect(isPlanCommentShortcutEditableTarget(editor)).toBe(true);
+    input.remove();
+    editor.remove();
   });
 
   it("does not resolve prototype comment anchors against the wrong active screen", () => {

@@ -12,6 +12,7 @@ export interface BuilderTranscribeOptions {
   maxSpeakers?: number;
   language?: string;
   instructions?: string;
+  timeoutMs?: number;
 }
 
 export interface BuilderTranscribeResult {
@@ -69,8 +70,12 @@ export async function transcribeWithBuilder(
     opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
   ) as ArrayBuffer;
 
+  const timeoutMs =
+    typeof opts.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
+      ? Math.max(1, Math.floor(opts.timeoutMs))
+      : 45_000;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -84,7 +89,9 @@ export async function transcribeWithBuilder(
     });
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
-      throw new Error("Builder transcription timed out after 45 seconds.");
+      throw new Error(
+        `Builder transcription timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`,
+      );
     }
     throw new Error(
       `Builder transcription request failed before response: ${describeError(err)}`,

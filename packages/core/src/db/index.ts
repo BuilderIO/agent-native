@@ -44,3 +44,9 @@ export {
   type Dialect,
 } from "./client.js";
 export { table, text, integer, now } from "./schema.js";
+export {
+  ensureAdditiveColumns,
+  type EnsureAdditiveColumnsOptions,
+  type EnsureAdditiveColumnsResult,
+  type EnsureAdditiveColumnsLogger,
+} from "./ensure-additive-columns.js";

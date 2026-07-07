@@ -75,15 +75,13 @@ background, text, border, ring, fill, stroke, gradient, placeholder, decoration,
 or shadow color, rewrite it to renderer tokens or remove it. Layout-only classes
 are still discouraged; inline flex/grid styles are safer and easier to review.
 
-**Keep Rough.js sparse.** `.wf-card` and `.wf-box` already render with
-theme-safe filled backgrounds (`--wf-card`) and soft tokenized borders that work
-in both light and dark mode. Do not add `data-rough` to broad root wrappers,
-dialog shells, page panels, grid cells, or nested containers unless that single
-container is the visual point. The renderer sketches the outer frame and
-standard controls by default; use `data-rough` only for a deliberate one-off
-shape. If a mockup starts looking like stacked/overlapping sketch lines, remove
-rough targets from parent containers and let backgrounds plus spacing separate
-the surfaces.
+**Keep Rough.js sparse.** The renderer sketches the outer frame, standard
+`.wf-*` primitives, controls, and inline border dividers by default. Do not add
+`data-rough` to broad root wrappers, dialog shells, page panels, grid cells, or
+nested containers unless that single container is the visual point. Use
+`data-rough` only for a deliberate one-off shape. If a mockup starts looking
+like stacked/overlapping sketch lines, remove rough targets from parent
+containers and let backgrounds plus spacing separate the surfaces.
 
 **Use literal CSS lengths for spacing.** The `--wf-*` tokens are for colors and
 renderer-owned visual styling, not layout spacing. Do not use guessed spacing
@@ -173,15 +171,26 @@ occurrence. The result is re-sanitized. In local-files privacy mode, do not call
 hosted Plan tools; edit the local MDX source directly and rerun the local
 check/serve or verify command for `<plan-dir>`.
 
-**Treat the wireframe border as part of the visible design.** Always wrap HTML
-wireframe content in a root container with real inner padding before drawing
-cards, fields, pills, labels, or controls. Use at least 14-16px of padding,
-`box-sizing: border-box`, `height: 100%`, and `gap` between child rows on the
-root node itself so the first row never sits flush against the screen border. Do
-not rely on padding on a nested page section as the first visible inset; the
-outermost element must create the breathing room. Keep text away from borders:
-every container, field, button, menu item, and annotation needs enough padding
-and line-height to read cleanly in the rendered Plan view.
+**Choose the outer frame deliberately.** Wireframe and diagram data accept
+`frame: "auto" | "show" | "hide"` in block data (`<Screen frame="hide">` in
+MDX wireframes, `<Diagram frame="hide">` for MDX diagrams). Leave it unset or
+`auto` when the host context should decide: Plan and recap surfaces default to a
+drawn outer frame; docs surfaces default to no outer frame. Use `show` for
+standalone product screens, before/after recap comparisons, screenshot-like
+artifacts, and visuals that need containment from surrounding prose. Use `hide`
+when a docs page, tab, column, card, canvas artboard, or the visual's own
+internal chrome already supplies the boundary. Do not use `hide` to compensate
+for cramped content; fix the layout instead.
+
+**Inner padding and borders still matter.** Always wrap HTML wireframe content
+in a root container with real inner padding before drawing cards, fields, pills,
+labels, or controls. Use at least 14-16px of padding, `box-sizing: border-box`,
+`height: 100%`, and `gap` between child rows on the root node itself so the
+first row never sits flush against the screen edge. Do not rely on padding on a
+nested page section as the first visible inset; the outermost element must
+create the breathing room. Keep text away from borders: every container, field,
+button, menu item, and annotation needs enough padding and line-height to read
+cleanly in the rendered Plan view.
 
 **For feature-cloud or abundance visuals, optimize the composition over line-by-line
 reading.** Some marketing/product sections need to feel like a large surface area

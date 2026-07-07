@@ -2,169 +2,95 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "design-local",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=design AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-picker.db pnpm --filter design exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "design-review-verify",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=design AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-review-verify.db pnpm --filter design exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "design-review-verify-fixed",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=design APP_URL=http://localhost:8093 AGENT_USER_EMAIL=dev@local.test DESIGN_DATABASE_URL=file:/tmp/design-review-verify.db PORT=8093 pnpm --filter design exec agent-native dev"
-      ],
-      "port": 8093,
-      "autoPort": false
-    },
-    {
-      "name": "dev",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:lazy", "--", "--all"],
-      "port": 8080
-    },
-    {
-      "name": "assets-local",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=assets AGENT_USER_EMAIL=dev@local.test ASSETS_DATABASE_URL=file:/tmp/assets-feedback.db pnpm --filter assets exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "clips-local",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=clips AGENT_USER_EMAIL=dev@local.test CLIPS_DATABASE_URL=file:/tmp/clips-playbtn.db pnpm --filter clips exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "analytics-local",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=analytics AGENT_USER_EMAIL=dev@local.test ANALYTICS_DATABASE_URL=file:/tmp/analytics-header.db pnpm --filter analytics exec agent-native dev"
-      ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "forms",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "forms", "exec", "agent-native", "dev"],
-      "port": 8080
-    },
-    {
       "name": "plan",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "plan", "exec", "agent-native", "dev"],
-      "port": 8080
-    },
-    {
-      "name": "content-sqlite",
-      "runtimeExecutable": "bash",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "CONTENT_DATABASE_URL=file:/tmp/content-undo.db pnpm --filter content exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/bdee078f-450e-4457-a910-cdd88dcbc0e1/scratchpad/plan-verify.sqlite",
+        "PORT=3100",
+        "pnpm",
+        "--dir",
+        "templates/plan",
+        "dev",
+        "--port",
+        "3100"
       ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3100
     },
     {
-      "name": "plan-vtabs",
-      "runtimeExecutable": "bash",
+      "name": "design",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "APP_NAME=plan AGENT_USER_EMAIL=demo@local.test PLAN_DATABASE_URL=file:/tmp/plan-vtabs.db pnpm --filter plan exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework--claude-worktrees-hungry-mahavira-9ef02f/b9fa688f-d1aa-4122-a63f-ba992a6d8770/scratchpad/design-verify.sqlite",
+        "PORT=3101",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "3101"
       ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3101
     },
     {
-      "name": "plan-local",
-      "runtimeExecutable": "bash",
+      "name": "analytics",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/Users/steve/Projects/builder/agent-native/framework/templates/plan/data/plan-local.db pnpm --filter plan exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/analytics-verify.sqlite",
+        "PORT=3105",
+        "pnpm",
+        "--dir",
+        "templates/analytics",
+        "dev",
+        "--port",
+        "3105"
       ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3105
     },
     {
-      "name": "plan-smoke",
-      "runtimeExecutable": "bash",
+      "name": "dispatch",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-smoke-0610.db pnpm --filter plan exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/dispatch-verify.sqlite",
+        "PORT=3103",
+        "pnpm",
+        "--dir",
+        "templates/dispatch",
+        "dev",
+        "--port",
+        "3103"
       ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3103
     },
     {
-      "name": "plan-localdir",
-      "runtimeExecutable": "bash",
+      "name": "clips",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=plan AGENT_USER_EMAIL=dev@local.test PLAN_DATABASE_URL=file:/tmp/plan-localdir.db PLAN_LOCAL_DIR=/Users/steve/Projects/builder/agent-native/framework/plans pnpm --filter plan exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/335b0436-2f6f-418c-97ad-57e7bc1c7727/scratchpad/clips-verify.sqlite",
+        "PORT=3102",
+        "pnpm",
+        "--dir",
+        "templates/clips",
+        "dev",
+        "--port",
+        "3102"
       ],
-      "port": 8080,
-      "autoPort": true
+      "port": 3102
     },
     {
-      "name": "chat-smoke",
-      "runtimeExecutable": "bash",
+      "name": "calendar",
+      "runtimeExecutable": "env",
       "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=chat AGENT_USER_EMAIL=dev@local.test CHAT_DATABASE_URL=file:/tmp/chat-smoke-0610.db pnpm --filter chat exec agent-native dev"
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f1b077ae-49b6-4397-bbfe-c77261a89c70/scratchpad/calendar-verify.sqlite",
+        "PORT=3104",
+        "pnpm",
+        "--dir",
+        "templates/calendar",
+        "dev",
+        "--port",
+        "3104"
       ],
-      "port": 8080,
-      "autoPort": true
-    },
-    {
-      "name": "docs",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@agent-native/docs", "dev"],
-      "port": 3000,
-      "autoPort": true
-    },
-    {
-      "name": "content-comments",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=content APP_URL=http://localhost:8088 AGENT_USER_EMAIL=dev@local.test CONTENT_DATABASE_URL=file:/tmp/content-comments-0610.db PORT=8088 pnpm --filter content exec agent-native dev"
-      ],
-      "port": 8088,
-      "autoPort": false
-    },
-    {
-      "name": "mail-e2e",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "-c",
-        "NODE_ENV=development APP_NAME=mail APP_URL=http://localhost:8092 AGENT_USER_EMAIL=dev@local.test MAIL_DATABASE_URL=file:/tmp/mail-e2e-approvals.db PORT=8092 pnpm --filter mail exec agent-native dev"
-      ],
-      "port": 8092,
-      "autoPort": true
+      "port": 3104
     }
   ]
 }
