@@ -56,19 +56,29 @@ const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -30.0;
 // stereo content that must not be flattened.
 const AUDIO_DOWNMIX_FILTER: &str =
     "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
+// Mild FFT denoise for native mic captures. Browser recordings already request
+// WebRTC noise suppression; ScreenCaptureKit/screencapture mic capture does
+// not, so reduce steady broadband room/mic hiss during the existing optimize
+// step. Keep this conservative to avoid watery speech artifacts.
+const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
 // loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
 
 // Loudness normalization, optionally preceded by the centered-stereo downmix
-// that repairs the mic+system L/R split. Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE`
-// so loudnorm's 192 kHz output is resampled back.
-fn audio_filter_chain(downmix: bool) -> String {
+// that repairs the mic+system L/R split and denoise for native mic captures.
+// Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
+// resampled back.
+fn audio_filter_chain(downmix: bool, denoise: bool) -> String {
+    let mut filters = Vec::new();
     if downmix {
-        format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_LOUDNESS_FILTER}")
-    } else {
-        AUDIO_LOUDNESS_FILTER.to_string()
+        filters.push(AUDIO_DOWNMIX_FILTER);
     }
+    if denoise {
+        filters.push(AUDIO_DENOISE_FILTER);
+    }
+    filters.push(AUDIO_LOUDNESS_FILTER);
+    filters.join(",")
 }
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
@@ -3860,7 +3870,7 @@ fn prepare_recording_file(
     height: Option<u32>,
     duration_ms: Option<u128>,
     has_audio: bool,
-    downmix_audio: bool,
+    mic_captured_audio: bool,
 ) -> Result<PreparedRecordingFile, String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
@@ -3918,7 +3928,8 @@ fn prepare_recording_file(
                     ffmpeg_path,
                     path,
                     &normalized_path,
-                    downmix_audio,
+                    mic_captured_audio,
+                    mic_captured_audio,
                 ) {
                     Ok(()) => {
                         let normalized_bytes = std::fs::metadata(&normalized_path)
@@ -3952,7 +3963,7 @@ fn prepare_recording_file(
                                 }
                             }
                             eprintln!(
-                                "[clips-tray] native recording audio normalized with ffmpeg: {} -> {} bytes",
+                                "[clips-tray] native recording audio optimized with ffmpeg: {} -> {} bytes",
                                 source_bytes, normalized_bytes
                             );
                             return Ok(PreparedRecordingFile {
@@ -4004,7 +4015,8 @@ fn prepare_recording_file(
                 height,
                 duration_ms,
                 has_audio,
-                downmix_audio,
+                mic_captured_audio,
+                mic_captured_audio,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -4401,6 +4413,7 @@ fn normalize_audio_with_ffmpeg(
     source: &Path,
     output: &Path,
     downmix_audio: bool,
+    denoise_audio: bool,
 ) -> Result<(), String> {
     let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
     let mut command = Command::new(ffmpeg_path);
@@ -4422,7 +4435,7 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(audio_filter_chain(downmix_audio))
+        .arg(audio_filter_chain(downmix_audio, denoise_audio))
         .arg("-ac")
         .arg("2")
         .arg("-ar")
@@ -4486,6 +4499,7 @@ fn transcode_with_ffmpeg(
     duration_ms: Option<u128>,
     normalize_audio: bool,
     downmix_audio: bool,
+    denoise_audio: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -4509,7 +4523,9 @@ fn transcode_with_ffmpeg(
     }
 
     if normalize_audio {
-        command.arg("-af").arg(audio_filter_chain(downmix_audio));
+        command
+            .arg("-af")
+            .arg(audio_filter_chain(downmix_audio, denoise_audio));
     }
 
     let duration_rate_limit =
@@ -4940,7 +4956,10 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 
 #[cfg(test)]
 mod audio_track_probe_tests {
-    use super::{mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe};
+    use super::{
+        audio_filter_chain, mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe,
+        AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_LOUDNESS_FILTER,
+    };
     use std::io::Write;
 
     /// Append an ISO BMFF box: 4-byte big-endian size (header + body) then
@@ -4976,6 +4995,19 @@ mod audio_track_probe_tests {
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         path
+    }
+
+    #[test]
+    fn builds_native_audio_filter_chain_for_mic_noise_reduction() {
+        assert_eq!(audio_filter_chain(false, false), AUDIO_LOUDNESS_FILTER);
+        assert_eq!(
+            audio_filter_chain(false, true),
+            format!("{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
+        );
+        assert_eq!(
+            audio_filter_chain(true, true),
+            format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
+        );
     }
 
     #[test]
