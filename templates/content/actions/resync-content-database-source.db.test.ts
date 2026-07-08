@@ -56,26 +56,43 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         if (builderReadMock.singleEntryErrorFor === model) {
           throw new Error(`read failed for ${model}`);
         }
-        if (model !== "collection-open-hydration-live") return null;
+        if (
+          model !== "collection-open-hydration-live" &&
+          model !== "collection-metadata-only"
+        ) {
+          return null;
+        }
+        const title =
+          model === "collection-metadata-only"
+            ? "Metadata-only hydration"
+            : "Open live hydration";
+        const urlPath =
+          model === "collection-metadata-only"
+            ? "/blog/metadata-only-hydration"
+            : "/blog/open-live-hydration";
+        const body =
+          model === "collection-metadata-only"
+            ? "Metadata-only row hydrated from a single-entry Builder read."
+            : "Live opened row body from Builder.";
         return {
           id: entryId,
           model,
-          title: "Open live hydration",
-          urlPath: "/blog/open-live-hydration",
+          title,
+          urlPath,
           updatedAt: "2026-01-01T00:00:00.000Z",
           sourceValues: {
-            "data.title": "Open live hydration",
-            "data.url": "/blog/open-live-hydration",
+            "data.title": title,
+            "data.url": urlPath,
             lastUpdated: "2026-01-01T00:00:00.000Z",
           },
           rawEntry: {
             id: entryId,
             model,
-            name: "Open live hydration",
+            name: title,
             lastUpdated: "2026-01-01T00:00:00.000Z",
             data: {
-              title: "Open live hydration",
-              url: "/blog/open-live-hydration",
+              title,
+              url: urlPath,
               blocks: [
                 {
                   "@type": "@builder.io/sdk:Element",
@@ -84,7 +101,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
                   component: {
                     name: "Text",
                     options: {
-                      text: "<p>Live opened row body from Builder.</p>",
+                      text: `<p>${body}</p>`,
                     },
                   },
                 },
@@ -138,6 +155,37 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               startOffset: 0,
               nextOffset: 2,
               fetchedEntryCount: 2,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-metadata-only") {
+          return {
+            state: "live",
+            entries: [
+              {
+                id: "entry-metadata-only-1",
+                model: "collection-metadata-only",
+                title: "Metadata-only hydration",
+                urlPath: "/blog/metadata-only-hydration",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                sourceValues: {
+                  "data.title": "Metadata-only hydration",
+                  "data.url": "/blog/metadata-only-hydration",
+                  lastUpdated: "2026-01-01T00:00:00.000Z",
+                },
+              },
+            ],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 1,
+              fetchedEntryCount: 1,
               hasMore: false,
               partial: false,
               readMode: "builder-api",
@@ -1531,6 +1579,276 @@ it("fetches a live Builder body when an opened row only has stored body metadata
   ]);
 });
 
+it("queues body hydration for metadata-only Builder row reads", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_metadata_only_hydration";
+  const databaseDocId = "doc_db_metadata_only_hydration";
+  const sourceId = "src_metadata_only_hydration";
+
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "Metadata-only hydration DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Metadata-only hydration DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-metadata-only",
+    sourceTable: "collection-metadata-only",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:10:00.000Z",
+    runFullRefresh: true,
+  });
+
+  const readImported = async () => {
+    const [row] = await db
+      .select({
+        content: schema.documents.content,
+        status: schema.contentDatabaseItems.bodyHydrationStatus,
+        queued: schema.contentDatabaseBodyHydrationQueue.id,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .innerJoin(
+        schema.contentDatabaseSourceRows,
+        eq(
+          schema.contentDatabaseSourceRows.databaseItemId,
+          schema.contentDatabaseItems.id,
+        ),
+      )
+      .leftJoin(
+        schema.contentDatabaseBodyHydrationQueue,
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+          schema.contentDatabaseItems.id,
+        ),
+      )
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    return row;
+  };
+
+  let after = await readImported();
+  for (
+    let attempt = 0;
+    after.status !== "hydrated" && attempt < 10;
+    attempt++
+  ) {
+    await hydrateQueuedBodies({ sourceId, limit: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    after = await readImported();
+  }
+  const sourceValues = JSON.parse(after.sourceValuesJson ?? "{}");
+
+  expect(after.status).toBe("hydrated");
+  expect(after.queued).toBeNull();
+  expect(after.content).toContain(
+    "Metadata-only row hydrated from a single-entry Builder read.",
+  );
+  expect(sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]).toContain(
+    "Metadata-only row hydrated from a single-entry Builder read.",
+  );
+  expect(builderReadMock.singleEntryCalls).toContainEqual({
+    model: "collection-metadata-only",
+    entryId: "entry-metadata-only-1",
+  });
+});
+
+it("repairs metadata-only Builder rows incorrectly marked hydrated with an empty document body", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_metadata_only_hydration_repair";
+  const databaseDocId = "doc_db_metadata_only_hydration_repair";
+  const documentId = "doc_metadata_only_hydration_repair";
+  const itemId = "item_metadata_only_hydration_repair";
+  const sourceId = "src_metadata_only_hydration_repair";
+  const rowId = "row_metadata_only_hydration_repair";
+  const sourceRowId = "entry-metadata-only-1";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "Metadata-only hydration repair DB",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Metadata-only hydration",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Metadata-only hydration repair DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "hydrated",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-metadata-only",
+    sourceTable: "collection-metadata-only",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: rowId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-metadata-only/${sourceRowId}`,
+    sourceDisplayKey: "Metadata-only hydration",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Metadata-only hydration",
+      "data.url": "/blog/metadata-only-hydration",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({
+    database,
+    source,
+    now: "2026-01-01T00:10:00.000Z",
+    runFullRefresh: false,
+  });
+
+  let [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  for (
+    let attempt = 0;
+    after.status !== "hydrated" ||
+    !after.content?.includes(
+      "Metadata-only row hydrated from a single-entry Builder read.",
+    );
+    attempt++
+  ) {
+    expect(attempt).toBeLessThan(10);
+    await hydrateQueuedBodies({ sourceId, limit: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    [after] = await db
+      .select({
+        content: schema.documents.content,
+        status: schema.contentDatabaseItems.bodyHydrationStatus,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .innerJoin(
+        schema.contentDatabaseSourceRows,
+        eq(
+          schema.contentDatabaseSourceRows.databaseItemId,
+          schema.contentDatabaseItems.id,
+        ),
+      )
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  }
+  const sourceValues = JSON.parse(after.sourceValuesJson ?? "{}");
+
+  expect(after.status).toBe("hydrated");
+  expect(after.content).toContain(
+    "Metadata-only row hydrated from a single-entry Builder read.",
+  );
+  expect(sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]).toContain(
+    "Metadata-only row hydrated from a single-entry Builder read.",
+  );
+  expect(builderReadMock.singleEntryCalls).toContainEqual({
+    model: "collection-metadata-only",
+    entryId: sourceRowId,
+  });
+});
+
 it("rebuilds an empty queued Builder body from the current source row before giving up", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
@@ -1902,15 +2220,7 @@ it("re-enqueues hydrated Builder rows with empty document content on resync", as
     runFullRefresh: true,
   });
 
-  const queued = await db
-    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(eq(schema.contentDatabaseBodyHydrationQueue.databaseItemId, itemId));
-  expect(queued).toHaveLength(1);
-
-  await hydrateQueuedBodies({ sourceId, limit: 10 });
-
-  const [after] = await db
+  let [after] = await db
     .select({
       content: schema.documents.content,
       status: schema.contentDatabaseItems.bodyHydrationStatus,
@@ -1921,6 +2231,27 @@ it("re-enqueues hydrated Builder rows with empty document content on resync", as
       eq(schema.contentDatabaseItems.documentId, schema.documents.id),
     )
     .where(eq(schema.documents.id, documentId));
+  for (
+    let attempt = 0;
+    after.status !== "hydrated" ||
+    after.content !== "Hydrated body One baseline.";
+    attempt++
+  ) {
+    expect(attempt).toBeLessThan(10);
+    await hydrateQueuedBodies({ sourceId, limit: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    [after] = await db
+      .select({
+        content: schema.documents.content,
+        status: schema.contentDatabaseItems.bodyHydrationStatus,
+      })
+      .from(schema.documents)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+      )
+      .where(eq(schema.documents.id, documentId));
+  }
 
   expect(after.status).toBe("hydrated");
   expect(after.content).toBe("Hydrated body One baseline.");
@@ -2521,15 +2852,7 @@ it("re-enqueues pending Builder rows with empty document content on resync", asy
     runFullRefresh: true,
   });
 
-  const queued = await db
-    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(eq(schema.contentDatabaseBodyHydrationQueue.databaseItemId, itemId));
-  expect(queued).toHaveLength(1);
-
-  await hydrateQueuedBodies({ sourceId, limit: 10 });
-
-  const [after] = await db
+  let [after] = await db
     .select({
       content: schema.documents.content,
       status: schema.contentDatabaseItems.bodyHydrationStatus,
@@ -2540,6 +2863,27 @@ it("re-enqueues pending Builder rows with empty document content on resync", asy
       eq(schema.contentDatabaseItems.documentId, schema.documents.id),
     )
     .where(eq(schema.documents.id, documentId));
+  for (
+    let attempt = 0;
+    after.status !== "hydrated" ||
+    after.content !== "Hydrated body One baseline.";
+    attempt++
+  ) {
+    expect(attempt).toBeLessThan(10);
+    await hydrateQueuedBodies({ sourceId, limit: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    [after] = await db
+      .select({
+        content: schema.documents.content,
+        status: schema.contentDatabaseItems.bodyHydrationStatus,
+      })
+      .from(schema.documents)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+      )
+      .where(eq(schema.documents.id, documentId));
+  }
 
   expect(after.status).toBe("hydrated");
   expect(after.content).toBe("Hydrated body One baseline.");

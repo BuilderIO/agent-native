@@ -998,7 +998,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
   const requests: BuilderBodyHydrationEnqueueRequest[] = [];
   for (const item of args.items) {
     const entry = args.builderEntriesByDocumentId.get(item.document.id);
-    if (!entry?.rawEntry) continue;
+    if (!entry) continue;
     if (
       item.bodyHydration?.status === "hydrated" &&
       item.bodyHydration.version === builderBodyHydrationVersion(entry) &&
@@ -1088,8 +1088,7 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
     const refreshedEntry = entry
       ? await refreshBuilderBodySourceValuesFromStoredLossless(entry)
       : null;
-    if (!refreshedEntry || !builderEntryHasBodyContent(refreshedEntry))
-      continue;
+    if (!refreshedEntry) continue;
     requests.push({
       sourceId: args.source.id,
       ownerEmail: row.item.ownerEmail,
@@ -1101,7 +1100,15 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
       now: args.now,
     });
   }
-  await enqueueBuilderBodyHydrations(requests);
+  const queuedJobs = await enqueueBuilderBodyHydrations(requests);
+  if (queuedJobs.length === 0) return;
+  void processBuilderBodyHydrationQueue({
+    sourceId: args.source.id,
+    limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
+    preloadedJobs: queuedJobs,
+  }).catch((error) => {
+    console.error("Builder body hydration repair kick failed", error);
+  });
 }
 
 function parseHydrationEntry(
@@ -4102,7 +4109,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       databaseId: args.database.id,
       documentId,
       position: nextItemPosition++,
-      bodyHydrationStatus: entry.rawEntry ? "pending" : "hydrated",
+      bodyHydrationStatus: "pending",
       bodyHydrationError: null,
       createdAt: args.now,
       updatedAt: args.now,
