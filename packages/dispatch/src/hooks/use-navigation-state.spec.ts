@@ -35,4 +35,11 @@ describe("buildDispatchNavigationState", () => {
       query: "focus",
     });
   });
+
+  it("recognizes the automations route", () => {
+    expect(buildDispatchNavigationState("/automations")).toEqual({
+      view: "automations",
+      path: "/automations",
+    });
+  });
 });

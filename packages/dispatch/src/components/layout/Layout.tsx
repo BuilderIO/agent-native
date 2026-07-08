@@ -37,6 +37,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPuzzle,
   IconSettings,
+  IconSettingsAutomation,
   IconShieldCheck,
 } from "@tabler/icons-react";
 import {
@@ -186,6 +187,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/approvals",
     label: "Approvals",
     icon: IconShieldCheck,
+    section: "operations",
+  },
+  {
+    id: "automations",
+    to: "/automations",
+    label: "Automations",
+    icon: IconSettingsAutomation,
     section: "operations",
   },
   {
