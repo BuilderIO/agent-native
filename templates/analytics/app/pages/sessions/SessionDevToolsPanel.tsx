@@ -129,11 +129,6 @@ export function SessionDevToolsPanel({
           ?.id ?? null)
       : null;
 
-  const selectedConsole =
-    filteredConsole.find((entry) => entry.id === selectedConsoleId) ?? null;
-  const selectedNetwork =
-    filteredNetwork.find((entry) => entry.id === selectedNetworkId) ?? null;
-
   useEffect(() => {
     if (
       selectedConsoleId &&

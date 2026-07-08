@@ -286,3 +286,19 @@ describe("display helpers", () => {
     expect(formatOffsetClock(3_725_000)).toBe("1:02:05");
   });
 });
+
+describe("devtools inline expansion layout", () => {
+  it("reserves taller space for the expanded row without flattening the list", async () => {
+    const { buildDevToolsRowOffsets } = await import("./SessionDevToolsPanel");
+    const collapsed = buildDevToolsRowOffsets(5, -1);
+    expect(collapsed).toEqual([0, 34, 68, 102, 136, 170]);
+
+    const expanded = buildDevToolsRowOffsets(5, 2);
+    expect(expanded[2]).toBe(68);
+    expect(expanded[3]).toBe(68 + 220);
+    expect(expanded[5]).toBe(68 + 220 + 34 + 34);
+    // Expanding one row must not collapse virtualization math for neighbors.
+    expect(expanded[1] - expanded[0]).toBe(34);
+    expect(expanded[5] - expanded[4]).toBe(34);
+  });
+});
