@@ -44,14 +44,14 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Discover callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Call it with NO query to list every available tool by name with a one-line description (cheap — no input schemas) so you can see the full menu of what exists; pass a `query` to find specific tools and get their parameter summaries. Use this whenever you need a capability but aren't sure which tool to call — most tools are not loaded into context up front, so this is how you find and then call them.",
+        "Discover callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Call it with NO query to list every available tool by name with a one-line description (cheap — no input schemas); names from that menu are not loaded for calling yet, so call tool-search again with a specific query for the tool/capability before invoking it. Use this whenever you need a capability but aren't sure which tool to call — most tools are not loaded into context up front, so this is how you find and then call them.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`. Omit to list every available tool name (the full menu) with one-line descriptions.",
+              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`. Omit to list every available tool name (the full menu) with one-line descriptions; then call tool-search again with a specific query before calling a tool from that menu.",
           },
           limit: {
             type: "number",
@@ -193,6 +193,8 @@ export function searchToolRegistry(
       query,
       totalTools,
       count: candidates.length,
+      message:
+        'Menu mode lists tool names only; it does not load schemas for calling. Before invoking a tool found here, call tool-search again with a specific query such as the tool name or capability (for example, { "query": "hubspot-deals" }).',
       results: candidates,
     };
     rememberToolSearchResult(cacheKey, result);

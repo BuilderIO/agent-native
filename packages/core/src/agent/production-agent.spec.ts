@@ -683,6 +683,21 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("warns that no-query tool-search menu results do not load schemas", () => {
+    const registry = attachToolSearch({
+      "hubspot-deals": actionEntry({
+        readOnly: true,
+        description: "Search HubSpot deals",
+      }),
+    });
+
+    const result = searchToolRegistry(registry, {});
+
+    expect(result.results.map((tool) => tool.name)).toContain("hubspot-deals");
+    expect(result.message).toContain("does not load schemas");
+    expect(result.message).toContain("tool-search again with a specific query");
+  });
+
   it("treats mixed tools as read-only only for allowed arguments", () => {
     const webRequest = actionEntry({ readOnly: true });
     expect(
