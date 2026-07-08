@@ -9,11 +9,13 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@agent-native/core"
   - "dom-to-pptx"
+  - "typescript"
+  - "@typescript/typescript6"
+  - "@typescript/typescript-*"
 
 catalog:
   "@tabler/icons-react": ^3.41.1
   "@tailwindcss/vite": ^4.2.4
-  "@typescript/native-preview": 7.0.0-dev.20260624.1
   "@types/react": ^19.2.14
   "@types/react-dom": ^19.2.3
   "@vitejs/plugin-react": ^6.0.3
@@ -24,7 +26,8 @@ catalog:
   react-dom: ^19.2.7
   tailwindcss: ^4.2.4
   tsx: ^4.20.3
-  typescript: ^6.0.3
+  typescript: npm:@typescript/typescript6@^6.0.2
+  "typescript-7": npm:typescript@^7.0.2
   vite: 8.1.0
   vitest: ^4.1.5
 

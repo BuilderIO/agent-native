@@ -69,7 +69,7 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "typescript-7": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -94,7 +94,7 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "vitest": "catalog:"

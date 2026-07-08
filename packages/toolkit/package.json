@@ -132,9 +132,9 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && node scripts/finalize-build.mjs",
+    "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.15",
@@ -183,8 +183,8 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript-7": "catalog:",
+    "typescript": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.0.0",

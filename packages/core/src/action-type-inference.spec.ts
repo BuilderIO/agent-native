@@ -4,7 +4,7 @@
  * These tests make no runtime assertions — they verify that the type system
  * correctly infers input and return types from `defineAction` declarations.
  * If the overload signatures ever regress to `: any`, the `expectTypeOf`
- * assertions below will produce TypeScript compile errors (caught by tsgo /
+ * assertions below will produce TypeScript compile errors (caught by tsc /
  * vitest typecheck), not runtime failures.
  */
 import { describe, it, expectTypeOf } from "vitest";

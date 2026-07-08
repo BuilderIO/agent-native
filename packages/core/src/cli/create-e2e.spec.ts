@@ -351,7 +351,7 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Headless onboarding — real `pnpm install` + `tsgo` + `pnpm action`
+ * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
  *
  * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
  * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE

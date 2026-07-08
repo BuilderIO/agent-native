@@ -74,7 +74,7 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "typescript-7": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -88,7 +88,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   },

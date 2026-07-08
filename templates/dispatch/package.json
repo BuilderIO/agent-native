@@ -34,14 +34,14 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
+    "typescript-7": "catalog:",
     "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

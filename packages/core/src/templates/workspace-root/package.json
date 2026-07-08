@@ -17,10 +17,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
-    "@typescript/native-preview": "catalog:",
+    "typescript-7": "catalog:",
     "oxfmt": "catalog:",
     "tsx": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript": "catalog:"
   },
   "packageManager": "pnpm@10.14.0",
   "agent-native": {

@@ -1433,7 +1433,7 @@ if (usePollingFileWatcher) {
   );
 }
 
-const coreWatchCompiler = usePollingFileWatcher ? "tsc" : "tsgo";
+const coreWatchCompiler = "tsc";
 startBackgroundProcess("core", "pnpm", [
   "--filter",
   "@agent-native/core",

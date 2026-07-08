@@ -227,9 +227,9 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
-    "dev": "tsgo --watch",
-    "typecheck": "tsgo --noEmit",
+    "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
     "test": "vitest --run src --maxWorkers=25%",
     "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
@@ -367,7 +367,8 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",
     "ws": "^8.18.0"

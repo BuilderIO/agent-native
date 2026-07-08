@@ -1159,7 +1159,7 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
       paths["@shared/*"] ??= ["./shared/*"];
     }
     // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
-    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
     // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
     // so never emit baseUrl into scaffolds.
     delete tsconfig.compilerOptions.baseUrl;

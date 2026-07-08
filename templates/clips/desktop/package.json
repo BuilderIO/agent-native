@@ -31,9 +31,9 @@
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "catalog:",
+    "typescript-7": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vite": "catalog:"
   }
 }
