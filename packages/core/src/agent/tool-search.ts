@@ -1,5 +1,6 @@
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { getRequestRunContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
@@ -90,6 +91,8 @@ export function searchToolRegistry(
   query: string;
   totalTools: number;
   count: number;
+  repeated?: boolean;
+  message?: string;
   results: ToolSearchResult[];
 } {
   const query = String(args.query ?? "").trim();
@@ -105,6 +108,31 @@ export function searchToolRegistry(
     options.defaultLimit ?? DEFAULT_LIMIT,
     options.maxLimit ?? MAX_LIMIT,
   );
+  const cacheKey = normalizeToolSearchCacheKey({
+    query,
+    limit,
+    includeSchemas,
+  });
+  const runCtx = getRequestRunContext();
+  const priorSearch = runCtx?.toolSearchReads?.[cacheKey];
+  if (priorSearch) {
+    return {
+      query,
+      totalTools: priorSearch.totalTools,
+      count: priorSearch.resultNames.length,
+      repeated: true,
+      message:
+        "This exact tool-search query already ran in this agent run. Use the previously returned schemas/details instead of searching again.",
+      results: priorSearch.resultNames.map((name) => ({
+        name,
+        kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
+        score: 0,
+        description:
+          "Already returned by an earlier identical tool-search call.",
+        parameters: [],
+      })),
+    };
+  }
   const queryTokens = tokenize(query);
 
   const candidates: ToolSearchResult[] = [];
@@ -161,7 +189,14 @@ export function searchToolRegistry(
 
   if (listAll) {
     candidates.sort((a, b) => a.name.localeCompare(b.name));
-    return { query, totalTools, count: candidates.length, results: candidates };
+    const result = {
+      query,
+      totalTools,
+      count: candidates.length,
+      results: candidates,
+    };
+    rememberToolSearchResult(cacheKey, result);
+    return result;
   }
 
   candidates.sort((a, b) => {
@@ -169,11 +204,38 @@ export function searchToolRegistry(
     return a.name.localeCompare(b.name);
   });
 
-  return {
+  const result = {
     query,
     totalTools,
     count: Math.min(candidates.length, limit),
     results: candidates.slice(0, limit),
+  };
+  rememberToolSearchResult(cacheKey, result);
+  return result;
+}
+
+function normalizeToolSearchCacheKey(options: {
+  query: string;
+  limit: number;
+  includeSchemas: boolean;
+}): string {
+  return JSON.stringify({
+    query: options.query.trim().toLowerCase(),
+    limit: options.limit,
+    includeSchemas: options.includeSchemas,
+  });
+}
+
+function rememberToolSearchResult(
+  cacheKey: string,
+  result: { totalTools: number; results: Array<{ name: string }> },
+) {
+  const runCtx = getRequestRunContext();
+  if (!runCtx) return;
+  const reads = (runCtx.toolSearchReads ??= {});
+  reads[cacheKey] = {
+    totalTools: result.totalTools,
+    resultNames: result.results.map((item) => item.name),
   };
 }
 

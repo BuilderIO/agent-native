@@ -45,7 +45,7 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
-import { attachToolSearch } from "./tool-search.js";
+import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
 function actionEntry(opts: {
@@ -641,6 +641,42 @@ describe("buildUserContentWithAttachments", () => {
     expect(initialTools).toContain("gong-calls");
     expect(initialTools).toContain("gcloud");
     expect(initialTools).not.toContain("ordinary-rare-tool");
+  });
+
+  it("compacts repeated identical tool-search calls within one agent run", async () => {
+    const registry = attachToolSearch({
+      "hubspot-deals": actionEntry({
+        readOnly: true,
+        description: "Search HubSpot deals",
+      }),
+      "hubspot-records": actionEntry({
+        readOnly: true,
+        description: "Read HubSpot records",
+      }),
+    });
+
+    await runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      () => {
+        const first = searchToolRegistry(registry, {
+          query: "hubspot",
+        } as any);
+        const second = searchToolRegistry(registry, {
+          query: "hubspot",
+        } as any) as any;
+
+        expect(first.results.map((result) => result.name)).toEqual([
+          "hubspot-deals",
+          "hubspot-records",
+        ]);
+        expect(second.repeated).toBe(true);
+        expect(second.message).toContain("already ran");
+        expect(second.results.map((result: any) => result.name)).toEqual([
+          "hubspot-deals",
+          "hubspot-records",
+        ]);
+      },
+    );
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
