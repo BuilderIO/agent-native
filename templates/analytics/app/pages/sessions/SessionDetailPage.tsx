@@ -35,7 +35,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
+  type FormEvent,
 } from "react";
 import { Link, useParams } from "react-router";
 
@@ -1103,8 +1103,8 @@ function ReplayScrubber({
     [markers, totalTime],
   );
 
-  function handleScrub(event: ChangeEvent<HTMLInputElement>) {
-    onScrub(Number(event.target.value));
+  function handleScrub(event: FormEvent<HTMLInputElement>) {
+    onScrub(Number(event.currentTarget.value));
   }
 
   return (
