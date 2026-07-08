@@ -1,4 +1,5 @@
-import { useT } from "@agent-native/core/client";
+import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import { IconAlertTriangle, IconHeartbeat } from "@tabler/icons-react";
 import { useSearchParams } from "react-router";
 
@@ -53,18 +54,29 @@ export default function MonitoringPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <Tabs value={view} onValueChange={setView} className="space-y-6">
-        {inSubView ? null : (
-          <TabsList>
-            <TabsTrigger value="uptime" className="gap-2">
-              <IconHeartbeat className="h-4 w-4" />
-              {t("navigation.monitoringUptime")}
-            </TabsTrigger>
-            <TabsTrigger value="errors" className="gap-2">
-              <IconAlertTriangle className="h-4 w-4" />
-              {t("navigation.monitoringErrors")}
-            </TabsTrigger>
-          </TabsList>
-        )}
+        {/* One header row: section switcher on the left (list level only) and
+            the relocated agent/chat toggle on the right (always present, on
+            list + sub-views), replacing the suppressed framework Header. */}
+        <div className="flex items-center justify-between gap-2">
+          {inSubView ? (
+            <div className="min-w-0" />
+          ) : (
+            <TabsList>
+              <TabsTrigger value="uptime" className="gap-2">
+                <IconHeartbeat className="h-4 w-4" />
+                {t("navigation.monitoringUptime")}
+              </TabsTrigger>
+              <TabsTrigger value="errors" className="gap-2">
+                <IconAlertTriangle className="h-4 w-4" />
+                {t("navigation.monitoringErrors")}
+              </TabsTrigger>
+            </TabsList>
+          )}
+          <div className="flex shrink-0 items-center gap-2">
+            <RunsTray />
+            <AgentToggleButton />
+          </div>
+        </div>
         <TabsContent value="uptime" className="focus-visible:outline-none">
           <UptimePanel />
         </TabsContent>

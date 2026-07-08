@@ -5,7 +5,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { saveMonitor } from "../server/lib/uptime-monitors";
+import { hostFromUrl, saveMonitor } from "../server/lib/uptime-monitors";
+
+/**
+ * Friendly default name from a URL: the host without a leading `www.`
+ * (e.g. `example.com` from `https://www.example.com/health`). Keeps
+ * agent-created monitors sensible when no name is provided.
+ */
+function deriveNameFromUrl(url: string): string {
+  return hostFromUrl((url ?? "").trim()).replace(/^www\./i, "");
+}
 
 const assertionSchema = z.object({
   type: z
@@ -59,7 +68,12 @@ export default defineAction({
     "Create or update an uptime monitor that pings a URL on a schedule and alerts when it is down, returns the wrong status, is too slow, or its body is missing/contains specific text.",
   schema: z.object({
     id: z.string().optional().describe("Existing monitor id to update."),
-    name: z.string().describe("Human-readable monitor name."),
+    name: z
+      .string()
+      .optional()
+      .describe(
+        "Human-readable monitor name. Optional — defaults to the URL host (without www) when omitted or blank.",
+      ),
     url: z.string().describe("Absolute http(s) URL to probe."),
     method: z
       .enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -125,6 +139,7 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
-    return saveMonitor(args, { email, orgId });
+    const name = args.name?.trim() || deriveNameFromUrl(args.url);
+    return saveMonitor({ ...args, name }, { email, orgId });
   },
 });

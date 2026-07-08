@@ -53,7 +53,7 @@ import type {
   SaveMonitorInput,
   StatusMatcher,
 } from "./types";
-import { describeMatcher, isHttpUrl } from "./utils";
+import { deriveMonitorName, describeMatcher, isHttpUrl } from "./utils";
 
 const METHODS: MonitorMethod[] = [
   "GET",
@@ -250,6 +250,7 @@ export function MonitorFormPage({
     handleSubmit,
     reset,
     watch,
+    setValue,
     setError,
     formState: { errors },
   } = useForm<MonitorFormValues>({
@@ -265,6 +266,10 @@ export function MonitorFormPage({
     initialSections(initialMonitor ?? null),
   );
 
+  // Name auto-fills from the URL until the user edits it. In edit mode an
+  // existing name counts as "touched" so we never clobber it.
+  const nameTouchedRef = useRef<boolean>(Boolean(initialMonitor?.name?.trim()));
+
   // Prefill exactly once per resolved monitor id so a late get-monitor refetch
   // never clobbers in-progress edits.
   const initedRef = useRef<string | null>(null);
@@ -273,6 +278,7 @@ export function MonitorFormPage({
       if (initedRef.current !== "new") {
         reset(defaultValues(null));
         setSections(initialSections(null));
+        nameTouchedRef.current = false;
         initedRef.current = "new";
       }
       return;
@@ -280,6 +286,7 @@ export function MonitorFormPage({
     if (resolved && initedRef.current !== resolved.id) {
       reset(defaultValues(resolved));
       setSections(initialSections(resolved));
+      nameTouchedRef.current = Boolean(resolved.name?.trim());
       initedRef.current = resolved.id;
     }
   }, [isEdit, resolved, reset]);
@@ -377,10 +384,11 @@ export function MonitorFormPage({
       })
       .filter((a): a is NonNullable<typeof a> => a !== null);
 
+    const url = formValues.url.trim();
     const payload: SaveMonitorInput = {
       id: monitorId ?? undefined,
-      name: formValues.name.trim(),
-      url: formValues.url.trim(),
+      name: formValues.name.trim() || deriveMonitorName(url),
+      url,
       method: formValues.method,
       requestHeaders: resolved?.requestHeaders,
       requestBody: resolved?.requestBody,
@@ -448,36 +456,44 @@ export function MonitorFormPage({
         {/* Essentials — always visible */}
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="monitor-name">{t.fieldName}</Label>
-            <Input
-              id="monitor-name"
-              placeholder={t.fieldNamePlaceholder}
-              autoFocus
-              {...register("name", {
-                validate: (value) => value.trim().length > 0 || t.nameRequired,
-              })}
-            />
-            {errors.name ? (
-              <p className="text-xs text-destructive">{errors.name.message}</p>
-            ) : null}
-          </div>
-
-          <div className="space-y-1.5">
             <Label htmlFor="monitor-url">{t.fieldUrl}</Label>
             <Input
               id="monitor-url"
               placeholder={t.fieldUrlPlaceholder}
               inputMode="url"
+              autoFocus
               {...register("url", {
                 validate: (value) => {
                   if (!value.trim()) return t.urlRequired;
                   return isHttpUrl(value.trim()) || t.urlInvalid;
+                },
+                onChange: (event) => {
+                  // Auto-fill the name from the URL until the user edits it.
+                  if (!nameTouchedRef.current) {
+                    setValue("name", deriveMonitorName(event.target.value), {
+                      shouldDirty: false,
+                    });
+                  }
                 },
               })}
             />
             {errors.url ? (
               <p className="text-xs text-destructive">{errors.url.message}</p>
             ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="monitor-name">{t.fieldName}</Label>
+            <Input
+              id="monitor-name"
+              placeholder={t.fieldNamePlaceholder}
+              {...register("name", {
+                onChange: () => {
+                  nameTouchedRef.current = true;
+                },
+              })}
+            />
+            <p className="text-xs text-muted-foreground">{t.fieldNameHint}</p>
           </div>
 
           <div className="space-y-1.5">

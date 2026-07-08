@@ -129,3 +129,49 @@ export const monitorIncidents = table("monitor_incidents", {
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),
 });
+
+/**
+ * Owner-authored public status page. A status page bundles a set of the owner's
+ * monitors under a public `slug` (`/status/<slug>`) and renders their SAFE
+ * aggregate health (status, uptime %s, colored timelines) to anyone with the
+ * link — but only when `published` is true. The public read
+ * (server/lib/status-pages.ts `getPublicStatusPage`) strictly filters to
+ * published pages and the page owner's included monitors, and never leaks
+ * monitor URLs/headers/assertions/alert config unless a per-monitor "show URL"
+ * opt-in is set.
+ *
+ * `monitors` is a JSON array of
+ *   { monitorId: string; order: number; displayName?: string | null;
+ *     showUrl?: boolean }
+ * kept additive so page layout can grow without a join table migration.
+ */
+export const statusPages = table("status_pages", {
+  id: text("id").primaryKey(),
+  /** Public, globally-unique URL slug (`/status/<slug>`). */
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  /** Only published pages are readable by the unauthenticated public route. */
+  published: integer("published", { mode: "boolean" }).notNull().default(false),
+  // ---- Layout options ----
+  showUptimeBars: integer("show_uptime_bars", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  showOverallUptime: integer("show_overall_uptime", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  showResponseTime: integer("show_response_time", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  density: text("density", { enum: ["comfortable", "compact"] })
+    .notNull()
+    .default("comfortable"),
+  alignment: text("alignment", { enum: ["left", "center"] })
+    .notNull()
+    .default("left"),
+  /** JSON array of included monitors with order + optional display overrides. */
+  monitors: text("monitors").notNull().default("[]"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});

@@ -18,6 +18,27 @@ export function hostFromUrl(url: string): string {
   }
 }
 
+/**
+ * Derive a friendly default monitor name from a URL: the host without a leading
+ * `www.` (e.g. `example.com` from `https://www.example.com/health`). Falls back
+ * to a best-effort parse for partial input so it still works while typing.
+ */
+export function deriveMonitorName(url: string): string {
+  const raw = (url ?? "").trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw).host.replace(/^www\./i, "") || raw;
+  } catch {
+    return (
+      raw
+        .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+        .replace(/^www\./i, "")
+        .split(/[/?#]/, 1)[0]
+        ?.trim() ?? ""
+    );
+  }
+}
+
 export function isHttpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);

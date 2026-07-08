@@ -89,7 +89,7 @@ const MESSAGES = {
     formCreateTitle: "New monitor",
     formEditTitle: "Edit monitor",
     formCreateSubtitle:
-      "Name it and paste a URL — everything else has smart defaults you can tweak.",
+      "Paste a URL to get started — everything else has smart defaults you can tweak.",
     formEditSubtitle: "Adjust how this monitor checks and who it alerts.",
     sectionResponseChecks: "Response checks",
     sectionResponseChecksHint:
@@ -106,6 +106,7 @@ const MESSAGES = {
     pausedBadge: "Paused",
     fieldName: "Name",
     fieldNamePlaceholder: "Marketing site",
+    fieldNameHint: "Optional — defaults to the site's domain.",
     fieldUrl: "URL",
     fieldUrlPlaceholder: "https://example.com/health",
     fieldMethod: "Method",

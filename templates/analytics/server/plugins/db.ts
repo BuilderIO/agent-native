@@ -1059,6 +1059,61 @@ const runAnalyticsMigrations = runMigrations(
       name: "error-issues-org-fingerprint-unique-idx",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS error_issues_org_fingerprint_unique_idx ON error_issues (owner_email, org_id, fingerprint) WHERE org_id IS NOT NULL`,
     },
+    // --- v103+: public status pages (owner-authored, publicly shareable uptime
+    //   status pages). See server/db/schema-monitoring.ts (`statusPages`) and
+    //   server/lib/status-pages.ts.
+    {
+      version: 103,
+      name: "status-pages-table",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS status_pages (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      published BOOLEAN NOT NULL DEFAULT false,
+      show_uptime_bars BOOLEAN NOT NULL DEFAULT true,
+      show_overall_uptime BOOLEAN NOT NULL DEFAULT true,
+      show_response_time BOOLEAN NOT NULL DEFAULT false,
+      density TEXT NOT NULL DEFAULT 'comfortable',
+      alignment TEXT NOT NULL DEFAULT 'left',
+      monitors TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      updated_at TEXT NOT NULL DEFAULT (now()::text),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS status_pages (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      published INTEGER NOT NULL DEFAULT 0,
+      show_uptime_bars INTEGER NOT NULL DEFAULT 1,
+      show_overall_uptime INTEGER NOT NULL DEFAULT 1,
+      show_response_time INTEGER NOT NULL DEFAULT 0,
+      density TEXT NOT NULL DEFAULT 'comfortable',
+      alignment TEXT NOT NULL DEFAULT 'left',
+      monitors TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+      },
+    },
+    {
+      version: 104,
+      name: "status-pages-slug-unique-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS status_pages_slug_unique_idx ON status_pages (slug)`,
+    },
+    {
+      version: 105,
+      name: "status-pages-scope-updated-idx",
+      sql: `CREATE INDEX IF NOT EXISTS status_pages_scope_updated_idx ON status_pages (owner_email, org_id, updated_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
