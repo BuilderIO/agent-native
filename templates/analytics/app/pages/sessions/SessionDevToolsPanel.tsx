@@ -52,6 +52,7 @@ function issueDetailPath(issueId: string): string {
 /** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
 const DEVTOOLS_ROW_HEIGHT = 34;
+const DEVTOOLS_EXPANDED_ESTIMATE = 220;
 const DEVTOOLS_OVERSCAN_ROWS = 10;
 const DEVTOOLS_MIN_HEIGHT = 180;
 const DEVTOOLS_MAX_HEIGHT = 620;
@@ -376,13 +377,15 @@ function DevToolsResizeHandle({
 function VirtualizedDevToolsList<T extends { id: string }>({
   entries,
   activeEntryId,
+  expandedEntryId,
   emptyMessage,
   renderRow,
 }: {
   entries: T[];
   activeEntryId: string | null;
+  expandedEntryId: string | null;
   emptyMessage: string;
-  renderRow: (entry: T) => ReactNode;
+  renderRow: (entry: T, expanded: boolean) => ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastManualScrollAtRef = useRef(0);
@@ -392,6 +395,24 @@ function VirtualizedDevToolsList<T extends { id: string }>({
   const activeIndex = activeEntryId
     ? entries.findIndex((entry) => entry.id === activeEntryId)
     : -1;
+  const expandedIndex = expandedEntryId
+    ? entries.findIndex((entry) => entry.id === expandedEntryId)
+    : -1;
+
+  const rowOffsets = useMemo(() => {
+    const offsets = new Array<number>(entries.length + 1);
+    offsets[0] = 0;
+    for (let index = 0; index < entries.length; index += 1) {
+      const height =
+        index === expandedIndex
+          ? DEVTOOLS_EXPANDED_ESTIMATE
+          : DEVTOOLS_ROW_HEIGHT;
+      offsets[index + 1] = offsets[index] + height;
+    }
+    return offsets;
+  }, [entries.length, expandedIndex]);
+
+  const totalHeight = rowOffsets[entries.length] ?? 0;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -413,15 +434,16 @@ function VirtualizedDevToolsList<T extends { id: string }>({
     }
     const el = containerRef.current;
     if (!el) return;
-    const rowTop = activeIndex * DEVTOOLS_ROW_HEIGHT;
-    const rowBottom = rowTop + DEVTOOLS_ROW_HEIGHT;
+    const rowTop = rowOffsets[activeIndex] ?? 0;
+    const rowBottom =
+      rowOffsets[activeIndex + 1] ?? rowTop + DEVTOOLS_ROW_HEIGHT;
     if (rowTop >= el.scrollTop && rowBottom <= el.scrollTop + el.clientHeight) {
       return;
     }
     el.scrollTo({
       top: Math.max(0, rowTop - el.clientHeight / 2 + DEVTOOLS_ROW_HEIGHT),
     });
-  }, [activeIndex, entries.length]);
+  }, [activeIndex, entries.length, rowOffsets]);
 
   const markManualScroll = () => {
     lastManualScrollAtRef.current = Date.now();
@@ -436,14 +458,24 @@ function VirtualizedDevToolsList<T extends { id: string }>({
   }
 
   const measuredHeight = viewportHeight || 240;
-  const startIndex = clamp(
-    Math.floor(scrollTop / DEVTOOLS_ROW_HEIGHT) - DEVTOOLS_OVERSCAN_ROWS,
-    0,
-    entries.length,
-  );
-  const endIndex = clamp(
-    Math.ceil((scrollTop + measuredHeight) / DEVTOOLS_ROW_HEIGHT) +
-      DEVTOOLS_OVERSCAN_ROWS,
+  let startIndex = 0;
+  while (
+    startIndex < entries.length &&
+    (rowOffsets[startIndex + 1] ?? 0) < scrollTop
+  ) {
+    startIndex += 1;
+  }
+  startIndex = clamp(startIndex - DEVTOOLS_OVERSCAN_ROWS, 0, entries.length);
+
+  let endIndex = startIndex;
+  while (
+    endIndex < entries.length &&
+    (rowOffsets[endIndex] ?? 0) < scrollTop + measuredHeight
+  ) {
+    endIndex += 1;
+  }
+  endIndex = clamp(
+    endIndex + DEVTOOLS_OVERSCAN_ROWS,
     startIndex,
     entries.length,
   );
@@ -458,22 +490,26 @@ function VirtualizedDevToolsList<T extends { id: string }>({
       onPointerDown={markManualScroll}
       onTouchMove={markManualScroll}
     >
-      <div
-        className="relative"
-        style={{ height: entries.length * DEVTOOLS_ROW_HEIGHT }}
-      >
-        {visibleEntries.map((entry, offset) => (
-          <div
-            key={entry.id}
-            className="absolute inset-x-0"
-            style={{
-              height: DEVTOOLS_ROW_HEIGHT,
-              top: (startIndex + offset) * DEVTOOLS_ROW_HEIGHT,
-            }}
-          >
-            {renderRow(entry)}
-          </div>
-        ))}
+      <div className="relative" style={{ height: totalHeight }}>
+        {visibleEntries.map((entry, offset) => {
+          const index = startIndex + offset;
+          const expanded = entry.id === expandedEntryId;
+          const top = rowOffsets[index] ?? 0;
+          const height =
+            (rowOffsets[index + 1] ?? top + DEVTOOLS_ROW_HEIGHT) - top;
+          return (
+            <div
+              key={entry.id}
+              className="absolute inset-x-0"
+              style={{
+                minHeight: height,
+                top,
+              }}
+            >
+              {renderRow(entry, expanded)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
