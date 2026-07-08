@@ -5,7 +5,7 @@ use crate::state::{
     DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 

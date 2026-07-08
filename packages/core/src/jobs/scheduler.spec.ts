@@ -6,6 +6,7 @@ const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 
@@ -27,6 +28,10 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: vi.fn(() => []),
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
   runAgentLoop: runAgentLoopMock,
+}));
+
+vi.mock("../usage/store.js", () => ({
+  recordUsage: recordUsageMock,
 }));
 
 // Partial-mock db/client so the user/membership validation lookup is
@@ -66,7 +71,14 @@ Summarize the inbox.`,
     ]);
     resourcePutMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-1" });
-    runAgentLoopMock.mockResolvedValue(undefined);
+    runAgentLoopMock.mockResolvedValue({
+      inputTokens: 100,
+      outputTokens: 25,
+      cacheReadTokens: 10,
+      cacheWriteTokens: 5,
+      model: "test-model",
+    });
+    recordUsageMock.mockResolvedValue(undefined);
   });
 
   it("creates run history threads owned by the job user", async () => {
@@ -129,6 +141,30 @@ Summarize the inbox.`,
 
     expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
     expect(process.env.AGENT_ORG_ID).toBe("stale-org");
+  });
+
+  it("records recurring job usage with job label and run ref", async () => {
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: {} as any,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "alice+jobs@agent-native.test",
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+        label: "recurring-job:daily-report",
+        app: "mail",
+        refId: expect.stringMatching(/^job-daily-report-\d+-[a-z0-9]+$/),
+      }),
+    );
   });
 
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {

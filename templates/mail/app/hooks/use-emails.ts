@@ -17,6 +17,7 @@ import { useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import { gmailMutationQueue } from "@/lib/gmail-mutation-queue";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   useThreadCache,
@@ -636,14 +637,21 @@ export function useMarkRead() {
       id,
       isRead,
       accountEmail,
+      threadId,
     }: {
       id: string;
       isRead: boolean;
       accountEmail?: string;
+      threadId?: string;
     }) =>
-      callAction("mark-read", { id, unread: !isRead, accountEmail }).then(
-        assertActionSuccess,
-      ),
+      // Buffer + batch via Gmail messages.batchModify so rapid open/mark-read
+      // (and e-e-e archive) stay snappy without burning quota per keypress.
+      gmailMutationQueue.enqueue("mark-read", {
+        id,
+        threadId,
+        accountEmail,
+        flag: isRead,
+      }),
     onMutate: async ({ id, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -676,12 +684,19 @@ export function useMarkThreadRead() {
     mutationFn: async (threadId: string) => {
       const entries = pendingByThread.current.get(threadId) ?? [];
       pendingByThread.current.delete(threadId);
-      if (entries.length > 0) {
-        await callAction("mark-thread-read", {
-          threadId,
-          accountEmail: entries[0]?.accountEmail,
-        }).then(assertActionSuccess);
-      }
+      if (entries.length === 0) return;
+      // Enqueue each unread message; the queue coalesces across threads into
+      // one mark-read batchModify when the user opens/archives rapidly.
+      await Promise.all(
+        entries.map((entry) =>
+          gmailMutationQueue.enqueue("mark-read", {
+            id: entry.id,
+            threadId,
+            accountEmail: entry.accountEmail,
+            flag: true,
+          }),
+        ),
+      );
     },
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
@@ -737,17 +752,19 @@ export function useToggleStar() {
       id,
       isStarred,
       accountEmail,
+      threadId,
     }: {
       id: string;
       isStarred: boolean;
       accountEmail?: string;
       threadId?: string;
     }) =>
-      callAction("star-email", {
+      gmailMutationQueue.enqueue("star", {
         id,
-        unstar: !isStarred,
+        threadId,
         accountEmail,
-      }).then(assertActionSuccess),
+        flag: isStarred,
+      }),
     onMutate: async ({ id, isStarred, threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -802,12 +819,12 @@ export function useArchiveEmail() {
       removeLabel?: string;
       threadId?: string;
     }) =>
-      callAction("archive-email", {
+      gmailMutationQueue.enqueue("archive", {
         id,
         accountEmail,
         removeLabel,
         threadId,
-      }).then(assertActionSuccess),
+      }),
     onMutate: async ({
       id,
       threadId: hintedThreadId,
@@ -848,8 +865,13 @@ export function useArchiveEmail() {
 export function useUnarchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      callAction("unarchive-email", { id }).then(assertActionSuccess),
+    mutationFn: (id: string) => {
+      // Undo often lands inside the debounce window — drop the pending
+      // archive so we never send a modify we immediately reverse.
+      const cancelled = gmailMutationQueue.cancel("archive", id);
+      if (cancelled) return Promise.resolve("cancelled-pending-archive");
+      return callAction("unarchive-email", { id }).then(assertActionSuccess);
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -924,10 +946,14 @@ export function useBulkArchiveEmails() {
   const t = useT();
   return useMutation({
     mutationFn: ({ targets, removeLabel }: BulkArchiveVars) =>
-      callAction("archive-email", {
-        ...bulkActionArgs(targets),
-        removeLabel,
-      }).then(assertActionSuccess),
+      Promise.all(
+        targets.map((target) =>
+          gmailMutationQueue.enqueue("archive", {
+            ...target,
+            removeLabel,
+          }),
+        ),
+      ).then(() => `Queued archive for ${targets.length} email(s)`),
     onMutate: async ({ targets }: BulkArchiveVars) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -1008,7 +1034,7 @@ export function useBulkTrashEmails() {
   });
 }
 
-/** Bulk star/unstar: one action call, one optimistic override per message. */
+/** Bulk star/unstar: queued + batched Gmail modify, one optimistic override. */
 export function useBulkToggleStar() {
   const qc = useQueryClient();
   return useMutation({
@@ -1019,10 +1045,14 @@ export function useBulkToggleStar() {
       targets: BulkEmailTarget[];
       isStarred: boolean;
     }) =>
-      callAction("star-email", {
-        ...bulkActionArgs(targets),
-        unstar: !isStarred,
-      }).then(assertActionSuccess),
+      Promise.all(
+        targets.map((target) =>
+          gmailMutationQueue.enqueue("star", {
+            ...target,
+            flag: isStarred,
+          }),
+        ),
+      ).then(() => `Queued star for ${targets.length} email(s)`),
     onMutate: async ({ targets, isStarred }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -1045,7 +1075,7 @@ export function useBulkToggleStar() {
   });
 }
 
-/** Bulk mark read/unread: one action call, one optimistic override per message. */
+/** Bulk mark read/unread: queued + batched Gmail modify, one optimistic override. */
 export function useBulkMarkRead() {
   const qc = useQueryClient();
   return useMutation({
@@ -1056,10 +1086,14 @@ export function useBulkMarkRead() {
       targets: BulkEmailTarget[];
       isRead: boolean;
     }) =>
-      callAction("mark-read", {
-        ...bulkActionArgs(targets),
-        unread: !isRead,
-      }).then(assertActionSuccess),
+      Promise.all(
+        targets.map((target) =>
+          gmailMutationQueue.enqueue("mark-read", {
+            ...target,
+            flag: isRead,
+          }),
+        ),
+      ).then(() => `Queued mark-read for ${targets.length} email(s)`),
     onMutate: async ({ targets, isRead }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({

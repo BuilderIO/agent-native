@@ -1286,6 +1286,9 @@ export function App() {
       if (e.key === "Escape") {
         // Don't close mid-recording — user would lose the recorder handle.
         if (isRecording) return;
+        // Reset nested views before hide so the next tray open lands on the
+        // main recorder UI instead of resuming scrolled settings/meetings.
+        setPopoverView("recorder");
         hidePopover();
       }
     }
@@ -1328,7 +1331,11 @@ export function App() {
     track(
       listen<boolean>("clips:popover-visible", (ev) => {
         console.log("[clips-popover] popover-visible =", ev.payload);
-        setPopoverVisible(!!ev.payload);
+        const visible = !!ev.payload;
+        setPopoverVisible(visible);
+        // Leaving settings/meetings/dictation mid-scroll should not resume on
+        // the next open — always return to the main recorder surface.
+        if (!visible) setPopoverView("recorder");
       }),
     );
     // The bubble window emits `clips:bubble-closed` when the user clicks
@@ -1415,6 +1422,10 @@ export function App() {
   // tracks (which causes the laggy / black / silently-failing recording
   // symptoms). Reset to false once the recording is fully torn down.
   const bubbleStreamTransferredToRecorder = useRef(false);
+  // Bumped when the native stop path releases the camera mid-session so the
+  // bubble effect re-acquires even if bubbleActive/cameraId are unchanged
+  // (post-stop reopen with a blank "Default Camera" preview).
+  const [bubbleSessionEpoch, setBubbleSessionEpoch] = useState(0);
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
@@ -1623,14 +1634,21 @@ export function App() {
         invoke("hide_overlays").catch(() => {});
       }
     };
-  }, [bubbleActive, cameraId]);
+  }, [bubbleActive, cameraId, bubbleSessionEpoch]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     listen("clips:release-camera", () => {
       console.log(`[popover] releasing camera`);
+      // Native stop closes the bubble and kills tracks while React may still
+      // hold a live RecorderHandle during finalize/upload. Clear ownership so
+      // the bubble session can re-acquire a fresh preview, and so Start is not
+      // stuck on an ended stream.
+      bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
+      bubbleStreamRef.current = null;
+      setBubbleSessionEpoch((epoch) => epoch + 1);
     })
       .then((u) => {
         if (cancelled) u();
@@ -1642,6 +1660,24 @@ export function App() {
       unlisten?.();
     };
   }, []);
+
+  // If the popover reopens while camera is still wanted, and the previous
+  // bubble stream is gone or all tracks have ended (common after native stop
+  // + mid-upload reopen), bump the session epoch so the bubble effect
+  // re-acquires getUserMedia + WebRTC instead of showing a blank "Default
+  // Camera" label with a silent Start.
+  useEffect(() => {
+    if (!popoverVisible || !wantsCamera) return;
+    if (recordingFlowGateRef.current || recordingFlowActive) return;
+    const tracks = bubbleStreamRef.current?.getTracks() ?? [];
+    const needsFreshBubble =
+      tracks.length === 0 ||
+      tracks.every((track) => track.readyState === "ended");
+    if (!needsFreshBubble) return;
+    bubbleStreamTransferredToRecorder.current = false;
+    bubbleStreamRef.current = null;
+    setBubbleSessionEpoch((epoch) => epoch + 1);
+  }, [popoverVisible, wantsCamera, recordingFlowActive]);
 
   // ---- auto-size popover to content --------------------------------------
   // The Tauri window is fixed-size via tauri.conf.json, but our content
@@ -1859,7 +1895,25 @@ export function App() {
   async function handleStartRecording(options?: {
     ignoreActiveRecorder?: boolean;
   }) {
-    if (recorder && !options?.ignoreActiveRecorder) return;
+    if (recorder && !options?.ignoreActiveRecorder) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — recorder already active",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return;
+    }
+    const bubbleTracks = bubbleStreamRef.current?.getTracks() ?? [];
+    const bubbleStreamDead =
+      bubbleTracks.length > 0 &&
+      bubbleTracks.every((track) => track.readyState === "ended");
+    if (bubbleStreamDead) {
+      console.warn("[clips-popover] clearing ended bubble stream before start");
+      bubbleStreamTransferredToRecorder.current = false;
+      bubbleStreamRef.current = null;
+      setBubbleSessionEpoch((epoch) => epoch + 1);
+    }
     if (localRecordingMode === "off") {
       if (videoStorageStatus === "checking") {
         setRecError("Checking video storage. Try again in a moment.");
@@ -2202,11 +2256,28 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
+        // Detach the React Start/bubble gate immediately. Native stop already
+        // released the camera and cleared Rust `is_recording_active` mid-
+        // finalize; keeping `recorder` set through the whole upload made
+        // reopen show a blank preview and made Start a silent no-op.
+        const handle = recorder;
+        bubbleStreamTransferredToRecorder.current = false;
+        bubbleStreamRef.current = null;
+        recordingFlowGateRef.current = false;
+        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+          false;
+        setRecordingFlowActive(false);
+        setRecorder(null);
+        // Force a fresh bubble session even when bubbleActive stays true
+        // (popover still open / camera still on). Without this epoch bump the
+        // effect does not re-run and reopen shows ended tracks until Start
+        // discovers them.
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+
         let stopFailed = false;
         let stopResult: RecorderStopResult | null = null;
         try {
-          stopResult = await recorder.stop();
-          if (cancelled) return;
+          stopResult = await handle.stop();
           if (stopResult.localOnly) {
             setLocalRecordingNotice({
               folderPath: stopResult.localFolder,
@@ -2217,36 +2288,20 @@ export function App() {
           }
         } catch (err) {
           stopFailed = true;
-          if (!cancelled) {
-            setRecError(err instanceof Error ? err.message : String(err));
-            await loadPendingUploads();
-          }
+          setRecError(err instanceof Error ? err.message : String(err));
+          await loadPendingUploads();
         } finally {
-          if (!cancelled) {
-            // Clear the force-alive flag — recording is done, the pump
-            // can honor document.hidden normally again.
-            (
-              window as unknown as { clipsForceAlive?: boolean }
-            ).clipsForceAlive = false;
-            // Recorder has stopped its tracks; next popover session can
-            // acquire the camera cleanly again.
-            bubbleStreamTransferredToRecorder.current = false;
-            bubbleStreamRef.current = null;
-            recordingFlowGateRef.current = false;
-            setRecorder(null);
-            setRecordingFlowActive(false);
-            invoke("set_recording_state", { active: false }).catch(() => {});
-            if (stopFailed || stopResult?.localOnly) {
-              invoke("show_popover").catch(() => {});
-            } else {
-              // Close the popover — recorder.stop() already opened the
-              // recording's page in the default browser. The popover doesn't
-              // need to hang around.
-              getCurrentWindow()
-                .hide()
-                .catch(() => {});
-              emit("clips:popover-visible", false).catch(() => {});
-            }
+          invoke("set_recording_state", { active: false }).catch(() => {});
+          if (stopFailed || stopResult?.localOnly) {
+            invoke("show_popover").catch(() => {});
+          } else {
+            // Close the popover — recorder.stop() already opened the
+            // recording's page in the default browser. The popover doesn't
+            // need to hang around.
+            getCurrentWindow()
+              .hide()
+              .catch(() => {});
+            emit("clips:popover-visible", false).catch(() => {});
           }
         }
       }),
@@ -2265,6 +2320,7 @@ export function App() {
             recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
+            setBubbleSessionEpoch((epoch) => epoch + 1);
             invoke("set_recording_state", { active: false }).catch(() => {});
             invoke("show_popover").catch(() => {});
           }
@@ -2285,6 +2341,7 @@ export function App() {
             recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
+            setBubbleSessionEpoch((epoch) => epoch + 1);
             invoke("set_recording_state", { active: false }).catch(() => {});
             // Starting a new browser capture must come from a fresh click in
             // this webview. The toolbar click arrives here through async Tauri

@@ -306,7 +306,7 @@ function findWorkspaceCoreSync(
 
 function findLocalWorkspacePackageDeps(
   startDir: string,
-  _workspaceRoot: string | null,
+  workspaceRoot: string | null,
 ): Array<{ packageName: string; packageDir: string }> {
   const pkgPath = path.join(startDir, "package.json");
   if (!fs.existsSync(pkgPath)) return [];
@@ -329,6 +329,12 @@ function findLocalWorkspacePackageDeps(
         let packageJsonPath: string | null = null;
         if (range.startsWith("file:")) {
           packageJsonPath = findFilePackageJsonPath(pkgPath, range);
+        } else if (range.startsWith("workspace:")) {
+          packageJsonPath = findWorkspacePackageJsonPath(
+            pkgPath,
+            packageName,
+            workspaceRoot,
+          );
         } else {
           continue;
         }
@@ -348,6 +354,93 @@ function findLocalWorkspacePackageDeps(
   } catch {
     return [];
   }
+}
+
+function packagePathSegments(packageName: string): string[] {
+  return packageName.split("/");
+}
+
+function findWorkspacePackageJsonPath(
+  pkgPath: string,
+  packageName: string,
+  workspaceRoot: string | null,
+): string | null {
+  const packageSegments = packagePathSegments(packageName);
+  const candidates = [
+    path.join(path.dirname(pkgPath), "node_modules", ...packageSegments),
+    ...(workspaceRoot
+      ? [path.join(workspaceRoot, "node_modules", ...packageSegments)]
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    const packageJsonPath = path.join(candidate, "package.json");
+    if (!fs.existsSync(packageJsonPath)) continue;
+    const realPath = fs.realpathSync(packageJsonPath);
+    if (
+      workspaceRoot &&
+      !realPath.startsWith(`${fs.realpathSync(workspaceRoot)}${path.sep}`)
+    ) {
+      continue;
+    }
+    return realPath;
+  }
+
+  if (workspaceRoot) {
+    return findWorkspacePackageJsonByName(workspaceRoot, packageName);
+  }
+
+  return null;
+}
+
+function findWorkspacePackageJsonByName(
+  workspaceRoot: string,
+  packageName: string,
+): string | null {
+  const searchRoots = ["packages", "templates"].map((name) =>
+    path.join(workspaceRoot, name),
+  );
+
+  for (const searchRoot of searchRoots) {
+    const packageJsonPath = findPackageJsonInTree(searchRoot, packageName, 2);
+    if (packageJsonPath) return packageJsonPath;
+  }
+
+  return null;
+}
+
+function findPackageJsonInTree(
+  root: string,
+  packageName: string,
+  maxDepth: number,
+): string | null {
+  if (!fs.existsSync(root)) return null;
+
+  const packageJsonPath = path.join(root, "package.json");
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+      if (pkg?.name === packageName) return fs.realpathSync(packageJsonPath);
+    } catch {
+      // Ignore malformed workspace package metadata.
+    }
+  }
+
+  if (maxDepth <= 0) return null;
+
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+
+    const found = findPackageJsonInTree(
+      path.join(root, entry.name),
+      packageName,
+      maxDepth - 1,
+    );
+    if (found) return found;
+  }
+
+  return null;
 }
 
 function findFilePackageJsonPath(

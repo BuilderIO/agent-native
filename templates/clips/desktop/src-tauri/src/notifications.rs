@@ -16,8 +16,8 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-const NOTIFICATION_W_LOGICAL: u32 = 420;
-const NOTIFICATION_H_LOGICAL: u32 = 148;
+const NOTIFICATION_W_LOGICAL: u32 = 440;
+const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
 
@@ -109,6 +109,38 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
     Ok(pending.take())
 }
 
+fn format_time_range_subtitle(
+    scheduled_start: Option<&str>,
+    scheduled_end: Option<&str>,
+    starts_in_secs: i64,
+) -> String {
+    let Some(start_str) = scheduled_start else {
+        return fallback_starts_subtitle(starts_in_secs);
+    };
+    let Ok(start) = chrono::DateTime::parse_from_rfc3339(start_str) else {
+        return fallback_starts_subtitle(starts_in_secs);
+    };
+    let local_start = start.with_timezone(&chrono::Local);
+    let start_label = local_start.format("%-I:%M %p").to_string();
+    if let Some(end_str) = scheduled_end {
+        if let Ok(end) = chrono::DateTime::parse_from_rfc3339(end_str) {
+            let end_label = end.with_timezone(&chrono::Local).format("%-I:%M %p");
+            return format!("{start_label} - {end_label}");
+        }
+    }
+    start_label
+}
+
+fn fallback_starts_subtitle(starts_in_secs: i64) -> String {
+    if starts_in_secs <= 0 {
+        "Started".to_string()
+    } else if starts_in_secs < 90 {
+        format!("Starts in {}s", starts_in_secs)
+    } else {
+        format!("Starts in {} min", (starts_in_secs / 60).max(1))
+    }
+}
+
 #[tauri::command]
 pub async fn notify_meeting_starting(
     app: AppHandle,
@@ -116,16 +148,16 @@ pub async fn notify_meeting_starting(
     title: String,
     starts_in_secs: i64,
     join_url: Option<String>,
+    scheduled_start: Option<String>,
+    scheduled_end: Option<String>,
+    platform: Option<String>,
     auto_start: Option<bool>,
 ) -> Result<(), String> {
-    let pretty_in = if starts_in_secs <= 0 {
-        "now".to_string()
-    } else if starts_in_secs < 90 {
-        format!("in {}s", starts_in_secs)
-    } else {
-        format!("in {} min", (starts_in_secs / 60).max(1))
-    };
-    let body = format!("Starts {}", pretty_in);
+    let body = format_time_range_subtitle(
+        scheduled_start.as_deref(),
+        scheduled_end.as_deref(),
+        starts_in_secs,
+    );
     dlog!(
         "[clips-tray] notify_meeting_starting id={} title={} body={}",
         meeting_id,
@@ -141,6 +173,9 @@ pub async fn notify_meeting_starting(
         "subtitle": body,
         "meetingId": meeting_id,
         "joinUrl": join_url,
+        "platform": platform,
+        "scheduledStart": scheduled_start,
+        "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
     });
     store_pending_meeting_notification(&app, &payload);

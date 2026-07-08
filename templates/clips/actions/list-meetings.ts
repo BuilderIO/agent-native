@@ -73,6 +73,15 @@ export default defineAction({
       .describe(
         "If set, only return upcoming meetings starting within this many minutes. Used by the desktop reminder watcher.",
       ),
+    includeStartedWithinMin: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .optional()
+      .describe(
+        "Also include meetings that started within this many minutes (desktop reminder hold window). Default 0.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -92,6 +101,11 @@ export default defineAction({
           now.getTime() + args.upcomingWithinMin * 60 * 1000,
         ).toISOString()
       : null;
+    const startedWithinMin = args.includeStartedWithinMin ?? 0;
+    const upcomingWindowMinIso =
+      startedWithinMin > 0
+        ? new Date(now.getTime() - startedWithinMin * 60 * 1000).toISOString()
+        : nowIso;
 
     const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
 
@@ -102,11 +116,12 @@ export default defineAction({
     }
 
     if (args.view === "upcoming") {
-      // Scheduled in the future and not yet finished.
+      // Scheduled in the future (or recently started, for desktop hold window)
+      // and not yet finished.
       whereClauses.push(
         and(
           isNotNull(schema.meetings.scheduledStart),
-          gte(schema.meetings.scheduledStart, nowIso),
+          gte(schema.meetings.scheduledStart, upcomingWindowMinIso),
           isNull(schema.meetings.actualStart),
           isNull(schema.meetings.actualEnd),
           upcomingWindowMaxIso
@@ -209,7 +224,10 @@ export default defineAction({
               ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
               : args.view === "all"
                 ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
-                : new Date(now.getTime() - 60 * 1000).toISOString();
+                : startedWithinMin > 0
+                  ? upcomingWindowMinIso
+                  : // Small cushion for clock skew when listing pure upcoming.
+                    new Date(now.getTime() - 60 * 1000).toISOString();
           const timeMax =
             args.view === "past"
               ? nowIso
@@ -253,6 +271,16 @@ export default defineAction({
             const endMs = Date.parse(endIso);
             if (Number.isNaN(startMs) || Number.isNaN(endMs)) continue;
             if (args.view === "upcoming" && endMs < now.getTime()) continue;
+            // Only clamp already-started events when the desktop hold window
+            // is active — the normal Meetings list still shows in-progress
+            // calendar events until they end.
+            if (
+              args.view === "upcoming" &&
+              startedWithinMin > 0 &&
+              startMs < Date.parse(upcomingWindowMinIso)
+            ) {
+              continue;
+            }
             if (args.view === "past" && endMs >= now.getTime()) continue;
             if (
               upcomingWindowMaxIso &&

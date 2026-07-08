@@ -1,9 +1,22 @@
-import { IconAlertCircle, IconClock, IconX } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconChevronDown,
+  IconNotes,
+  IconVideo,
+  IconX,
+} from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
+
+import {
+  detectMeetingJoinProvider,
+  joinProviderLabel,
+  meetingNotificationAutoHideMs,
+  type MeetingJoinProvider,
+} from "../lib/meeting-notification-timing";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -11,6 +24,9 @@ interface NotificationData {
   subtitle: string;
   meetingId: string;
   joinUrl?: string | null;
+  platform?: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
   autoStart?: boolean;
 }
 
@@ -19,12 +35,11 @@ interface TranscriptionStatusPayload {
   error?: string;
 }
 
-const DEFAULT_AUTO_HIDE_MS = 30_000;
 const SNOOZE_MS = 5 * 60_000;
+const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
 
 /**
- * Open a meeting join URL via the Tauri shell plugin. Used by the
- * notification's dedicated Join CTA (notes start is a separate action).
+ * Open a meeting join URL via the Tauri shell plugin.
  */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
@@ -35,40 +50,71 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
   }
 }
 
+function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
+  // Lightweight glyphs — keep the overlay free of extra assets. Zoom blue
+  // camera / Meet green / Teams purple, otherwise a generic video icon.
+  if (provider === "zoom") {
+    return (
+      <span
+        className="meeting-notification-provider meeting-notification-provider-zoom"
+        aria-hidden
+      >
+        <IconVideo size={14} stroke={2.2} />
+      </span>
+    );
+  }
+  if (provider === "meet") {
+    return (
+      <span
+        className="meeting-notification-provider meeting-notification-provider-meet"
+        aria-hidden
+      >
+        <IconVideo size={14} stroke={2.2} />
+      </span>
+    );
+  }
+  if (provider === "teams") {
+    return (
+      <span
+        className="meeting-notification-provider meeting-notification-provider-teams"
+        aria-hidden
+      >
+        <IconVideo size={14} stroke={2.2} />
+      </span>
+    );
+  }
+  return (
+    <span
+      className="meeting-notification-provider meeting-notification-provider-other"
+      aria-hidden
+    >
+      <IconNotes size={14} stroke={2.2} />
+    </span>
+  );
+}
+
 /**
  * Granola-style meeting notification — small card in the top-right corner.
- * Variants:
  *
- *   - Calendar event: solid left bar (green), meeting title, time,
- *     "Start notes" + optional "Join" + "Snooze 5 min" buttons.
- *   - Ad-hoc call: dashed left bar (slate), "Call detected", app name,
- *     same controls.
+ * Primary split button: join the call and open Clips notes in one click.
+ * Chevron exposes secondary actions (join only / notes only / snooze).
  *
- * Data arrives via Tauri event `meetings:show-notification`. Auto-hides
- * after 30s by default. Hover pauses the auto-hide timer. Errors from the
- * persistent popover transcription session surface inline beneath the title
- * so the user isn't left wondering why nothing happened.
+ * Data arrives via Tauri event `meetings:show-notification`. Visibility holds
+ * from 1 minute before start until 5 minutes after, unless dismissed.
  */
 export function MeetingNotification() {
   const [data, setData] = useState<NotificationData | null>(null);
   const [showClose, setShowClose] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
 
-  // Keep a ref to the latest data so the transcription-status listeners can
-  // match incoming events against the meeting currently on screen without
-  // re-subscribing on every render.
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  // The notification window is a single persistent overlay (created once at
-  // startup so it can receive `meetings:show-notification` events). Drive its
-  // OS-level visibility from React state: a shown-but-empty transparent window
-  // would otherwise sit at the top of the screen swallowing clicks. Visible
-  // only while there's a notification on screen.
   useEffect(() => {
     const win = getCurrentWindow();
     if (data) {
@@ -84,8 +130,15 @@ export function MeetingNotification() {
   ) {
     setData(payload);
     setError(null);
+    setMenuOpen(false);
     setPending(!!payload.autoStart && !options?.hydrated);
-    scheduleAutoHide(DEFAULT_AUTO_HIDE_MS);
+    const startMs = payload.scheduledStart
+      ? Date.parse(payload.scheduledStart)
+      : NaN;
+    const hideMs = Number.isFinite(startMs)
+      ? meetingNotificationAutoHideMs(startMs)
+      : FALLBACK_AUTO_HIDE_MS;
+    scheduleAutoHide(hideMs || FALLBACK_AUTO_HIDE_MS);
   }
 
   useEffect(() => {
@@ -154,7 +207,22 @@ export function MeetingNotification() {
 
   function scheduleAutoHide(ms: number) {
     clearAutoHide();
+    if (ms <= 0) {
+      hideNotification();
+      return;
+    }
     autoHideTimerRef.current = setTimeout(() => hideNotification(), ms);
+  }
+
+  function resumeAutoHide() {
+    const current = dataRef.current;
+    const startMs = current?.scheduledStart
+      ? Date.parse(current.scheduledStart)
+      : NaN;
+    const hideMs = Number.isFinite(startMs)
+      ? meetingNotificationAutoHideMs(startMs)
+      : FALLBACK_AUTO_HIDE_MS;
+    scheduleAutoHide(hideMs || FALLBACK_AUTO_HIDE_MS);
   }
 
   function hideNotification() {
@@ -162,6 +230,7 @@ export function MeetingNotification() {
     setData(null);
     setError(null);
     setPending(false);
+    setMenuOpen(false);
     dataRef.current = null;
   }
 
@@ -169,6 +238,7 @@ export function MeetingNotification() {
     if (!data || pending) return;
     setPending(true);
     setError(null);
+    setMenuOpen(false);
     emit("meetings:start-transcription", {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
@@ -181,14 +251,23 @@ export function MeetingNotification() {
 
   async function joinMeeting() {
     if (!data?.joinUrl) return;
+    setMenuOpen(false);
     await openJoinUrl(data.joinUrl);
+  }
+
+  /** Granola primary: join the call and start Clips notes together. */
+  async function joinAndOpenClips() {
+    if (!data || pending) return;
+    setMenuOpen(false);
+    if (data.joinUrl) {
+      await openJoinUrl(data.joinUrl);
+    }
+    await takeNotes();
   }
 
   function snooze() {
     if (!data) return;
-    // Hand the snooze to the Rust watcher so the reminder re-fires after the
-    // delay even though this overlay window closes right away. A setTimeout
-    // here would be torn down with the window and never fire.
+    setMenuOpen(false);
     invoke("meetings_snooze", {
       meetingId: data.meetingId,
       minutes: Math.round(SNOOZE_MS / 60_000),
@@ -202,6 +281,14 @@ export function MeetingNotification() {
 
   const isCalendar = data.type === "calendar";
   const hasJoin = Boolean(data.joinUrl);
+  const provider = detectMeetingJoinProvider(data.joinUrl, data.platform);
+  const providerName = joinProviderLabel(provider);
+  const primaryLabel = hasJoin
+    ? provider === "other"
+      ? "Join meeting"
+      : `Join ${providerName}`
+    : "Start notes";
+  const secondaryLabel = hasJoin ? "& open Clips" : null;
 
   return (
     <div
@@ -212,14 +299,11 @@ export function MeetingNotification() {
       }}
       onMouseLeave={() => {
         setShowClose(false);
-        // Resume the auto-hide timer with the remaining-ish budget.
-        // Cheap approximation: just restart the full timer on leave.
-        scheduleAutoHide(DEFAULT_AUTO_HIDE_MS);
+        setMenuOpen(false);
+        resumeAutoHide();
       }}
     >
-      <div
-        className={`meeting-notification${hasJoin ? " meeting-notification-with-join" : ""}`}
-      >
+      <div className="meeting-notification">
         <div
           className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
         />
@@ -233,34 +317,65 @@ export function MeetingNotification() {
             </div>
           ) : null}
         </div>
-        <div className="meeting-notification-actions">
+        <div className="meeting-notification-split">
           <button
-            className="meeting-notification-btn meeting-notification-btn-primary"
-            onClick={takeNotes}
+            className="meeting-notification-split-main"
+            onClick={hasJoin ? joinAndOpenClips : takeNotes}
             disabled={pending}
             data-no-drag
           >
-            {pending ? "Starting…" : "Start notes"}
+            <ProviderGlyph provider={hasJoin ? provider : "other"} />
+            <span className="meeting-notification-split-copy">
+              <span className="meeting-notification-split-primary">
+                {pending ? "Starting…" : primaryLabel}
+              </span>
+              {secondaryLabel && !pending ? (
+                <span className="meeting-notification-split-secondary">
+                  {secondaryLabel}
+                </span>
+              ) : null}
+            </span>
           </button>
-          {hasJoin ? (
-            <button
-              className="meeting-notification-btn meeting-notification-btn-secondary"
-              onClick={joinMeeting}
-              data-no-drag
-            >
-              Join
-            </button>
-          ) : null}
           <button
-            className="meeting-notification-btn meeting-notification-btn-secondary"
-            onClick={snooze}
+            className="meeting-notification-split-chevron"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label="More actions"
+            aria-expanded={menuOpen}
             data-no-drag
-            aria-label="Snooze 5 minutes"
-            title="Snooze 5 min"
           >
-            <IconClock size={12} aria-hidden="true" />
-            <span>5m</span>
+            <IconChevronDown size={14} aria-hidden="true" />
           </button>
+          {menuOpen ? (
+            <div className="meeting-notification-menu" role="menu">
+              {hasJoin ? (
+                <button
+                  role="menuitem"
+                  className="meeting-notification-menu-item"
+                  onClick={joinMeeting}
+                  data-no-drag
+                >
+                  Join only
+                </button>
+              ) : null}
+              <button
+                role="menuitem"
+                className="meeting-notification-menu-item"
+                onClick={takeNotes}
+                disabled={pending}
+                data-no-drag
+              >
+                Start notes only
+              </button>
+              <button
+                role="menuitem"
+                className="meeting-notification-menu-item"
+                onClick={snooze}
+                data-no-drag
+              >
+                Snooze 5 min
+              </button>
+            </div>
+          ) : null}
         </div>
         {showClose ? (
           <button

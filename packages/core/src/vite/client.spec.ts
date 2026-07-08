@@ -1184,20 +1184,30 @@ describe("local-core dev aliases and router dedupe", () => {
     }
   });
 
-  it("does not source-alias workspace package dependencies during app builds", () => {
+  it("source-aliases workspace package dependencies during app builds", () => {
     const previousCwd = process.cwd();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-workspace-"));
+    const toolkitRoot = path.resolve(
+      import.meta.dirname,
+      "../../..",
+      "toolkit",
+    );
+    const workspaceRoot = path.resolve(import.meta.dirname, "../../../..");
+    const tmpDir = fs.mkdtempSync(
+      path.join(workspaceRoot, ".tmp-an-vite-workspace-"),
+    );
+    const appDir = path.join(tmpDir, "test-app");
+    fs.mkdirSync(appDir, { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "package.json"),
+      path.join(appDir, "package.json"),
       JSON.stringify({
         dependencies: {
-          "@agent-native/dispatch": "workspace:*",
+          "@agent-native/toolkit": "workspace:*",
         },
       }),
     );
 
     try {
-      process.chdir(tmpDir);
+      process.chdir(appDir);
       const aliases =
         (
           defineConfig().resolve as {
@@ -1205,13 +1215,15 @@ describe("local-core dev aliases and router dedupe", () => {
           }
         )?.alias ?? [];
 
-      expect(
-        aliases.some((alias) =>
-          alias.find instanceof RegExp
-            ? alias.find.test("@agent-native/dispatch")
-            : alias.find === "@agent-native/dispatch",
-        ),
-      ).toBe(false);
+      const popoverAlias = aliases.find((alias) =>
+        alias.find instanceof RegExp
+          ? alias.find.test("@agent-native/toolkit/ui/popover")
+          : alias.find === "@agent-native/toolkit/ui/popover",
+      );
+
+      expect(popoverAlias?.replacement).toBe(
+        path.join(toolkitRoot, "src/ui/$1"),
+      );
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });

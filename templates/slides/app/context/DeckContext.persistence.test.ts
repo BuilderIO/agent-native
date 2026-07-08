@@ -6,10 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeckProvider, useDecks, type Deck, type Slide } from "./DeckContext";
 
 class MockEventSource {
+  static lastInstance: MockEventSource | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   close = vi.fn();
 
-  constructor(public url: string) {}
+  constructor(public url: string) {
+    MockEventSource.lastInstance = this;
+  }
 }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -98,6 +101,7 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    MockEventSource.lastInstance = null;
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -646,5 +650,79 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.getDeck("first-deck")).toBeUndefined();
+  });
+
+  it("records undo for agent/SSE deck updates so Undo is available after chat edits", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const initial: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+
+    const agentUpdated: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>After agent edit</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(agentUpdated);
+
+    const source = MockEventSource.lastInstance;
+    expect(source?.onmessage).toBeTruthy();
+
+    await act(async () => {
+      source!.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: "shared-deck",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<h1>After agent edit</h1>",
+      ),
+    );
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+      "<h1>Before</h1>",
+    );
   });
 });

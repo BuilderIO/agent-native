@@ -58,7 +58,7 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
 
 ## Actions
 

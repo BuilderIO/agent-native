@@ -91,6 +91,8 @@ const messages = {
     googlePickerNeedsKeys:
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
+    imageUploadNeedsBuilder:
+      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -472,6 +474,8 @@ const messages = {
     backToDecks: "डेक पर वापस जाएं",
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",
+    imageUploadNeedsBuilder:
+      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",

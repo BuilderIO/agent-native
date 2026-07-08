@@ -451,13 +451,16 @@ async function executeJob(
         // run completes so finished jobs don't leave a live timer keeping the
         // process/event loop alive for the remainder of the window.
         let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+        const jobUsageRef: {
+          current: Awaited<ReturnType<typeof runAgentLoop>> | null;
+        } = { current: null };
         await new Promise<void>((resolve, reject) => {
           const activeRun = startRun(
             runId,
             thread.id,
             async (send, signal) => {
               try {
-                await runAgentLoop({
+                jobUsageRef.current = await runAgentLoop({
                   engine,
                   model,
                   systemPrompt,
@@ -511,6 +514,32 @@ async function executeJob(
         }
 
         if (jobError) throw jobError;
+
+        const jobUsage = jobUsageRef.current;
+        if (
+          jobUsage &&
+          (jobUsage.inputTokens > 0 ||
+            jobUsage.outputTokens > 0 ||
+            jobUsage.cacheReadTokens > 0 ||
+            jobUsage.cacheWriteTokens > 0)
+        ) {
+          try {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail: jobUserEmail,
+              inputTokens: jobUsage.inputTokens,
+              outputTokens: jobUsage.outputTokens,
+              cacheReadTokens: jobUsage.cacheReadTokens,
+              cacheWriteTokens: jobUsage.cacheWriteTokens,
+              model: jobUsage.model,
+              label: `recurring-job:${jobName}`,
+              app: deps.appId,
+              refId: runId,
+            });
+          } catch {
+            // Usage attribution must not break the scheduled task.
+          }
+        }
 
         // Success — update status. Compute the next run from completion time,
         // not the job's start time `now`: a long run could otherwise schedule a

@@ -6,7 +6,57 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../server/lib/google-calendar.js", () => ({}));
 
-import { buildStatusEventFields } from "./event-action-helpers";
+import {
+  buildStatusEventFields,
+  ensureOrganizerInAttendees,
+} from "./event-action-helpers";
+
+describe("ensureOrganizerInAttendees", () => {
+  it("leaves empty or solo events unchanged", () => {
+    expect(ensureOrganizerInAttendees(undefined, "host@example.com")).toBe(
+      undefined,
+    );
+    expect(ensureOrganizerInAttendees([], "host@example.com")).toEqual([]);
+  });
+
+  it("prepends the organizer when guests are invited without them", () => {
+    expect(
+      ensureOrganizerInAttendees(
+        [{ email: "guest@example.com" }],
+        "host@example.com",
+      ),
+    ).toEqual([
+      {
+        email: "host@example.com",
+        organizer: true,
+        self: true,
+        responseStatus: "accepted",
+      },
+      { email: "guest@example.com" },
+    ]);
+  });
+
+  it("marks an existing organizer entry as self/accepted", () => {
+    expect(
+      ensureOrganizerInAttendees(
+        [
+          { email: "HOST@example.com", displayName: "Host" },
+          { email: "guest@example.com" },
+        ],
+        "host@example.com",
+      ),
+    ).toEqual([
+      {
+        email: "HOST@example.com",
+        displayName: "Host",
+        organizer: true,
+        self: true,
+        responseStatus: "accepted",
+      },
+      { email: "guest@example.com" },
+    ]);
+  });
+});
 
 describe("buildStatusEventFields", () => {
   it("creates native out-of-office fields", () => {

@@ -22,76 +22,106 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "development": "./dist/index.js",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./app-shell": {
       "types": "./dist/app-shell/index.d.ts",
+      "browser": "./dist/app-shell/index.js",
+      "development": "./dist/app-shell/index.js",
       "import": "./dist/app-shell/index.js",
       "default": "./dist/app-shell/index.js"
     },
     "./app-shell/*": {
       "types": "./dist/app-shell/*.d.ts",
+      "browser": "./dist/app-shell/*.js",
+      "development": "./dist/app-shell/*.js",
       "import": "./dist/app-shell/*.js",
       "default": "./dist/app-shell/*.js"
     },
     "./collab-ui": {
       "types": "./dist/collab-ui/index.d.ts",
+      "browser": "./dist/collab-ui/index.js",
+      "development": "./dist/collab-ui/index.js",
       "import": "./dist/collab-ui/index.js",
       "default": "./dist/collab-ui/index.js"
     },
     "./collab-ui/*": {
       "types": "./dist/collab-ui/*.d.ts",
+      "browser": "./dist/collab-ui/*.js",
+      "development": "./dist/collab-ui/*.js",
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
     },
     "./hooks": {
       "types": "./dist/hooks/index.d.ts",
+      "browser": "./dist/hooks/index.js",
+      "development": "./dist/hooks/index.js",
       "import": "./dist/hooks/index.js",
       "default": "./dist/hooks/index.js"
     },
     "./hooks/*": {
       "types": "./dist/hooks/*.d.ts",
+      "browser": "./dist/hooks/*.js",
+      "development": "./dist/hooks/*.js",
       "import": "./dist/hooks/*.js",
       "default": "./dist/hooks/*.js"
     },
     "./onboarding": {
       "types": "./dist/onboarding/index.d.ts",
+      "browser": "./dist/onboarding/index.js",
+      "development": "./dist/onboarding/index.js",
       "import": "./dist/onboarding/index.js",
       "default": "./dist/onboarding/index.js"
     },
     "./onboarding/*": {
       "types": "./dist/onboarding/*.d.ts",
+      "browser": "./dist/onboarding/*.js",
+      "development": "./dist/onboarding/*.js",
       "import": "./dist/onboarding/*.js",
       "default": "./dist/onboarding/*.js"
     },
     "./provider": {
       "types": "./dist/provider.d.ts",
+      "browser": "./dist/provider.js",
+      "development": "./dist/provider.js",
       "import": "./dist/provider.js",
       "default": "./dist/provider.js"
     },
     "./sharing": {
       "types": "./dist/sharing/index.d.ts",
+      "browser": "./dist/sharing/index.js",
+      "development": "./dist/sharing/index.js",
       "import": "./dist/sharing/index.js",
       "default": "./dist/sharing/index.js"
     },
     "./sharing/*": {
       "types": "./dist/sharing/*.d.ts",
+      "browser": "./dist/sharing/*.js",
+      "development": "./dist/sharing/*.js",
       "import": "./dist/sharing/*.js",
       "default": "./dist/sharing/*.js"
     },
     "./ui": {
       "types": "./dist/ui/index.d.ts",
+      "browser": "./dist/ui/index.js",
+      "development": "./dist/ui/index.js",
       "import": "./dist/ui/index.js",
       "default": "./dist/ui/index.js"
     },
     "./ui/*": {
       "types": "./dist/ui/*.d.ts",
+      "browser": "./dist/ui/*.js",
+      "development": "./dist/ui/*.js",
       "import": "./dist/ui/*.js",
       "default": "./dist/ui/*.js"
     },
     "./utils": {
       "types": "./dist/utils.d.ts",
+      "browser": "./dist/utils.js",
+      "development": "./dist/utils.js",
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
     },

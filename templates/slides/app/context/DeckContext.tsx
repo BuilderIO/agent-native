@@ -555,6 +555,16 @@ export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
 }
 
 /**
+ * Compare deck content for remote-sync undo. Ignores `updatedAt` so a
+ * metadata-only refresh does not create a no-op undo entry.
+ */
+export function deckContentSignature(deck: Deck): string {
+  const { updatedAt: _updatedAt, ...rest } = deck;
+  void _updatedAt;
+  return JSON.stringify(rest);
+}
+
+/**
  * Build the inverse of a granular op given the deck state BEFORE the op was
  * applied. Returns an array of ops to apply (usually one, occasionally two) or
  * `null` when the op has no meaningful inverse (e.g. a no-op patch) so the
@@ -939,6 +949,37 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /**
+   * Apply a remote deck snapshot (agent / collaborator via SSE or poll) and
+   * record a replace-deck undo entry when content actually changed. Without
+   * this, chat-driven edits land in the editor with Undo disabled.
+   */
+  const applyRemoteDeckUpdate = useCallback(
+    (updated: Deck, label = "Agent edit") => {
+      const before = decksRef.current.find((d) => d.id === updated.id);
+      if (
+        before &&
+        deckContentSignature(before) !== deckContentSignature(updated)
+      ) {
+        undoControllerRef.current?.push({
+          undo: [{ op: "replace-deck", deckId: updated.id, deck: before }],
+          redo: [{ op: "replace-deck", deckId: updated.id, deck: updated }],
+          label,
+        });
+      }
+      setDecks((prev) => {
+        const idx = prev.findIndex((d) => d.id === updated.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        return [...prev, updated];
+      });
+    },
+    [],
+  );
+
   const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
     setDecks(nextDecks);
     // A baseline reset (initial mount, route change, or access reload) starts a
@@ -1082,13 +1123,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
                 clientDeck.slides.length !== serverDeck.slides.length;
               if (changed) {
                 lastExternalUpdateRef.current = Date.now();
-                setDecks((prev) => {
-                  const idx = prev.findIndex((d) => d.id === currentOpenId);
-                  if (idx < 0) return [...prev, serverDeck];
-                  const next = [...prev];
-                  next[idx] = serverDeck;
-                  return next;
-                });
+                applyRemoteDeckUpdate(serverDeck);
               }
             }
           } catch {}
@@ -1125,7 +1160,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loading]);
+  }, [applyRemoteDeckUpdate, loading]);
 
   // The dirty-deck set is now only used as a sentinel that "something changed
   // for this deck". Ops are enqueued directly in each mutation handler below;
@@ -1172,20 +1207,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           const updated = await fetchDeckFromAPI(data.deckId);
           if (!updated) return;
           lastExternalUpdateRef.current = Date.now(); // Suppress save-back
-          setDecks((prev) => {
-            const idx = prev.findIndex((d) => d.id === data.deckId);
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = updated;
-              return next;
-            }
-            return [...prev, updated];
-          });
+          applyRemoteDeckUpdate(updated);
         }
       } catch {}
     };
     return () => evtSource.close();
-  }, []);
+  }, [applyRemoteDeckUpdate]);
 
   // Flush pending (debounced) saves before the tab is hidden or unloaded so the
   // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the

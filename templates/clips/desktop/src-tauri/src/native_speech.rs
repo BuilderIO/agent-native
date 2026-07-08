@@ -134,7 +134,8 @@ pub(crate) mod macos {
         kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, AudioUnitSetProperty,
     };
     use objc2_avf_audio::{
-        AVAudioEngine, AVAudioInputNode, AVAudioPCMBuffer, AVAudioTime,
+        AVAudioEngine, AVAudioInputNode, AVAudioPCMBuffer, AVAudioSession,
+        AVAudioSessionCategoryOptions, AVAudioSessionCategoryPlayAndRecord, AVAudioTime,
         AVAudioVoiceProcessingOtherAudioDuckingConfiguration,
         AVAudioVoiceProcessingOtherAudioDuckingLevel,
     };
@@ -652,6 +653,36 @@ pub(crate) mod macos {
         }
     }
 
+    /// Keep Zoom/Meet/Teams' own mic uplink alive while Clips opens a parallel
+    /// AVAudioEngine tap. Without MixWithOthers, PlayAndRecord takes exclusive
+    /// session ownership and other apps' live calls get ducked or starved even
+    /// when VoiceProcessingIO is off.
+    fn configure_shared_mic_audio_session() {
+        unsafe {
+            let session = AVAudioSession::sharedInstance();
+            let Some(category) = AVAudioSessionCategoryPlayAndRecord else {
+                eprintln!("[whisper-mic] PlayAndRecord category missing — skipping MixWithOthers");
+                return;
+            };
+            let options = AVAudioSessionCategoryOptions::MixWithOthers;
+            if let Err(err) = session.setCategory_withOptions_error(category, options) {
+                eprintln!(
+                    "[whisper-mic] setCategory MixWithOthers failed: {} — continuing",
+                    ns_error_message(&err)
+                );
+                return;
+            }
+            if let Err(err) = session.setActive_error(true) {
+                eprintln!(
+                    "[whisper-mic] AVAudioSession setActive failed: {} — continuing",
+                    ns_error_message(&err)
+                );
+                return;
+            }
+            eprintln!("[whisper-mic] AVAudioSession PlayAndRecord + MixWithOthers active");
+        }
+    }
+
     fn take_warmed_raw_mic_engine(device_key: &RawMicDeviceKey) -> Option<WarmedRawMicEngine> {
         let mut slot = warmed_raw_mic_engine_slot().lock().ok()?;
         let should_reuse = slot
@@ -758,6 +789,7 @@ pub(crate) mod macos {
         mic_device_label: Option<&str>,
         device_key: RawMicDeviceKey,
     ) -> Result<WarmedRawMicEngine, String> {
+        configure_shared_mic_audio_session();
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
         let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
@@ -955,6 +987,7 @@ pub(crate) mod macos {
         // Spin up the engine and grab its input node + native format.
         // SAFETY: `AVAudioEngine::new()` returns a retained engine.
         // `inputNode` is the engine's singleton input — also retained.
+        configure_shared_mic_audio_session();
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(
             &engine,
@@ -1320,6 +1353,8 @@ pub(crate) mod macos {
             return start_warmed_raw_mic_capture(app, mic_device_id, mic_device_label, on_samples);
         }
         clear_warmed_raw_mic_engine();
+
+        configure_shared_mic_audio_session();
 
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(

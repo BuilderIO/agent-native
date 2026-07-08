@@ -19,6 +19,7 @@ import {
   cliBoolean,
   eventTypeInput,
   googleColorIdInput,
+  ensureOrganizerInAttendees,
   normalizeAttendees,
   reminderMethodInput,
   reminderMinutesInput,
@@ -140,7 +141,10 @@ export default defineAction({
       acctEmail = args.accountEmail;
     }
 
-    const attendees = normalizeAttendees(args.attendees);
+    const attendees = ensureOrganizerInAttendees(
+      normalizeAttendees(args.attendees),
+      acctEmail,
+    );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,
