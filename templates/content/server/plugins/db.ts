@@ -616,6 +616,19 @@ const runContentMigrations = runMigrations(
       // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
     },
+    {
+      version: 63,
+      name: "builder-source-refresh-hot-path-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS content_database_items_database_position_idx ON content_database_items (database_id, position);
+        CREATE INDEX IF NOT EXISTS content_database_items_document_idx ON content_database_items (document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_created_idx ON content_database_source_rows (source_id, created_at);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_document_idx ON content_database_source_rows (source_id, document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_item_idx ON content_database_source_rows (source_id, database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_row_idx ON content_database_source_rows (source_id, source_row_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_key_idx ON content_database_source_fields (source_id, source_field_key);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_property_idx ON content_database_source_fields (source_id, property_id);
+        CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_document_idx ON content_database_body_hydration_queue (source_id, document_id, priority, created_at)`,
+    },
   ],
   { table: "content_migrations" },
 );

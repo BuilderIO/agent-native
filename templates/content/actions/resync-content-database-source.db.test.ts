@@ -469,6 +469,46 @@ it("records freshly imported Builder row identities even when title and URL keys
     "Best AI Coding Tools for Developers in 2024",
     "Best AI Coding Tools for Developers in 2024",
   ]);
+  const existingSourceRows = Array.from(
+    importResult.importedEntriesByDocumentId.entries(),
+  ).map(([documentId, entry], index) => ({
+    id: `existing-row-${index}`,
+    ownerEmail: OWNER,
+    sourceId: "src-duplicates",
+    databaseItemId: `item-existing-row-${index}`,
+    documentId,
+    sourceRowId: entry.id,
+    sourceQualifiedId: `builder-cms://collection-duplicates/${entry.id}`,
+    sourceDisplayKey: entry.title,
+    sourceValuesJson: "{}",
+    provenance: "Builder CMS read adapter",
+    syncState: "linked",
+    freshness: "fresh",
+    lastSyncedAt: now,
+    lastSourceUpdatedAt: entry.updatedAt,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const retryResult = await importBuilderEntries({
+    database,
+    entries,
+    now,
+    sourceTable: "collection-duplicates",
+    existingSourceRows,
+    skipTitleDedup: true,
+  });
+  const retryDocuments = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const retryItems = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+  expect(retryResult.imported).toBe(0);
+  expect(retryDocuments).toHaveLength(2);
+  expect(retryItems).toHaveLength(2);
 });
 
 it("resync advances Builder partial reads with a cursor and converges on the final page", async () => {

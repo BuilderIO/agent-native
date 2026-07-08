@@ -529,11 +529,32 @@ function normalizeBuilderBodyBaselineContent(value: string | null | undefined) {
 
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
-const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 8;
+const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 25;
+const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 6;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
+const BULK_INSERT_CHUNK_SIZE = 60;
+
+function chunkArray<T>(items: T[], size = BULK_INSERT_CHUNK_SIZE): T[][] {
+  if (items.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function eachWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  for (const batch of chunkArray(items, concurrency)) {
+    await Promise.all(batch.map((item) => worker(item)));
+  }
+}
 
 function builderBodyHydrationDelayMs() {
   if (
@@ -884,6 +905,121 @@ export async function enqueueBuilderBodyHydration(args: {
     .where(eq(schema.contentDatabaseItems.id, args.databaseItemId));
 }
 
+type BuilderBodyHydrationEnqueueRequest = {
+  sourceId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  databaseItemId: string;
+  documentId: string;
+  sourceTable: string;
+  entry: BuilderCmsSourceEntry;
+  now: string;
+  priority?: number;
+};
+
+async function enqueueBuilderBodyHydrations(
+  requests: BuilderBodyHydrationEnqueueRequest[],
+) {
+  if (requests.length === 0) return;
+  const uniqueRequestsByItemId = new Map<
+    string,
+    BuilderBodyHydrationEnqueueRequest
+  >();
+  for (const request of requests) {
+    const existing = uniqueRequestsByItemId.get(request.databaseItemId);
+    if (!existing) {
+      uniqueRequestsByItemId.set(request.databaseItemId, request);
+      continue;
+    }
+    const existingPriority =
+      existing.priority ??
+      builderBodyHydrationPriorityForRequest({ documentId: null });
+    const nextPriority =
+      request.priority ??
+      builderBodyHydrationPriorityForRequest({ documentId: null });
+    uniqueRequestsByItemId.set(request.databaseItemId, {
+      ...request,
+      priority: Math.min(existingPriority, nextPriority),
+    });
+  }
+  const uniqueRequests = Array.from(uniqueRequestsByItemId.values());
+  const db = getDb();
+  const databaseItemIds = Array.from(
+    new Set(uniqueRequests.map((request) => request.databaseItemId)),
+  );
+  const existingRows = await db
+    .select()
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(
+      inArray(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        databaseItemIds,
+      ),
+    );
+  const existingByItemId = new Map(
+    existingRows.map((row) => [row.databaseItemId, row]),
+  );
+  const queueRows: (typeof schema.contentDatabaseBodyHydrationQueue.$inferInsert)[] =
+    [];
+  for (const request of uniqueRequests) {
+    const existing = existingByItemId.get(request.databaseItemId);
+    const existingEntry = existing ? parseHydrationEntry(existing) : null;
+    const shouldPreserveExistingEntry =
+      builderEntryHasBodyContent(existingEntry) &&
+      !builderEntryHasBodyContent(request.entry);
+    const priority =
+      request.priority ??
+      builderBodyHydrationPriorityForRequest({ documentId: null });
+    queueRows.push({
+      id: existing?.id ?? crypto.randomUUID(),
+      ownerEmail: request.ownerEmail,
+      orgId: request.orgId,
+      sourceId: request.sourceId,
+      databaseItemId: request.databaseItemId,
+      documentId: request.documentId,
+      sourceRowId: request.entry.id,
+      sourceTable: request.sourceTable,
+      sourceEntryJson: shouldPreserveExistingEntry
+        ? existing!.sourceEntryJson
+        : JSON.stringify(request.entry),
+      priority: Math.min(existing?.priority ?? priority, priority),
+      attempts: existing?.attempts ?? 0,
+      lastAttemptedAt: existing?.lastAttemptedAt ?? null,
+      lastError: null,
+      createdAt: existing?.createdAt ?? request.now,
+      updatedAt: request.now,
+    });
+  }
+  for (const chunk of chunkArray(queueRows)) {
+    await db
+      .insert(schema.contentDatabaseBodyHydrationQueue)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        set: {
+          ownerEmail: sql`excluded.owner_email`,
+          orgId: sql`excluded.org_id`,
+          sourceId: sql`excluded.source_id`,
+          documentId: sql`excluded.document_id`,
+          sourceRowId: sql`excluded.source_row_id`,
+          sourceTable: sql`excluded.source_table`,
+          sourceEntryJson: sql`excluded.source_entry_json`,
+          priority: sql`excluded.priority`,
+          lastError: null,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
+  }
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({
+      bodyHydrationStatus: "pending",
+      bodyHydrationError: null,
+      updatedAt: uniqueRequests[0]!.now,
+    })
+    .where(inArray(schema.contentDatabaseItems.id, databaseItemIds));
+}
+
 export async function enqueueBuilderBodyHydrationForItems(args: {
   sourceId: string;
   ownerEmail: string;
@@ -894,6 +1030,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
   now: string;
 }) {
   if (!args.builderEntriesByDocumentId?.size) return;
+  const requests: BuilderBodyHydrationEnqueueRequest[] = [];
   for (const item of args.items) {
     const entry = args.builderEntriesByDocumentId.get(item.document.id);
     if (!entry?.rawEntry) continue;
@@ -905,7 +1042,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
     ) {
       continue;
     }
-    await enqueueBuilderBodyHydration({
+    requests.push({
       sourceId: args.sourceId,
       ownerEmail: args.ownerEmail,
       orgId: args.orgId,
@@ -916,6 +1053,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       now: args.now,
     });
   }
+  await enqueueBuilderBodyHydrations(requests);
   void processBuilderBodyHydrationQueue({
     sourceId: args.sourceId,
     limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
@@ -929,6 +1067,7 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
   now: string;
 }) {
   const db = getDb();
+  const requests: BuilderBodyHydrationEnqueueRequest[] = [];
   const rows = await db
     .select({
       item: schema.contentDatabaseItems,
@@ -965,7 +1104,7 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
       : null;
     if (!refreshedEntry || !builderEntryHasBodyContent(refreshedEntry))
       continue;
-    await enqueueBuilderBodyHydration({
+    requests.push({
       sourceId: args.source.id,
       ownerEmail: row.item.ownerEmail,
       orgId: row.item.orgId,
@@ -976,6 +1115,7 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
       now: args.now,
     });
   }
+  await enqueueBuilderBodyHydrations(requests);
 }
 
 function parseHydrationEntry(
@@ -988,6 +1128,10 @@ function parseHydrationEntry(
 async function processBuilderBodyHydrationJob(
   row: ContentDatabaseBodyHydrationQueueRowDb,
   now: string,
+  preloaded?: {
+    sourceRow?: ContentDatabaseSourceRecordRowDb | null;
+    documentContent?: string | null;
+  },
 ) {
   const db = getDb();
   const [claimed] = await db
@@ -1026,15 +1170,23 @@ async function processBuilderBodyHydrationJob(
   let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues(entry),
   );
-  const [sourceRow] = await db
-    .select()
-    .from(schema.contentDatabaseSourceRows)
-    .where(
-      and(
-        eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
-      ),
-    );
+  const sourceRow =
+    preloaded?.sourceRow !== undefined
+      ? (preloaded.sourceRow ?? undefined)
+      : (
+          await db
+            .select()
+            .from(schema.contentDatabaseSourceRows)
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+                eq(
+                  schema.contentDatabaseSourceRows.databaseItemId,
+                  row.databaseItemId,
+                ),
+              ),
+            )
+        )[0];
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
@@ -1168,13 +1320,18 @@ async function processBuilderBodyHydrationJob(
       return;
     }
   }
-  const [document] = await db
-    .select({ content: schema.documents.content })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, row.documentId));
+  const documentContent =
+    preloaded?.documentContent !== undefined
+      ? preloaded.documentContent
+      : (
+          await db
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, row.documentId))
+        )[0]?.content;
   const previousContent =
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
-  const currentContent = document?.content ?? "";
+  const currentContent = documentContent ?? "";
   const shouldWriteBody =
     currentContent === "" ||
     isEffectivelyEmptyDocumentContent(currentContent) ||
@@ -1457,44 +1614,87 @@ export async function processBuilderBodyHydrationQueue(args: {
 
   let succeeded = 0;
   let failed = 0;
-  for (const job of jobs) {
-    const attemptNow = new Date().toISOString();
-    try {
-      const delayMs = builderBodyHydrationDelayMs();
-      if (delayMs > 0) await sleep(delayMs);
-      await processBuilderBodyHydrationJob(job, attemptNow);
-      succeeded += 1;
-    } catch (error) {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      const attempts = job.attempts + 1;
-      await db
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "error",
-          bodyHydrationAttemptedAt: attemptNow,
-          bodyHydrationError: message,
-          updatedAt: attemptNow,
-        })
-        .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
-      if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+  const sourceRows =
+    jobs.length > 0
+      ? await db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+              inArray(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                jobs.map((job) => job.databaseItemId),
+              ),
+            ),
+          )
+      : [];
+  const sourceRowsByItemId = new Map(
+    sourceRows.map((row) => [row.databaseItemId, row]),
+  );
+  const documents =
+    jobs.length > 0
+      ? await db
+          .select({
+            id: schema.documents.id,
+            content: schema.documents.content,
+          })
+          .from(schema.documents)
+          .where(
+            inArray(
+              schema.documents.id,
+              Array.from(new Set(jobs.map((job) => job.documentId))),
+            ),
+          )
+      : [];
+  const documentContentById = new Map(
+    documents.map((document) => [document.id, document.content]),
+  );
+  await eachWithConcurrency(
+    jobs,
+    BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
+    async (job) => {
+      const attemptNow = new Date().toISOString();
+      try {
+        const delayMs = builderBodyHydrationDelayMs();
+        if (delayMs > 0) await sleep(delayMs);
+        await processBuilderBodyHydrationJob(job, attemptNow, {
+          sourceRow: sourceRowsByItemId.get(job.databaseItemId) ?? null,
+          documentContent: documentContentById.get(job.documentId) ?? null,
+        });
+        succeeded += 1;
+      } catch (error) {
+        failed += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        const attempts = job.attempts + 1;
         await db
-          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "error",
+            bodyHydrationAttemptedAt: attemptNow,
+            bodyHydrationError: message,
+            updatedAt: attemptNow,
+          })
+          .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          await db
+            .delete(schema.contentDatabaseBodyHydrationQueue)
+            .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
+          return;
+        }
+        await db
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            attempts,
+            lastAttemptedAt: attemptNow,
+            lastError: message,
+            priority: job.priority + 10,
+            updatedAt: attemptNow,
+          })
           .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
-        continue;
       }
-      await db
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          attempts,
-          lastAttemptedAt: attemptNow,
-          lastError: message,
-          priority: job.priority + 10,
-          updatedAt: attemptNow,
-        })
-        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
-    }
-  }
+    },
+  );
   const [remaining] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.contentDatabaseBodyHydrationQueue)
@@ -3186,6 +3386,11 @@ async function materializeSourceFieldPropertyValues(args: {
       value,
     ]),
   );
+  const inserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
+  const updates: Array<{
+    id: string;
+    valueJson: string;
+  }> = [];
 
   for (const row of scopedRows) {
     const sourceValues =
@@ -3206,10 +3411,7 @@ async function materializeSourceFieldPropertyValues(args: {
       const existing = existingByDocumentAndProperty.get(key);
       if (existing) {
         if (existing.valueJson === valueJson) continue;
-        await db
-          .update(schema.documentPropertyValues)
-          .set({ valueJson, updatedAt: args.now })
-          .where(eq(schema.documentPropertyValues.id, existing.id));
+        updates.push({ id: existing.id, valueJson });
       } else {
         const value = {
           id: nanoid(),
@@ -3220,10 +3422,19 @@ async function materializeSourceFieldPropertyValues(args: {
           createdAt: args.now,
           updatedAt: args.now,
         };
-        await db.insert(schema.documentPropertyValues).values(value);
+        inserts.push(value);
         existingByDocumentAndProperty.set(key, value);
       }
     }
+  }
+  await eachWithConcurrency(updates, 10, async (update) => {
+    await db
+      .update(schema.documentPropertyValues)
+      .set({ valueJson: update.valueJson, updatedAt: args.now })
+      .where(eq(schema.documentPropertyValues.id, update.id));
+  });
+  for (const chunk of chunkArray(inserts)) {
+    await db.insert(schema.documentPropertyValues).values(chunk);
   }
 }
 
@@ -3624,7 +3835,8 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
 
   let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
   let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
-  let imported = 0;
+  const documentRows: (typeof schema.documents.$inferInsert)[] = [];
+  const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] = [];
 
   for (const entry of args.entries) {
     if (
@@ -3644,7 +3856,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
 
     const documentId = nanoid();
     const itemId = nanoid();
-    await db.insert(schema.documents).values({
+    documentRows.push({
       id: documentId,
       ownerEmail: args.database.ownerEmail,
       orgId: args.database.orgId,
@@ -3659,7 +3871,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       createdAt: args.now,
       updatedAt: args.now,
     });
-    await db.insert(schema.contentDatabaseItems).values({
+    itemRows.push({
       id: itemId,
       ownerEmail: args.database.ownerEmail,
       orgId: args.database.orgId,
@@ -3671,11 +3883,16 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       createdAt: args.now,
       updatedAt: args.now,
     });
-    imported += 1;
     importedEntriesByDocumentId.set(documentId, entry);
   }
+  for (const chunk of chunkArray(documentRows)) {
+    await db.insert(schema.documents).values(chunk);
+  }
+  for (const chunk of chunkArray(itemRows)) {
+    await db.insert(schema.contentDatabaseItems).values(chunk);
+  }
 
-  return { imported, importedEntriesByDocumentId };
+  return { imported: itemRows.length, importedEntriesByDocumentId };
 }
 
 export async function resyncBuilderCmsSourceSnapshot(args: {
