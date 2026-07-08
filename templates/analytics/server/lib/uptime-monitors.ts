@@ -497,11 +497,17 @@ function monitorNotifyMetadata(monitor: Monitor): Record<string, unknown> {
     url: monitor.url,
     emailRecipients: monitor.emailRecipients,
     requestedChannels: monitor.channels,
-    ...(monitor.slackWebhookUrl
-      ? { slackWebhookUrl: monitor.slackWebhookUrl }
-      : {}),
-    ...(monitor.webhookUrl ? { webhookUrl: monitor.webhookUrl } : {}),
   };
+}
+
+function monitorNotifyDeliveryMetadata(
+  monitor: Monitor,
+): Record<string, string> | undefined {
+  const delivery: Record<string, string> = {};
+  if (monitor.slackWebhookUrl)
+    delivery.slackWebhookUrl = monitor.slackWebhookUrl;
+  if (monitor.webhookUrl) delivery.webhookUrl = monitor.webhookUrl;
+  return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,6 +1493,9 @@ async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
         ...monitorNotifyMetadata(monitor),
+        ...(monitorNotifyDeliveryMetadata(monitor)
+          ? { delivery: monitorNotifyDeliveryMetadata(monitor) }
+          : {}),
         status: outcome.status,
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,
@@ -1517,6 +1526,9 @@ async function notifyMonitorRecovered(
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
         ...monitorNotifyMetadata(monitor),
+        ...(monitorNotifyDeliveryMetadata(monitor)
+          ? { delivery: monitorNotifyDeliveryMetadata(monitor) }
+          : {}),
         status: "up",
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,

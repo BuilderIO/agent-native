@@ -61,14 +61,20 @@ function createWebhookChannel(
   return {
     name: "webhook",
     async deliver(input, meta) {
+      const overrideUrlTemplate = deliveryMetadataString(
+        input.metadata,
+        "webhookUrl",
+      );
       const urlTemplate =
-        metadataString(input.metadata, "webhookUrl") ?? envUrlTemplate?.trim();
+        overrideUrlTemplate ??
+        metadataString(input.metadata, "webhookUrl") ??
+        envUrlTemplate?.trim();
       // No-op when neither a per-notification nor workspace URL is set —
       // mirrors email's empty-recipients behavior so notify-all stays quiet.
       if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
-        authTemplate,
+        overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
         "webhook",
       );
@@ -81,7 +87,7 @@ function createWebhookChannel(
             severity: input.severity,
             title: input.title,
             body: input.body,
-            metadata: input.metadata,
+            metadata: scrubDeliveryMetadata(input.metadata),
             owner: meta.owner,
             emittedAt: new Date().toISOString(),
           }),
@@ -106,13 +112,18 @@ function createSlackWebhookChannel(
   return {
     name: "slack",
     async deliver(input, meta) {
+      const overrideUrlTemplate = deliveryMetadataString(
+        input.metadata,
+        "slackWebhookUrl",
+      );
       const urlTemplate =
+        overrideUrlTemplate ??
         metadataString(input.metadata, "slackWebhookUrl") ??
         envUrlTemplate?.trim();
       if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
-        authTemplate,
+        overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
         "Slack webhook",
       );
@@ -261,6 +272,31 @@ function metadataString(
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function deliveryMetadataString(
+  metadata: NotificationInput["metadata"],
+  key: string,
+): string | undefined {
+  const delivery = metadata?.delivery;
+  if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) {
+    return undefined;
+  }
+  const value = (delivery as Record<string, unknown>)[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function scrubDeliveryMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata).filter(
+    ([key]) =>
+      key !== "delivery" && key !== "webhookUrl" && key !== "slackWebhookUrl",
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 function notificationEmailRecipients(

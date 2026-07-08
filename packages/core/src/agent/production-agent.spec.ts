@@ -573,7 +573,15 @@ describe("buildUserContentWithAttachments", () => {
       actionsToEngineTools(planRegistry)
         .map((tool) => tool.name)
         .sort(),
-    ).toEqual(["bash", "read", "resources", "tool-search"]);
+    ).toEqual([
+      "bash",
+      "read",
+      "read-but-act-only",
+      "resources",
+      "set-url-path",
+      "tool-search",
+      "write",
+    ]);
     await expect(planRegistry.write.run({})).resolves.toContain(
       "Plan mode blocked `write`",
     );
@@ -602,12 +610,13 @@ describe("buildUserContentWithAttachments", () => {
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
     } as any);
-    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
+    expect(searchResult.results.map((tool: any) => tool.name)).toContain(
       "write",
     );
-    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
-      "read-but-act-only",
+    const writeTool = searchResult.results.find(
+      (tool: any) => tool.name === "write",
     );
+    expect(writeTool.description).toContain("Plan mode blocked");
   });
 
   it("promotes common provider tools into lean initial catalogs when available", () => {

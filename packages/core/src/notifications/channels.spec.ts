@@ -103,6 +103,33 @@ describe("webhook notification channel", () => {
     );
   });
 
+  it("uses private delivery.webhookUrl without inheriting env auth or echoing delivery metadata", async () => {
+    process.env.NOTIFICATIONS_WEBHOOK_AUTH = "Bearer ${keys.HOOK_TOKEN}";
+    resolveKeyReferences.mockImplementation(async (text: string) => ({
+      resolved: text.includes("HOOK_TOKEN") ? "Bearer secret-xyz" : text,
+      usedKeys: [],
+      secretValues: [],
+    }));
+    const channel = (await loadWebhookChannel())!;
+
+    await channel.deliver(
+      {
+        severity: "critical",
+        title: "DB offline",
+        metadata: {
+          monitorId: "mon_1",
+          delivery: { webhookUrl: "https://hooks.example.com/per-monitor" },
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hooks.example.com/per-monitor");
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(JSON.parse(init.body).metadata).toEqual({ monitorId: "mon_1" });
+  });
+
   it("POSTs the notification payload as JSON scoped to the owner", async () => {
     const channel = (await loadWebhookChannel())!;
     await channel.deliver(
@@ -293,6 +320,37 @@ describe("Slack notification channel", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       "https://hooks.slack.example.com/services/T/B/META",
     );
+  });
+
+  it("uses private delivery.slackWebhookUrl without inheriting env auth", async () => {
+    process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example.com/services/T/B/ENV";
+    process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH = "Bearer ${keys.SLACK_TOKEN}";
+    resolveKeyReferences.mockImplementation(async (text: string) => ({
+      resolved: text.includes("SLACK_TOKEN") ? "Bearer slack-secret" : text,
+      usedKeys: [],
+      secretValues: [],
+    }));
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "slack")!;
+
+    await channel.deliver(
+      {
+        severity: "warning",
+        title: "Slow",
+        metadata: {
+          delivery: {
+            slackWebhookUrl:
+              "https://hooks.slack.example.com/services/T/B/META",
+          },
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hooks.slack.example.com/services/T/B/META");
+    expect(init.headers.Authorization).toBeUndefined();
   });
 });
 

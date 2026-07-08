@@ -105,6 +105,7 @@ export async function notifyWithDelivery(
     body: truncate(input.body, MAX_BODY_LEN),
   };
   const channels = selectChannels(input.channels);
+  const storedMetadata = scrubStoredMetadata(input.metadata);
 
   // The inbox channel is always included unless explicitly excluded.
   const runInbox = !input.channels || input.channels.includes("inbox");
@@ -120,7 +121,7 @@ export async function notifyWithDelivery(
         severity: input.severity,
         title: input.title,
         body: input.body,
-        metadata: input.metadata,
+        metadata: storedMetadata,
         deliveredChannels: ["inbox"],
       });
       delivered.push("inbox");
@@ -181,6 +182,17 @@ export async function notifyWithDelivery(
   }
 
   return { notification: stored, deliveredChannels: delivered };
+}
+
+function scrubStoredMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata).filter(
+    ([key]) =>
+      key !== "delivery" && key !== "webhookUrl" && key !== "slackWebhookUrl",
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 function selectChannels(allowlist?: string[]): NotificationChannel[] {

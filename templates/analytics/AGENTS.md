@@ -140,9 +140,9 @@ details live in `.agents/skills/`.
   `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
   Alert notifications use the shared notification channel registry, so
   `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
-  registered channel. Slack/webhook prefer per-notification
-  `metadata.slackWebhookUrl` / `metadata.webhookUrl` (uptime monitors store
-  these on the monitor row), then fall back to
+  registered channel. Slack/webhook prefer delivery-only
+  `metadata.delivery.slackWebhookUrl` / `metadata.delivery.webhookUrl` (uptime
+  monitors store these on the monitor row), then fall back to
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL`. Configure
   optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with existing
   `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule

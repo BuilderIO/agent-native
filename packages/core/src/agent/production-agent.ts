@@ -831,9 +831,12 @@ function createPlanModeBlockedAction(
 ): ActionEntry {
   return {
     ...entry,
-    agentTool: false,
     allowInPlanMode: false,
     readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode blocked: ${reason ?? "not available while planning"}.`,
+    },
     run: async () => planModeBlockedMessage(name, reason),
   };
 }

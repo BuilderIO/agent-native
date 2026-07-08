@@ -60,11 +60,11 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
 
 - On a transition **into failure**, it opens a `monitor_incidents` row (one per
   continuous failure streak) and calls `notifyWithDelivery` with a clear title
-  and body plus metadata
-  `{ kind: "uptime_monitor", monitorId, url, statusCode, latencyMs, failedAssertions, emailRecipients, slackWebhookUrl?, webhookUrl? }`.
+  and body plus safe inbox metadata
+  `{ kind: "uptime_monitor", monitorId, url, statusCode, latencyMs, failedAssertions, emailRecipients }`.
   The `inbox` channel is the in-app bell; `email` uses the monitor's
   `emailRecipients`; `slack` / `webhook` use the monitor's optional
-  `slackWebhookUrl` / `webhookUrl` (falling back to workspace
+  delivery-only `slackWebhookUrl` / `webhookUrl` (falling back to workspace
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL` when unset).
 - While an incident is open it will not re-alert. After an incident resolves,
   `cooldownMinutes` suppresses a fresh "down" alert for that window to prevent
