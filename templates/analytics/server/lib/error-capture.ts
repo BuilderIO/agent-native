@@ -587,7 +587,7 @@ async function updateIssueForOccurrence(
       status,
       firstSeenAt,
       lastSeenAt,
-      eventCount: Number(existing.eventCount ?? 0) + 1,
+      eventCount: sql`${schema.errorIssues.eventCount} + 1`,
       sampleEventId: params.eventId,
       lastSessionRecordingId:
         params.sessionRecordingId ?? existing.lastSessionRecordingId ?? null,
