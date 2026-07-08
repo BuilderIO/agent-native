@@ -662,8 +662,15 @@ function ReplayPlayer({
 
       stageRootRef.current.innerHTML = "";
       const frameDims = replayViewportDimensions(events);
+      const playbackEvents = sanitizeReplayViewportEvents(
+        events,
+        frameDims ?? {
+          width: DEFAULT_PLAYER_WIDTH,
+          height: DEFAULT_PLAYER_HEIGHT,
+        },
+      );
       setStreamedDims(frameDims);
-      localReplayer = new Replayer(events as any[], {
+      localReplayer = new Replayer(playbackEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
         skipInactive: false,
@@ -2187,7 +2194,10 @@ function normalizeReplayDimensions(
     return null;
   }
   const aspect = width / height;
-  if (aspect > MAX_REPLAY_ASPECT_RATIO || aspect < MIN_REPLAY_ASPECT_RATIO) {
+  if (
+    aspect > MAX_REPLAY_ASPECT_RATIO || // i18n-ignore -- numeric guard expression, not visible copy.
+    aspect < MIN_REPLAY_ASPECT_RATIO
+  ) {
     return null;
   }
   return {
@@ -2214,6 +2224,54 @@ export function filterReplayMarkers(
       .join(" ")
       .toLowerCase();
     return haystack.includes(needle);
+  });
+}
+
+/**
+ * Rewrite Meta / ViewportResize frames so rrweb never applies absurd aspect
+ * ratios that collapse the stage into an ultra-wide ribbon. Invalid frames
+ * inherit the chosen fallback dimensions.
+ */
+export function sanitizeReplayViewportEvents(
+  events: AnyReplayEvent[],
+  fallback: ReplayViewportDimensions,
+): AnyReplayEvent[] {
+  return events.map((event) => {
+    if (event.type === RRWEB_EVENT_TYPE.Meta && isRecord(event.data)) {
+      const dims = normalizeReplayDimensions(
+        event.data.width,
+        event.data.height,
+      );
+      if (dims) return event;
+      return {
+        ...event,
+        data: {
+          ...event.data,
+          width: fallback.width,
+          height: fallback.height,
+        },
+      };
+    }
+    if (
+      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
+      event.data?.source === INCREMENTAL_SOURCE.ViewportResize &&
+      isRecord(event.data)
+    ) {
+      const dims = normalizeReplayDimensions(
+        event.data.width,
+        event.data.height,
+      );
+      if (dims) return event;
+      return {
+        ...event,
+        data: {
+          ...event.data,
+          width: fallback.width,
+          height: fallback.height,
+        },
+      };
+    }
+    return event;
   });
 }
 

@@ -1583,6 +1583,10 @@ export const messagesByLocale = {
       automationsDescription:
         "Revise, pause e crie trabalhos agendados ou acionados por eventos.",
       openAutomations: "Abrir automações",
+      deliveryTitle: "Entrega",
+      deliveryDescription:
+        "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
+      openDelivery: "Abrir entrega",
       agentTitle: "Configurações do agente",
       agentDescription:
         "Abra as configurações do agente na barra lateral para modelos, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
@@ -1800,6 +1804,9 @@ export const messagesByLocale = {
       automationsDescription:
         "शेड्यूल या इवेंट-ट्रिगर जॉब्स की समीक्षा करें, रोकें और बनाएं।",
       openAutomations: "ऑटोमेशन खोलें",
+      deliveryTitle: "डिलीवरी",
+      deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
+      openDelivery: "डिलीवरी खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:
         "मॉडल, API कुंजियों, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
@@ -2002,6 +2009,10 @@ export const messagesByLocale = {
       automationsTitle: "الأتمتة",
       automationsDescription: "راجع وأوقف وأنشئ مهامًا مجدولة أو مُشغَّلة بالأحداث.",
       openAutomations: "فتح الأتمتة",
+      deliveryTitle: "التسليم",
+      deliveryDescription:
+        "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
+      openDelivery: "فتح التسليم",
       agentTitle: "إعدادات الوكيل",
       agentDescription:
         "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
