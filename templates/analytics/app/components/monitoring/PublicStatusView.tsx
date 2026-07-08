@@ -99,28 +99,28 @@ const BANNER: Record<
     accent: "bg-emerald-500/10",
     ring: "border-emerald-500/30",
     iconClass: "text-emerald-500",
-    title: "All systems operational",
+    title: "All systems operational", // i18n-ignore public status page fixed copy
   },
   degraded: {
     icon: IconAlertTriangle,
     accent: "bg-amber-500/10",
     ring: "border-amber-500/30",
     iconClass: "text-amber-500",
-    title: "Some systems degraded",
+    title: "Some systems degraded", // i18n-ignore public status page fixed copy
   },
   down: {
     icon: IconAlertCircle,
     accent: "bg-red-500/10",
     ring: "border-red-500/30",
     iconClass: "text-red-500",
-    title: "System outage in progress",
+    title: "System outage in progress", // i18n-ignore public status page fixed copy
   },
   unknown: {
     icon: IconActivity,
     accent: "bg-muted",
     ring: "border-border/60",
     iconClass: "text-muted-foreground",
-    title: "Status unknown",
+    title: "Status unknown", // i18n-ignore public status page fixed copy
   },
 };
 
@@ -217,7 +217,7 @@ export function PublicStatusView({
         {page.layout.showOverallUptime && page.monitors.length > 0 ? (
           <section className="mt-6">
             <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Overall uptime
+              Overall uptime{/* i18n-ignore public status page fixed copy */}
             </h2>
             <UptimeStatCards windows={page.overallWindows} compact={compact} />
           </section>
@@ -231,6 +231,7 @@ export function PublicStatusView({
           {page.monitors.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-5 py-10 text-center text-sm text-muted-foreground">
               No monitors have been added to this status page yet.
+              {/* i18n-ignore public status page fixed copy */}
             </div>
           ) : (
             page.monitors.map((monitor) => {
@@ -303,6 +304,7 @@ export function PublicStatusView({
                       <div className="mb-1 flex items-center justify-between">
                         <span className="text-xs font-medium">
                           Response time
+                          {/* i18n-ignore public status page fixed copy */}
                         </span>
                         <span className="text-[10px] text-muted-foreground">
                           avg {formatLatencyMs(monitor.avgResponseMs)}
@@ -323,10 +325,11 @@ export function PublicStatusView({
         {/* Incidents / status updates */}
         <section className="mt-8">
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Past incidents
+            Past incidents{/* i18n-ignore public status page fixed copy */}
           </h2>
           <div className="rounded-lg border border-border/50 bg-card px-5 py-8 text-center text-sm text-muted-foreground">
             No incidents reported.
+            {/* i18n-ignore public status page fixed copy */}
           </div>
         </section>
 

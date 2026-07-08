@@ -51,7 +51,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const page = loaderData?.page;
   if (!page) {
     return [
-      { title: "Status page not found" },
+      { title: "Status page not found" }, // i18n-ignore public status page meta copy
       { name: "robots", content: "noindex" },
     ];
   }
@@ -77,7 +77,7 @@ function StatusNotFound() {
           <IconActivity className="size-6" />
         </span>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Status page not found
+          Status page not found{/* i18n-ignore public status page fixed copy */}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           This status page doesn&rsquo;t exist or hasn&rsquo;t been published

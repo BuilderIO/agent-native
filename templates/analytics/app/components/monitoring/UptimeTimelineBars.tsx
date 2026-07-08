@@ -53,7 +53,7 @@ export function UptimeTimelineBars({
           className,
         )}
       >
-        No data yet
+        No data yet{/* i18n-ignore public status page fixed copy */}
       </div>
     );
   }
@@ -93,7 +93,10 @@ export function UptimeTimelineBars({
                   : ""}
               </div>
             ) : (
-              <div className="text-muted-foreground">No checks recorded</div>
+              <div className="text-muted-foreground">
+                No checks recorded
+                {/* i18n-ignore public status page fixed copy */}
+              </div>
             )}
           </TooltipContent>
         </Tooltip>
