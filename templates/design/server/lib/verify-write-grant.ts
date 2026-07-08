@@ -59,7 +59,8 @@ export async function verifyWriteGrant(
   if (!grant) {
     throw new Error(
       "No localhost write-consent grant found for this design + connection. " +
-        "The user must approve writes via the LocalhostWriteConsentDialog first.",
+        "Call request-localhost-write-consent to prompt the user, then retry " +
+        "this write after they click 'Allow writes'.",
     );
   }
 
@@ -67,7 +68,8 @@ export async function verifyWriteGrant(
   if (grant.grantedUntil < now) {
     throw new Error(
       `Localhost write-consent grant expired at ${grant.grantedUntil}. ` +
-        "Request a new grant via the LocalhostWriteConsentDialog.",
+        "Call request-localhost-write-consent to prompt the user for a new " +
+        "grant, then retry this write.",
     );
   }
 

@@ -708,8 +708,42 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
-function injectLiveEditBridge(html: string, targetUrl: string, script: string) {
-  const withBase = addLiveEditBaseHref(html, targetUrl);
+/**
+ * Rewrite the iframe path to the real target route before the proxied app's
+ * bundle runs. The bridge serves snapshots from its own `/live-edit` path, so a
+ * client-side-routed SPA would otherwise boot at "/live-edit", match no route,
+ * and render its 404. A synchronous inline script in `<head>` runs during parse
+ * (before deferred module bundles), so `history.replaceState` lands the SPA on
+ * the intended route. Assets still resolve via the injected `<base href>`.
+ */
+function injectPreBootLocationShim(html: string, targetPath: string): string {
+  const path = targetPath.trim();
+  if (!path || path === "/live-edit") return html;
+  const shim = `<script data-agent-native-live-edit-location>
+(function(){try{var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
+</script>`;
+  if (/<head\b[^>]*>/i.test(html)) {
+    return html.replace(/<head\b[^>]*>/i, (match) => `${match}${shim}`);
+  }
+  if (/<html\b[^>]*>/i.test(html)) {
+    return html.replace(
+      /<html\b[^>]*>/i,
+      (match) => `${match}<head>${shim}</head>`,
+    );
+  }
+  return `${shim}${html}`;
+}
+
+function injectLiveEditBridge(
+  html: string,
+  baseHref: string,
+  script: string,
+  targetPath: string,
+) {
+  const withBase = injectPreBootLocationShim(
+    addLiveEditBaseHref(html, baseHref),
+    targetPath,
+  );
   if (!script) return withBase;
   if (withBase.includes("</body>")) {
     return withBase.replace("</body>", `${script}</body>`);
@@ -1288,10 +1322,17 @@ export async function startDesignConnectBridge(
             );
             const includeEditorBridge =
               requestUrl.searchParams.get("bridge") !== "0";
+            // The dev server route the SPA must boot on (e.g. "/todo"), taken
+            // from the resolved snapshot target rather than the bridge's own
+            // "/live-edit" request path.
+            const targetParsed = new URL(targetUrl);
+            const targetPath =
+              `${targetParsed.pathname}${targetParsed.search}` || "/";
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
               includeEditorBridge ? liveEditBridgeScript : "",
+              targetPath,
             );
             sendText(
               res,
@@ -1897,15 +1938,18 @@ export async function runDesign(argv: string[]) {
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
-  // Self-register with the design app server (best-effort).  When an app URL
-  // is available (via --app-url or env var) the CLI POSTs the bridge token to
-  // connect-localhost so the server row stores the real token.  Without this
-  // step grant-localhost-write-consent would mint a different token, causing
-  // every bridge write to return 401.
+  // Self-register with the design app server (best-effort): POST the bridge
+  // token to connect-localhost so the server row stores the real token. Without
+  // it, the bridge and server tokens diverge and every write returns 401.
   const appUrl = resolveAppUrl(parsed.appUrl);
   if (appUrl) {
-    const authToken = resolveAuthToken();
-    void registerConnectionWithServer(appUrl, bridge, authToken);
+    void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
+  } else {
+    // No app URL means the token never reaches the DB — surface it instead of
+    // silently skipping, since live-edit will then 401.
+    console.error(
+      "[design connect] No app URL resolved (pass --app-url or set AGENT_NATIVE_URL); skipping self-registration — live-edit will fail to authorize.",
+    );
   }
 
   return await new Promise<number>((resolve) => {

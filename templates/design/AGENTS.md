@@ -246,6 +246,15 @@ patterns live in `.agents/skills/`.
   the latest localhost connection or a specific `connectionId`. Pass `routes`
   with `path`/`url` when visualizing a flow; pass `paths` for a concise route
   list. Then call `navigate --view editor --designId <id> --editorView overview`.
+- `write-local-file`: writes/patches a local file through the bridge, but only
+  when a user-approved write-consent grant exists. Granting is human-only
+  (`grant-localhost-write-consent` is hidden from agents), so you cannot approve
+  it yourself.
+- `request-localhost-write-consent`: call this when `write-local-file` fails
+  with "no write-consent grant". It opens the write-consent dialog in the
+  editor (or reports `alreadyGranted`). Tell the user to click "Allow writes",
+  then retry `write-local-file`. Do not keep retrying blindly — the write stays
+  blocked until the user approves.
 
 ## Review, Breakpoints, Screen States & Components
 

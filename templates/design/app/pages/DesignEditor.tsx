@@ -10608,6 +10608,46 @@ export default function DesignEditor() {
     };
   }, [appStateVersion, designBreakpoints, id]);
 
+  // Agent→UI: open the write-consent dialog when the agent requests local file
+  // write access via request-localhost-write-consent (granting stays human-only).
+  // One-shot: consume the app-state key, open the dialog, then clear it so
+  // echoed app-state bumps don't re-open it.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    const key = `design-localhost-write-consent-request:${id}`;
+    void (async () => {
+      const request = await readClientAppState<{
+        designId?: string;
+        connectionId?: string;
+        rootPath?: string;
+        files?: string[];
+      }>(key).catch(() => null);
+      if (
+        cancelled ||
+        !request ||
+        request.designId !== id ||
+        !request.connectionId
+      ) {
+        return;
+      }
+      setLocalhostConsentConnectionId(request.connectionId);
+      setLocalhostWriteConsentPayload({
+        rootPath: request.rootPath ?? request.connectionId,
+        files: request.files ?? [],
+        onGranted: () => {
+          toast.success("File writes allowed for 8 hours." /* i18n-ignore */);
+        },
+        onCancel: () => {},
+      });
+      setLocalhostWriteConsentOpen(true);
+      await setClientAppState(key, null).catch(() => {});
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appStateVersion, id]);
+
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
   // the next-wider frame; the base frame is the widest candidate.

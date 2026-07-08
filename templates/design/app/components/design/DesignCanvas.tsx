@@ -1315,25 +1315,21 @@ export function DesignCanvas({
     (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
       ? fetchedExternalSnapshot.html
       : undefined);
+  // Bake a neutral scale of 1 here (not the zoom-folded scale): this script is
+  // registered with the localhost bridge via a large POST, so folding live zoom
+  // in would re-fire the registration effect on every zoom tick. Live scale is
+  // pushed separately over the `set-editor-chrome-scale` postMessage below.
   const editorChromeBridgeForCurrentState = useMemo(
     () =>
       buildEditorChromeBridgeScript({
         readOnly,
         editMode,
-        editorChromeScaleX: effectiveEditorChromeScaleX,
-        editorChromeScaleY: effectiveEditorChromeScaleY,
+        editorChromeScaleX: 1,
+        editorChromeScaleY: 1,
         screenId: screenId ?? contentKey ?? "",
         boardSurface,
       }),
-    [
-      boardSurface,
-      contentKey,
-      editMode,
-      effectiveEditorChromeScaleX,
-      effectiveEditorChromeScaleY,
-      readOnly,
-      screenId,
-    ],
+    [boardSurface, contentKey, editMode, readOnly, screenId],
   );
   const embeddedWheelBridgeForCurrentState = useMemo(
     () =>
@@ -1400,6 +1396,9 @@ export function DesignCanvas({
     onExternalContentSnapshotRef.current = onExternalContentSnapshot;
   }, [onExternalContentSnapshot]);
 
+  // Register the editor bridge script with the localhost live-edit bridge so
+  // it gets injected into the proxied preview. Re-runs only when the script
+  // content (liveEditBridgeKey) or the bridge target changes.
   useEffect(() => {
     if (!usesLiveEditEditorBridge || !bridgeUrl) {
       setRegisteredLiveEditBridgeKey(null);
@@ -1410,8 +1409,8 @@ export function DesignCanvas({
       current === liveEditBridgeKey ? current : null,
     );
     void (async () => {
+      const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
       try {
-        const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
@@ -1423,15 +1422,10 @@ export function DesignCanvas({
         if (!response.ok) {
           throw new Error(`Bridge registration failed (${response.status})`);
         }
-        if (!cancelled) {
-          setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
-        }
+        if (!cancelled) setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
       } catch (error) {
         if (!cancelled) {
-          console.warn(
-            "[DesignCanvas] live edit bridge registration failed",
-            error,
-          );
+          console.warn("live-edit bridge registration failed", error);
           setRegisteredLiveEditBridgeKey(null);
         }
       }
