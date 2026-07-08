@@ -333,7 +333,7 @@ export function MeetingNotification() {
             disabled={pending}
             data-no-drag
           >
-            <ProviderGlyph provider={hasJoin ? provider : "other"} />
+            <ProviderGlyph provider={provider} />
             <span className="meeting-notification-split-copy">
               <span className="meeting-notification-split-primary">
                 {pending ? "Starting…" : primaryLabel}

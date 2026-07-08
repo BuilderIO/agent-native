@@ -275,14 +275,12 @@ fn reset_dwell(app: &AppHandle) {
 }
 
 /// When the frontmost VC platform changes (or clears), drop session_notified
-/// and cooldown for platforms that are no longer front so a later re-focus
-/// can notify again.
+/// for platforms that are no longer front. Keep `cooldown_until` so leaving
+/// and re-focusing Zoom within the cooldown does not spam another popup.
 fn clear_session_if_left(app: &AppHandle, current: Option<&str>) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
             g.session_notified
-                .retain(|platform, _| current == Some(platform.as_str()));
-            g.cooldown_until
                 .retain(|platform, _| current == Some(platform.as_str()));
         }
     }
