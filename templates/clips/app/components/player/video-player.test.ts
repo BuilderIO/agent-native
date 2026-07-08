@@ -20,3 +20,30 @@ describe("video player duration probing", () => {
     expect(webmDurationProbe).toBeGreaterThan(playAttempt);
   });
 });
+
+describe("video player mobile controls", () => {
+  it("handles touch taps before the synthetic click can double-toggle", () => {
+    const videoPlayerSource = readSource("./video-player.tsx");
+
+    expect(videoPlayerSource).toContain("touchTapCandidateRef");
+    expect(videoPlayerSource).toContain("suppressNextClickRef.current = true");
+    expect(videoPlayerSource).toContain("onPointerUp={handlePlayerPointerUp}");
+  });
+
+  it("exposes 15 second skip controls beside play controls", () => {
+    const playerControlsSource = readSource("./player-controls.tsx");
+    const videoPlayerSource = readSource("./video-player.tsx");
+
+    expect(playerControlsSource).toContain(
+      "export const PLAYER_SEEK_STEP_MS = 15_000;",
+    );
+    expect(playerControlsSource).toContain(
+      "onSeekRelative(-PLAYER_SEEK_STEP_MS)",
+    );
+    expect(playerControlsSource).toContain(
+      "onSeekRelative(PLAYER_SEEK_STEP_MS)",
+    );
+    expect(videoPlayerSource).toContain("function CenterSeekButton");
+    expect(videoPlayerSource).toContain("onSeekRelative={seekByMs}");
+  });
+});

@@ -306,7 +306,7 @@ function findWorkspaceCoreSync(
 
 function findLocalWorkspacePackageDeps(
   startDir: string,
-  workspaceRoot: string | null,
+  _workspaceRoot: string | null,
 ): Array<{ packageName: string; packageDir: string }> {
   const pkgPath = path.join(startDir, "package.json");
   if (!fs.existsSync(pkgPath)) return [];
@@ -318,7 +318,6 @@ function findLocalWorkspacePackageDeps(
       ...(pkg.devDependencies ?? {}),
       ...(pkg.peerDependencies ?? {}),
     } as Record<string, string>;
-    const req = createRequire(pkgPath);
     const seen = new Set<string>();
     const packages: Array<{ packageName: string; packageDir: string }> = [];
 
@@ -330,21 +329,11 @@ function findLocalWorkspacePackageDeps(
         let packageJsonPath: string | null = null;
         if (range.startsWith("file:")) {
           packageJsonPath = findFilePackageJsonPath(pkgPath, range);
-        } else if (range.startsWith("workspace:") && workspaceRoot) {
-          packageJsonPath =
-            findInstalledPackageJsonPath(pkgPath, packageName) ??
-            findPackageJsonFromEntry(req.resolve(packageName));
         } else {
           continue;
         }
         if (!packageJsonPath) continue;
         const packageDir = fs.realpathSync(path.dirname(packageJsonPath));
-        if (
-          workspaceRoot &&
-          range.startsWith("workspace:") &&
-          !packageDir.startsWith(path.join(workspaceRoot, "packages"))
-        )
-          continue;
         const packageJson = JSON.parse(
           fs.readFileSync(packageJsonPath, "utf-8"),
         );
@@ -371,33 +360,6 @@ function findFilePackageJsonPath(
     : path.resolve(path.dirname(pkgPath), spec);
   const packageJsonPath = path.join(packageDir, "package.json");
   return fs.existsSync(packageJsonPath) ? packageJsonPath : null;
-}
-
-function findInstalledPackageJsonPath(
-  pkgPath: string,
-  packageName: string,
-): string | null {
-  const candidate = path.join(
-    path.dirname(pkgPath),
-    "node_modules",
-    ...packageName.split("/"),
-    "package.json",
-  );
-  return fs.existsSync(candidate) ? candidate : null;
-}
-
-function findPackageJsonFromEntry(entryPath: string): string | null {
-  let dir = fs.statSync(entryPath).isDirectory()
-    ? entryPath
-    : path.dirname(entryPath);
-  for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, "package.json");
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 function findPnpmWorkspaceRoot(startDir: string): string | null {

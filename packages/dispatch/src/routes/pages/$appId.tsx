@@ -14,15 +14,15 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { resolveServerCatchAllTarget } from "@/lib/catch-all-target";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Spinner } from "../../components/ui/spinner";
+import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
