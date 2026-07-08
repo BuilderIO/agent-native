@@ -1,5 +1,27 @@
 # @agent-native/core
 
+## 0.91.0
+
+### Minor Changes
+
+- e310ac1: Add first-party, Sentry-style error capture to the analytics client SDK. `configureTracking({ errorCapture })` now auto-captures uncaught exceptions (`window.onerror`) and unhandled promise rejections, exposes a manual `captureException(error, context?)` / `captureMessage(message, level?)` API plus `addErrorBreadcrumb`, and ties each captured exception to the active session replay id so errors link straight to the recording they happened in. Captured exceptions are sent through the existing first-party analytics ingest as a dedicated `$exception` event and are redacted + deduped client-side. Additive and backward-compatible; error capture only installs when a public key is configured (or explicitly enabled).
+- e310ac1: Revamp the shared settings shell (`SettingsTabsPage`): an edge-aligned,
+  independently scrolling left nav with consistent theming, a built-in settings
+  search that deep-links into tabs and sections via `searchEntries` /
+  `generalSearchEntries`, and a new controlled `value` / `onValueChange` mode so
+  apps can drive the active tab from their own routing and application state.
+- e310ac1: Make agent-native chat threads shareable through the framework share dialog so collaborators can view or edit shared chats.
+
+### Patch Changes
+
+- e310ac1: Populate in-app "What's new" surfaces from pending app changelog entries during dev and build.
+- e310ac1: Use shadcn's message scroller primitives for core chat transcripts so streaming replies, turn anchoring, and scroll-to-bottom behavior stay smoother in long or dynamically resizing chats.
+- e310ac1: Auto-continue recoverable chat run timeouts during reconnect without showing the internal resume prompt in chat history, and retry transient `ask_app_status` bridge fetch failures before surfacing an error.
+- e310ac1: Recover Google popup sign-in pages when the session cookie is present but the parent page misses the automatic OAuth exchange redirect.
+- e310ac1: Hide internal share principal ids in share dialogs by resolving organization names and using safe fallback labels.
+- e310ac1: Fix Vite dev server resolution for Agent Native templates that load local or transitive `@agent-native/toolkit` subpath exports.
+- e310ac1: Avoid repeated Sentry reports when workspace dev app discovery hits local filesystem permission errors.
+
 ## 0.90.11
 
 ### Patch Changes
