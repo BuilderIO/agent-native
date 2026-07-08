@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hydration";
+import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import { useRestoreContentDatabase } from "./use-content-database";
@@ -85,14 +86,19 @@ export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
 ) {
+  const sourceBackedEmptyBody =
+    (!!item.bodyHydration || !!item.document.databaseMembership?.sourceId) &&
+    isEffectivelyEmptyDocumentContent(item.document.content);
   // Seed only cold caches. Overwriting an existing entry would bump its
   // freshness with possibly older table-snapshot data (a background database
   // refetch can lag a just-saved document edit) and suppress the correcting
   // refetch for the whole staleTime window. Rows whose Builder body has not
-  // hydrated yet are never seeded: their empty table-snapshot `content` would
-  // render as an authoritative empty document.
+  // hydrated yet, or whose source-backed list snapshot intentionally omits the
+  // body, are never seeded: their empty table-snapshot `content` would render as
+  // an authoritative empty document.
   if (
     !databaseItemBodyHydrationIsPending(item) &&
+    !sourceBackedEmptyBody &&
     queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
   ) {
     queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {

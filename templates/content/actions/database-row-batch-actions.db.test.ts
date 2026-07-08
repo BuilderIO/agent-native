@@ -223,10 +223,17 @@ describe("database row batch actions", () => {
           result.duplicatedDocumentIds ?? [],
         ),
       );
-    expect(copiedValues.map((value) => JSON.parse(value.valueJson))).toEqual([
-      "Review",
-      "Ready",
-    ]);
+    const copiedValuesByDocumentId = new Map(
+      copiedValues.map((value) => [
+        value.documentId,
+        JSON.parse(value.valueJson) as unknown,
+      ]),
+    );
+    expect(
+      (result.duplicatedDocumentIds ?? []).map((documentId) =>
+        copiedValuesByDocumentId.get(documentId),
+      ),
+    ).toEqual(["Review", "Ready"]);
 
     const inheritedShares = await db
       .select()

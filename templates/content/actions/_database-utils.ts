@@ -16,6 +16,7 @@ import {
   federateSources,
 } from "./_federation-join.js";
 import {
+  listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -197,6 +198,10 @@ export async function getContentDatabaseResponse(
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+  const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
+    databaseId,
+    documents,
+  );
   const queuedBodyHydrationItemIds =
     items.length > 0
       ? new Set(
@@ -234,7 +239,7 @@ export async function getContentDatabaseResponse(
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),
-      properties: await listPropertiesForDatabase(databaseId, document),
+      properties: propertiesByDocumentId.get(document.id) ?? [],
     });
   }
 

@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
 import {
-  getContentDatabaseSourceSnapshotForWrite,
+  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotById,
   getExistingSourceForWrite,
   resyncBuilderCmsSourceSnapshot,
   resyncMockSourceSnapshot,
@@ -60,10 +61,9 @@ export default defineAction({
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
     }
-    const snapshot = await getContentDatabaseSourceSnapshotForWrite(
-      database,
-      args.sourceId,
-    );
+    const snapshot = args.sourceId
+      ? await getContentDatabaseSourceSnapshotById(database, args.sourceId)
+      : await getContentDatabaseSourceSnapshot(database);
 
     const builderProgress =
       snapshot?.sourceType === "builder-cms" ? snapshot.metadata : null;

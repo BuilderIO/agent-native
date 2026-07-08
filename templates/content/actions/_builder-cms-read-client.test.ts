@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   listBuilderCmsModels,
+  readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client";
@@ -234,6 +235,8 @@ describe("Builder CMS read client", () => {
       expect(input.searchParams.get("apiKey")).toBe("public-key");
       expect(input.searchParams.get("limit")).toBe("100");
       expect(input.searchParams.get("offset")).toBe("0");
+      expect(input.searchParams.get("fields")).toContain("data.title");
+      expect(input.searchParams.get("fields")).not.toContain("data.blocks");
       expect(init?.headers).toMatchObject({
         accept: "application/json",
       });
@@ -312,6 +315,83 @@ describe("Builder CMS read client", () => {
         (input as URL).searchParams.get("offset"),
       ),
     ).toEqual(["0", "100"]);
+    for (const [input] of fetchImpl.mock.calls) {
+      const fields = (input as URL).searchParams.get("fields") ?? "";
+      expect(fields).toContain("data.title");
+      expect(fields).not.toContain("data.blocks");
+      expect(fields).not.toContain("data.blocksString");
+    }
+  });
+
+  it("keeps row-list reads metadata-only but fetches blocks for single-entry hydration", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const fields = input.searchParams.get("fields") ?? "";
+      const isSingleEntry = input.pathname.endsWith(
+        "/api/v3/content/blog_article/builder-entry-1",
+      );
+      if (isSingleEntry) {
+        expect(fields).toContain("data.blocks");
+        return new Response(
+          JSON.stringify({
+            id: "builder-entry-1",
+            lastUpdated: "2026-06-08T12:00:00.000Z",
+            data: {
+              title: "Builder title",
+              url: "/blog/builder-title",
+              blocks: [
+                {
+                  "@type": "@builder.io/sdk:Element",
+                  "@version": 2,
+                  id: "text-1",
+                  component: {
+                    name: "Text",
+                    options: { text: "<p>Hydrated body.</p>" },
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      expect(fields).toContain("data.title");
+      expect(fields).not.toContain("data.blocks");
+      expect(fields).not.toContain("data.blocksString");
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-1",
+              lastUpdated: "2026-06-08T12:00:00.000Z",
+              data: {
+                title: "Builder title",
+                url: "/blog/builder-title",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const listResult = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const entryResult = await readBuilderCmsContentEntry({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(listResult.entries[0]?.rawEntry?.data?.blocks).toBeUndefined();
+    expect(entryResult?.rawEntry?.data?.blocks).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {

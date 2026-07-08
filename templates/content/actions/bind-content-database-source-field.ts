@@ -9,6 +9,7 @@ import type {
   ContentDatabaseResponse,
 } from "../shared/api.js";
 import { serializePropertyValue } from "../shared/properties.js";
+import { chunks } from "./_batch-utils.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -207,7 +208,11 @@ export default defineAction({
     }
     if (federationRole !== "secondary") {
       const sourceRows = await db
-        .select()
+        .select({
+          databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+          documentId: schema.contentDatabaseSourceRows.documentId,
+          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        })
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
       const itemValues = sourceFieldPropertyValuesFromRows(
@@ -237,17 +242,19 @@ export default defineAction({
           );
       }
       if (itemValues.length > 0) {
-        await db.insert(schema.documentPropertyValues).values(
-          itemValues.map((row) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId: row.documentId,
-            propertyId: property.id,
-            valueJson: serializePropertyValue(row.value),
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
+        for (const chunk of chunks(itemValues, 200)) {
+          await db.insert(schema.documentPropertyValues).values(
+            chunk.map((row) => ({
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId: row.documentId,
+              propertyId: property.id,
+              valueJson: serializePropertyValue(row.value),
+              createdAt: now,
+              updatedAt: now,
+            })),
+          );
+        }
       }
     }
 

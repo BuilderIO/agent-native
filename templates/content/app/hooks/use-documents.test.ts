@@ -293,6 +293,52 @@ describe("seedDatabaseItemDocumentCaches", () => {
     });
   });
 
+  it("skips get-document body seeding for source-backed rows with empty list content", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        content: "",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          bodyHydration: {
+            status: "hydrated",
+            attemptedAt: "2026-07-02T12:00:00.000Z",
+            error: null,
+            version: "2026-07-02T12:00:00.000Z:readable-native-images-v5",
+          },
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: "2026-07-02T12:00:00.000Z:readable-native-images-v5",
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: [],
+    });
+  });
+
   it("does not overwrite an already-warm get-document cache", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(documentQueryKey("row-page"), {
