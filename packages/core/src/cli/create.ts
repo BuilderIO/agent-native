@@ -34,6 +34,7 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "vite",
 ] as const;
 const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@typescript/*"',
   '"@sentry/*"',
   "typescript",
   "typescript-7",
