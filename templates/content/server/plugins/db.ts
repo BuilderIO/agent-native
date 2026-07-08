@@ -629,6 +629,12 @@ const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_database_source_fields_source_property_idx ON content_database_source_fields (source_id, property_id);
         CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_document_idx ON content_database_body_hydration_queue (source_id, document_id, priority, created_at)`,
     },
+    {
+      version: 64,
+      name: "document-property-value-hot-path-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
+        CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

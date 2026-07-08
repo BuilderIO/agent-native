@@ -21,6 +21,7 @@ import {
   type DocumentPropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { chunks } from "./_batch-utils.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
@@ -343,7 +344,11 @@ export default defineAction({
     const sourceRows = isSecondary
       ? []
       : await db
-          .select()
+          .select({
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
     const builderMetadata = builderMetadataForSourceField({
@@ -397,17 +402,19 @@ export default defineAction({
       options,
     );
     if (itemValues.length > 0) {
-      await db.insert(schema.documentPropertyValues).values(
-        itemValues.map((row) => ({
-          id: nanoid(),
-          ownerEmail: database.ownerEmail,
-          documentId: row.documentId,
-          propertyId,
-          valueJson: serializePropertyValue(row.value),
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
+      for (const chunk of chunks(itemValues, 200)) {
+        await db.insert(schema.documentPropertyValues).values(
+          chunk.map((row) => ({
+            id: nanoid(),
+            ownerEmail: database.ownerEmail,
+            documentId: row.documentId,
+            propertyId,
+            valueJson: serializePropertyValue(row.value),
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
     }
 
     const sourceField = serializeSourceField(
