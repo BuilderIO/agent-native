@@ -2218,6 +2218,11 @@ const DEFAULT_LEAN_INITIAL_TOOL_NAMES = new Set([
   "delete-staged-dataset",
   "run-code",
   "get-code-execution",
+  "list-extensions",
+  "get-extension",
+  "update-extension",
+  "list-extension-history",
+  "get-extension-history-version",
   // Common first-class integration shortcuts. These are included only when the
   // current app/mode registry actually exposes them.
   "bigquery",
