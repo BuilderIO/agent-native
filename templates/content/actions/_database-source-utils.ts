@@ -1240,18 +1240,38 @@ async function processBuilderBodyHydrationJob(
     if (!nextContent.trim()) {
       const attempts = row.attempts;
       await db.transaction(async (tx) => {
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        const queueRowCas = and(
+          eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+          eq(
+            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+            activeSourceEntryJson,
+          ),
+        );
+        const markPendingIfReplaced = async () => {
+          const [replacedByNewerJob] = await tx
+            .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+            .from(schema.contentDatabaseBodyHydrationQueue)
+            .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+          if (!replacedByNewerJob) return;
           await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError: null,
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        };
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          const [deleted] = await tx
             .delete(schema.contentDatabaseBodyHydrationQueue)
-            .where(
-              and(
-                eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-                eq(
-                  schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-                  activeSourceEntryJson,
-                ),
-              ),
-            );
+            .where(queueRowCas)
+            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+          if (!deleted) {
+            await markPendingIfReplaced();
+            return;
+          }
           await tx
             .update(schema.contentDatabaseItems)
             .set({
@@ -1261,6 +1281,18 @@ async function processBuilderBodyHydrationJob(
               updatedAt: now,
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+          return;
+        }
+        const [stillOwnsQueueRow] = await tx
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+            updatedAt: now,
+          })
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!stillOwnsQueueRow) {
+          await markPendingIfReplaced();
           return;
         }
         await tx
@@ -1301,6 +1333,40 @@ async function processBuilderBodyHydrationJob(
     });
   let wroteBody = false;
   await db.transaction(async (tx) => {
+    const queueRowCas = and(
+      eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+        activeSourceEntryJson,
+      ),
+    );
+    const markPendingIfReplaced = async () => {
+      const [replacedByNewerJob] = await tx
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+      if (!replacedByNewerJob) return;
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+    };
+    const [stillOwnsQueueRow] = await tx
+      .update(schema.contentDatabaseBodyHydrationQueue)
+      .set({
+        updatedAt: now,
+      })
+      .where(queueRowCas)
+      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+    if (!stillOwnsQueueRow) {
+      await markPendingIfReplaced();
+      return;
+    }
     if (shouldWriteBody) {
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
@@ -1326,15 +1392,7 @@ async function processBuilderBodyHydrationJob(
             "Skipped Builder body hydration because the document changed during sync.",
           updatedAt: now,
         })
-        .where(
-          and(
-            eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-            eq(
-              schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-              activeSourceEntryJson,
-            ),
-          ),
-        )
+        .where(queueRowCas)
         .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
       if (stillQueued) {
         await tx
@@ -1378,15 +1436,7 @@ async function processBuilderBodyHydrationJob(
             "Skipped Builder body hydration because the source row changed during sync.",
           updatedAt: now,
         })
-        .where(
-          and(
-            eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-            eq(
-              schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-              activeSourceEntryJson,
-            ),
-          ),
-        )
+        .where(queueRowCas)
         .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
       if (stillQueued) {
         await tx
@@ -1404,15 +1454,7 @@ async function processBuilderBodyHydrationJob(
     }
     const [deleted] = await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
-      .where(
-        and(
-          eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-          eq(
-            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-            activeSourceEntryJson,
-          ),
-        ),
-      )
+      .where(queueRowCas)
       .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
     if (!deleted) {
       // Our delete matched nothing: either a NEWER job version replaced this
@@ -1562,36 +1604,46 @@ export async function processBuilderBodyHydrationQueue(args: {
         ),
       );
   }
-  const jobs =
-    args.preloadedJobs && !args.documentId
-      ? sortBuilderBodyHydrationQueueForProcessing(
-          args.preloadedJobs.filter((job) => job.sourceId === args.sourceId),
-        ).slice(0, limit)
-      : await db
-          .select()
-          .from(schema.contentDatabaseBodyHydrationQueue)
-          .where(
-            args.documentId
-              ? and(
-                  eq(
-                    schema.contentDatabaseBodyHydrationQueue.sourceId,
-                    args.sourceId,
-                  ),
-                  eq(
-                    schema.contentDatabaseBodyHydrationQueue.documentId,
-                    args.documentId,
-                  ),
-                )
-              : eq(
-                  schema.contentDatabaseBodyHydrationQueue.sourceId,
-                  args.sourceId,
-                ),
-          )
-          .orderBy(
-            asc(schema.contentDatabaseBodyHydrationQueue.priority),
-            asc(schema.contentDatabaseBodyHydrationQueue.createdAt),
-          )
-          .limit(limit);
+  const persistedJobs = async (queryLimit: number) =>
+    db
+      .select()
+      .from(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        args.documentId
+          ? and(
+              eq(
+                schema.contentDatabaseBodyHydrationQueue.sourceId,
+                args.sourceId,
+              ),
+              eq(
+                schema.contentDatabaseBodyHydrationQueue.documentId,
+                args.documentId,
+              ),
+            )
+          : eq(
+              schema.contentDatabaseBodyHydrationQueue.sourceId,
+              args.sourceId,
+            ),
+      )
+      .orderBy(
+        asc(schema.contentDatabaseBodyHydrationQueue.priority),
+        asc(schema.contentDatabaseBodyHydrationQueue.createdAt),
+      )
+      .limit(queryLimit);
+  const jobs = await (args.preloadedJobs?.length && !args.documentId
+    ? (() => {
+        const preloadedJobs = sortBuilderBodyHydrationQueueForProcessing(
+          args.preloadedJobs!.filter((job) => job.sourceId === args.sourceId),
+        ).slice(0, limit);
+        return persistedJobs(limit + preloadedJobs.length).then((rows) => {
+          const preloadedIds = new Set(preloadedJobs.map((job) => job.id));
+          return sortBuilderBodyHydrationQueueForProcessing([
+            ...preloadedJobs,
+            ...rows.filter((row) => !preloadedIds.has(row.id)),
+          ]).slice(0, limit);
+        });
+      })()
+    : persistedJobs(limit));
 
   let succeeded = 0;
   let failed = 0;
@@ -4137,12 +4189,14 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
     }
   }
-  let builderModelFields: BuilderCmsModelFieldSummary[] = [];
+  let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
+  let builderModelFieldsReadFailed = false;
   try {
     builderModelFields = await readBuilderCmsModelFields({
       model: args.source.sourceTable,
     });
   } catch (error) {
+    builderModelFieldsReadFailed = true;
     const message = error instanceof Error ? error.message : String(error);
     console.warn(
       `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
@@ -4186,19 +4240,23 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     );
     const hasMore = builderRead.progress?.hasMore === true;
 
-    await db
-      .delete(schema.contentDatabaseSourceFields)
-      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-    await seedMockSourceFields({
-      sourceId: args.source.id,
-      ownerEmail: args.database.ownerEmail,
-      sourceType: "builder-cms",
-      properties,
-      builderModelFields,
-      builderSampleEntries: builderEntries,
-      existingFields,
-      now: args.now,
-    });
+    const shouldReseedSourceFields =
+      !builderModelFieldsReadFailed || existingFields.length === 0;
+    if (shouldReseedSourceFields) {
+      await db
+        .delete(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+      await seedMockSourceFields({
+        sourceId: args.source.id,
+        ownerEmail: args.database.ownerEmail,
+        sourceType: "builder-cms",
+        properties,
+        builderModelFields,
+        builderSampleEntries: builderEntries,
+        existingFields,
+        now: args.now,
+      });
+    }
 
     const itemsToLink = response.items.filter((item) =>
       builderEntriesByDocumentId.has(item.document.id),
@@ -4288,23 +4346,29 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     return;
   }
 
-  await db
-    .delete(schema.contentDatabaseSourceFields)
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+  const shouldReseedSourceFields =
+    !builderModelFieldsReadFailed || existingFields.length === 0;
+  if (shouldReseedSourceFields) {
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+  }
   await db
     .delete(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
 
-  await seedMockSourceFields({
-    sourceId: args.source.id,
-    ownerEmail: args.database.ownerEmail,
-    sourceType: "builder-cms",
-    properties,
-    builderModelFields,
-    builderSampleEntries: builderEntries,
-    existingFields,
-    now: args.now,
-  });
+  if (shouldReseedSourceFields) {
+    await seedMockSourceFields({
+      sourceId: args.source.id,
+      ownerEmail: args.database.ownerEmail,
+      sourceType: "builder-cms",
+      properties,
+      builderModelFields,
+      builderSampleEntries: builderEntries,
+      existingFields,
+      now: args.now,
+    });
+  }
   // Row-union: a resync must only (re)link items that BELONG to this source —
   // never claim every database item. With a single source, all items belong to
   // it (back-compat). With multiple sources, link only this source's
