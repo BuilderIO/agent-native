@@ -39,6 +39,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 import action from "./list-decks";

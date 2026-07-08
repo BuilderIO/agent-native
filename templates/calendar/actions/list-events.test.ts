@@ -28,6 +28,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((...args: unknown[]) => ({ op: "inArray", args })),
   lte: vi.fn((...args: unknown[]) => ({ op: "lte", args })),
   ne: vi.fn((...args: unknown[]) => ({ op: "ne", args })),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({

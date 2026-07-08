@@ -64,6 +64,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
