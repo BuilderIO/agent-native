@@ -355,7 +355,7 @@ function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
 
 function cloneContentParts(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
-    part.type === "text"
+    part.type === "text" || part.type === "reasoning"
       ? { ...part }
       : {
           ...part,

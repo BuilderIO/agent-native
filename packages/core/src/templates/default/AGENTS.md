@@ -38,9 +38,15 @@ Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
 app-specific rules, then use the corpus for reusable framework/template
 patterns.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the app
-root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+To bring an older app current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the app root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided `.agents/skills` and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
 ### Database Code
@@ -150,6 +156,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `delegate-to-agent`    | Before adding LLM calls or AI delegation                                          |
 | `actions`              | Before creating or modifying actions                                              |
 | `self-modifying-code`  | Before editing source, components, or styles                                      |
+| `upgrade-agent-native` | Before updating an older app/branch or when tempted to patch `@agent-native/*`    |
 | `capture-learnings`    | Before recording user preferences or corrections                                  |
 | `frontend-design`      | Before building or restyling any UI component, page, or layout                    |
 | `shadcn-ui`            | Before adding, updating, or debugging shadcn/ui components                        |

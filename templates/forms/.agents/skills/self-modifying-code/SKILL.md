@@ -28,7 +28,19 @@ Not all modifications are equal. Use this to decide what level of care is needed
 | 1: Data       | Files in `data/`      | JSON state, generated content, markdown          | Nothing — these are routine       |
 | 2: Source     | App code              | Components, routes, styles, scripts              | Run `pnpm typecheck && pnpm lint` |
 | 3: Config     | Project config        | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first   |
-| 4: Off limits | Secrets and framework | `.env`, `@agent-native/core` internals           | Never modify these                |
+| 4: Off limits | Secrets and framework | `.env`, `@agent-native/*` packages & overrides   | Never modify these                |
+
+Tier 4 includes **all** of the following — not only editing package source:
+
+- Files under `node_modules/@agent-native/*` (core, dispatch, scheduling, …)
+- `pnpm.overrides`, `overrides`, `resolutions`, or `patchedDependencies` that
+  target any `@agent-native/*` package
+- Local patches, vendored copies, or invented "dispatch/core behavior"
+  shims meant to paper over a version skew or failed upgrade
+
+When an older branch needs current packages, use **`agent-native upgrade`**
+(see the `upgrade-agent-native` skill). If upgrade or typecheck fails, fix
+**app** code or stop and ask — do not patch the framework.
 
 ## Git Checkpoint Pattern
 
@@ -74,13 +86,19 @@ inline strings in components.
 ## Don't
 
 - Don't modify `.env` files or files containing secrets
-- Don't modify `@agent-native/core` package internals
+- Don't modify `@agent-native/core`, `@agent-native/dispatch`, or other
+  `@agent-native/*` package internals (including under `node_modules`)
+- Don't add `pnpm.overrides` / `patchedDependencies` / `resolutions` for
+  `@agent-native/*` to "make the app run" after a version bump
+- Don't invent local dispatch/core behavior overrides when upgrade fails —
+  run `npx @agent-native/core@latest upgrade`, then fix app-level errors only
 - Don't modify `.agents/skills/` or `AGENTS.md` unless explicitly requested
 - Don't skip the typecheck/lint step after editing source code
 - Don't make source changes without a git checkpoint to roll back to
 
 ## Related Skills
 
+- **upgrade-agent-native** — supported path to bring an older app/workspace current
 - **storing-data** — Tier 1 modifications (data files) are the safest and most common
 - **actions** — The agent can create or modify actions to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat

@@ -65,22 +65,22 @@ const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
 
- // Pre-gain for mic-only native captures. ScreenCaptureKit records without
- // WebRTC AGC (unlike Loom / the browser path), so speech often lands well
- // below -16 LUFS. 12 dB before loudnorm matches Loom-ish perceptual loudness
- // for MacBook mics; loudnorm still clamps true peaks at TP=-1.5.
+// Pre-gain for mic-only native captures. ScreenCaptureKit records without
+// WebRTC AGC (unlike Loom / the browser path), so speech often lands well
+// below -16 LUFS. 12 dB before loudnorm matches Loom-ish perceptual loudness
+// for MacBook mics; loudnorm still clamps true peaks at TP=-1.5.
 const AUDIO_MIC_PREGAIN_FILTER: &str = "volume=12dB";
 // After the mic+system centered downmix (0.5*L+0.5*R) each source is ~
- // 6 dB quieter. Restore energy before loudnorm so dual-capture clips are not
- // systematically quieter than mic-only. Dual still mixes two sources so peaks
- // may compress more under loudnorm than mic-only — by design when both sides
- // compete for the same LUFS budget.
+// 6 dB quieter. Restore energy before loudnorm so dual-capture clips are not
+// systematically quieter than mic-only. Dual still mixes two sources so peaks
+// may compress more under loudnorm than mic-only — by design when both sides
+// compete for the same LUFS budget.
 const AUDIO_DOWNMIX_MAKEUP_FILTER: &str = "volume=6dB";
 
- // Loudness normalization, optionally preceded by the centered-stereo downmix
- // that repairs the mic+system L/R split and denoise for native mic captures.
- // Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
- // resampled back.
+// Loudness normalization, optionally preceded by the centered-stereo downmix
+// that repairs the mic+system L/R split and denoise for native mic captures.
+// Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
+// resampled back.
 fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String {
     let mut filters = Vec::new();
     if downmix {
@@ -4479,7 +4479,11 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(audio_filter_chain(downmix_audio, denoise_audio, mic_pregain))
+        .arg(audio_filter_chain(
+            downmix_audio,
+            denoise_audio,
+            mic_pregain,
+        ))
         .arg("-ac")
         .arg("2")
         .arg("-ar")
@@ -4568,9 +4572,11 @@ fn transcode_with_ffmpeg(
     }
 
     if normalize_audio {
-        command
-            .arg("-af")
-            .arg(audio_filter_chain(downmix_audio, denoise_audio, mic_pregain));
+        command.arg("-af").arg(audio_filter_chain(
+            downmix_audio,
+            denoise_audio,
+            mic_pregain,
+        ));
     }
 
     let duration_rate_limit =
@@ -5055,9 +5061,7 @@ mod audio_track_probe_tests {
         );
         assert_eq!(
             audio_filter_chain(false, true, true),
-            format!(
-                "{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}"
-            )
+            format!("{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}")
         );
         assert_eq!(
             audio_filter_chain(true, true, false),

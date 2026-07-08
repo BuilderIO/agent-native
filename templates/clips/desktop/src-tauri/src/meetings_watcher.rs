@@ -289,9 +289,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let limit = MEETING_POLL_LIMIT.to_string();
     // Include meetings that started within the hold window so a late-open
     // desktop still surfaces the reminder until 5 minutes after start.
-    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60
-        + 1)
-    .to_string();
+    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60 + 1).to_string();
     let mut req = client.get(&url).query(&[
         ("view", "upcoming"),
         ("limit", limit.as_str()),
@@ -368,8 +366,8 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
 
             // Eligible from 1 min before start through 5 min after start.
             // secs_until > 0 => still upcoming; negative => already started.
-            let in_window = secs_until <= NOTIFY_LEAD_SECS
-                && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
+            let in_window =
+                secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
 
             let eligible = match g.snoozed_until.get(&m.id).copied() {
                 Some(until) if now_ts < until => false, // still snoozed

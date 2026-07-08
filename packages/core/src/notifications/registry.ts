@@ -105,6 +105,7 @@ export async function notifyWithDelivery(
     body: truncate(input.body, MAX_BODY_LEN),
   };
   const channels = selectChannels(input.channels);
+  const storedMetadata = scrubStoredMetadata(input.metadata);
 
   // The inbox channel is always included unless explicitly excluded.
   const runInbox = !input.channels || input.channels.includes("inbox");
@@ -120,7 +121,7 @@ export async function notifyWithDelivery(
         severity: input.severity,
         title: input.title,
         body: input.body,
-        metadata: input.metadata,
+        metadata: storedMetadata,
         deliveredChannels: ["inbox"],
       });
       delivered.push("inbox");
@@ -132,13 +133,15 @@ export async function notifyWithDelivery(
   // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      await channel.deliver(input, meta);
+      const delivered = await channel.deliver(input, meta);
+      // Explicit `false` means the channel skipped (no URL / recipients).
+      if (delivered === false) return null;
       return channel.name;
     }),
   );
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
-      delivered.push(r.value);
+      if (r.value) delivered.push(r.value);
     } else {
       console.error(
         `[notifications] channel "${channels[i].name}" failed:`,
@@ -179,6 +182,17 @@ export async function notifyWithDelivery(
   }
 
   return { notification: stored, deliveredChannels: delivered };
+}
+
+function scrubStoredMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata).filter(
+    ([key]) =>
+      key !== "delivery" && key !== "webhookUrl" && key !== "slackWebhookUrl",
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 function selectChannels(allowlist?: string[]): NotificationChannel[] {

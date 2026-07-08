@@ -123,9 +123,7 @@ async fn tick_macos(
     config: &crate::config::FeatureConfig,
 ) -> Result<(), String> {
     let front = crate::util::frontmost_bundle_id();
-    let matched = front
-        .as_deref()
-        .and_then(match_vc_bundle);
+    let matched = front.as_deref().and_then(match_vc_bundle);
 
     let Some((platform, title)) = matched else {
         // VC app left front — clear session dedupe so a later re-focus can

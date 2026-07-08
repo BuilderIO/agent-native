@@ -38,9 +38,15 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
 the corpus for reusable framework/template patterns.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the app
-root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+To bring an older app current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the app root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided `.agents/skills` and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
 ## Actions

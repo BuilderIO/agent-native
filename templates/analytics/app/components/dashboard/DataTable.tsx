@@ -27,6 +27,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const TABLE_MIN_HEIGHT_CLASS = "min-h-[386px]";
+const TABLE_SKELETON_ROWS = 10;
 
 interface DataTableProps {
   title?: string;
@@ -109,11 +111,7 @@ export function DataTable({
   const content = (
     <>
       {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
-        </div>
+        <DataTableLoadingSkeleton />
       ) : error ? (
         <p className="text-sm text-red-400 py-4">{error}</p>
       ) : data.length === 0 ? (
@@ -121,7 +119,7 @@ export function DataTable({
           {t("common.noData")}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto ${TABLE_MIN_HEIGHT_CLASS}`}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -225,5 +223,42 @@ export function DataTable({
       </CardHeader>
       <CardContent>{content}</CardContent>
     </Card>
+  );
+}
+
+function DataTableLoadingSkeleton() {
+  const columnWidths = ["w-24", "w-32", "w-20", "w-28"];
+
+  return (
+    <div className={`space-y-1 ${TABLE_MIN_HEIGHT_CLASS}`}>
+      <div className="overflow-x-auto">
+        <div className="min-w-[480px]">
+          <div className="grid h-8 grid-cols-4 items-center border-b border-border px-2">
+            {columnWidths.map((width, index) => (
+              <Skeleton key={index} className={`h-3 ${width}`} />
+            ))}
+          </div>
+          {Array.from({ length: TABLE_SKELETON_ROWS }).map((_, row) => (
+            <div
+              key={row}
+              className="grid h-8 grid-cols-4 items-center border-b border-border/50 px-2"
+            >
+              {columnWidths.map((width, col) => (
+                <Skeleton
+                  key={col}
+                  className={`h-3 ${
+                    col === 0 ? "w-36" : col === 2 ? "ml-auto w-16" : width
+                  }`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex h-8 items-center justify-between border-t border-border px-2 text-xs">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
   );
 }

@@ -27,10 +27,16 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the
-workspace root to refresh framework-provided shared skills and repair
-`CLAUDE.md` / `.claude/skills` compatibility links.
+To bring an older workspace current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the workspace root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided shared skills and repairs `CLAUDE.md` /
+`.claude/skills` compatibility links.
 
 ## Core Agent Rule
 

@@ -3025,3 +3025,56 @@ describe("journal-recovery tool replay coalescing", () => {
     expect(toolCards.map((p) => p.result)).toEqual(["row A", "row B"]);
   });
 });
+
+describe("SSE thinking / reasoning events", () => {
+  function eventsStream(events: object[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const ev of events) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+        controller.close();
+      },
+    });
+  }
+
+  it("coalesces thinking deltas into a single reasoning part", async () => {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([
+        { type: "thinking", text: "First, " },
+        { type: "thinking", text: "check the schema." },
+        { type: "text", text: "Here is the answer." },
+        { type: "done" },
+      ]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {});
+
+    expect(content).toEqual([
+      { type: "reasoning", text: "First, check the schema." },
+      { type: "text", text: "Here is the answer." },
+    ]);
+  });
+
+  it("clears in-flight reasoning on clear events", async () => {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([
+        { type: "thinking", text: "draft thought" },
+        { type: "clear" },
+        { type: "text", text: "retry" },
+        { type: "done" },
+      ]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {});
+
+    expect(content).toEqual([{ type: "text", text: "retry" }]);
+  });
+});

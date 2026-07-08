@@ -92,6 +92,7 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
   "writing-agent-instructions",
@@ -119,15 +120,25 @@ const templateSharedSkillIncludes = [
   "self-modifying-code",
   "shadcn-ui",
   "storing-data",
+  "upgrade-agent-native",
 ];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
 
-const requiredDefaultTemplateSharedSkills = ["internationalization"];
+/** Copied into every first-party template that uses shared skills. */
+const requiredAllTemplateSharedSkills = ["upgrade-agent-native"];
 
-const requiredHeadlessTemplateSharedSkills = ["agent-native-docs"];
+const requiredDefaultTemplateSharedSkills = [
+  "internationalization",
+  "upgrade-agent-native",
+];
+
+const requiredHeadlessTemplateSharedSkills = [
+  "agent-native-docs",
+  "upgrade-agent-native",
+];
 
 const actionFirstInstructionFiles = [
   join(
@@ -335,7 +346,14 @@ function checkSkillDirInSync(label, skill, targetSkillDir) {
 function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => {
+      if (!entry.isDirectory()) return false;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+        return false;
+      }
+      // Skip leftover/retired shells that no longer ship a package.json.
+      return existsSync(join(templatesDir, entry.name, "package.json"));
+    })
     .map((entry) => entry.name)
     .sort();
 }
@@ -421,7 +439,8 @@ function forEachExistingTemplateSharedSkill(fn) {
       );
       if (
         existsSync(targetSkillDir) ||
-        (requiredTemplateSharedSkills[template] ?? []).includes(skill)
+        (requiredTemplateSharedSkills[template] ?? []).includes(skill) ||
+        requiredAllTemplateSharedSkills.includes(skill)
       ) {
         fn(`templates/${template}/.agents/skills`, skill, targetSkillDir);
       }

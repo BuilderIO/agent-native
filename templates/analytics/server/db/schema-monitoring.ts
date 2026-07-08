@@ -70,6 +70,10 @@ export const monitors = table("monitors", {
   channels: text("channels").notNull().default('["inbox"]'),
   /** Email recipients as JSON array of addresses. */
   emailRecipients: text("email_recipients").notNull().default("[]"),
+  /** Optional per-monitor Slack incoming webhook URL (overrides workspace env). */
+  slackWebhookUrl: text("slack_webhook_url"),
+  /** Optional per-monitor generic webhook URL (overrides workspace env). */
+  webhookUrl: text("webhook_url"),
   /** Minutes to suppress repeat alerts while an incident is ongoing. */
   cooldownMinutes: integer("cooldown_minutes").notNull().default(15),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),

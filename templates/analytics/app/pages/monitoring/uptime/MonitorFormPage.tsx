@@ -101,6 +101,8 @@ interface MonitorFormValues {
   severity: MonitorSeverity;
   channels: Record<(typeof KNOWN_CHANNELS)[number], boolean>;
   emailRecipients: string;
+  slackWebhookUrl: string;
+  webhookUrl: string;
   cooldownMinutes: number;
   enabled: boolean;
 }
@@ -160,6 +162,8 @@ function defaultValues(monitor: MonitorSummary | null): MonitorFormValues {
       webhook: channelSet.has("webhook"),
     },
     emailRecipients: (monitor?.emailRecipients ?? []).join(", "),
+    slackWebhookUrl: monitor?.slackWebhookUrl ?? "",
+    webhookUrl: monitor?.webhookUrl ?? "",
     cooldownMinutes: monitor?.cooldownMinutes ?? 15,
     enabled: monitor?.enabled ?? true,
   };
@@ -206,6 +210,8 @@ function initialSections(monitor: MonitorSummary | null): SectionState {
     alerting:
       !isDefaultChannels ||
       monitor.emailRecipients.length > 0 ||
+      Boolean(monitor.slackWebhookUrl) ||
+      Boolean(monitor.webhookUrl) ||
       monitor.severity !== "critical",
     advanced:
       monitor.method !== "GET" ||
@@ -362,6 +368,30 @@ export function MonitorFormPage({
       setError("channels", { message: t.channelRequired });
       return;
     }
+    if (
+      formValues.channels.email &&
+      !splitList(formValues.emailRecipients).length
+    ) {
+      setSections((prev) => ({ ...prev, alerting: true }));
+      setError("emailRecipients", { message: t.emailRecipientsRequired });
+      return;
+    }
+    if (formValues.channels.slack) {
+      const slackUrl = formValues.slackWebhookUrl.trim();
+      if (slackUrl && !isHttpUrl(slackUrl)) {
+        setSections((prev) => ({ ...prev, alerting: true }));
+        setError("slackWebhookUrl", { message: t.slackWebhookUrlInvalid });
+        return;
+      }
+    }
+    if (formValues.channels.webhook) {
+      const hookUrl = formValues.webhookUrl.trim();
+      if (hookUrl && !isHttpUrl(hookUrl)) {
+        setSections((prev) => ({ ...prev, alerting: true }));
+        setError("webhookUrl", { message: t.webhookUrlInvalid });
+        return;
+      }
+    }
 
     const assertions = formValues.assertions
       .map((assertion) => {
@@ -399,7 +429,15 @@ export function MonitorFormPage({
       followRedirects: formValues.followRedirects,
       severity: formValues.severity,
       channels,
-      emailRecipients: splitList(formValues.emailRecipients),
+      emailRecipients: formValues.channels.email
+        ? splitList(formValues.emailRecipients)
+        : [],
+      slackWebhookUrl: formValues.channels.slack
+        ? formValues.slackWebhookUrl.trim()
+        : null,
+      webhookUrl: formValues.channels.webhook
+        ? formValues.webhookUrl.trim()
+        : null,
       cooldownMinutes: formValues.cooldownMinutes,
       enabled: formValues.enabled,
     };
@@ -736,8 +774,8 @@ export function MonitorFormPage({
             setSections((prev) => ({ ...prev, alerting: open }))
           }
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
+          <div className="space-y-4">
+            <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="monitor-severity">{t.fieldSeverity}</Label>
               <Controller
                 control={control}
@@ -765,42 +803,107 @@ export function MonitorFormPage({
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>{t.fieldChannels}</Label>
               <Controller
                 control={control}
                 name="channels"
                 render={({ field }) => (
-                  <div className="grid grid-cols-2 gap-2">
-                    {KNOWN_CHANNELS.map((channel) => (
-                      <label
-                        key={channel}
-                        className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
-                      >
-                        <Checkbox
-                          checked={field.value[channel]}
-                          onCheckedChange={(checked) =>
-                            field.onChange({
-                              ...field.value,
-                              [channel]: checked === true,
-                            })
-                          }
-                        />
-                        {channelLabel(channel, t)}
-                      </label>
-                    ))}
+                  <div className="space-y-2">
+                    {KNOWN_CHANNELS.map((channel) => {
+                      const checked = field.value[channel];
+                      return (
+                        <div
+                          key={channel}
+                          className="rounded-md border border-border/60"
+                        >
+                          <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5">
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={checked}
+                              onCheckedChange={(next) =>
+                                field.onChange({
+                                  ...field.value,
+                                  [channel]: next === true,
+                                })
+                              }
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-sm">
+                                {channelLabel(channel, t)}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {channelHint(channel, t)}
+                              </span>
+                            </span>
+                          </label>
+                          {channel === "email" && checked ? (
+                            <div className="space-y-1.5 border-t border-border/60 px-3 py-2.5">
+                              <Label htmlFor="monitor-emails">
+                                {t.fieldEmailRecipients}
+                              </Label>
+                              <Textarea
+                                id="monitor-emails"
+                                className="min-h-[64px]"
+                                placeholder={t.fieldEmailRecipientsPlaceholder}
+                                {...register("emailRecipients")}
+                              />
+                              {errors.emailRecipients ? (
+                                <p className="text-xs text-destructive">
+                                  {errors.emailRecipients.message}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {channel === "slack" && checked ? (
+                            <div className="space-y-1.5 border-t border-border/60 px-3 py-2.5">
+                              <Label htmlFor="monitor-slack-url">
+                                {t.fieldSlackWebhookUrl}
+                              </Label>
+                              <Input
+                                id="monitor-slack-url"
+                                type="url"
+                                placeholder={t.fieldSlackWebhookUrlPlaceholder}
+                                {...register("slackWebhookUrl")}
+                              />
+                              {errors.slackWebhookUrl ? (
+                                <p className="text-xs text-destructive">
+                                  {errors.slackWebhookUrl.message}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  {t.fieldSlackWebhookUrlHint}
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
+                          {channel === "webhook" && checked ? (
+                            <div className="space-y-1.5 border-t border-border/60 px-3 py-2.5">
+                              <Label htmlFor="monitor-webhook-url">
+                                {t.fieldWebhookUrl}
+                              </Label>
+                              <Input
+                                id="monitor-webhook-url"
+                                type="url"
+                                placeholder={t.fieldWebhookUrlPlaceholder}
+                                {...register("webhookUrl")}
+                              />
+                              {errors.webhookUrl ? (
+                                <p className="text-xs text-destructive">
+                                  {errors.webhookUrl.message}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  {t.fieldWebhookUrlHint}
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              />
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="monitor-emails">{t.fieldEmailRecipients}</Label>
-              <Textarea
-                id="monitor-emails"
-                className="min-h-[64px]"
-                placeholder={t.fieldEmailRecipientsPlaceholder}
-                {...register("emailRecipients")}
               />
               {errors.channels ? (
                 <p className="text-xs text-destructive">
@@ -1022,5 +1125,21 @@ function channelLabel(
       return t.channelSlack;
     case "webhook":
       return t.channelWebhook;
+  }
+}
+
+function channelHint(
+  channel: (typeof KNOWN_CHANNELS)[number],
+  t: ReturnType<typeof useUptimeT>,
+): string {
+  switch (channel) {
+    case "inbox":
+      return t.channelInboxHint;
+    case "email":
+      return t.channelEmailHint;
+    case "slack":
+      return t.channelSlackHint;
+    case "webhook":
+      return t.channelWebhookHint;
   }
 }

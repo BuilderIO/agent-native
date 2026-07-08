@@ -6,6 +6,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -37,6 +38,9 @@ interface TranscriptionStatusPayload {
 
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
+const NOTIFICATION_WINDOW_WIDTH = 440;
+const NOTIFICATION_COLLAPSED_HEIGHT = 120;
+const NOTIFICATION_MENU_HEIGHT = 224;
 
 /**
  * Open a meeting join URL via the Tauri shell plugin.
@@ -48,6 +52,17 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
   } catch (err) {
     console.error("[clips-tray] openJoinUrl failed:", err);
   }
+}
+
+function resizeNotificationWindow(expanded: boolean) {
+  const height = expanded
+    ? NOTIFICATION_MENU_HEIGHT
+    : NOTIFICATION_COLLAPSED_HEIGHT;
+  getCurrentWindow()
+    .setSize(new LogicalSize(NOTIFICATION_WINDOW_WIDTH, height))
+    .catch((err) => {
+      console.warn("[clips-meeting-notif] resize failed", err);
+    });
 }
 
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
@@ -114,6 +129,14 @@ export function MeetingNotification() {
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    resizeNotificationWindow(Boolean(data && menuOpen));
+  }, [data, menuOpen]);
+
+  useEffect(() => {
+    return () => resizeNotificationWindow(false);
+  }, []);
 
   useEffect(() => {
     const win = getCurrentWindow();

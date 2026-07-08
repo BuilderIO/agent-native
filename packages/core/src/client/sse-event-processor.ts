@@ -16,6 +16,16 @@ import {
 export type ContentPart =
   | { type: "text"; text: string }
   | {
+      /**
+       * Model chain-of-thought / extended-thinking prose. Streamed from
+       * server `thinking` SSE events (and code-agent thinking transcript
+       * items). Rendered as a collapsible plain-English cell — not a tool
+       * call.
+       */
+      type: "reasoning";
+      text: string;
+    }
+  | {
       type: "tool-call";
       toolCallId: string;
       toolName: string;
@@ -669,7 +679,7 @@ function pendingToolNames(content: ContentPart[]): {
 
 function contentSnapshot(content: ContentPart[]): ContentPart[] {
   return content.map((part) => {
-    if (part.type === "text") return { ...part };
+    if (part.type === "text" || part.type === "reasoning") return { ...part };
     return {
       ...part,
       args: { ...part.args },
@@ -945,6 +955,23 @@ export function processEvent(
       lastPart.text += ev.text ?? "";
     } else {
       content.push({ type: "text", text: ev.text ?? "" });
+    }
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "thinking") {
+    // Model chain-of-thought. Coalesce consecutive deltas into one reasoning
+    // part so the UI can render a single collapsible "Thinking" cell.
+    const delta = ev.text ?? "";
+    if (!delta) return { action: "continue" };
+    const lastPart = content[content.length - 1];
+    if (lastPart && lastPart.type === "reasoning") {
+      lastPart.text += delta;
+    } else {
+      content.push({ type: "reasoning", text: delta });
     }
     return {
       action: "yield",
@@ -1400,7 +1427,7 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
-    if (part.type === "text") {
+    if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }

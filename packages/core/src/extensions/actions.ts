@@ -3,6 +3,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
+import { getRequestRunContext } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
 import type {
   ExtensionContentEdit,
@@ -38,6 +39,8 @@ import {
   unhideExtension,
   updateExtension,
   updateExtensionContent,
+  type ExtensionHistoryDetail,
+  type ExtensionHistoryEntry,
   type ExtensionRow,
 } from "./store.js";
 
@@ -126,7 +129,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension": {
       tool: {
         description:
-          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content so you can make a targeted update-extension edit.",
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content once per run so you can make a targeted update-extension edit; repeated unchanged reads return compact metadata unless forceContent=true.",
         parameters: {
           type: "object",
           properties: {
@@ -140,6 +143,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 "Include full Alpine.js content. Defaults to true for targeted edits.",
             },
+            forceContent: {
+              type: "boolean",
+              description:
+                "Return full content even if this run already read the same unchanged body. Use sparingly; prefer update-extension edits after the first read.",
+            },
           },
           required: ["id"],
         },
@@ -151,14 +159,16 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           args?.includeContent === undefined
             ? true
             : coerceBoolean(args.includeContent);
+        const forceContent = coerceBoolean(args?.forceContent);
         const localExtension = await getLocalExtension(id);
         if (localExtension) {
           return {
             ok: true,
-            extension: await summarizeExtension(
+            extension: await summarizeExtensionForAgentRead(
               localExtension,
               new Set(),
               includeContent,
+              forceContent,
             ),
           };
         }
@@ -167,10 +177,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
         return {
           ok: true,
-          extension: await summarizeExtension(
+          extension: await summarizeExtensionForAgentRead(
             extension,
             hiddenIds,
             includeContent,
+            forceContent,
           ),
         };
       },
@@ -223,7 +234,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension-history-version": {
       tool: {
         description:
-          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed.",
+          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed. Full HTML bodies are omitted by default; set includeContent=true only when restoring or manually comparing full source.",
         parameters: {
           type: "object",
           properties: {
@@ -234,6 +245,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             version: {
               type: "number",
               description: "History version number to inspect.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full HTML for the current and previous versions. Defaults to false to keep agent context compact.",
             },
           },
           required: ["id", "version"],
@@ -252,7 +268,13 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!detail) {
           return `Error: extension history version not found: ${id}#${version}`;
         }
-        return { ok: true, ...detail };
+        return {
+          ok: true,
+          ...compactExtensionHistoryDetail(
+            detail,
+            coerceBoolean(args?.includeContent),
+          ),
+        };
       },
       readOnly: true,
     },
@@ -1059,9 +1081,95 @@ async function summarizeExtension(
     hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    contentLength: row.content.length,
+    contentHash: contentFingerprint(row.content),
     ...(local ? { source: row.source } : {}),
     ...(includeContent ? { content: row.content } : {}),
   };
+}
+
+async function summarizeExtensionForAgentRead(
+  row: ExtensionRow | LocalExtensionRow,
+  hiddenIds: Set<string>,
+  includeContent: boolean,
+  forceContent: boolean,
+) {
+  if (!includeContent) {
+    return summarizeExtension(row, hiddenIds, false);
+  }
+
+  const fingerprint = contentFingerprint(row.content);
+  const runCtx = getRequestRunContext();
+  const reads = runCtx ? (runCtx.extensionContentReads ??= {}) : undefined;
+  const alreadySent = !forceContent && reads?.[row.id] === fingerprint;
+  if (!alreadySent && reads) {
+    reads[row.id] = fingerprint;
+  }
+
+  const summary = await summarizeExtension(row, hiddenIds, !alreadySent);
+  if (!alreadySent) return summary;
+
+  return {
+    ...summary,
+    contentOmitted: {
+      reason: "unchanged-content-already-returned-this-run",
+      contentHash: fingerprint,
+      contentLength: row.content.length,
+      next: "Use the content already returned earlier in this run and call update-extension with focused edits/patches. Set forceContent=true only if you truly need the full body again.",
+    },
+  };
+}
+
+function compactExtensionHistoryDetail(
+  detail: ExtensionHistoryDetail,
+  includeContent: boolean,
+): ExtensionHistoryDetail & {
+  diffOmitted?: { omittedLines: number; maxLines: number };
+} {
+  const diffMaxLines = 400;
+  const fullDiff = detail.diff ?? [];
+  const diff =
+    fullDiff.length > diffMaxLines
+      ? [...fullDiff.slice(0, 200), ...fullDiff.slice(fullDiff.length - 200)]
+      : fullDiff;
+  return {
+    ...detail,
+    entry: compactHistoryEntry(detail.entry, includeContent),
+    previous: detail.previous
+      ? compactHistoryEntry(detail.previous, includeContent)
+      : null,
+    diff,
+    ...(fullDiff.length > diff.length
+      ? {
+          diffOmitted: {
+            omittedLines: fullDiff.length - diff.length,
+            maxLines: diffMaxLines,
+          },
+        }
+      : {}),
+  };
+}
+
+function compactHistoryEntry(
+  entry: ExtensionHistoryEntry,
+  includeContent: boolean,
+): ExtensionHistoryEntry & { contentHash?: string } {
+  const content = entry.content ?? "";
+  const withHash = {
+    ...entry,
+    ...(content ? { contentHash: contentFingerprint(content) } : {}),
+  };
+  if (includeContent) return withHash;
+  const { content: _content, ...withoutContent } = withHash;
+  return withoutContent;
+}
+
+function contentFingerprint(content: string): string {
+  let hash = 5381;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 33) ^ content.charCodeAt(i);
+  }
+  return `${content.length.toString(36)}-${(hash >>> 0).toString(36)}`;
 }
 
 async function localExtensionEditMessage(id: string): Promise<string | null> {

@@ -408,4 +408,3 @@ fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: 
         .unwrap_or(false);
     mic_silent && system_silent
 }
-

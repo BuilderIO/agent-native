@@ -824,6 +824,23 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBlockedAction(
+  name: string,
+  entry: ActionEntry,
+  reason?: string,
+): ActionEntry {
+  return {
+    ...entry,
+    allowInPlanMode: false,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode blocked: ${reason ?? "not available while planning"}.`,
+    },
+    run: async () => planModeBlockedMessage(name, reason),
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -831,8 +848,22 @@ export function createPlanModeActionRegistry(
 
   for (const [name, entry] of Object.entries(actions)) {
     if (name === TOOL_SEARCH_ACTION_NAME) continue;
-    if (entry.allowInPlanMode === false) continue;
-    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
+    if (entry.allowInPlanMode === false) {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "not available while planning",
+      );
+      continue;
+    }
+    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "not available while planning",
+      );
+      continue;
+    }
 
     const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
     if (allowedActions) {
@@ -852,6 +883,12 @@ export function createPlanModeActionRegistry(
 
     if (entry.readOnly === true) {
       filtered[name] = entry;
+    } else {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "write or side-effecting tool",
+      );
     }
   }
 
@@ -965,7 +1002,10 @@ export interface ProductionAgentOptions {
    * only these tool schemas plus `tool-search`; the full action registry remains
    * searchable, and matching tool schemas from `tool-search` results are added
    * to the next model request. This keeps first-token latency low without
-   * forcing rarely used capabilities into every prompt.
+   * forcing rarely used capabilities into every prompt. The framework also
+   * promotes common provider/corpus/code-execution tools when the current
+   * app/mode registry exposes them, so prompts that teach broad integrations do
+   * not describe tools that require an extra discovery turn before use.
    */
   initialToolNames?: string[];
   /**
@@ -2066,6 +2106,7 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
   return !(
+    lower.startsWith("invalid action parameters for ") ||
     lower.startsWith("error running ") ||
     lower.includes("run aborted") ||
     lower.includes("tool call timed out") ||
@@ -2151,14 +2192,72 @@ export function actionsToEngineTools(
   return tools;
 }
 
-function filterInitialEngineTools(
+export function filterInitialEngineTools(
   tools: EngineTool[],
   initialToolNames?: string[],
 ): EngineTool[] {
   if (!initialToolNames) return tools;
   const names = new Set(initialToolNames);
   names.add(TOOL_SEARCH_ACTION_NAME);
+  for (const tool of tools) {
+    if (isDefaultLeanInitialToolName(tool.name)) {
+      names.add(tool.name);
+    }
+  }
   return tools.filter((tool) => names.has(tool.name));
+}
+
+const DEFAULT_LEAN_INITIAL_TOOL_NAMES = new Set([
+  // Broad provider/API/corpus primitives should be callable as soon as the
+  // prompt teaches them; waiting for a discovery round-trip caused prod runs to
+  // waste turns on provider work that was described but not loaded.
+  "data-source-status",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "provider-corpus-job",
+  "provider-corpus-jobs",
+  "query-staged-dataset",
+  "list-staged-datasets",
+  "delete-staged-dataset",
+  "run-code",
+  "get-code-execution",
+  "list-extensions",
+  "get-extension",
+  "update-extension",
+  "list-extension-history",
+  "get-extension-history-version",
+  // Common first-class integration shortcuts. These are included only when the
+  // current app/mode registry actually exposes them.
+  "bigquery",
+  "search-bigquery-schema",
+  "bigquery-table-info",
+  "ga4",
+  "amplitude",
+  "prometheus",
+  "grafana",
+  "sentry",
+  "stripe",
+  "account-deep-dive",
+  "slack-messages",
+  "hubspot-deals",
+  "hubspot-records",
+  "hubspot-pipelines",
+  "hubspot-metrics",
+  "gong-calls",
+  "github-repo-files",
+  "jira",
+  "jira-search",
+  "gcloud",
+  "notion-search",
+  "pylon-search",
+]);
+
+function isDefaultLeanInitialToolName(name: string): boolean {
+  if (DEFAULT_LEAN_INITIAL_TOOL_NAMES.has(name)) return true;
+  return (
+    name.startsWith("provider-api-") || name.startsWith("provider-corpus-")
+  );
 }
 
 function extractToolSearchResultNames(value: unknown): string[] {
@@ -2538,7 +2637,7 @@ type RawJsonSchema = AgentNativeJsonSchema;
 const rawToolInputAjv = new Ajv({
   strict: false,
   allErrors: true,
-  coerceTypes: false,
+  coerceTypes: true,
   useDefaults: false,
   removeAdditional: false,
 });
@@ -3635,47 +3734,6 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      const cacheKey =
-        actionEntry.readOnly === true
-          ? toolCallCacheKey(toolCall.name, toolCall.input)
-          : null;
-      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
-        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
-        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
-        const result =
-          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
-          `Previous result:\n${previousResult}`;
-        send({
-          type: "tool_start",
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
-        });
-        send({
-          type: "tool_done",
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        if (repeats >= 3) {
-          requestedActionStop ??= {
-            message:
-              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-            errorCode: "duplicate_read_only_tool",
-          };
-        }
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
-      }
-
       const DEFAULT_TOOL_RESULT_CHARS = 50_000;
       // Default action tools should not undercut durable/background runs. The
       // run-manager still aborts foreground hosted runs around 40s, while
@@ -3909,6 +3967,42 @@ export async function runAgentLoop(opts: {
           toolInput: wireToolInput,
           content: result,
           isError: true,
+        };
+      }
+
+      const cacheKey =
+        actionEntry.readOnly === true
+          ? toolCallCacheKey(toolCall.name, toolCall.input)
+          : null;
+      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
+        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const result =
+          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
+          `Previous result:\n${previousResult}`;
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
+        recordToolResult(result, false);
+        if (repeats >= 3) {
+          requestedActionStop ??= {
+            message:
+              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+            errorCode: "duplicate_read_only_tool",
+          };
+        }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
         };
       }
 

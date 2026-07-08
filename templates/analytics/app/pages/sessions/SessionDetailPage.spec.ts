@@ -2,13 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildReplayMarkers,
+  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   replayPayloadEvents,
-  replayViewportAt,
   replayViewportDimensions,
   sanitizeReplayEvents,
-  sanitizeReplayViewportEvents,
 } from "./SessionDetailPage";
 
 const originalFetch = globalThis.fetch;
@@ -76,6 +75,21 @@ describe("session replay sanitization", () => {
       tagName: "noscript",
       attributes: {},
       childNodes: [],
+    });
+  });
+
+  it("clamps replay viewport dimensions only for display sizing", () => {
+    expect(clampReplayDisplayDimensions({ width: 4800, height: 900 })).toEqual({
+      width: 2700,
+      height: 900,
+    });
+    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
+      width: 300,
+      height: 667,
+    });
+    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
+      width: 1440,
+      height: 900,
     });
   });
 
@@ -294,7 +308,7 @@ describe("session replay sanitization", () => {
     expect(event?.data.texts[1].value).toBe("Normal page copy");
   });
 
-  it("derives viewport dimensions from the latest sane meta or resize event", () => {
+  it("derives viewport dimensions from the latest meta or resize event", () => {
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 1280.4, height: 720.2 } },
@@ -321,14 +335,12 @@ describe("session replay sanitization", () => {
         },
       ]),
     ).toEqual({ width: 1280, height: 800 });
-    // Absurd multi-monitor spans are clamped (preserve height, shrink width)
-    // instead of discarded, so the stage still has a usable frame.
+    // Raw Meta dimensions are kept as-is for CSS fit-to-stage only.
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
       ]),
-    ).toEqual({ width: 2205, height: 900 });
-    // 21:9 ultrawide (~2.33) is allowed; multi-monitor spans are clamped.
+    ).toEqual({ width: 4800, height: 900 });
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 2560, height: 1080 } },
@@ -338,47 +350,7 @@ describe("session replay sanitization", () => {
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 3840, height: 1080 } },
       ]),
-    ).toEqual({ width: 2646, height: 1080 });
-  });
-
-  it("rewrites absurd meta dimensions before playback", () => {
-    const sanitized = sanitizeReplayViewportEvents(
-      [
-        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
-        {
-          type: 3,
-          timestamp: 1100,
-          data: { source: 4, width: 5000, height: 800 },
-        },
-        { type: 4, timestamp: 1200, data: { width: 1440, height: 900 } },
-      ],
-      { width: 1024, height: 640 },
-    );
-    // Clamp preserves height; does not force the 1024×640 fallback.
-    expect(sanitized[0]?.data).toMatchObject({ width: 2205, height: 900 });
-    expect(sanitized[1]?.data).toMatchObject({ width: 1960, height: 800 });
-    expect(sanitized[2]?.data).toMatchObject({ width: 1440, height: 900 });
-  });
-
-  it("picks the viewport that was active at a playback offset", () => {
-    const events = [
-      { type: 4, timestamp: 1000, data: { width: 1280, height: 720 } },
-      {
-        type: 3,
-        timestamp: 2500,
-        data: { source: 4, width: 1440, height: 900 },
-      },
-      { type: 4, timestamp: 4000, data: { width: 1024, height: 768 } },
-    ];
-    expect(replayViewportAt(events, 0)).toEqual({ width: 1280, height: 720 });
-    expect(replayViewportAt(events, 1600)).toEqual({
-      width: 1440,
-      height: 900,
-    });
-    expect(replayViewportAt(events, 3500)).toEqual({
-      width: 1024,
-      height: 768,
-    });
+    ).toEqual({ width: 3840, height: 1080 });
   });
 
   it("normalizes scoped chunk route payloads into replay event arrays", () => {

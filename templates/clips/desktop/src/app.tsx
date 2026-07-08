@@ -713,6 +713,7 @@ export function App() {
   const [meetingStartMessage, setMeetingStartMessage] = useState<string | null>(
     null,
   );
+  const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
@@ -1140,6 +1141,7 @@ export function App() {
   }, [authStatus, callClipsAction]);
 
   const startMeetingNotes = useCallback((meeting: PopoverMeeting) => {
+    setActiveMeetingId(meeting.id);
     setMeetingStartMessage(`Starting notes for ${meeting.title}…`);
     emit("meetings:start-transcription", {
       meetingId: meeting.id,
@@ -1147,9 +1149,97 @@ export function App() {
       reason: "user",
     }).catch((err) => {
       console.error("[clips-popover] start meeting notes failed:", err);
+      setActiveMeetingId(null);
       setMeetingStartMessage("Could not start notes. Try again from Meetings.");
     });
   }, []);
+
+  const startMeetingNotesAndJoin = useCallback(
+    (meeting: PopoverMeeting) => {
+      if (meeting.joinUrl) {
+        openExternal(meeting.joinUrl).catch((err) => {
+          console.error("[clips-popover] open meeting join url failed:", err);
+        });
+      }
+      startMeetingNotes(meeting);
+    },
+    [startMeetingNotes],
+  );
+
+  const showActiveMeetingPill = useCallback((meetingId: string) => {
+    invoke("recording_pill_show", { meetingId, mode: "meeting" }).catch(
+      (err) => {
+        console.error("[clips-popover] show meeting pill failed:", err);
+      },
+    );
+    emit("clips:pill-context", { meetingId, mode: "meeting" }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    invoke<string | null>("get_active_meeting_id")
+      .then((meetingId) => {
+        if (meetingId) setActiveMeetingId(meetingId);
+      })
+      .catch(() => {});
+
+    let stopped = false;
+    const unlistens: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) => {
+      promise
+        .then((unlisten) => {
+          if (stopped) {
+            unlisten();
+            return;
+          }
+          unlistens.push(unlisten);
+        })
+        .catch(() => {});
+    };
+    track(
+      listen<{ meetingId?: string | null }>(
+        "meetings:transcription-started",
+        (event) => {
+          if (event.payload?.meetingId) {
+            setActiveMeetingId(event.payload.meetingId);
+          }
+        },
+      ),
+    );
+    track(
+      listen<{ meetingId?: string | null }>(
+        "meetings:transcription-stopped",
+        (event) => {
+          setActiveMeetingId((current) =>
+            !event.payload?.meetingId || event.payload.meetingId === current
+              ? null
+              : current,
+          );
+        },
+      ),
+    );
+    track(
+      listen<{ meetingId?: string | null }>(
+        "meetings:transcription-error",
+        (event) => {
+          setActiveMeetingId((current) =>
+            !event.payload?.meetingId || event.payload.meetingId === current
+              ? null
+              : current,
+          );
+        },
+      ),
+    );
+    return () => {
+      stopped = true;
+      unlistens.forEach((unlisten) => unlisten());
+      unlistens.length = 0;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!popoverVisible || !activeMeetingId) return;
+    showActiveMeetingPill(activeMeetingId);
+  }, [activeMeetingId, popoverVisible, showActiveMeetingPill]);
 
   useMeetingTranscription({
     callClipsAction,
@@ -2419,6 +2509,7 @@ export function App() {
           loading={meetingsLoading}
           error={meetingsError}
           startMessage={meetingStartMessage}
+          activeMeetingId={activeMeetingId}
           meetingsEnabled={featureConfig?.meetingsEnabled !== false}
           onBack={() => setPopoverView("recorder")}
           onRefresh={fetchUpcomingMeetings}
@@ -2428,6 +2519,8 @@ export function App() {
           }
           onOpenSettings={() => setPopoverView("settings")}
           onStartNotes={startMeetingNotes}
+          onStartNotesAndJoin={startMeetingNotesAndJoin}
+          onShowActiveMeeting={showActiveMeetingPill}
         />
       </div>
     );
@@ -3326,6 +3419,7 @@ function MeetingsPopoverView({
   loading,
   error,
   startMessage,
+  activeMeetingId,
   meetingsEnabled,
   onBack,
   onRefresh,
@@ -3333,11 +3427,14 @@ function MeetingsPopoverView({
   onOpenMeeting,
   onOpenSettings,
   onStartNotes,
+  onStartNotesAndJoin,
+  onShowActiveMeeting,
 }: {
   meetings: PopoverMeeting[];
   loading: boolean;
   error: string | null;
   startMessage: string | null;
+  activeMeetingId: string | null;
   meetingsEnabled: boolean;
   onBack: () => void;
   onRefresh: () => void;
@@ -3345,6 +3442,8 @@ function MeetingsPopoverView({
   onOpenMeeting: (meetingId: string) => void;
   onOpenSettings: () => void;
   onStartNotes: (meeting: PopoverMeeting) => void;
+  onStartNotesAndJoin: (meeting: PopoverMeeting) => void;
+  onShowActiveMeeting: (meetingId: string) => void;
 }) {
   return (
     <div className="setup popover-view">
@@ -3402,6 +3501,8 @@ function MeetingsPopoverView({
         <div className="popover-list">
           {meetings.map((meeting) => {
             const canStart = meetingCanStartNotes(meeting);
+            const hasJoin = Boolean(meeting.joinUrl);
+            const isActive = activeMeetingId === meeting.id;
             return (
               <div className="popover-list-item" key={meeting.id}>
                 <div className="popover-list-icon">
@@ -3414,13 +3515,32 @@ function MeetingsPopoverView({
                     {meeting.platform ? ` · ${meeting.platform}` : ""}
                   </div>
                 </div>
-                {canStart ? (
+                {isActive ? (
+                  <button
+                    type="button"
+                    className="popover-list-action popover-list-action-active"
+                    onClick={() => onShowActiveMeeting(meeting.id)}
+                    title="Meeting notes are recording"
+                  >
+                    <span className="popover-list-action-dot" aria-hidden />
+                    Recording
+                  </button>
+                ) : canStart ? (
                   <button
                     type="button"
                     className="popover-list-action popover-list-action-primary"
-                    onClick={() => onStartNotes(meeting)}
+                    onClick={() =>
+                      hasJoin
+                        ? onStartNotesAndJoin(meeting)
+                        : onStartNotes(meeting)
+                    }
+                    title={
+                      hasJoin
+                        ? "Start notes and join the meeting"
+                        : "Start meeting notes"
+                    }
                   >
-                    Start notes
+                    {hasJoin ? "Start + join" : "Start notes"}
                   </button>
                 ) : (
                   <button

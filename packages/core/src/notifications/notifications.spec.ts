@@ -123,6 +123,30 @@ describe("notifications registry", () => {
       ).rejects.toThrow(/owner is required/);
     });
 
+    it("does not persist delivery-only webhook metadata in the inbox row", async () => {
+      await notify(
+        {
+          severity: "critical",
+          title: "DB offline",
+          metadata: {
+            monitorId: "mon_1",
+            delivery: {
+              webhookUrl: "https://hooks.example.com/per-monitor",
+              slackWebhookUrl: "https://hooks.slack.example.com/services/T/B/C",
+            },
+            webhookUrl: "https://hooks.example.com/legacy",
+          },
+        },
+        { owner: "boni@local" },
+      );
+
+      expect(mockInsertNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { monitorId: "mon_1" },
+        }),
+      );
+    });
+
     it("fans out to registered channels in addition to the inbox row", async () => {
       const deliver = vi.fn();
       registerNotificationChannel({ name: "slack", deliver });
