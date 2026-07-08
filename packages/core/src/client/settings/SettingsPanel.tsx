@@ -55,6 +55,7 @@ import { SecretsSection } from "./SecretsSection.js";
 import {
   SettingsSection,
   SettingsSurfaceProvider,
+  useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
 import type {
@@ -106,6 +107,45 @@ const CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 
+const CONTROL_STYLE_PAGE = {
+  fontSize: 14,
+  lineHeight: 1.2,
+} satisfies React.CSSProperties;
+
+// Surface-aware class helpers so section bodies (shared with the compact
+// sidebar) read as roomy, shadcn-style forms on the full settings page while
+// staying dense in the sidebar.
+function fieldLabelClass(isPage: boolean): string {
+  return cn("font-medium text-foreground", isPage ? "text-sm" : "text-[12px]");
+}
+
+function textInputClass(isPage: boolean): string {
+  return cn(
+    "flex w-full rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50",
+    isPage ? "h-10 px-3 text-sm" : "h-9 px-3 text-[12px]",
+  );
+}
+
+function pillButtonClass(
+  isPage: boolean,
+  tone: "solid" | "outline" | "ghost" = "outline",
+): string {
+  const base = cn(
+    "inline-flex items-center justify-center gap-1 rounded-md font-medium transition-colors disabled:opacity-40",
+    isPage ? "px-3 py-1.5 text-sm" : "px-2.5 py-1 text-[10px]",
+  );
+  if (tone === "solid") {
+    return cn(base, "bg-accent text-foreground hover:bg-accent/80");
+  }
+  if (tone === "ghost") {
+    return cn(
+      base,
+      "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+    );
+  }
+  return cn(base, "border border-border text-foreground hover:bg-accent/40");
+}
+
 function SettingsSelect({
   label,
   labelAdornment,
@@ -119,25 +159,30 @@ function SettingsSelect({
   options: SettingsSelectOption[];
   onValueChange: (value: string) => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
+  const controlStyle = isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE;
   const selected = options.find((option) => option.value === value);
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="text-[12px] font-medium text-foreground">{label}</p>
+        <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
       <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
         <SelectPrimitive.Trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+          className={cn(
+            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground",
+            isPage ? "h-10 text-sm" : "h-9 text-[12px]",
+          )}
           aria-label={label}
-          style={CONTROL_STYLE}
+          style={controlStyle}
         >
           <SelectPrimitive.Value>
             {selected?.label ?? value}
           </SelectPrimitive.Value>
           <SelectPrimitive.Icon asChild>
-            <IconChevronDown size={14} className="text-muted-foreground" />
+            <IconChevronDown size={16} className="text-muted-foreground" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
@@ -151,8 +196,11 @@ function SettingsSelect({
                 <SelectPrimitive.Item
                   key={option.value}
                   value={option.value}
-                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
-                  style={CONTROL_STYLE}
+                  className={cn(
+                    "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40",
+                    isPage ? "py-2.5 text-sm" : "py-2.5 text-[12px]",
+                  )}
+                  style={controlStyle}
                 >
                   <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
@@ -164,7 +212,12 @@ function SettingsSelect({
                       <span className="text-foreground">{option.label}</span>
                     </SelectPrimitive.ItemText>
                     {option.description ? (
-                      <span className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                      <span
+                        className={cn(
+                          "mt-0.5 leading-relaxed text-muted-foreground",
+                          isPage ? "text-xs" : "text-[11px]",
+                        )}
+                      >
                         {option.description}
                       </span>
                     ) : null}
@@ -358,29 +411,40 @@ function UseBuilderCard({
   subtitle?: string;
   dim?: boolean;
 }) {
+  const isPage = useSettingsSurface() === "page";
   const effectiveConnected = connected || builderFlow.configured;
   const effectiveOrgName = builderFlow.orgName ?? orgName;
   const bgClass = dim ? "" : "bg-accent/30";
+  const titleCls = isPage ? "text-sm" : "text-[11px]";
+  const bodyCls = isPage ? "text-xs" : "text-[10px]";
 
   if (effectiveConnected) {
     return (
-      <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
+      <div
+        className={cn(
+          "rounded-md border border-border",
+          isPage ? "px-3.5 py-3" : "px-2.5 py-2",
+          bgClass,
+        )}
+      >
         <div className="flex items-center justify-between">
-          <div className="text-[11px] font-medium text-foreground">
+          <div className={cn("font-medium text-foreground", titleCls)}>
             Builder.io
           </div>
-          <span className="flex items-center gap-1 text-[10px] text-green-500">
-            <IconCheck size={10} />
+          <span
+            className={cn("flex items-center gap-1 text-green-500", bodyCls)}
+          >
+            <IconCheck size={isPage ? 14 : 10} />
             Connected
           </span>
         </div>
         {effectiveOrgName && (
-          <p className="text-[10px] text-muted-foreground mt-0.5">
+          <p className={cn("text-muted-foreground mt-0.5", bodyCls)}>
             {effectiveOrgName}
           </p>
         )}
         {envManaged ? (
-          <p className="text-[10px] text-muted-foreground mt-1">
+          <p className={cn("text-muted-foreground mt-1", bodyCls)}>
             {credentialSource === "env"
               ? "Deployment fallback is available. Connect your own account to override it."
               : "Using your connected Builder account. Deployment fallback is still available."}
@@ -395,14 +459,14 @@ function UseBuilderCard({
                   builderFlow.start({ trackingSource, trackingFlow })
                 }
                 disabled={builderFlow.connecting}
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60"
+                className={cn(pillButtonClass(isPage, "ghost"), "no-underline")}
               >
                 {builderFlow.connecting
                   ? "Connecting..."
                   : credentialSource === "env"
                     ? "Connect account"
                     : "Reconnect"}
-                <IconExternalLink size={10} />
+                <IconExternalLink size={isPage ? 14 : 10} />
               </button>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
@@ -419,35 +483,53 @@ function UseBuilderCard({
       type="button"
       onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
-      className={`block w-full rounded-md border border-border px-3 py-3 text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
+      className={cn(
+        "block w-full rounded-md border border-border text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70",
+        isPage ? "px-4 py-3.5" : "px-3 py-3",
+      )}
     >
       <div className="flex items-start gap-2.5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-          <BuilderBMark className="h-3.5 w-3.5" />
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md bg-foreground text-background",
+            isPage ? "h-8 w-8" : "h-7 w-7",
+          )}
+        >
+          <BuilderBMark className={isPage ? "h-4 w-4" : "h-3.5 w-3.5"} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[12px] font-semibold text-foreground">
+            <span
+              className={cn(
+                "font-semibold text-foreground",
+                isPage ? "text-sm" : "text-[12px]",
+              )}
+            >
               {builderFlow.connecting ? "Connecting Builder.io..." : label}
             </span>
             {builderFlow.connecting && (
               <IconLoader2
-                size={12}
+                size={isPage ? 14 : 12}
                 className="shrink-0 animate-spin text-muted-foreground"
               />
             )}
           </div>
-          <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
+          <p
+            className={cn(
+              "text-muted-foreground mt-0.5 leading-snug",
+              isPage ? "text-xs" : "text-[10.5px]",
+            )}
+          >
             {subtitle}
           </p>
           {builderFlow.error && (
-            <p className="mt-1 text-[10px] text-destructive">
+            <p className={cn("mt-1 text-destructive", bodyCls)}>
               {builderFlow.error}
             </p>
           )}
         </div>
         <IconExternalLink
-          size={12}
+          size={isPage ? 14 : 12}
           className="shrink-0 text-muted-foreground mt-0.5"
         />
       </div>
@@ -473,23 +555,32 @@ function ManualSetupCard({
   /** Optional "Connected via X" badge shown in the header row. */
   sourceBadge?: string;
 }) {
+  const isPage = useSettingsSurface() === "page";
+  const titleCls = isPage ? "text-sm" : "text-[11px]";
+  const bodyCls = isPage ? "text-xs" : "text-[10px]";
   return (
     <div
-      className={`rounded-md border border-border px-2.5 py-2 ${dim ? "" : "bg-accent/30"}`}
+      className={cn(
+        "rounded-md border border-border",
+        isPage ? "px-3.5 py-3" : "px-2.5 py-2",
+        dim ? "" : "bg-accent/30",
+      )}
     >
       <div className="flex items-center justify-between mb-1">
-        <div className="text-[11px] font-medium text-foreground">
+        <div className={cn("font-medium text-foreground", titleCls)}>
           Set up manually
         </div>
         {sourceBadge ? (
-          <span className="flex items-center gap-1 text-[10px] text-green-500">
-            <IconCheck size={10} />
+          <span
+            className={cn("flex items-center gap-1 text-green-500", bodyCls)}
+          >
+            <IconCheck size={isPage ? 14 : 10} />
             {sourceBadge}
           </span>
         ) : null}
       </div>
       {hint && (
-        <p className="text-[10px] text-muted-foreground mb-1.5">{hint}</p>
+        <p className={cn("text-muted-foreground mb-1.5", bodyCls)}>{hint}</p>
       )}
       {children}
       {docsUrl && (
@@ -497,10 +588,13 @@ function ManualSetupCard({
           href={docsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 mt-1.5 rounded border border-border px-2.5 py-1 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          className={cn(
+            pillButtonClass(isPage, "outline"),
+            "mt-1.5 no-underline",
+          )}
         >
           {docsLabel}
-          <IconExternalLink size={10} />
+          <IconExternalLink size={isPage ? 14 : 10} />
         </a>
       )}
     </div>
@@ -621,6 +715,7 @@ function LLMSectionInner({
   open?: boolean;
   onToggle?: () => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -930,9 +1025,7 @@ function LLMSectionInner({
                 {/* Free-form input so OpenRouter/Ollama custom model IDs can
                 be typed — the registry's supportedModels is only suggestions. */}
                 <div className="space-y-1.5">
-                  <p className="text-[12px] font-medium text-foreground">
-                    Model
-                  </p>
+                  <p className={fieldLabelClass(isPage)}>Model</p>
                   <input
                     type="text"
                     list={`model-suggestions-${selectedEngine}`}
@@ -943,8 +1036,8 @@ function LLMSectionInner({
                     }
                     spellCheck={false}
                     autoComplete="off"
-                    className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50"
-                    style={CONTROL_STYLE}
+                    className={textInputClass(isPage)}
+                    style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
                   />
                   {modelOptions.length > 0 && (
                     <datalist id={`model-suggestions-${selectedEngine}`}>
@@ -1053,8 +1146,13 @@ function LLMSectionInner({
                 )}
 
                 {envVar && envConfigured ? (
-                  <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                    <IconCheck size={10} />
+                  <div
+                    className={cn(
+                      "flex items-center gap-1.5 text-green-500",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
                     {envVar} configured
                   </div>
                 ) : envVar ? (
@@ -1067,17 +1165,21 @@ function LLMSectionInner({
                         if (e.key === "Enter") handleSave();
                       }}
                       placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                      className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                      className={cn(textInputClass(isPage), "flex-1")}
+                      style={isPage ? CONTROL_STYLE_PAGE : undefined}
                     />
                     <button
                       onClick={handleSave}
                       disabled={!providerSettingsChanged || saving}
-                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                      className={pillButtonClass(isPage, "solid")}
                     >
                       {saving ? (
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
                       ) : saved ? (
-                        <IconCheck size={10} />
+                        <IconCheck size={isPage ? 14 : 10} />
                       ) : (
                         "Save"
                       )}
@@ -1089,11 +1191,14 @@ function LLMSectionInner({
                   <button
                     onClick={handleTest}
                     disabled={testing}
-                    className="rounded border border-border px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/40 disabled:opacity-40"
+                    className={pillButtonClass(isPage, "outline")}
                   >
                     {testing ? (
                       <span className="flex items-center gap-1">
-                        <IconLoader2 size={10} className="animate-spin" />
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
                         Testing…
                       </span>
                     ) : (
@@ -1103,7 +1208,7 @@ function LLMSectionInner({
                   {engineChanged && (
                     <button
                       onClick={handleApply}
-                      className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
+                      className={pillButtonClass(isPage, "solid")}
                     >
                       Apply
                     </button>
@@ -1113,7 +1218,10 @@ function LLMSectionInner({
                       <TooltipTrigger asChild>
                         <button
                           onClick={handleDisconnect}
-                          className="ms-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                          className={cn(
+                            pillButtonClass(isPage, "outline"),
+                            "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
+                          )}
                         >
                           Disconnect
                         </button>
@@ -1126,23 +1234,43 @@ function LLMSectionInner({
                   )}
                 </div>
                 {testResult && testResult.ok && (
-                  <p className="flex items-center gap-1 text-[10px] text-green-500">
-                    <IconCheck size={10} />
+                  <p
+                    className={cn(
+                      "flex items-center gap-1 text-green-500",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
                     Test passed — {testResult.latencyMs}ms
                   </p>
                 )}
                 {testResult && testResult.ok === false && (
-                  <p className="text-[10px] text-destructive">
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
                     Test failed: {testResult.error}
                   </p>
                 )}
                 {disconnectError && (
-                  <p className="text-[10px] text-destructive">
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
                     Disconnect failed: {disconnectError}
                   </p>
                 )}
                 {applyNote && (
-                  <p className="text-[10px] text-muted-foreground">
+                  <p
+                    className={cn(
+                      "text-muted-foreground",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
                     Changes take effect on next conversation
                   </p>
                 )}
