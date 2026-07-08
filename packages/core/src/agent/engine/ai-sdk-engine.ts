@@ -19,7 +19,10 @@ import {
 } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -262,16 +265,34 @@ class AISDKEngine implements AgentEngine {
       toolResultImages: this.capabilities.vision,
     });
 
+    // Resolved once so both `maxOutputTokens` (below, in the streamText call)
+    // and the thinking-budget headroom clamp agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
+
     // Build providerOptions for Anthropic-native features when using Anthropic provider
     const providerOpts: Record<string, unknown> = {};
     if (this.provider === "anthropic" && opts.providerOptions?.anthropic) {
       const anthropicOpts = opts.providerOptions.anthropic;
       if (anthropicOpts.thinking) {
+        // Only the "enabled" config carries a numeric budgetTokens; clamp it
+        // so thinking can't consume the entire maxOutputTokens budget and
+        // leave zero room for the actual response ("adaptive" thinking has
+        // no budgetTokens field at all per @ai-sdk/anthropic's schema).
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
           thinking: {
             type: "enabled",
-            budgetTokens: anthropicOpts.thinking.budgetTokens,
+            budgetTokens:
+              typeof anthropicOpts.thinking.budgetTokens === "number"
+                ? clampThinkingBudgetTokens(
+                    anthropicOpts.thinking.budgetTokens,
+                    resolvedMaxOutputTokens,
+                  )
+                : anthropicOpts.thinking.budgetTokens,
           },
         };
       }
@@ -326,11 +347,7 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: resolveMaxOutputTokensForEngine(
-          this.name,
-          opts.maxOutputTokens,
-          opts.model,
-        ),
+        maxOutputTokens: resolvedMaxOutputTokens,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),

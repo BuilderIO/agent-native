@@ -19,7 +19,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -67,12 +70,31 @@ class AnthropicEngine implements AgentEngine {
     const messages = engineMessagesToAnthropic(opts.messages);
     const anthropicOpts = opts.providerOptions?.anthropic;
 
+    // Resolved once so both max_tokens and the thinking-budget headroom
+    // clamp below agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
+
     // Build extra body params for Anthropic-native features
     const extra: Record<string, unknown> = {};
     if (anthropicOpts?.thinking) {
       extra.thinking = {
         type: anthropicOpts.thinking.type,
-        budget_tokens: anthropicOpts.thinking.budgetTokens,
+        // Only the "enabled" config carries a numeric budget_tokens; clamp it
+        // so thinking can't consume the entire max_tokens budget and leave
+        // zero room for the actual response ("adaptive" thinking has no
+        // budget_tokens field at all, so it passes through unclamped).
+        budget_tokens:
+          anthropicOpts.thinking.type === "enabled" &&
+          typeof anthropicOpts.thinking.budgetTokens === "number"
+            ? clampThinkingBudgetTokens(
+                anthropicOpts.thinking.budgetTokens,
+                resolvedMaxOutputTokens,
+              )
+            : anthropicOpts.thinking.budgetTokens,
       };
     }
     if (anthropicOpts?.topK !== undefined) {
@@ -139,11 +161,7 @@ class AnthropicEngine implements AgentEngine {
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: resolveMaxOutputTokensForEngine(
-        this.name,
-        opts.maxOutputTokens,
-        opts.model,
-      ),
+      max_tokens: resolvedMaxOutputTokens,
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages: cachedMessages,
