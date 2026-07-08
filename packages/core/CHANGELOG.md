@@ -1,5 +1,22 @@
 # @agent-native/core
 
+## 0.92.0
+
+### Minor Changes
+
+- 680b1eb: Show plain-English thinking in chat, Codex-style tool rows with modal output, and collapse finished work into a "Worked for" summary.
+- 680b1eb: Add `agent-native upgrade` (with `upgrade check` doctor) so older apps can bump `@agent-native/*`, refresh scaffold skills, and verify without inventing core/dispatch patches or overrides. Harden self-modifying-code / AGENTS guidance, discover workspace packages from `pnpm-workspace.yaml`, and ship the `upgrade-agent-native` skill.
+
+### Patch Changes
+
+- 680b1eb: Keep plan-mode blocked tools visible and discoverable as blocked stubs, preload common provider tools in lean agent runs, steer extension edits away from repeated large content scans, and let raw JSON Schema tool inputs recover from common scalar string values without poisoning read-only duplicate caches.
+- 680b1eb: Compact repeated tool-search results and unchanged extension content within a single agent run to preserve context, while keeping schema-including tool searches repeatable when the agent explicitly asks for schemas.
+- 680b1eb: Always register Slack/webhook/email notification channels, prefer delivery-only per-notification webhook URLs, and avoid applying workspace auth headers to override destinations.
+- 680b1eb: Stop rewriting session-replay Meta and ViewportResize dimensions at capture so stored frames stay aligned with the FullSnapshot DOM, while display sizing still clamps extreme aspect ratios.
+- 680b1eb: Render Agent settings sections as polished card surfaces on full settings pages while keeping the sidebar settings panel compact.
+- Updated dependencies [680b1eb]
+  - @agent-native/toolkit@0.4.4
+
 ## 0.91.2
 
 ### Patch Changes
