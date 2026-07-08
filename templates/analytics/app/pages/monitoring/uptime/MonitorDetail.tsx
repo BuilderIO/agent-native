@@ -1,6 +1,9 @@
 /**
- * Detail view for a single monitor: status header, latency chart, uptime
- * timeline, config summary, recent check results, and incident history.
+ * Detail view for a single monitor: status header, overview stats, response-time
+ * chart, a 90-day uptime timeline, config summary, recent check results, and
+ * incident history. The colorful charts + uptime windows are driven by the
+ * shared `get-monitor-stats` aggregate and the reusable `@/components/monitoring`
+ * chart components; per-check config/history comes from `get-monitor`.
  */
 import { useActionQuery } from "@agent-native/core/client";
 import {
@@ -11,17 +14,12 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
+import {
+  ResponseTimeChart,
+  UptimeStatCards,
+  UptimeTimelineBars,
+} from "@/components/monitoring";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,22 +32,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip as ShadcnTooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  chartAxisStroke,
-  chartGridStroke,
-  chartTooltipContentStyle,
-  chartTooltipCursorStroke,
-} from "@/lib/chart-theme";
 import { cn } from "@/lib/utils";
 
 import { fmt, useUptimeT } from "./i18n";
 import type {
   MonitorDetail as MonitorDetailData,
+  MonitorStats,
   MonitorSummary,
 } from "./types";
 import {
@@ -59,7 +47,6 @@ import {
   formatDuration,
   formatLatency,
   formatRelativeTime,
-  formatUptime,
   hostFromUrl,
   statusLabel,
   statusTone,
@@ -90,26 +77,17 @@ export function MonitorDetail({
     { id: monitorId },
     { staleTime: 5_000 },
   );
+  // Aggregated windows / timeline / response series over the standard windows.
+  const { data: statsData } = useActionQuery<MonitorStats[]>(
+    "get-monitor-stats",
+    { monitorIds: [monitorId], timelineDays: 90, responseWindowHours: 24 * 7 },
+    { staleTime: 15_000 },
+  );
 
   const monitor = data?.monitor ?? fallback ?? null;
   const results = data?.recentResults ?? [];
   const incidents = data?.incidents ?? [];
-
-  const latencySeries = useMemo(() => {
-    return [...results]
-      .filter((r) => r.latencyMs != null)
-      .reverse()
-      .slice(-48)
-      .map((r) => ({
-        label: formatDateTime(r.checkedAt),
-        latency: r.latencyMs ?? 0,
-      }));
-  }, [results]);
-
-  const timeline = useMemo(
-    () => [...results].slice(0, 48).reverse(),
-    [results],
-  );
+  const stats = statsData?.[0] ?? null;
 
   if (!monitor) {
     if (isLoading) {
@@ -135,8 +113,15 @@ export function MonitorDetail({
   }
 
   const tone = statusTone(monitor.lastStatus);
-  const host = hostFromUrl(monitor.url);
   const lastChecked = formatRelativeTime(monitor.lastCheckedAt);
+  const windows = stats?.windows ?? {
+    uptime24h: monitor.uptime24h,
+    uptime7d: monitor.uptime7d,
+    uptime30d: null,
+    uptime90d: null,
+  };
+  const incidentCount = stats?.incidentCount ?? incidents.length;
+  const mtbf = stats?.mtbfMs ?? null;
 
   return (
     <div className="space-y-5">
@@ -174,7 +159,7 @@ export function MonitorDetail({
               </Badge>
               {!monitor.enabled ? (
                 <Badge variant="secondary" className="shrink-0 text-[10px]">
-                  {t.no}
+                  {t.pausedBadge}
                 </Badge>
               ) : null}
             </div>
@@ -220,13 +205,13 @@ export function MonitorDetail({
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* Overview stats — wrap cleanly on narrow widths */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label={t.currentStatus}>
           <span className={cn("text-lg font-semibold", toneTextClass(tone))}>
             {statusLabel(monitor.lastStatus, t)}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="truncate text-xs text-muted-foreground">
             {lastChecked
               ? fmt(t.lastChecked, { time: lastChecked })
               : t.neverChecked}
@@ -242,17 +227,32 @@ export function MonitorDetail({
             </span>
           ) : null}
         </StatCard>
-        <StatCard label={t.uptime24h}>
+        <StatCard label={t.statIncidents}>
           <span className="text-lg font-semibold tabular-nums">
-            {formatUptime(monitor.uptime24h)}
+            {incidentCount}
           </span>
+          <span className="text-xs text-muted-foreground">{t.statLast90d}</span>
         </StatCard>
-        <StatCard label={t.uptime7d}>
+        <StatCard label={t.statMtbf}>
           <span className="text-lg font-semibold tabular-nums">
-            {formatUptime(monitor.uptime7d)}
+            {mtbf != null ? formatDuration(mtbf) : "—"}
+          </span>
+          <span className="truncate text-xs text-muted-foreground">
+            {t.statMtbfHint}
           </span>
         </StatCard>
       </div>
+
+      {/* Uptime windows (24h / 7d / 30d / 90d) */}
+      <UptimeStatCards
+        windows={windows}
+        items={[
+          { key: "uptime24h", label: t.uptime24h },
+          { key: "uptime7d", label: t.uptime7d },
+          { key: "uptime30d", label: t.uptime30d },
+          { key: "uptime90d", label: t.uptime90d },
+        ]}
+      />
 
       {monitor.lastError ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -260,7 +260,7 @@ export function MonitorDetail({
         </div>
       ) : null}
 
-      {/* Latency chart */}
+      {/* Response time + 90-day uptime timeline */}
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">
@@ -271,120 +271,31 @@ export function MonitorDetail({
           </p>
         </CardHeader>
         <CardContent>
-          {latencySeries.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {t.noChecks}
-            </p>
-          ) : (
-            <div className="h-[200px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={latencySeries}>
-                  <defs>
-                    <linearGradient
-                      id="latency-grad"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="5%"
-                        stopColor="var(--brand-blue)"
-                        stopOpacity={0.3}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor="var(--brand-blue)"
-                        stopOpacity={0}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke={chartGridStroke}
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="label"
-                    stroke={chartAxisStroke}
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={false}
-                    hide
-                  />
-                  <YAxis
-                    stroke={chartAxisStroke}
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    width={44}
-                    tickFormatter={(v: number) => `${v}ms`}
-                  />
-                  <Tooltip
-                    cursor={{ stroke: chartTooltipCursorStroke }}
-                    contentStyle={{
-                      ...chartTooltipContentStyle,
-                      fontSize: "12px",
-                    }}
-                    formatter={(v: any) => [`${v} ms`, t.latency]}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="latency"
-                    stroke="var(--brand-blue)"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#latency-grad)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          <ResponseTimeChart
+            series={stats?.responseSeries ?? []}
+            showMinMax
+            heightClassName="h-[220px]"
+            emptyText={t.noChecks}
+          />
 
-          {/* Uptime timeline */}
-          <div className="mt-4">
+          <div className="mt-5">
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs font-medium">{t.uptimeTimeline}</span>
+              <span className="text-xs font-medium">{t.uptimeTimeline90d}</span>
               <span className="text-[10px] text-muted-foreground">
-                {t.uptimeTimelineSubtitle}
+                {t.uptimeTimelineDaily}
               </span>
             </div>
-            {timeline.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t.noChecks}</p>
-            ) : (
-              <div className="flex h-8 items-stretch gap-0.5">
-                {timeline.map((result) => {
-                  const resultTone = statusTone(result.status);
-                  return (
-                    <ShadcnTooltip key={result.id}>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={cn(
-                            "min-w-0 flex-1 rounded-sm",
-                            toneDotClass(resultTone),
-                            "opacity-80 hover:opacity-100",
-                          )}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent className="text-xs">
-                        <div className="font-medium">
-                          {statusLabel(result.status, t)}
-                          {result.statusCode != null
-                            ? ` · ${result.statusCode}`
-                            : ""}
-                        </div>
-                        <div className="text-muted-foreground">
-                          {formatDateTime(result.checkedAt)}
-                        </div>
-                        <div className="text-muted-foreground">
-                          {formatLatency(result.latencyMs)}
-                        </div>
-                      </TooltipContent>
-                    </ShadcnTooltip>
-                  );
-                })}
+            <UptimeTimelineBars
+              buckets={stats?.timeline ?? []}
+              heightClassName="h-9"
+              ariaLabel={fmt(t.uptimeTimelineAria, { name: monitor.name })}
+            />
+            {stats && stats.timeline.length > 0 ? (
+              <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                <span>{t.timelineNinetyDaysAgo}</span>
+                <span>{t.timelineToday}</span>
               </div>
-            )}
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -606,7 +517,7 @@ function StatCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-lg border border-border/50 bg-card px-3 py-2.5">
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-border/50 bg-card px-3 py-2.5">
       <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
         {label}
       </span>

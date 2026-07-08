@@ -3,6 +3,12 @@
  * shapes returned by the monitor actions (see server/lib/uptime-monitors.ts).
  * Kept feature-local so the panel owns its own contract.
  */
+import type {
+  ResponseTimePoint,
+  UptimeBucket,
+  UptimeWindows,
+} from "@/components/monitoring";
+
 export type MonitorMethod =
   | "GET"
   | "HEAD"
@@ -103,6 +109,25 @@ export interface MonitorDetail {
   monitor: MonitorSummary;
   recentResults: MonitorCheckResult[];
   incidents: MonitorIncident[];
+}
+
+/**
+ * Aggregated stats for one monitor, as returned by the `get-monitor-stats`
+ * action (one entry per requested monitor). Structurally identical to the
+ * server `MonitorStats` shape; the reusable chart components consume the
+ * `windows` / `timeline` / `responseSeries` fields directly.
+ */
+export interface MonitorStats {
+  monitorId: string;
+  status: MonitorStatus | null;
+  lastCheckedAt: string | null;
+  lastLatencyMs: number | null;
+  windows: UptimeWindows;
+  timeline: UptimeBucket[];
+  responseSeries: ResponseTimePoint[];
+  avgResponseMs: number | null;
+  incidentCount: number;
+  mtbfMs: number | null;
 }
 
 export interface CheckOutcome {

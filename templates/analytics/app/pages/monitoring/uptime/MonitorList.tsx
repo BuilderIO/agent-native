@@ -1,7 +1,8 @@
 /**
- * Monitor list: one row per monitor with status, latency, uptime, last-checked,
- * an enable/disable switch, and a run-now action. Rows select into the detail
- * view. Includes loading + empty states.
+ * Monitor list: a "current status" overview summary on top, then one row per
+ * monitor with status, a compact colorful 90-day uptime bar, latency, uptime,
+ * last-checked, an enable/disable switch, and a run-now action. Rows select into
+ * the detail view. Includes loading + empty states.
  */
 import {
   IconChevronRight,
@@ -11,6 +12,7 @@ import {
   IconWorldPin,
 } from "@tabler/icons-react";
 
+import { UptimeTimelineBars } from "@/components/monitoring";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -22,9 +24,13 @@ import {
 import { cn } from "@/lib/utils";
 
 import { fmt, useUptimeT } from "./i18n";
-import type { MonitorSummary } from "./types";
 import {
-  countMonitors,
+  summarizeMonitors,
+  type MonitorHealthTone,
+  type MonitorStatusSummary,
+} from "./status-summary";
+import type { MonitorStats, MonitorSummary } from "./types";
+import {
   formatLatency,
   formatRelativeTime,
   formatUptime,
@@ -37,6 +43,7 @@ import {
 
 export function MonitorList({
   monitors,
+  statsById,
   isLoading,
   hasSearch,
   runningId,
@@ -46,6 +53,7 @@ export function MonitorList({
   onCreate,
 }: {
   monitors: MonitorSummary[];
+  statsById?: Map<string, MonitorStats>;
   isLoading: boolean;
   hasSearch: boolean;
   runningId: string | null;
@@ -91,24 +99,11 @@ export function MonitorList({
     );
   }
 
-  const counts = countMonitors(monitors);
+  const summary = summarizeMonitors(monitors, statsById);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-emerald-500" />
-          {fmt(t.upCount, { count: counts.up })}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-amber-500" />
-          {fmt(t.degradedCount, { count: counts.degraded })}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-red-500" />
-          {fmt(t.downCount, { count: counts.down })}
-        </span>
-      </div>
+      <StatusOverview summary={summary} />
 
       <div className="space-y-2">
         {monitors.map((monitor) => {
@@ -116,6 +111,7 @@ export function MonitorList({
           const lastChecked = formatRelativeTime(monitor.lastCheckedAt);
           const isRunning =
             runningId === monitor.id || monitor.lastStatus === "running";
+          const timeline = statsById?.get(monitor.id)?.timeline ?? [];
           return (
             <div
               key={monitor.id}
@@ -168,6 +164,17 @@ export function MonitorList({
                 </div>
               </div>
 
+              {/* Compact 90-day uptime bar */}
+              <div className="hidden w-40 shrink-0 lg:block">
+                <UptimeTimelineBars
+                  buckets={timeline}
+                  heightClassName="h-5"
+                  barRadiusClassName="rounded-[1px]"
+                  hideWhenEmpty
+                  ariaLabel={fmt(t.uptimeTimelineAria, { name: monitor.name })}
+                />
+              </div>
+
               {/* Metrics */}
               <div className="hidden shrink-0 items-center gap-6 sm:flex">
                 <Metric
@@ -218,6 +225,75 @@ export function MonitorList({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+const OVERVIEW_DOT: Record<MonitorHealthTone, string> = {
+  up: "bg-emerald-500",
+  down: "bg-red-500",
+  degraded: "bg-amber-500",
+  neutral: "bg-muted-foreground/40",
+};
+
+function StatusOverview({ summary }: { summary: MonitorStatusSummary }) {
+  const t = useUptimeT();
+  const headline =
+    summary.total === 0
+      ? t.overviewNone
+      : summary.overall === "up"
+        ? t.overviewOperational
+        : summary.overall === "degraded"
+          ? t.overviewDegraded
+          : summary.overall === "down"
+            ? t.overviewDown
+            : t.overviewPending;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/50 bg-card px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={cn(
+            "size-2.5 shrink-0 rounded-full",
+            OVERVIEW_DOT[summary.overall],
+            summary.overall === "down" && "animate-pulse",
+          )}
+        />
+        <span className="truncate text-sm font-medium">{headline}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {fmt(
+            summary.total === 1 ? t.overviewOneMonitor : t.overviewMonitors,
+            { count: summary.total },
+          )}
+        </span>
+      </div>
+
+      <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+          <span className="size-2 rounded-full bg-emerald-500" />
+          {fmt(t.upCount, { count: summary.up })}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+          <span className="size-2 rounded-full bg-amber-500" />
+          {fmt(t.degradedCount, { count: summary.degraded })}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+          <span className="size-2 rounded-full bg-red-500" />
+          {fmt(t.downCount, { count: summary.down })}
+        </span>
+        {summary.overallUptimePct != null ? (
+          <span className="tabular-nums text-muted-foreground">
+            {fmt(t.overviewUptime24h, {
+              pct: formatUptime(summary.overallUptimePct),
+            })}
+          </span>
+        ) : null}
+        {summary.openIncidents > 0 ? (
+          <span className="inline-flex items-center gap-1 font-medium text-red-500">
+            {fmt(t.overviewOpenIncidents, { count: summary.openIncidents })}
+          </span>
+        ) : null}
       </div>
     </div>
   );
