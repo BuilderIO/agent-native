@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.91.2
+
+### Patch Changes
+
+- 823d635: Add a friendly label for the Calendar `calendar.event-detail.bottom` ExtensionSlot so the empty-slot affordance matches Mail's contact sidebar pattern.
+- 823d635: Surface outbound delivery-queue health on Destinations and add quiet overview shortcuts so cleaned-up overview capabilities stay discoverable without restoring the old dashboard. Localize those overview shortcut and delivery-queue labels across Dispatch locales.
+- 823d635: Attribute recurring job and automation LLM usage to task-specific usage labels.
+- 823d635: Clamp absurd session-replay Meta and ViewportResize dimensions at capture so ultra-wide frames are never stored.
+- 823d635: Align run-slot liveness with the stale reaper and surface repeated heartbeat write failures.
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+  - @agent-native/toolkit@0.4.3
+
 ## 0.91.1
 
 ### Patch Changes

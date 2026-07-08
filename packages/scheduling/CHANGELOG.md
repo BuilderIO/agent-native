@@ -1,5 +1,14 @@
 # @agent-native/scheduling
 
+## 0.1.21
+
+### Patch Changes
+
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+  - @agent-native/toolkit@0.4.3
+
 ## 0.1.20
 
 ### Patch Changes

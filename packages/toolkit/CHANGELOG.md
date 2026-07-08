@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.4.3
+
+### Patch Changes
+
+- 823d635: Add explicit `browser` and `development` export conditions so Vite 8 / Rolldown can resolve toolkit subpaths (including `./collab-ui`) in Fusion agent-native starter projects.
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
 ## 0.4.2
 
 ### Patch Changes
