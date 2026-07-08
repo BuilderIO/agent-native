@@ -197,6 +197,33 @@ const messages = {
     onboardingDescription:
       "Dispatch 管理共用提供者帳戶。每個應用管理自己如何使用該帳戶。",
   },
+  dispatch: {
+    nav: {
+      automations: "自動化",
+      approvals: "核准",
+      delivery: "投遞",
+      agents: "代理",
+      vault: "保管庫",
+      audit: "稽核",
+    },
+    pages: {
+      also: "還有",
+      workspaceShortcutsAria: "工作區快捷入口",
+      deliveryQueue: "投遞佇列",
+      failedLastHour: "過去一小時失敗 {{count}} 次",
+      processingCount: "{{count}} 個處理中",
+      queued: "排隊中",
+      active: "進行中",
+      done1h: "完成 1 小時",
+      failed1h: "失敗 1 小時",
+      oldestQueued: "最早排隊：{{age}}",
+      queueAgeNone: "無",
+      queueFailureHint: "請檢查憑證、目的地和最近的佇列錯誤。",
+      unknownPlatform: "未知",
+      attemptsCount: "{{count}} 次嘗試",
+      noErrorMessage: "（無錯誤訊息）",
+    },
+  },
 };
 
 export default messages;

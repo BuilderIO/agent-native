@@ -1,4 +1,4 @@
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions, useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconPlayerPlay } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -55,11 +55,15 @@ function QueueCell({
 }
 
 export function TaskQueueHealth() {
+  const t = useT();
   const query = useTaskQueueStats();
   const taskQueue = query.data ?? ZERO_TASK_QUEUE_STATS;
   const hasFailure = taskQueue.failed_last_hour > 0;
   const hasBacklog =
     taskQueue.pending > 5 || taskQueue.oldest_pending_age_seconds > 300;
+  const oldestAge = formatQueueAgeSeconds(taskQueue.oldest_pending_age_seconds);
+  const oldestAgeLabel =
+    oldestAge === "none" ? t("dispatch.pages.queueAgeNone") : oldestAge;
 
   return (
     <section className="rounded-lg border bg-card p-4">
@@ -71,12 +75,16 @@ export function TaskQueueHealth() {
           />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">
-              Delivery queue
+              {t("dispatch.pages.deliveryQueue")}
             </h2>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {hasFailure
-                ? `${taskQueue.failed_last_hour} failed in the last hour`
-                : `${taskQueue.processing} processing`}
+                ? t("dispatch.pages.failedLastHour", {
+                    count: taskQueue.failed_last_hour,
+                  })
+                : t("dispatch.pages.processingCount", {
+                    count: taskQueue.processing,
+                  })}
             </p>
           </div>
         </div>
@@ -91,11 +99,20 @@ export function TaskQueueHealth() {
       ) : (
         <>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <QueueCell label="Queued" value={taskQueue.pending} />
-            <QueueCell label="Active" value={taskQueue.processing} />
-            <QueueCell label="Done 1h" value={taskQueue.completed_last_hour} />
             <QueueCell
-              label="Failed 1h"
+              label={t("dispatch.pages.queued")}
+              value={taskQueue.pending}
+            />
+            <QueueCell
+              label={t("dispatch.pages.active")}
+              value={taskQueue.processing}
+            />
+            <QueueCell
+              label={t("dispatch.pages.done1h")}
+              value={taskQueue.completed_last_hour}
+            />
+            <QueueCell
+              label={t("dispatch.pages.failed1h")}
               value={taskQueue.failed_last_hour}
               danger={hasFailure}
             />
@@ -111,16 +128,13 @@ export function TaskQueueHealth() {
                   : "bg-muted/20 text-muted-foreground",
             )}
           >
-            Oldest queued:{" "}
-            {formatQueueAgeSeconds(taskQueue.oldest_pending_age_seconds)}
+            {t("dispatch.pages.oldestQueued", { age: oldestAgeLabel })}
           </div>
 
           {hasFailure ? (
             <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
               <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
-              <span>
-                Check credentials, destinations, and recent queue errors.
-              </span>
+              <span>{t("dispatch.pages.queueFailureHint")}</span>
             </div>
           ) : null}
 
@@ -130,14 +144,16 @@ export function TaskQueueHealth() {
                 <div key={failure.id} className="px-3 py-2">
                   <div className="flex items-center justify-between gap-3 text-xs">
                     <span className="font-medium text-foreground">
-                      {failure.platform || "unknown"}
+                      {failure.platform || t("dispatch.pages.unknownPlatform")}
                     </span>
                     <span className="text-muted-foreground">
-                      {failure.attempts} attempts
+                      {t("dispatch.pages.attemptsCount", {
+                        count: failure.attempts,
+                      })}
                     </span>
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {failure.error || "(no error message)"}
+                    {failure.error || t("dispatch.pages.noErrorMessage")}
                   </div>
                 </div>
               ))}

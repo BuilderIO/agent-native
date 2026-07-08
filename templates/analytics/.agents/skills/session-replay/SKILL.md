@@ -102,7 +102,11 @@ agent answers about browser recordings in the Analytics template.
   rewrite absurd aspect ratios before handing events to rrweb so the stage does
   not collapse into an ultra-wide ribbon.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
-  view (pausing briefly after manual scroll), and supports search.
+  view (pausing briefly after manual scroll), and supports search. It appears
+  beside the player from ~880px content width upward.
+- Dev Tools height is capped so the replay stage never collapses into a ribbon
+  on short viewports; the scrubber playhead stays visually distinct from red
+  error marker dots.
 
 ## Debugging A User-Reported Bug
 

@@ -61,6 +61,7 @@ export function SessionDevToolsPanel({
   diagnostics,
   currentTime,
   height,
+  maxHeight = DEVTOOLS_MAX_HEIGHT,
   onHeightChange,
   onSeek,
   issueMatches,
@@ -68,6 +69,7 @@ export function SessionDevToolsPanel({
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
   height: number;
+  maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
   /** Resolved error issues by console entry id, for cross-linking to Errors. */
@@ -149,9 +151,13 @@ export function SessionDevToolsPanel({
   return (
     <div
       className="analytics-session-devtools relative flex min-h-0 shrink-0 flex-col border-t bg-background"
-      style={{ height }}
+      style={{ height: Math.min(height, maxHeight) }}
     >
-      <DevToolsResizeHandle height={height} onHeightChange={onHeightChange} />
+      <DevToolsResizeHandle
+        height={Math.min(height, maxHeight)}
+        maxHeight={maxHeight}
+        onHeightChange={onHeightChange}
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => setTab(value as "console" | "network")}
@@ -327,12 +333,15 @@ export function SessionDevToolsPanel({
 
 function DevToolsResizeHandle({
   height,
+  maxHeight,
   onHeightChange,
 }: {
   height: number;
+  maxHeight: number;
   onHeightChange: (height: number) => void;
 }) {
   const t = useT();
+  const cappedMax = Math.max(DEVTOOLS_MIN_HEIGHT, maxHeight);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -343,8 +352,8 @@ function DevToolsResizeHandle({
       onHeightChange(
         clamp(
           startHeight - (moveEvent.clientY - startY),
-          DEVTOOLS_MIN_HEIGHT,
-          DEVTOOLS_MAX_HEIGHT,
+          Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax),
+          cappedMax,
         ),
       );
     }
@@ -363,8 +372,8 @@ function DevToolsResizeHandle({
       role="separator"
       aria-label={t("sessions.devtoolsResize")}
       aria-orientation="horizontal"
-      aria-valuemin={DEVTOOLS_MIN_HEIGHT}
-      aria-valuemax={DEVTOOLS_MAX_HEIGHT}
+      aria-valuemin={Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax)}
+      aria-valuemax={cappedMax}
       aria-valuenow={Math.round(height)}
       className="absolute inset-x-0 -top-1 z-10 flex h-2 cursor-row-resize items-center justify-center"
       onPointerDown={handlePointerDown}

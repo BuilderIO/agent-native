@@ -3,6 +3,7 @@ import {
   isInBuilderFrame,
   useActionQuery,
   useChatModels,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -28,12 +29,12 @@ const PROMPT_SUGGESTIONS = [
 ];
 
 const WORKSPACE_LINKS = [
-  { to: "/automations", label: "Automations" },
-  { to: "/approvals", label: "Approvals" },
-  { to: "/destinations", label: "Delivery" },
-  { to: "/agents", label: "Agents" },
-  { to: "/vault", label: "Vault" },
-  { to: "/audit", label: "Audit" },
+  { to: "/automations", labelKey: "dispatch.nav.automations" },
+  { to: "/approvals", labelKey: "dispatch.nav.approvals" },
+  { to: "/destinations", labelKey: "dispatch.nav.delivery" },
+  { to: "/agents", labelKey: "dispatch.nav.agents" },
+  { to: "/vault", labelKey: "dispatch.nav.vault" },
+  { to: "/audit", labelKey: "dispatch.nav.audit" },
 ] as const;
 
 function SectionHeader({
@@ -128,12 +129,16 @@ function CommandPanel() {
 }
 
 function WorkspaceLinks() {
+  const t = useT();
+
   return (
     <nav
-      aria-label="Workspace shortcuts"
+      aria-label={t("dispatch.pages.workspaceShortcutsAria")}
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
     >
-      <span className="font-medium text-foreground/70">Also</span>
+      <span className="font-medium text-foreground/70">
+        {t("dispatch.pages.also")}
+      </span>
       {WORKSPACE_LINKS.map((item, index) => (
         <span key={item.to} className="inline-flex items-center gap-x-3">
           {index > 0 ? (
@@ -145,7 +150,7 @@ function WorkspaceLinks() {
             to={item.to}
             className="transition hover:text-foreground hover:underline underline-offset-4"
           >
-            {item.label}
+            {t(item.labelKey)}
           </Link>
         </span>
       ))}

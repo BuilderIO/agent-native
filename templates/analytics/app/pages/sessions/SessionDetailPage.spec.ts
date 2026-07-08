@@ -325,6 +325,17 @@ describe("session replay sanitization", () => {
         { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
       ]),
     ).toBeNull();
+    // 21:9 ultrawide (~2.33) is allowed; multi-monitor spans are not.
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 2560, height: 1080 } },
+      ]),
+    ).toEqual({ width: 2560, height: 1080 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 3840, height: 1080 } },
+      ]),
+    ).toBeNull();
   });
 
   it("rewrites absurd meta dimensions before playback", () => {

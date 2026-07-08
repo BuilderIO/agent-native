@@ -163,13 +163,16 @@ const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
 const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
-const DEFAULT_DEVTOOLS_HEIGHT = 280;
+const DEFAULT_DEVTOOLS_HEIGHT = 220;
+const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
-/** Reject Meta/resize frames that produce the ultra-wide ribbon letterbox. */
+/** Reject Meta/resize frames that produce the ultra-wide ribbon letterbox.
+ *  True 21:9 ultrawide is ~2.33; multi-monitor spans and corrupt frames are
+ *  usually well above that and collapse the stage after fit-to-scale. */
 const MIN_REPLAY_VIEWPORT_WIDTH = 320;
 const MIN_REPLAY_VIEWPORT_HEIGHT = 240;
-const MAX_REPLAY_ASPECT_RATIO = 3.2;
-const MIN_REPLAY_ASPECT_RATIO = 0.45;
+const MAX_REPLAY_ASPECT_RATIO = 2.45;
+const MIN_REPLAY_ASPECT_RATIO = 0.5;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
@@ -482,6 +485,8 @@ function ReplayPlayer({
   const [skipInactive, setSkipInactive] = useState(true);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [devToolsHeight, setDevToolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
+  const [maxDevToolsHeight, setMaxDevToolsHeight] = useState(420);
+  const playerShellRef = useRef<HTMLDivElement>(null);
   const [streamedDims, setStreamedDims] = useState<{
     width: number;
     height: number;
@@ -499,6 +504,7 @@ function ReplayPlayer({
     [events],
   );
   const scrubbingRef = useRef(false);
+  const scrubResumePlayingRef = useRef(false);
 
   const playerWidth =
     streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
@@ -578,6 +584,26 @@ function ReplayPlayer({
     return () => observer.disconnect();
   }, [playerHeight, playerWidth]);
 
+  // Keep Dev Tools from eating the stage. On short viewports the panel used to
+  // shrink the replay area into a ribbon even when Meta dimensions were fine.
+  useEffect(() => {
+    const el = playerShellRef.current;
+    if (!el) return;
+    const update = () => {
+      const chromeBudget = 140;
+      const available = Math.max(
+        160,
+        el.clientHeight - MIN_STAGE_HEIGHT_PX - chromeBudget,
+      );
+      setMaxDevToolsHeight(available);
+      setDevToolsHeight((current) => Math.min(current, available));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [devToolsOpen]);
+
   const updateTime = useCallback(
     (next: number) => {
       setCurrentTime(next);
@@ -610,16 +636,21 @@ function ReplayPlayer({
 
   const beginScrub = useCallback(
     (ms: number) => {
+      if (!scrubbingRef.current) {
+        scrubResumePlayingRef.current = playingRef.current;
+      }
       scrubbingRef.current = true;
       seek(ms, false);
     },
-    [seek],
+    [playingRef, seek],
   );
 
   const endScrub = useCallback(
     (ms: number) => {
+      const resume = scrubResumePlayingRef.current;
       scrubbingRef.current = false;
-      seek(ms, false);
+      scrubResumePlayingRef.current = false;
+      seek(ms, resume);
     },
     [seek],
   );
@@ -637,21 +668,24 @@ function ReplayPlayer({
       // Wait for the full recording before creating the Replayer. Progressive
       // chunk publishes used to rebuild the player on every append, which
       // reset the clock, disabled the scrubber, and desynced the playhead.
+      const replayEvents = eventsRef.current;
       if (!response.isComplete) {
         setStatus("loading");
         setError(null);
         setPlaying(false);
         return;
       }
-      if (events.length < 2) {
+      if (replayEvents.length < 2) {
         throw new Error(t("sessions.noReplayEvents"));
       }
       if (
-        !events.some((event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot)
+        !replayEvents.some(
+          (event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot,
+        )
       ) {
         throw new Error(t("sessions.noReplayEvents"));
       }
-      if (!hasPlayableReplayEvents(events)) {
+      if (!hasPlayableReplayEvents(replayEvents)) {
         throw new Error(t("sessions.noReplayEvents"));
       }
       setStatus("loading");
@@ -661,9 +695,9 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      const frameDims = replayViewportDimensions(events);
+      const frameDims = replayViewportDimensions(replayEvents);
       const playbackEvents = sanitizeReplayViewportEvents(
-        events,
+        replayEvents,
         frameDims ?? {
           width: DEFAULT_PLAYER_WIDTH,
           height: DEFAULT_PLAYER_HEIGHT,
@@ -691,7 +725,7 @@ function ReplayPlayer({
       });
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
-      const total = Number(meta?.totalTime ?? replayDuration(events));
+      const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
         currentTimeRef.current,
@@ -766,12 +800,11 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-    // Intentionally keyed on isComplete + a stable events identity rather than
-    // the events array reference, so mid-load chunk publishes only update the
-    // loading bar until the recording is fully available.
+    // Key only on isComplete + a stable events identity. Including the events
+    // array reference would rebuild the Replayer when the final publish()
+    // replaces the chunks object even though the event set is unchanged.
   }, [
     currentTimeRef,
-    events,
     eventsIdentity,
     eventsRef,
     response.isComplete,
@@ -869,211 +902,218 @@ function ReplayPlayer({
 
   return (
     <TooltipProvider>
-      <Card className="flex min-h-0 overflow-hidden">
-        <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-          <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
-            {currentUrl ? (
+      <div ref={playerShellRef} className="flex min-h-0 flex-1 flex-col">
+        <Card className="flex min-h-0 flex-1 overflow-hidden">
+          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+            <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
+              {currentUrl ? (
+                <div
+                  className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
+                  title={currentUrl}
+                >
+                  <span className="truncate">{currentUrl}</span>
+                </div>
+              ) : null}
               <div
-                className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
-                title={currentUrl}
+                ref={stageAreaRef}
+                className={cn(
+                  "relative min-h-[200px] flex-1 overflow-hidden border bg-white dark:bg-zinc-950",
+                  currentUrl ? "rounded-b-md" : "rounded-md",
+                  !devToolsOpen && "min-h-[320px]",
+                )}
               >
-                <span className="truncate">{currentUrl}</span>
+                <div
+                  ref={stageRootRef}
+                  className="an-replay-stage-root absolute left-1/2 top-1/2"
+                  style={{
+                    width: playerWidth,
+                    height: playerHeight,
+                    transform: `translate(-50%, -50%) scale(${fitScale})`,
+                    transformOrigin: "center center",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+                  disabled={disabled}
+                  aria-label={
+                    playing ? t("sessions.pause") : t("sessions.play")
+                  }
+                  onClick={togglePlay}
+                />
+                {status === "loading" ? (
+                  <div className="absolute inset-0 z-30 grid place-items-center bg-background/70 p-6 text-center text-sm text-muted-foreground">
+                    <div className="w-full max-w-sm">
+                      <p>{t("sessions.replayLoading")}</p>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width]"
+                          style={{
+                            width: `${Math.round(loadingPercent * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      {response.totalChunks > 0 ? (
+                        <p className="mt-2 font-mono text-[11px]">
+                          {t("sessions.replayLoadingProgress", {
+                            loaded: String(response.loadedChunks),
+                            total: String(response.totalChunks),
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {status === "error" && error ? (
+                  <div className="absolute inset-0 z-30 grid place-items-center bg-background/85 p-6 text-center text-sm text-destructive">
+                    {t("sessions.loadFailed", { message: error })}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-            <div
-              ref={stageAreaRef}
-              className={cn(
-                "relative min-h-[320px] flex-1 overflow-hidden border bg-white dark:bg-zinc-950",
-                currentUrl ? "rounded-b-md" : "rounded-md",
-              )}
-            >
-              <div
-                ref={stageRootRef}
-                className="an-replay-stage-root absolute left-1/2 top-1/2"
-                style={{
-                  width: playerWidth,
-                  height: playerHeight,
-                  transform: `translate(-50%, -50%) scale(${fitScale})`,
-                  transformOrigin: "center center",
-                }}
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-3 py-2">
+              <ReplayIconButton
+                label={t("sessions.skipBack")}
+                disabled={disabled}
+                onClick={() => seek(currentTime - SKIP_STEP_MS)}
+              >
+                <IconPlayerSkipBack className="h-4 w-4" />
+              </ReplayIconButton>
+              <Button
+                type="button"
+                size="icon"
+                disabled={disabled}
+                onClick={togglePlay}
+                aria-label={playing ? t("sessions.pause") : t("sessions.play")}
+                className="h-8 w-8"
+              >
+                {playing ? (
+                  <IconPlayerPause className="h-4 w-4" />
+                ) : (
+                  <IconPlayerPlay className="h-4 w-4" />
+                )}
+              </Button>
+              <ReplayIconButton
+                label={t("sessions.skipForward")}
+                disabled={disabled}
+                onClick={() => seek(currentTime + SKIP_STEP_MS)}
+              >
+                <IconPlayerSkipForward className="h-4 w-4" />
+              </ReplayIconButton>
+
+              <span className="w-12 text-center font-mono text-xs text-muted-foreground">
+                {formatClock(currentTime)}
+              </span>
+              <ReplayScrubber
+                currentTime={currentTime}
+                totalTime={totalTime}
+                markers={markers}
+                skipRanges={skipRanges}
+                skipInactive={skipInactive}
+                disabled={disabled}
+                onScrub={beginScrub}
+                onScrubEnd={endScrub}
               />
+              <span className="w-12 text-center font-mono text-xs text-muted-foreground">
+                {formatClock(totalTime)}
+              </span>
+
+              <div className="flex items-center rounded-md bg-muted p-1">
+                {SPEED_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={cn(
+                      "rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
+                      speed === option &&
+                        "bg-background text-foreground shadow-sm",
+                    )}
+                    onClick={() => updateSpeed(option)}
+                  >
+                    {option}x
+                  </button>
+                ))}
+              </div>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
+                      skipInactive &&
+                        "border-primary/40 bg-primary/10 text-primary",
+                    )}
+                    onClick={() => setSkipInactive((value) => !value)}
+                    aria-pressed={skipInactive}
+                  >
+                    <IconPlayerTrackNext className="h-4 w-4" />
+                    {t("sessions.skipInactive")}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {skipInactive
+                    ? t("sessions.skipInactiveOn")
+                    : t("sessions.skipInactiveOff")}
+                </TooltipContent>
+              </Tooltip>
+
               <button
                 type="button"
-                className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
-                disabled={disabled}
-                aria-label={playing ? t("sessions.pause") : t("sessions.play")}
-                onClick={togglePlay}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
+                  devToolsOpen &&
+                    "border-primary/40 bg-primary/10 text-primary",
+                )}
+                onClick={() => setDevToolsOpen((value) => !value)}
+                aria-pressed={devToolsOpen}
+                aria-expanded={devToolsOpen}
+              >
+                <IconTerminal2 className="h-4 w-4" />
+                {t("sessions.devtools")}
+                {devToolsIssueCount > 0 ? (
+                  <span
+                    className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-mono text-[10px] font-semibold leading-none text-white"
+                    aria-label={t("sessions.devtoolsIssueCount", {
+                      count: String(devToolsIssueCount),
+                    })}
+                  >
+                    {devToolsIssueCount > 99 ? "99+" : devToolsIssueCount}
+                  </span>
+                ) : null}
+              </button>
+
+              <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
+                {t("sessions.replayEventCount", {
+                  events: String(response.eventCount),
+                })}
+                {response.truncated ? ` ${t("sessions.truncated")}` : ""}
+              </span>
+            </div>
+
+            {devToolsOpen ? (
+              <SessionDevToolsPanel
+                diagnostics={diagnostics}
+                currentTime={currentTime}
+                height={Math.min(devToolsHeight, maxDevToolsHeight)}
+                maxHeight={maxDevToolsHeight}
+                onHeightChange={setDevToolsHeight}
+                onSeek={(ms) => seek(ms, true)}
+                issueMatches={issueMatches}
               />
-              {status === "loading" ? (
-                <div className="absolute inset-0 z-30 grid place-items-center bg-background/70 p-6 text-center text-sm text-muted-foreground">
-                  <div className="w-full max-w-sm">
-                    <p>{t("sessions.replayLoading")}</p>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width]"
-                        style={{
-                          width: `${Math.round(loadingPercent * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    {response.totalChunks > 0 ? (
-                      <p className="mt-2 font-mono text-[11px]">
-                        {t("sessions.replayLoadingProgress", {
-                          loaded: String(response.loadedChunks),
-                          total: String(response.totalChunks),
-                        })}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-              {status === "error" && error ? (
-                <div className="absolute inset-0 z-30 grid place-items-center bg-background/85 p-6 text-center text-sm text-destructive">
-                  {t("sessions.loadFailed", { message: error })}
-                </div>
-              ) : null}
-            </div>
-          </div>
+            ) : null}
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-3 py-2">
-            <ReplayIconButton
-              label={t("sessions.skipBack")}
-              disabled={disabled}
-              onClick={() => seek(currentTime - SKIP_STEP_MS)}
-            >
-              <IconPlayerSkipBack className="h-4 w-4" />
-            </ReplayIconButton>
-            <Button
-              type="button"
-              size="icon"
-              disabled={disabled}
-              onClick={togglePlay}
-              aria-label={playing ? t("sessions.pause") : t("sessions.play")}
-              className="h-8 w-8"
-            >
-              {playing ? (
-                <IconPlayerPause className="h-4 w-4" />
-              ) : (
-                <IconPlayerPlay className="h-4 w-4" />
-              )}
-            </Button>
-            <ReplayIconButton
-              label={t("sessions.skipForward")}
-              disabled={disabled}
-              onClick={() => seek(currentTime + SKIP_STEP_MS)}
-            >
-              <IconPlayerSkipForward className="h-4 w-4" />
-            </ReplayIconButton>
-
-            <span className="w-12 text-center font-mono text-xs text-muted-foreground">
-              {formatClock(currentTime)}
-            </span>
-            <ReplayScrubber
-              currentTime={currentTime}
-              totalTime={totalTime}
-              markers={markers}
-              skipRanges={skipRanges}
-              skipInactive={skipInactive}
-              disabled={disabled}
-              onScrub={beginScrub}
-              onScrubEnd={endScrub}
-            />
-            <span className="w-12 text-center font-mono text-xs text-muted-foreground">
-              {formatClock(totalTime)}
-            </span>
-
-            <div className="flex items-center rounded-md bg-muted p-1">
-              {SPEED_OPTIONS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={cn(
-                    "rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                    speed === option &&
-                      "bg-background text-foreground shadow-sm",
-                  )}
-                  onClick={() => updateSpeed(option)}
-                >
-                  {option}x
-                </button>
-              ))}
-            </div>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
-                    skipInactive &&
-                      "border-primary/40 bg-primary/10 text-primary",
-                  )}
-                  onClick={() => setSkipInactive((value) => !value)}
-                  aria-pressed={skipInactive}
-                >
-                  <IconPlayerTrackNext className="h-4 w-4" />
-                  {t("sessions.skipInactive")}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {skipInactive
-                  ? t("sessions.skipInactiveOn")
-                  : t("sessions.skipInactiveOff")}
-              </TooltipContent>
-            </Tooltip>
-
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
-                devToolsOpen && "border-primary/40 bg-primary/10 text-primary",
-              )}
-              onClick={() => setDevToolsOpen((value) => !value)}
-              aria-pressed={devToolsOpen}
-              aria-expanded={devToolsOpen}
-            >
-              <IconTerminal2 className="h-4 w-4" />
-              {t("sessions.devtools")}
-              {devToolsIssueCount > 0 ? (
-                <span
-                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 font-mono text-[10px] font-semibold leading-none text-white"
-                  aria-label={t("sessions.devtoolsIssueCount", {
-                    count: String(devToolsIssueCount),
-                  })}
-                >
-                  {devToolsIssueCount > 99 ? "99+" : devToolsIssueCount}
-                </span>
-              ) : null}
-            </button>
-
-            <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
-              {t("sessions.replayEventCount", {
-                events: String(response.eventCount),
-              })}
-              {response.truncated ? ` ${t("sessions.truncated")}` : ""}
-            </span>
-          </div>
-
-          {devToolsOpen ? (
-            <SessionDevToolsPanel
-              diagnostics={diagnostics}
-              currentTime={currentTime}
-              height={devToolsHeight}
-              onHeightChange={setDevToolsHeight}
-              onSeek={(ms) => seek(ms, true)}
-              issueMatches={issueMatches}
-            />
-          ) : null}
-
-          {response.unavailableChunks > 0 ? (
-            <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-              {t("sessions.unavailableChunks", {
-                count: String(response.unavailableChunks),
-              })}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+            {response.unavailableChunks > 0 ? (
+              <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+                {t("sessions.unavailableChunks", {
+                  count: String(response.unavailableChunks),
+                })}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     </TooltipProvider>
   );
 }
@@ -1153,7 +1193,7 @@ function ReplayScrubber({
             <span
               key={marker.id}
               className={cn(
-                "absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-background",
+                "absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-90 ring-1 ring-background/80",
                 marker.kind === "navigation"
                   ? "bg-amber-500"
                   : marker.kind === "input"

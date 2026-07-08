@@ -214,6 +214,34 @@ const enUS = {
     onboardingDescription:
       "Dispatch owns shared provider accounts. Each app owns how it uses the account.",
   },
+  dispatch: {
+    nav: {
+      automations: "Automations",
+      approvals: "Approvals",
+      delivery: "Delivery",
+      agents: "Agents",
+      vault: "Vault",
+      audit: "Audit",
+    },
+    pages: {
+      also: "Also",
+      workspaceShortcutsAria: "Workspace shortcuts",
+      deliveryQueue: "Delivery queue",
+      failedLastHour: "{{count}} failed in the last hour",
+      processingCount: "{{count}} processing",
+      queued: "Queued",
+      active: "Active",
+      done1h: "Done 1h",
+      failed1h: "Failed 1h",
+      oldestQueued: "Oldest queued: {{age}}",
+      queueAgeNone: "none",
+      queueFailureHint:
+        "Check credentials, destinations, and recent queue errors.",
+      unknownPlatform: "unknown",
+      attemptsCount: "{{count}} attempts",
+      noErrorMessage: "(no error message)",
+    },
+  },
 };
 
 type Messages = typeof enUS;
@@ -244,6 +272,21 @@ function mergeMessages(overrides: PartialMessages): Messages {
       time: {
         ...enUS.integrations.time,
         ...overrides.integrations?.time,
+      },
+    },
+    dispatch: {
+      ...enUS.dispatch,
+      ...overrides.dispatch,
+      nav: {
+        ...enUS.dispatch.nav,
+        ...(overrides.dispatch as { nav?: Record<string, string> } | undefined)
+          ?.nav,
+      },
+      pages: {
+        ...enUS.dispatch.pages,
+        ...(
+          overrides.dispatch as { pages?: Record<string, string> } | undefined
+        )?.pages,
       },
     },
   };
@@ -452,6 +495,34 @@ export const messagesByLocale = {
       onboardingTitle: "连接一次，授权给应用",
       onboardingDescription:
         "Dispatch 管理共享提供商账户。每个应用管理自己如何使用该账户。",
+    },
+
+    dispatch: {
+      nav: {
+        automations: "自动化",
+        approvals: "批准",
+        delivery: "投递",
+        agents: "代理",
+        vault: "保险库",
+        audit: "审计",
+      },
+      pages: {
+        also: "还有",
+        workspaceShortcutsAria: "工作区快捷入口",
+        deliveryQueue: "投递队列",
+        failedLastHour: "过去一小时失败 {{count}} 次",
+        processingCount: "{{count}} 个处理中",
+        queued: "排队中",
+        active: "进行中",
+        done1h: "完成 1 小时",
+        failed1h: "失败 1 小时",
+        oldestQueued: "最早排队：{{age}}",
+        queueAgeNone: "无",
+        queueFailureHint: "请检查凭据、目的地和最近的队列错误。",
+        unknownPlatform: "未知",
+        attemptsCount: "{{count}} 次尝试",
+        noErrorMessage: "（无错误消息）",
+      },
     },
   }),
   "es-ES": mergeMessages({
@@ -680,6 +751,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch posee las cuentas compartidas de proveedores. Cada app posee cómo usa la cuenta.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatizaciones",
+        approvals: "Aprobaciones",
+        delivery: "Entrega",
+        agents: "Agentes",
+        vault: "Bóveda",
+        audit: "Auditoría",
+      },
+      pages: {
+        also: "También",
+        workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
+        deliveryQueue: "Cola de entrega",
+        failedLastHour: "{{count}} fallos en la última hora",
+        processingCount: "{{count}} en proceso",
+        queued: "En cola",
+        active: "Activo",
+        done1h: "Hecho 1 h",
+        failed1h: "Fallido 1 h",
+        oldestQueued: "Más antiguo en cola: {{age}}",
+        queueAgeNone: "ninguno",
+        queueFailureHint:
+          "Revisa las credenciales, los destinos y los errores recientes de la cola.",
+        unknownPlatform: "desconocido",
+        attemptsCount: "{{count}} intentos",
+        noErrorMessage: "(sin mensaje de error)",
+      },
+    },
   }),
   "fr-FR": mergeMessages({
     routeTitles: {
@@ -907,6 +1007,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch possède les comptes fournisseurs partagés. Chaque app possède la façon dont elle utilise le compte.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatisations",
+        approvals: "Approbations",
+        delivery: "Livraison",
+        agents: "Agents",
+        vault: "Coffre",
+        audit: "Audit",
+      },
+      pages: {
+        also: "Aussi",
+        workspaceShortcutsAria: "Raccourcis de l’espace de travail",
+        deliveryQueue: "File de livraison",
+        failedLastHour: "{{count}} échecs au cours de la dernière heure",
+        processingCount: "{{count}} en cours",
+        queued: "En file",
+        active: "Actif",
+        done1h: "Terminé 1 h",
+        failed1h: "Échoué 1 h",
+        oldestQueued: "Plus ancien en file : {{age}}",
+        queueAgeNone: "aucun",
+        queueFailureHint:
+          "Vérifiez les identifiants, les destinations et les erreurs récentes de la file.",
+        unknownPlatform: "inconnu",
+        attemptsCount: "{{count}} tentatives",
+        noErrorMessage: "(aucun message d’erreur)",
+      },
+    },
   }),
   "de-DE": mergeMessages({
     routeTitles: {
@@ -1124,6 +1253,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch besitzt gemeinsame Anbieter-Konten. Jede App besitzt, wie sie das Konto verwendet.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatisierungen",
+        approvals: "Freigaben",
+        delivery: "Zustellung",
+        agents: "Agenten",
+        vault: "Tresor",
+        audit: "Audit",
+      },
+      pages: {
+        also: "Außerdem",
+        workspaceShortcutsAria: "Workspace-Kurzbefehle",
+        deliveryQueue: "Zustellungswarteschlange",
+        failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
+        processingCount: "{{count}} in Bearbeitung",
+        queued: "Warteschlange",
+        active: "Aktiv",
+        done1h: "Erledigt 1 Std.",
+        failed1h: "Fehlgeschlagen 1 Std.",
+        oldestQueued: "Älteste Warteschlange: {{age}}",
+        queueAgeNone: "keine",
+        queueFailureHint:
+          "Prüfe Anmeldedaten, Ziele und aktuelle Warteschlangenfehler.",
+        unknownPlatform: "unbekannt",
+        attemptsCount: "{{count}} Versuche",
+        noErrorMessage: "(keine Fehlermeldung)",
+      },
+    },
   }),
   "ja-JP": mergeMessages({
     routeTitles: {
@@ -1339,6 +1497,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch は共有プロバイダーアカウントを管理します。各アプリはそのアカウントの使い方を管理します。",
     },
+
+    dispatch: {
+      nav: {
+        automations: "自動化",
+        approvals: "承認",
+        delivery: "配信",
+        agents: "エージェント",
+        vault: "ボールト",
+        audit: "監査",
+      },
+      pages: {
+        also: "その他",
+        workspaceShortcutsAria: "ワークスペースのショートカット",
+        deliveryQueue: "配信キュー",
+        failedLastHour: "過去 1 時間で {{count}} 件失敗",
+        processingCount: "{{count}} 件処理中",
+        queued: "待機中",
+        active: "実行中",
+        done1h: "完了 1h",
+        failed1h: "失敗 1h",
+        oldestQueued: "最古の待機: {{age}}",
+        queueAgeNone: "なし",
+        queueFailureHint:
+          "認証情報、送信先、最近のキューエラーを確認してください。",
+        unknownPlatform: "不明",
+        attemptsCount: "{{count}} 回試行",
+        noErrorMessage: "（エラーメッセージなし）",
+      },
+    },
   }),
   "ko-KR": mergeMessages({
     routeTitles: {
@@ -1550,6 +1737,34 @@ export const messagesByLocale = {
       onboardingTitle: "한 번 연결하고 앱에 권한 부여",
       onboardingDescription:
         "Dispatch는 공유 공급자 계정을 소유합니다. 각 앱은 계정 사용 방식을 소유합니다.",
+    },
+
+    dispatch: {
+      nav: {
+        automations: "자동화",
+        approvals: "승인",
+        delivery: "전달",
+        agents: "에이전트",
+        vault: "볼트",
+        audit: "감사",
+      },
+      pages: {
+        also: "또한",
+        workspaceShortcutsAria: "워크스페이스 바로가기",
+        deliveryQueue: "전달 대기열",
+        failedLastHour: "지난 1시간 동안 {{count}}건 실패",
+        processingCount: "{{count}}건 처리 중",
+        queued: "대기 중",
+        active: "진행 중",
+        done1h: "완료 1시간",
+        failed1h: "실패 1시간",
+        oldestQueued: "가장 오래된 대기: {{age}}",
+        queueAgeNone: "없음",
+        queueFailureHint: "자격 증명, 대상, 최근 대기열 오류를 확인하세요.",
+        unknownPlatform: "알 수 없음",
+        attemptsCount: "{{count}}회 시도",
+        noErrorMessage: "(오류 메시지 없음)",
+      },
     },
   }),
   "pt-BR": mergeMessages({
@@ -1774,6 +1989,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch possui as contas compartilhadas de provedores. Cada app possui como usa a conta.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automações",
+        approvals: "Aprovações",
+        delivery: "Entrega",
+        agents: "Agentes",
+        vault: "Cofre",
+        audit: "Auditoria",
+      },
+      pages: {
+        also: "Também",
+        workspaceShortcutsAria: "Atalhos do espaço de trabalho",
+        deliveryQueue: "Fila de entrega",
+        failedLastHour: "{{count}} falhas na última hora",
+        processingCount: "{{count}} em processamento",
+        queued: "Na fila",
+        active: "Ativo",
+        done1h: "Concluído 1 h",
+        failed1h: "Falhou 1 h",
+        oldestQueued: "Mais antigo na fila: {{age}}",
+        queueAgeNone: "nenhum",
+        queueFailureHint:
+          "Verifique credenciais, destinos e erros recentes da fila.",
+        unknownPlatform: "desconhecido",
+        attemptsCount: "{{count}} tentativas",
+        noErrorMessage: "(sem mensagem de erro)",
+      },
+    },
   }),
   "hi-IN": mergeMessages({
     routeTitles: {
@@ -1979,6 +2223,34 @@ export const messagesByLocale = {
       onboardingTitle: "एक बार कनेक्ट करें, ऐप्स को दें",
       onboardingDescription:
         "Dispatch साझा प्रदाता खातों का स्वामी है। हर ऐप खाते का उपयोग कैसे करता है, यह वही संभालता है।",
+    },
+
+    dispatch: {
+      nav: {
+        automations: "ऑटोमेशन",
+        approvals: "अनुमोदन",
+        delivery: "डिलीवरी",
+        agents: "एजेंट",
+        vault: "वॉल्ट",
+        audit: "ऑडिट",
+      },
+      pages: {
+        also: "और भी",
+        workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
+        deliveryQueue: "डिलीवरी कतार",
+        failedLastHour: "पिछले घंटे में {{count}} विफल",
+        processingCount: "{{count}} प्रोसेस हो रहे हैं",
+        queued: "कतार में",
+        active: "सक्रिय",
+        done1h: "पूर्ण 1घं",
+        failed1h: "विफल 1घं",
+        oldestQueued: "सबसे पुराना कतार में: {{age}}",
+        queueAgeNone: "कोई नहीं",
+        queueFailureHint: "क्रेडेंशियल, गंतव्य और हाल की कतार त्रुटियाँ जाँचें।",
+        unknownPlatform: "अज्ञात",
+        attemptsCount: "{{count}} प्रयास",
+        noErrorMessage: "(कोई त्रुटि संदेश नहीं)",
+      },
     },
   }),
   "ar-SA": mergeMessages({
@@ -2220,6 +2492,35 @@ export const messagesByLocale = {
       onboardingTitle: "اربط مرة واحدة، وامنح للتطبيقات",
       onboardingDescription:
         "يمتلك Dispatch حسابات المزوّدين المشتركة. ويمتلك كل تطبيق طريقة استخدامه للحساب.",
+    },
+
+    dispatch: {
+      nav: {
+        automations: "الأتمتة",
+        approvals: "الموافقات",
+        delivery: "التسليم",
+        agents: "الوكلاء",
+        vault: "الخزنة",
+        audit: "التدقيق",
+      },
+      pages: {
+        also: "أيضًا",
+        workspaceShortcutsAria: "اختصارات مساحة العمل",
+        deliveryQueue: "قائمة انتظار التسليم",
+        failedLastHour: "{{count}} فشل خلال الساعة الماضية",
+        processingCount: "{{count}} قيد المعالجة",
+        queued: "في الانتظار",
+        active: "نشط",
+        done1h: "تم خلال ساعة",
+        failed1h: "فشل خلال ساعة",
+        oldestQueued: "الأقدم في الانتظار: {{age}}",
+        queueAgeNone: "لا شيء",
+        queueFailureHint:
+          "تحقق من بيانات الاعتماد والوجهات وأخطاء قائمة الانتظار الأخيرة.",
+        unknownPlatform: "غير معروف",
+        attemptsCount: "{{count}} محاولات",
+        noErrorMessage: "(لا توجد رسالة خطأ)",
+      },
     },
   }),
 } satisfies Record<LocaleCode, Messages>;
