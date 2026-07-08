@@ -183,8 +183,8 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript-7": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "typescript-7": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.0.0",

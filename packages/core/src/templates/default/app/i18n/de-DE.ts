@@ -339,6 +339,9 @@ const messages = {
     contactSidebarWidget: "Kontakt-Sidebar-Widget",
     contactSidebarDescription:
       "Erscheint neben der aktuellen Konversation mit Kontakt- und Thread-Kontext.",
+    eventDetailWidget: "Ereignisdetail-Widget",
+    eventDetailDescription:
+      "Erscheint unter dem geöffneten Kalenderereignis mit Ereignis- und Teilnehmerkontext.",
     addWidgetHere: "Widget hier hinzufügen",
     back: "Zurück",
     editExtension: "Erweiterung bearbeiten",

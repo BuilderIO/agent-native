@@ -47,6 +47,12 @@ export interface CalendarEvent {
     self?: boolean;
     /** When true, the attendee is optional (Google Calendar `optional`). */
     optional?: boolean;
+    /**
+     * Optional IANA timezone for this attendee (e.g. America/New_York).
+     * Used to show their local time for the event start when known.
+     * Prefer user overrides via `attendee-timezones` settings when absent.
+     */
+    timeZone?: string;
   }>;
   reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
   /** Whether this event uses the calendar's default reminder policy. */

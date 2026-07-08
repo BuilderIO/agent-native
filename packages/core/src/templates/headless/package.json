@@ -16,9 +16,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
-    "typescript-7": "catalog:",
     "oxfmt": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "typescript-7": "catalog:"
   }
 }

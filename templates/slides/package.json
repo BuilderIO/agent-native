@@ -103,7 +103,6 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/three": "^0.176.0",
-    "typescript-7": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -130,6 +129,7 @@
     "three": "^0.176.0",
     "tsx": "^4.20.3",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "vitest": "catalog:"

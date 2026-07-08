@@ -32,7 +32,7 @@
     "prepare": "tsc"
   },
   "devDependencies": {
-    "typescript-7": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "typescript-7": "catalog:"
   }
 }

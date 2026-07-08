@@ -84,6 +84,53 @@ struct MeetingsWatcherInner {
     /// meetingId -> unix-seconds deadline. While now < deadline the meeting is
     /// skipped; once it passes we re-fire the reminder exactly once.
     snoozed_until: HashMap<String, i64>,
+    /// platform -> unix-seconds when a calendar reminder last fired. Soft
+    /// guard so adhoc Zoom/Teams detection doesn't double-prompt right after
+    /// a calendar banner for the same app.
+    last_calendar_notify_at: HashMap<String, i64>,
+}
+
+/// Snapshot of auth fields the adhoc watcher needs to POST create-meeting.
+#[derive(Clone, Default)]
+pub struct MeetingsSessionSnapshot {
+    pub server_url: Option<String>,
+    pub session_cookie: Option<String>,
+    pub auth_token: Option<String>,
+}
+
+impl MeetingsWatcherState {
+    pub fn session_snapshot(&self) -> MeetingsSessionSnapshot {
+        let Ok(g) = self.inner.lock() else {
+            return MeetingsSessionSnapshot::default();
+        };
+        MeetingsSessionSnapshot {
+            server_url: g.server_url.clone(),
+            session_cookie: g.session_cookie.clone(),
+            auth_token: g.auth_token.clone(),
+        }
+    }
+
+    pub fn note_calendar_notify(&self, platform: Option<&str>) {
+        let Some(platform) = platform.map(str::trim).filter(|p| !p.is_empty()) else {
+            return;
+        };
+        if let Ok(mut g) = self.inner.lock() {
+            g.last_calendar_notify_at
+                .insert(platform.to_lowercase(), chrono::Utc::now().timestamp());
+        }
+    }
+
+    /// True if a calendar reminder for `platform` fired within `within_secs`.
+    pub fn recent_calendar_notify(&self, platform: &str, within_secs: i64) -> bool {
+        let Ok(g) = self.inner.lock() else {
+            return false;
+        };
+        let key = platform.to_lowercase();
+        let Some(at) = g.last_calendar_notify_at.get(&key).copied() else {
+            return false;
+        };
+        chrono::Utc::now().timestamp() - at <= within_secs
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -356,6 +403,9 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         if config.show_meeting_widget_enabled
             || config.meeting_transcription_mode == MeetingTranscriptionMode::Auto
         {
+            if let Some(state) = app.try_state::<MeetingsWatcherState>() {
+                state.note_calendar_notify(m.platform.as_deref());
+            }
             let app_clone = app.clone();
             let id_clone = m.id.clone();
             let title_clone = title.clone();
@@ -375,6 +425,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
                     end_clone,
                     platform_clone,
                     Some(auto_start),
+                    None,
                 )
                 .await;
             });

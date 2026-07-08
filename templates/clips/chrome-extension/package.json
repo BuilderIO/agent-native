@@ -15,9 +15,9 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.2.0",
-    "typescript-7": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:"
   }
 }

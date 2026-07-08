@@ -425,6 +425,41 @@ pub fn is_recording_active(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+pub fn is_meeting_active(app: &AppHandle) -> bool {
+    use crate::state::MeetingActive;
+    app.try_state::<MeetingActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
+}
+
+/// Bundle id of the frontmost macOS app, or `None` on failure / non-macOS.
+/// Uses a lightweight `osascript` shell-out so callers don't need objc2.
+#[cfg(target_os = "macos")]
+pub fn frontmost_bundle_id() -> Option<String> {
+    use std::process::Command;
+    let out = Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"System Events\" to get bundle identifier of (first process whose frontmost is true)",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_bundle_id() -> Option<String> {
+    None
+}
+
 pub fn set_dictation_active(app: &AppHandle, active: bool) {
     if let Some(state) = app.try_state::<DictationActive>() {
         if let Ok(mut g) = state.0.lock() {

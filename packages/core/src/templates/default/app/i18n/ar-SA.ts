@@ -346,6 +346,9 @@ const messages = {
     contactSidebarWidget: "الاتصال القطعة الشريط الجانبي",
     contactSidebarDescription:
       "يظهر بجانب المحادثة الحالية مع سياق جهة الاتصال وسلسلة المحادثات.",
+    eventDetailWidget: "أداة تفاصيل الحدث",
+    eventDetailDescription:
+      "تظهر أسفل حدث التقويم المفتوح مع سياق الحدث والحضور.",
     addWidgetHere: "أضف القطعة هنا",
     back: "رجوع",
     editExtension: "تحرير التمديد",

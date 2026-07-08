@@ -316,6 +316,9 @@ const messages = {
     buildNewWidget: "构建一个新的小部件",
     contactSidebarWidget: "联系侧边栏小部件",
     contactSidebarDescription: "显示在当前对话旁边，包含联系人和线程上下文。",
+    eventDetailWidget: "活动详情小部件",
+    eventDetailDescription:
+      "显示在打开的日历活动下方，包含活动和与会者上下文。",
     addWidgetHere: "在这里添加小部件",
     back: "返回",
     editExtension: "编辑扩展名",

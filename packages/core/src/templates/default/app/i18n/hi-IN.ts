@@ -327,6 +327,9 @@ const messages = {
     contactSidebarWidget: "साइडबार विजेट से संपर्क करें",
     contactSidebarDescription:
       "संपर्क और थ्रेड संदर्भ के साथ वर्तमान वार्तालाप के बगल में दिखाई देता है।",
+    eventDetailWidget: "इवेंट विवरण विजेट",
+    eventDetailDescription:
+      "खुले कैलेंडर इवेंट के नीचे इवेंट और उपस्थित लोगों के संदर्भ के साथ दिखाई देता है।",
     addWidgetHere: "यहां विजेट जोड़ें",
     back: "वापस",
     editExtension: "एक्सटेंशन संपादित करें",

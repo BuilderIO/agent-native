@@ -138,7 +138,7 @@ export function MeetingNotification() {
     const hideMs = Number.isFinite(startMs)
       ? meetingNotificationAutoHideMs(startMs)
       : FALLBACK_AUTO_HIDE_MS;
-    scheduleAutoHide(hideMs || FALLBACK_AUTO_HIDE_MS);
+    scheduleAutoHide(hideMs);
   }
 
   useEffect(() => {
@@ -164,6 +164,15 @@ export function MeetingNotification() {
         showNotification(ev.payload);
       }),
     );
+
+    // Cold overlay boot: hydrate any payload stored before this webview
+    // mounted (calendar or adhoc).
+    invoke<NotificationData | null>("take_pending_meeting_notification")
+      .then((pending) => {
+        if (stopped || !pending) return;
+        showNotification(pending, { hydrated: true });
+      })
+      .catch(() => {});
 
     trackListen(
       listen<TranscriptionStatusPayload>("meetings:hide-notification", (ev) => {
@@ -222,7 +231,7 @@ export function MeetingNotification() {
     const hideMs = Number.isFinite(startMs)
       ? meetingNotificationAutoHideMs(startMs)
       : FALLBACK_AUTO_HIDE_MS;
-    scheduleAutoHide(hideMs || FALLBACK_AUTO_HIDE_MS);
+    scheduleAutoHide(hideMs);
   }
 
   function hideNotification() {

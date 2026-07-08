@@ -13,7 +13,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -675,29 +675,9 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
-  // Per-thread pending entries — using a Map so concurrent mutations for different
-  // threads don't overwrite each other's pending entries.
-  const pendingByThread = useRef(
-    new Map<string, { id: string; accountEmail?: string }[]>(),
-  );
   return useMutation({
-    mutationFn: async (threadId: string) => {
-      const entries = pendingByThread.current.get(threadId) ?? [];
-      pendingByThread.current.delete(threadId);
-      if (entries.length === 0) return;
-      // Enqueue each unread message; the queue coalesces across threads into
-      // one mark-read batchModify when the user opens/archives rapidly.
-      await Promise.all(
-        entries.map((entry) =>
-          gmailMutationQueue.enqueue("mark-read", {
-            id: entry.id,
-            threadId,
-            accountEmail: entry.accountEmail,
-            flag: true,
-          }),
-        ),
-      );
-    },
+    mutationFn: (threadId: string) =>
+      callAction("mark-thread-read", { threadId }).then(assertActionSuccess),
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({
@@ -706,11 +686,9 @@ export function useMarkThreadRead() {
       // Capture unread entries BEFORE optimistic update
       const allEmails =
         previous.flatMap(([, data]) => flattenInfiniteEmails(data)) ?? [];
-      const unreadEntries = allEmails
+      const unreadIds = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
-        .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
-      pendingByThread.current.set(threadId, unreadEntries);
-      const unreadIds = unreadEntries.map((e) => e.id);
+        .map((e) => e.id);
       const previousThread = getCachedThread(threadId);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {

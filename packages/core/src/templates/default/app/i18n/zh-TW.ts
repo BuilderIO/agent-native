@@ -316,6 +316,8 @@ const messages = {
     buildNewWidget: "建置一個新的小工具",
     contactSidebarWidget: "聯絡側邊欄小工具",
     contactSidebarDescription: "顯示在目前對話旁邊，包含聯絡人和對話串脈絡。",
+    eventDetailWidget: "活動詳情小工具",
+    eventDetailDescription: "顯示在開啟的日曆活動下方，包含活動與出席者脈絡。",
     addWidgetHere: "在這裡新增小工具",
     back: "返回",
     editExtension: "編輯擴充功能名",

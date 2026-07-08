@@ -37,9 +37,9 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@types/vscode": "1.120.0",
-    "typescript-7": "catalog:",
     "@vscode/test-electron": "3.0.0",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vitest": "catalog:"
   },
   "contributes": {

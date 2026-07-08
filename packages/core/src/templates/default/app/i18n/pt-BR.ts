@@ -341,6 +341,9 @@ const messages = {
     contactSidebarWidget: "Widget da barra lateral de contato",
     contactSidebarDescription:
       "Aparece ao lado da conversa atual com o contexto do contato e do tópico.",
+    eventDetailWidget: "Widget de detalhes do evento",
+    eventDetailDescription:
+      "Aparece abaixo do evento aberto do calendário com o contexto do evento e dos participantes.",
     addWidgetHere: "Adicione widget aqui",
     back: "Voltar",
     editExtension: "Editar extensão",

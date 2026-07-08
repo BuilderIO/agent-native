@@ -42,8 +42,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
-    "typescript-7": "catalog:",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vitest": "catalog:"
   }
 }

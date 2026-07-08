@@ -332,6 +332,9 @@ const messages = {
     contactSidebarWidget: "連絡先サイドバー ウィジェット",
     contactSidebarDescription:
       "現在の会話の横に連絡先とスレッドのコンテキストが表示されます。",
+    eventDetailWidget: "予定詳細ウィジェット",
+    eventDetailDescription:
+      "開いているカレンダー予定の下に、予定と出席者のコンテキストとともに表示されます。",
     addWidgetHere: "ここにウィジェットを追加",
     back: "戻る",
     editExtension: "拡張子の編集",

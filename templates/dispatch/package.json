@@ -34,7 +34,6 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "typescript-7": "catalog:",
     "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -42,6 +41,7 @@
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

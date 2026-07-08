@@ -152,14 +152,26 @@ pub async fn notify_meeting_starting(
     scheduled_end: Option<String>,
     platform: Option<String>,
     auto_start: Option<bool>,
+    notification_type: Option<String>,
 ) -> Result<(), String> {
-    let body = format_time_range_subtitle(
-        scheduled_start.as_deref(),
-        scheduled_end.as_deref(),
-        starts_in_secs,
-    );
+    let kind = notification_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("calendar");
+    let is_adhoc = kind == "adhoc";
+    let body = if is_adhoc {
+        "Take notes?".to_string()
+    } else {
+        format_time_range_subtitle(
+            scheduled_start.as_deref(),
+            scheduled_end.as_deref(),
+            starts_in_secs,
+        )
+    };
     dlog!(
-        "[clips-tray] notify_meeting_starting id={} title={} body={}",
+        "[clips-tray] notify_meeting_starting type={} id={} title={} body={}",
+        kind,
         meeting_id,
         title,
         body
@@ -168,7 +180,7 @@ pub async fn notify_meeting_starting(
     // Keep the latest payload available for cold overlay windows, then emit
     // for already-mounted listeners.
     let payload = serde_json::json!({
-        "type": "calendar",
+        "type": kind,
         "title": title,
         "subtitle": body,
         "meetingId": meeting_id,
@@ -180,6 +192,11 @@ pub async fn notify_meeting_starting(
     });
     store_pending_meeting_notification(&app, &payload);
     let _ = app.emit("meetings:show-notification", payload.clone());
+
+    // Ensure the overlay window exists / is visible for cold starts.
+    if let Err(err) = show_meeting_notification_window(&app) {
+        eprintln!("[clips-tray] show meeting notification failed: {err}");
+    }
 
     Ok(())
 }

@@ -39,7 +39,6 @@
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript-7": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
@@ -48,6 +47,7 @@
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.3.0",
     "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:"
   },
   "productName": "Agent Native"

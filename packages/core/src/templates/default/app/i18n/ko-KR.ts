@@ -326,6 +326,9 @@ const messages = {
     contactSidebarWidget: "연락처 사이드바 위젯",
     contactSidebarDescription:
       "연락처 및 스레드 컨텍스트가 포함된 현재 대화 옆에 표시됩니다.",
+    eventDetailWidget: "일정 상세 위젯",
+    eventDetailDescription:
+      "열린 캘린더 일정 아래에 일정 및 참석자 컨텍스트와 함께 표시됩니다.",
     addWidgetHere: "여기에 위젯 추가",
     back: "뒤로",
     editExtension: "확장 편집",
