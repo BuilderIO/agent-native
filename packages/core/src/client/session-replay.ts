@@ -807,7 +807,10 @@ function sanitizeCapturedViewportData(
     return event;
   }
   const clamped = clampCapturedViewport(width, height);
-  if (clamped.width === Math.round(width) && clamped.height === Math.round(height)) {
+  if (
+    clamped.width === Math.round(width) &&
+    clamped.height === Math.round(height)
+  ) {
     return event;
   }
   return {
@@ -833,6 +836,18 @@ function clampCapturedViewport(
     nextHeight = Math.round(nextWidth / MIN_CAPTURED_ASPECT_RATIO);
   }
   return { width: nextWidth, height: nextHeight };
+}
+
+function replayEventTimestampMs(event: ReplayEvent): number {
+  const timestamp = event.timestamp;
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+  if (typeof timestamp === "string" && timestamp.trim()) {
+    const parsed = Date.parse(timestamp);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now();
 }
 
 function enqueueReplayEvent(
