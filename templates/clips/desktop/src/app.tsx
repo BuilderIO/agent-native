@@ -1151,6 +1151,18 @@ export function App() {
     });
   }, []);
 
+  const startMeetingNotesAndJoin = useCallback(
+    (meeting: PopoverMeeting) => {
+      if (meeting.joinUrl) {
+        openExternal(meeting.joinUrl).catch((err) => {
+          console.error("[clips-popover] open meeting join url failed:", err);
+        });
+      }
+      startMeetingNotes(meeting);
+    },
+    [startMeetingNotes],
+  );
+
   useMeetingTranscription({
     callClipsAction,
     serverUrl,
@@ -2428,6 +2440,7 @@ export function App() {
           }
           onOpenSettings={() => setPopoverView("settings")}
           onStartNotes={startMeetingNotes}
+          onStartNotesAndJoin={startMeetingNotesAndJoin}
         />
       </div>
     );
@@ -3333,6 +3346,7 @@ function MeetingsPopoverView({
   onOpenMeeting,
   onOpenSettings,
   onStartNotes,
+  onStartNotesAndJoin,
 }: {
   meetings: PopoverMeeting[];
   loading: boolean;
@@ -3345,6 +3359,7 @@ function MeetingsPopoverView({
   onOpenMeeting: (meetingId: string) => void;
   onOpenSettings: () => void;
   onStartNotes: (meeting: PopoverMeeting) => void;
+  onStartNotesAndJoin: (meeting: PopoverMeeting) => void;
 }) {
   return (
     <div className="setup popover-view">
@@ -3402,6 +3417,7 @@ function MeetingsPopoverView({
         <div className="popover-list">
           {meetings.map((meeting) => {
             const canStart = meetingCanStartNotes(meeting);
+            const hasJoin = Boolean(meeting.joinUrl);
             return (
               <div className="popover-list-item" key={meeting.id}>
                 <div className="popover-list-icon">
@@ -3418,9 +3434,18 @@ function MeetingsPopoverView({
                   <button
                     type="button"
                     className="popover-list-action popover-list-action-primary"
-                    onClick={() => onStartNotes(meeting)}
+                    onClick={() =>
+                      hasJoin
+                        ? onStartNotesAndJoin(meeting)
+                        : onStartNotes(meeting)
+                    }
+                    title={
+                      hasJoin
+                        ? "Start notes and join the meeting"
+                        : "Start meeting notes"
+                    }
                   >
-                    Start notes
+                    {hasJoin ? "Start + join" : "Start notes"}
                   </button>
                 ) : (
                   <button

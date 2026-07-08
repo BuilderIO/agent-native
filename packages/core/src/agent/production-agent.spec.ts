@@ -3208,6 +3208,77 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("coerces scalar raw JSON Schema parameters before running a tool", async () => {
+    const run = vi.fn(async (args) => `includeContent=${args.includeContent}`);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-schema-coerce",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "true" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-extension": {
+          tool: {
+            description: "Get extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                includeContent: { type: "boolean" },
+              },
+              required: ["id"],
+            },
+          },
+          readOnly: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ includeContent: true }),
+      expect.anything(),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-extension",
+        result: "includeContent=true",
+      }),
+    );
+  });
+
   it("does not seed read-only duplicate cache from invalid parameter results", async () => {
     const run = vi.fn(async () => "should not run");
     const engine: AgentEngine = {
@@ -3230,7 +3301,7 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: "tool-schema-repeat",
               name: "get-extension",
-              input: { id: "ext-1", includeContent: "true" },
+              input: { id: "ext-1", includeContent: "yes" },
             },
           ],
         };
@@ -3253,7 +3324,7 @@ describe("runAgentLoop", () => {
               type: "tool-call",
               id: "prior-invalid",
               name: "get-extension",
-              input: { id: "ext-1", includeContent: "true" },
+              input: { id: "ext-1", includeContent: "yes" },
             },
           ],
         },
@@ -3264,7 +3335,7 @@ describe("runAgentLoop", () => {
               type: "tool-result",
               toolCallId: "prior-invalid",
               toolName: "get-extension",
-              toolInput: '{"id":"ext-1","includeContent":"true"}',
+              toolInput: '{"id":"ext-1","includeContent":"yes"}',
               content:
                 "Invalid action parameters for get-extension: input/includeContent must be boolean.",
             },

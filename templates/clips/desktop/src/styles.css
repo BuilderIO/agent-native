@@ -1195,6 +1195,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
 .popover-list-item {
@@ -1425,7 +1426,7 @@ body[data-clips-route="recording-pill"] #root {
    content isn't flush with the panel edge. Must follow `.setup` so it wins
    over the shorthand padding above. */
 .setup.popover-view {
-  padding-bottom: 20px;
+  padding-bottom: 26px;
 }
 
 .setup h2 {
