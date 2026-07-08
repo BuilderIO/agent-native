@@ -8,16 +8,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+} from "../../components/ui/popover";
+import { Skeleton } from "../../components/ui/skeleton";
+import { Switch } from "../../components/ui/switch";
 import {
   automationIdentity,
   automationLastRun,
@@ -26,14 +26,14 @@ import {
   automationTarget,
   sortAutomations,
   type AutomationStatusTone,
-} from "@/lib/automation-display";
+} from "../../lib/automation-display";
 import {
   listDispatchAutomations,
   setDispatchAutomationEnabled,
   type DispatchAutomationItem,
   type SetDispatchAutomationEnabledInput,
-} from "@/lib/automations";
-import { cn } from "@/lib/utils";
+} from "../../lib/automations";
+import { cn } from "../../lib/utils";
 
 const AUTOMATIONS_QUERY_KEY = ["dispatch-automations"] as const;
 

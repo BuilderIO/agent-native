@@ -8,11 +8,14 @@ import { IconCheck, IconCopy, IconPlugConnected } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { AgentsPanel, type ConnectedAgent } from "@/components/agents-panel";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import {
+  AgentsPanel,
+  type ConnectedAgent,
+} from "../../components/agents-panel";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Switch } from "../../components/ui/switch";
 
 export function meta() {
   return [{ title: "Agents — Dispatch" }];

@@ -14,13 +14,13 @@ import {
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { CreateAppPopover } from "@/components/create-app-popover";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceAppCard } from "@/components/workspace-app-card";
-import { submitOverviewPrompt } from "@/lib/overview-chat";
-import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
+import { submitOverviewPrompt } from "../lib/overview-chat";
+import type { WorkspaceAppSummary } from "../lib/workspace-apps";
+import { CreateAppPopover } from "./create-app-popover";
+import { DispatchShell } from "./dispatch-shell";
+import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
+import { WorkspaceAppCard } from "./workspace-app-card";
 
 const PROMPT_SUGGESTIONS = [
   "Summarize the current workspace health",

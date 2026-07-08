@@ -8,18 +8,17 @@ import {
 import { TeamPage } from "@agent-native/core/client/org";
 import { Link } from "react-router";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
+import changelog from "../../../CHANGELOG.md?raw";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-
-import changelog from "../../../CHANGELOG.md?raw";
+} from "../../components/ui/card";
+import { Label } from "../../components/ui/label";
 
 export function meta() {
   return [{ title: "Settings - Dispatch" }];

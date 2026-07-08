@@ -6,8 +6,8 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { TaskQueueHealth } from "@/components/task-queue-health";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { TaskQueueHealth } from "../../components/task-queue-health";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,17 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+} from "../../components/ui/alert-dialog";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+} from "../../components/ui/select";
+import { Textarea } from "../../components/ui/textarea";
 
 export function meta() {
   return [{ title: "Destinations — Dispatch" }];

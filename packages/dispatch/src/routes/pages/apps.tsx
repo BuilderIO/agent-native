@@ -25,18 +25,18 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { CreateAppPopover } from "@/components/create-app-popover";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
+import { CreateAppPopover } from "../../components/create-app-popover";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceAppCard } from "@/components/workspace-app-card";
-import { cn } from "@/lib/utils";
-import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
+} from "../../components/ui/collapsible";
+import { Skeleton } from "../../components/ui/skeleton";
+import { WorkspaceAppCard } from "../../components/workspace-app-card";
+import { cn } from "../../lib/utils";
+import type { WorkspaceAppSummary } from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Apps — Dispatch" }];

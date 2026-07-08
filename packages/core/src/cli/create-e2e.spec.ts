@@ -51,7 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(origCwd);
   removeTmpDir(tmpDir);
-});
+}, 30_000);
 
 function removeTmpDir(dir: string): void {
   const maxAttempts = 10;

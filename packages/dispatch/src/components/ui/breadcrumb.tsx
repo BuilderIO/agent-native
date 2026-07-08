@@ -2,7 +2,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { IconChevronRight, IconDots } from "@tabler/icons-react";
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,

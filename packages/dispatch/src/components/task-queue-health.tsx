@@ -2,14 +2,14 @@ import { useChangeVersions, useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconPlayerPlay } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   formatQueueAgeSeconds,
   getDispatchTaskQueueStats,
   type TaskQueueStats,
   ZERO_TASK_QUEUE_STATS,
-} from "@/lib/task-queue";
-import { cn } from "@/lib/utils";
+} from "../lib/task-queue";
+import { cn } from "../lib/utils";
+import { Skeleton } from "./ui/skeleton";
 
 const TASK_QUEUE_QUERY_KEY = ["dispatch-task-queue"] as const;
 

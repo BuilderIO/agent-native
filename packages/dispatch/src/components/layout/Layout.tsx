@@ -51,26 +51,16 @@ import {
 } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
+import { cn } from "../../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-
+} from "../ui/dropdown-menu";
+import { Input } from "../ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 

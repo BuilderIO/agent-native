@@ -2,7 +2,7 @@ import * as MenubarPrimitive from "@radix-ui/react-menubar";
 import { IconCheck, IconChevronRight, IconCircle } from "@tabler/icons-react";
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 // Explicit type annotations needed because TS can't generate portable .d.ts
 // declarations for these without referencing internal Radix types from a

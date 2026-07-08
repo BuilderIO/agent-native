@@ -19,10 +19,10 @@ import { toast } from "sonner";
 import {
   ApprovalValueBlock,
   parseApprovalValue,
-} from "@/components/approval-value-block";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "../../components/approval-value-block";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 
 export function meta() {
   return [{ title: "Approval — Dispatch" }];

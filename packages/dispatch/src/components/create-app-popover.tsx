@@ -20,12 +20,8 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Button } from "./ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 interface VaultSecretOption {
   id: string;
