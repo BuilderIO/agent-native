@@ -2219,7 +2219,13 @@ function dimensionsFromReplayEvent(
   return null;
 }
 
-function normalizeReplayDimensions(
+/**
+ * Prefer a sane viewport for the stage. Returns null only when width/height
+ * are missing or non-positive. Out-of-range aspect ratios are clamped rather
+ * than rejected so genuine wide windows keep their height (and most of their
+ * width) instead of collapsing to the default 1024×640 fallback.
+ */
+export function normalizeReplayDimensions(
   width: unknown,
   height: unknown,
 ): ReplayViewportDimensions | null {
@@ -2228,22 +2234,33 @@ function normalizeReplayDimensions(
     typeof height !== "number" ||
     !Number.isFinite(width) ||
     !Number.isFinite(height) ||
-    width < MIN_REPLAY_VIEWPORT_WIDTH ||
-    height < MIN_REPLAY_VIEWPORT_HEIGHT
+    width <= 0 ||
+    height <= 0
   ) {
     return null;
   }
-  const aspect = width / height;
-  if (
-    aspect > MAX_REPLAY_ASPECT_RATIO || // i18n-ignore -- numeric guard expression, not visible copy.
-    aspect < MIN_REPLAY_ASPECT_RATIO
-  ) {
-    return null;
+  return clampReplayViewport(width, height);
+}
+
+/**
+ * Clamp Meta / ViewportResize dimensions into a displayable aspect range.
+ * Multi-monitor spans and corrupt frames often report absurd widths; keep the
+ * captured height and shrink width (or vice versa) so the DOM still roughly
+ * matches the recorded layout.
+ */
+export function clampReplayViewport(
+  width: number,
+  height: number,
+): ReplayViewportDimensions {
+  let nextWidth = Math.max(MIN_REPLAY_VIEWPORT_WIDTH, Math.round(width));
+  let nextHeight = Math.max(MIN_REPLAY_VIEWPORT_HEIGHT, Math.round(height));
+  const aspect = nextWidth / nextHeight;
+  if (aspect > MAX_REPLAY_ASPECT_RATIO) {
+    nextWidth = Math.round(nextHeight * MAX_REPLAY_ASPECT_RATIO);
+  } else if (aspect < MIN_REPLAY_ASPECT_RATIO) {
+    nextHeight = Math.round(nextWidth / MIN_REPLAY_ASPECT_RATIO);
   }
-  return {
-    width: Math.round(width),
-    height: Math.round(height),
-  };
+  return { width: nextWidth, height: nextHeight };
 }
 
 export function filterReplayMarkers(
@@ -2269,8 +2286,9 @@ export function filterReplayMarkers(
 
 /**
  * Rewrite Meta / ViewportResize frames so rrweb never applies absurd aspect
- * ratios that collapse the stage into an ultra-wide ribbon. Invalid frames
- * inherit the chosen fallback dimensions.
+ * ratios that collapse the stage into an ultra-wide ribbon. Prefer clamping
+ * the captured dimensions (preserve height, shrink width) over replacing them
+ * with the default fallback, which would misalign the recorded DOM.
  */
 export function sanitizeReplayViewportEvents(
   events: AnyReplayEvent[],
@@ -2278,41 +2296,58 @@ export function sanitizeReplayViewportEvents(
 ): AnyReplayEvent[] {
   return events.map((event) => {
     if (event.type === RRWEB_EVENT_TYPE.Meta && isRecord(event.data)) {
-      const dims = normalizeReplayDimensions(
-        event.data.width,
-        event.data.height,
-      );
-      if (dims) return event;
-      return {
-        ...event,
-        data: {
-          ...event.data,
-          width: fallback.width,
-          height: fallback.height,
-        },
-      };
+      return rewriteViewportEventData(event, event.data, fallback);
     }
     if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.ViewportResize &&
       isRecord(event.data)
     ) {
-      const dims = normalizeReplayDimensions(
-        event.data.width,
-        event.data.height,
-      );
-      if (dims) return event;
-      return {
-        ...event,
-        data: {
-          ...event.data,
-          width: fallback.width,
-          height: fallback.height,
-        },
-      };
+      return rewriteViewportEventData(event, event.data, fallback);
     }
     return event;
   });
+}
+
+function rewriteViewportEventData(
+  event: AnyReplayEvent,
+  data: AnyRecord,
+  fallback: ReplayViewportDimensions,
+): AnyReplayEvent {
+  const width = data.width;
+  const height = data.height;
+  if (
+    typeof width === "number" &&
+    typeof height === "number" &&
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
+  ) {
+    const clamped = clampReplayViewport(width, height);
+    if (
+      clamped.width === Math.round(width) &&
+      clamped.height === Math.round(height)
+    ) {
+      return event;
+    }
+    return {
+      ...event,
+      data: {
+        ...data,
+        width: clamped.width,
+        height: clamped.height,
+      },
+    };
+  }
+  return {
+    ...event,
+    data: {
+      ...data,
+      width: fallback.width,
+      height: fallback.height,
+    },
+  };
 }
 
 function applyReplayFrameDimensions(

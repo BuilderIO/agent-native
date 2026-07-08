@@ -321,12 +321,14 @@ describe("session replay sanitization", () => {
         },
       ]),
     ).toEqual({ width: 1280, height: 800 });
+    // Absurd multi-monitor spans are clamped (preserve height, shrink width)
+    // instead of discarded, so the stage still has a usable frame.
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
       ]),
-    ).toBeNull();
-    // 21:9 ultrawide (~2.33) is allowed; multi-monitor spans are not.
+    ).toEqual({ width: 2205, height: 900 });
+    // 21:9 ultrawide (~2.33) is allowed; multi-monitor spans are clamped.
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 2560, height: 1080 } },
@@ -336,7 +338,7 @@ describe("session replay sanitization", () => {
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 3840, height: 1080 } },
       ]),
-    ).toBeNull();
+    ).toEqual({ width: 2646, height: 1080 });
   });
 
   it("rewrites absurd meta dimensions before playback", () => {
@@ -352,8 +354,9 @@ describe("session replay sanitization", () => {
       ],
       { width: 1024, height: 640 },
     );
-    expect(sanitized[0]?.data).toMatchObject({ width: 1024, height: 640 });
-    expect(sanitized[1]?.data).toMatchObject({ width: 1024, height: 640 });
+    // Clamp preserves height; does not force the 1024×640 fallback.
+    expect(sanitized[0]?.data).toMatchObject({ width: 2205, height: 900 });
+    expect(sanitized[1]?.data).toMatchObject({ width: 1960, height: 800 });
     expect(sanitized[2]?.data).toMatchObject({ width: 1440, height: 900 });
   });
 
