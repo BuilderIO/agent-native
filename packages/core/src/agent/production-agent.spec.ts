@@ -28,6 +28,7 @@ import {
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  filterInitialEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -551,7 +552,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("builds a plan-mode registry with only read-only tools", async () => {
+  it("builds a plan-mode registry with read-only tools and blocked stubs", async () => {
     const registry = attachToolSearch({
       read: actionEntry({ readOnly: true }),
       "read-but-act-only": actionEntry({
@@ -568,12 +569,17 @@ describe("buildUserContentWithAttachments", () => {
 
     const planRegistry = createPlanModeActionRegistry(registry);
 
-    expect(Object.keys(planRegistry).sort()).toEqual([
-      "bash",
-      "read",
-      "resources",
-      "tool-search",
-    ]);
+    expect(
+      actionsToEngineTools(planRegistry)
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["bash", "read", "resources", "tool-search"]);
+    await expect(planRegistry.write.run({})).resolves.toContain(
+      "Plan mode blocked `write`",
+    );
+    await expect(planRegistry["read-but-act-only"].run({})).resolves.toContain(
+      "Plan mode blocked `read-but-act-only`",
+    );
     expect(
       planRegistry.resources.tool.parameters?.properties.action.enum,
     ).toEqual(["list", "read"]);
@@ -602,6 +608,33 @@ describe("buildUserContentWithAttachments", () => {
     expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
       "read-but-act-only",
     );
+  });
+
+  it("promotes common provider tools into lean initial catalogs when available", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({
+        starter: actionEntry({ readOnly: true }),
+        "provider-api-request": actionEntry({ readOnly: true }),
+        "provider-api-docs": actionEntry({ readOnly: true }),
+        "run-code": actionEntry({ readOnly: true }),
+        "hubspot-deals": actionEntry({ readOnly: true }),
+        "gong-calls": actionEntry({ readOnly: true }),
+        "ordinary-rare-tool": actionEntry({ readOnly: true }),
+      }),
+    );
+
+    const initialTools = filterInitialEngineTools(tools, ["starter"]).map(
+      (tool) => tool.name,
+    );
+
+    expect(initialTools).toContain("starter");
+    expect(initialTools).toContain("tool-search");
+    expect(initialTools).toContain("provider-api-request");
+    expect(initialTools).toContain("provider-api-docs");
+    expect(initialTools).toContain("run-code");
+    expect(initialTools).toContain("hubspot-deals");
+    expect(initialTools).toContain("gong-calls");
+    expect(initialTools).not.toContain("ordinary-rare-tool");
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {

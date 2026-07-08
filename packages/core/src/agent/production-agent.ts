@@ -824,6 +824,20 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBlockedAction(
+  name: string,
+  entry: ActionEntry,
+  reason?: string,
+): ActionEntry {
+  return {
+    ...entry,
+    agentTool: false,
+    allowInPlanMode: false,
+    readOnly: true,
+    run: async () => planModeBlockedMessage(name, reason),
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -831,8 +845,22 @@ export function createPlanModeActionRegistry(
 
   for (const [name, entry] of Object.entries(actions)) {
     if (name === TOOL_SEARCH_ACTION_NAME) continue;
-    if (entry.allowInPlanMode === false) continue;
-    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
+    if (entry.allowInPlanMode === false) {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "not available while planning",
+      );
+      continue;
+    }
+    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "not available while planning",
+      );
+      continue;
+    }
 
     const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
     if (allowedActions) {
@@ -852,6 +880,12 @@ export function createPlanModeActionRegistry(
 
     if (entry.readOnly === true) {
       filtered[name] = entry;
+    } else {
+      filtered[name] = createPlanModeBlockedAction(
+        name,
+        entry,
+        "write or side-effecting tool",
+      );
     }
   }
 
@@ -965,7 +999,10 @@ export interface ProductionAgentOptions {
    * only these tool schemas plus `tool-search`; the full action registry remains
    * searchable, and matching tool schemas from `tool-search` results are added
    * to the next model request. This keeps first-token latency low without
-   * forcing rarely used capabilities into every prompt.
+   * forcing rarely used capabilities into every prompt. The framework also
+   * promotes common provider/corpus/code-execution tools when the current
+   * app/mode registry exposes them, so prompts that teach broad integrations do
+   * not describe tools that require an extra discovery turn before use.
    */
   initialToolNames?: string[];
   /**
@@ -2151,14 +2188,63 @@ export function actionsToEngineTools(
   return tools;
 }
 
-function filterInitialEngineTools(
+export function filterInitialEngineTools(
   tools: EngineTool[],
   initialToolNames?: string[],
 ): EngineTool[] {
   if (!initialToolNames) return tools;
   const names = new Set(initialToolNames);
   names.add(TOOL_SEARCH_ACTION_NAME);
+  for (const tool of tools) {
+    if (isDefaultLeanInitialToolName(tool.name)) {
+      names.add(tool.name);
+    }
+  }
   return tools.filter((tool) => names.has(tool.name));
+}
+
+const DEFAULT_LEAN_INITIAL_TOOL_NAMES = new Set([
+  // Broad provider/API/corpus primitives should be callable as soon as the
+  // prompt teaches them; waiting for a discovery round-trip caused prod runs to
+  // waste turns on provider work that was described but not loaded.
+  "data-source-status",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "provider-corpus-job",
+  "provider-corpus-jobs",
+  "query-staged-dataset",
+  "list-staged-datasets",
+  "delete-staged-dataset",
+  "run-code",
+  "get-code-execution",
+  // Common first-class integration shortcuts. These are included only when the
+  // current app/mode registry actually exposes them.
+  "bigquery",
+  "search-bigquery-schema",
+  "bigquery-table-info",
+  "ga4",
+  "amplitude",
+  "prometheus",
+  "grafana",
+  "sentry",
+  "stripe",
+  "slack-messages",
+  "hubspot-deals",
+  "hubspot-records",
+  "hubspot-pipelines",
+  "gong-calls",
+  "github-repo-files",
+  "jira-search",
+  "notion-search",
+  "pylon-search",
+]);
+
+function isDefaultLeanInitialToolName(name: string): boolean {
+  if (DEFAULT_LEAN_INITIAL_TOOL_NAMES.has(name)) return true;
+  return (
+    name.startsWith("provider-api-") || name.startsWith("provider-corpus-")
+  );
 }
 
 function extractToolSearchResultNames(value: unknown): string[] {
