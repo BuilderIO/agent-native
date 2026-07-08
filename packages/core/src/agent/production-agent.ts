@@ -2103,6 +2103,7 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
   return !(
+    lower.startsWith("invalid action parameters for ") ||
     lower.startsWith("error running ") ||
     lower.includes("run aborted") ||
     lower.includes("tool call timed out") ||
@@ -3730,47 +3731,6 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      const cacheKey =
-        actionEntry.readOnly === true
-          ? toolCallCacheKey(toolCall.name, toolCall.input)
-          : null;
-      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
-        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
-        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
-        const result =
-          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
-          `Previous result:\n${previousResult}`;
-        send({
-          type: "tool_start",
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
-        });
-        send({
-          type: "tool_done",
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        if (repeats >= 3) {
-          requestedActionStop ??= {
-            message:
-              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-            errorCode: "duplicate_read_only_tool",
-          };
-        }
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
-      }
-
       const DEFAULT_TOOL_RESULT_CHARS = 50_000;
       // Default action tools should not undercut durable/background runs. The
       // run-manager still aborts foreground hosted runs around 40s, while
@@ -4004,6 +3964,42 @@ export async function runAgentLoop(opts: {
           toolInput: wireToolInput,
           content: result,
           isError: true,
+        };
+      }
+
+      const cacheKey =
+        actionEntry.readOnly === true
+          ? toolCallCacheKey(toolCall.name, toolCall.input)
+          : null;
+      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
+        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const result =
+          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
+          `Previous result:\n${previousResult}`;
+        send({
+          type: "tool_done",
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          completedSideEffect: false,
+        });
+        recordToolResult(result, false);
+        if (repeats >= 3) {
+          requestedActionStop ??= {
+            message:
+              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+            errorCode: "duplicate_read_only_tool",
+          };
+        }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
         };
       }
 

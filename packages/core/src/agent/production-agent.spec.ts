@@ -3208,6 +3208,107 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("does not seed read-only duplicate cache from invalid parameter results", async () => {
+    const run = vi.fn(async () => "should not run");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-schema-repeat",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "true" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "fix extension" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "prior-invalid",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "true" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "prior-invalid",
+              toolName: "get-extension",
+              toolInput: '{"id":"ext-1","includeContent":"true"}',
+              content:
+                "Invalid action parameters for get-extension: input/includeContent must be boolean.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "get-extension": {
+          tool: {
+            description: "Get extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                includeContent: { type: "boolean" },
+              },
+              required: ["id"],
+            },
+          },
+          readOnly: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-extension",
+        result: expect.stringContaining(
+          "Invalid action parameters for get-extension",
+        ),
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
