@@ -21,6 +21,7 @@ interface NavigationState {
   dbAdminConnectionId?: string;
   monitoringView?: string;
   monitorId?: string;
+  statusPageId?: string;
   errorIssueId?: string;
   filters?: Record<string, string>;
 }
@@ -93,8 +94,14 @@ export function useNavigationState() {
           const issue = searchParams.get("issue");
           if (issue) state.errorIssueId = issue;
         } else {
-          const monitor = searchParams.get("monitor");
-          if (monitor) state.monitorId = monitor;
+          const statusPage = searchParams.get("statuspage");
+          if (statusPage) {
+            // "list" | "new" | <id> - the status-pages config sub-view.
+            state.statusPageId = statusPage;
+          } else {
+            const monitor = searchParams.get("monitor");
+            if (monitor) state.monitorId = monitor;
+          }
         }
       } else if (pathname === "/data-sources") {
         state.view = "data-sources";
@@ -131,6 +138,8 @@ export function useNavigationState() {
         if (cmd.monitoringView === "errors") {
           params.set("view", "errors");
           if (cmd.errorIssueId) params.set("issue", cmd.errorIssueId);
+        } else if (cmd.statusPageId) {
+          params.set("statuspage", cmd.statusPageId);
         } else if (cmd.monitorId) {
           params.set("monitor", cmd.monitorId);
         }

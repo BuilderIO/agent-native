@@ -30,13 +30,15 @@ export default function MonitoringPage() {
   const rawView = searchParams.get("view");
   const view: MonitoringView = isMonitoringView(rawView) ? rawView : "uptime";
 
-  // A panel is in a sub-view (full-page form / detail) when it has drilled into
-  // a specific record via its own query param. The section-switcher tabs only
+  // A panel is in a sub-view (full-page form / detail / status-page config) when
+  // it has drilled in via its own query param. The section-switcher tabs only
   // belong at the list level; inside a sub-view the panel's own "Back" header is
-  // the way out. Param names mirror UptimePanel (`monitor`) and ErrorsPanel
-  // (`issue`); `monitor=new` counts as a sub-view (the create form).
+  // the way out. Param names mirror UptimePanel (`monitor`, `statuspage`) and
+  // ErrorsPanel (`issue`); `monitor=new` / `statuspage=list` count as sub-views.
   const inSubView =
-    (view === "uptime" && searchParams.get("monitor") !== null) ||
+    (view === "uptime" &&
+      (searchParams.get("monitor") !== null ||
+        searchParams.get("statuspage") !== null)) ||
     (view === "errors" && searchParams.get("issue") !== null);
 
   const setView = (next: string) => {
@@ -51,16 +53,21 @@ export default function MonitoringPage() {
     );
   };
 
+  const toggles = (
+    <div className="flex shrink-0 items-center gap-2">
+      <RunsTray />
+      <AgentToggleButton />
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <Tabs value={view} onValueChange={setView} className="space-y-6">
-        {/* One header row: section switcher on the left (list level only) and
-            the relocated agent/chat toggle on the right (always present, on
-            list + sub-views), replacing the suppressed framework Header. */}
-        <div className="flex items-center justify-between gap-2">
-          {inSubView ? (
-            <div className="min-w-0" />
-          ) : (
+        {/* List level: one header row with the section switcher on the left and
+            the relocated agent/chat toggle on the right (replacing the
+            suppressed framework Header). */}
+        {inSubView ? null : (
+          <div className="flex items-center justify-between gap-2">
             <TabsList>
               <TabsTrigger value="uptime" className="gap-2">
                 <IconHeartbeat className="h-4 w-4" />
@@ -71,18 +78,22 @@ export default function MonitoringPage() {
                 {t("navigation.monitoringErrors")}
               </TabsTrigger>
             </TabsList>
-          )}
-          <div className="flex shrink-0 items-center gap-2">
-            <RunsTray />
-            <AgentToggleButton />
+            {toggles}
           </div>
+        )}
+        {/* Sub-view: overlay the toggle at the top-right so it sits on the same
+            row as the panel's own "Back" header instead of a lone row above. */}
+        <div className={inSubView ? "relative" : undefined}>
+          {inSubView ? (
+            <div className="absolute end-0 top-0 z-20">{toggles}</div>
+          ) : null}
+          <TabsContent value="uptime" className="focus-visible:outline-none">
+            <UptimePanel />
+          </TabsContent>
+          <TabsContent value="errors" className="focus-visible:outline-none">
+            <ErrorsPanel />
+          </TabsContent>
         </div>
-        <TabsContent value="uptime" className="focus-visible:outline-none">
-          <UptimePanel />
-        </TabsContent>
-        <TabsContent value="errors" className="focus-visible:outline-none">
-          <ErrorsPanel />
-        </TabsContent>
       </Tabs>
     </div>
   );

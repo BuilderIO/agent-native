@@ -47,7 +47,6 @@ import {
   formatDuration,
   formatLatency,
   formatRelativeTime,
-  hostFromUrl,
   statusLabel,
   statusTone,
   toneDotClass,

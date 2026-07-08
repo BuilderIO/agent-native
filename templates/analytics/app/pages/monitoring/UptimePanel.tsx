@@ -17,7 +17,12 @@ import {
   useActionQuery,
   useChangeVersions,
 } from "@agent-native/core/client";
-import { IconPlus, IconRefresh, IconSearch } from "@tabler/icons-react";
+import {
+  IconLink,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -40,8 +45,10 @@ import { fmt, useUptimeT } from "./uptime/i18n";
 import { MonitorDetail } from "./uptime/MonitorDetail";
 import { MonitorFormPage } from "./uptime/MonitorFormPage";
 import { MonitorList } from "./uptime/MonitorList";
+import { StatusPagesView } from "./uptime/status-pages/StatusPagesView";
 import type {
   CheckOutcome,
+  MonitorStats,
   MonitorSummary,
   SaveMonitorInput,
 } from "./uptime/types";
@@ -79,6 +86,7 @@ export function UptimePanel() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const monitorParam = searchParams.get("monitor");
+  const statusPageParam = searchParams.get("statuspage");
   const isCreate = monitorParam === "new";
   const selectedId = isCreate ? null : monitorParam;
   const isEditing = !!selectedId && searchParams.get("edit") === "1";
@@ -97,6 +105,14 @@ export function UptimePanel() {
     { staleTime: 10_000 },
   );
 
+  // Aggregate stats for the whole list (status/uptime windows + 90-day timeline)
+  // power the list's per-row uptime bars and the "current status" overview.
+  const { data: statsList } = useActionQuery<MonitorStats[]>(
+    "get-monitor-stats",
+    { timelineDays: 90 },
+    { staleTime: 30_000 },
+  );
+
   const saveMonitor = useActionMutation<MonitorSummary, SaveMonitorInput>(
     "save-monitor",
   );
@@ -110,11 +126,20 @@ export function UptimePanel() {
 
   const monitors = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
+  const statsById = useMemo(() => {
+    const map = new Map<string, MonitorStats>();
+    for (const stat of statsList ?? []) map.set(stat.monitorId, stat);
+    return map;
+  }, [statsList]);
+
   // Refresh list + detail when a background sweep or agent edit records a
   // "monitors" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
     queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    queryClient.invalidateQueries({
+      queryKey: ["action", "get-monitor-stats"],
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync]);
 
@@ -125,6 +150,22 @@ export function UptimePanel() {
 
   // Mirror the current selection / form mode into application_state.
   useEffect(() => {
+    if (statusPageParam !== null) {
+      const spMode =
+        statusPageParam === "list"
+          ? "status-pages"
+          : statusPageParam === "new"
+            ? "status-page-create"
+            : "status-page-edit";
+      void setClientAppState("monitoring", {
+        view: "uptime",
+        mode: spMode,
+        ...(statusPageParam !== "list" && statusPageParam !== "new"
+          ? { statusPageId: statusPageParam }
+          : {}),
+      }).catch(() => {});
+      return;
+    }
     const mode = isCreate ? "create" : isEditing ? "edit" : "view";
     const value = selectedMonitor
       ? {
@@ -139,7 +180,7 @@ export function UptimePanel() {
         ? { view: "uptime", mode, monitorId: selectedId }
         : { view: "uptime", mode };
     void setClientAppState("monitoring", value).catch(() => {});
-  }, [selectedMonitor, selectedId, isCreate, isEditing]);
+  }, [selectedMonitor, selectedId, isCreate, isEditing, statusPageParam]);
 
   const updateParams = (
     mutate: (params: URLSearchParams) => void,
@@ -177,6 +218,13 @@ export function UptimePanel() {
     updateParams((params) => {
       params.set("monitor", monitor.id);
       params.set("edit", "1");
+    });
+
+  const openStatusPages = () =>
+    updateParams((params) => {
+      params.set("statuspage", "list");
+      params.delete("monitor");
+      params.delete("edit");
     });
 
   const handleSaved = (saved: MonitorSummary) => {
@@ -269,7 +317,15 @@ export function UptimePanel() {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["action", "list-monitors"] });
     queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
+    queryClient.invalidateQueries({
+      queryKey: ["action", "get-monitor-stats"],
+    });
   };
+
+  // Status pages — config sub-view (list / create / edit)
+  if (statusPageParam !== null) {
+    return <StatusPagesView />;
+  }
 
   // Create / edit — full-page form
   if (isCreate || isEditing) {
@@ -348,6 +404,10 @@ export function UptimePanel() {
             >
               <IconRefresh className="size-3.5" />
             </Button>
+            <Button variant="outline" size="sm" onClick={openStatusPages}>
+              <IconLink className="size-3.5" />
+              {t.statusPagesButton}
+            </Button>
             <Button size="sm" onClick={openCreate}>
               <IconPlus className="size-3.5" />
               {t.addMonitor}
@@ -357,6 +417,7 @@ export function UptimePanel() {
 
         <MonitorList
           monitors={filtered}
+          statsById={statsById}
           isLoading={isLoading}
           hasSearch={search.trim().length > 0}
           runningId={runningId}

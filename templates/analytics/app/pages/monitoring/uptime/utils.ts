@@ -3,12 +3,7 @@
  * functions only so they can be reused across the list, detail, and dialog.
  */
 import { fmt } from "./i18n";
-import type {
-  Assertion,
-  MonitorStatus,
-  StatusMatcher,
-  MonitorSummary,
-} from "./types";
+import type { Assertion, MonitorStatus, StatusMatcher } from "./types";
 
 export function hostFromUrl(url: string): string {
   try {
@@ -214,19 +209,3 @@ export function describeAssertion(
   }
 }
 
-export interface MonitorCounts {
-  up: number;
-  down: number;
-  degraded: number;
-}
-
-export function countMonitors(monitors: MonitorSummary[]): MonitorCounts {
-  const counts: MonitorCounts = { up: 0, down: 0, degraded: 0 };
-  for (const monitor of monitors) {
-    const tone = statusTone(monitor.lastStatus);
-    if (tone === "up") counts.up++;
-    else if (tone === "down") counts.down++;
-    else if (tone === "degraded") counts.degraded++;
-  }
-  return counts;
-}
