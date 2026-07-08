@@ -15,8 +15,8 @@ use tauri::{
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor, VoiceTargetBundle,
-    VoiceWakePopover,
+    ActiveMeetingId, DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor,
+    VoiceTargetBundle, VoiceWakePopover,
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
@@ -969,8 +969,11 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
             let _ = w.close();
         }
     }
-    // A recording pill may be owned by meeting or voice flows; tear it down too.
-    let _ = crate::recording_indicator::recording_pill_hide(app).await;
+    // The meeting pill belongs to the live notes session, not the popover's
+    // camera/bubble lifecycle. Keep it visible when the popover closes.
+    if !crate::util::is_meeting_active(&app) {
+        let _ = crate::recording_indicator::recording_pill_hide(app).await;
+    }
     Ok(())
 }
 
@@ -1887,14 +1890,35 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
 /// teardown in `lib.rs`: quit stays instant when no meeting is active, and
 /// only waits for a graceful stop when one is.
 #[tauri::command]
-pub async fn set_meeting_active(app: AppHandle, active: bool) -> Result<(), String> {
-    dlog!("[clips-tray] set_meeting_active active={}", active);
+pub async fn set_meeting_active(
+    app: AppHandle,
+    active: bool,
+    meeting_id: Option<String>,
+) -> Result<(), String> {
+    dlog!(
+        "[clips-tray] set_meeting_active active={} meeting_id={:?}",
+        active,
+        meeting_id
+    );
     if let Some(state) = app.try_state::<MeetingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
         }
     }
+    if let Some(state) = app.try_state::<ActiveMeetingId>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = if active { meeting_id } else { None };
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_meeting_id(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app
+        .try_state::<ActiveMeetingId>()
+        .and_then(|s| s.0.lock().ok().and_then(|g| g.clone())))
 }
 
 /// Guards the quit-teardown handshake in `lib.rs`'s `ExitRequested` handler:
@@ -1935,6 +1959,16 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = false;
+        }
+    }
+    if let Some(state) = app.try_state::<MeetingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    if let Some(state) = app.try_state::<ActiveMeetingId>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = None;
         }
     }
     if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {

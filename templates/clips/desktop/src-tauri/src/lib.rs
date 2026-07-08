@@ -33,8 +33,8 @@ use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
-    DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
+    ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
+    PopoverShownAt, RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -95,6 +95,7 @@ pub fn run() {
             clips::paste_last_dictation,
             clips::set_recording_state,
             clips::set_meeting_active,
+            clips::get_active_meeting_id,
             clips::quit_teardown_done,
             clips::reset_state,
             clips::save_bubble_position,
@@ -204,6 +205,7 @@ pub fn run() {
         .manage(PopoverShownAt::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
+        .manage(ActiveMeetingId::default())
         .manage(DictationEnabled::default())
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())

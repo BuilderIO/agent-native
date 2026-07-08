@@ -10,8 +10,8 @@ use crate::clips::{remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
-    hide_voice_wake_popover, is_dictation_active, is_recording_active, set_dictation_active,
-    show_without_activation,
+    hide_voice_wake_popover, is_dictation_active, is_meeting_active, is_recording_active,
+    set_dictation_active, show_without_activation,
 };
 
 fn escape_shortcut() -> Shortcut {
@@ -513,7 +513,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             // global shortcut stops it rather than re-opening the
             // popover. Keeps parity with the tray-icon click
             // behaviour in `on_tray_icon_event`.
-            if is_recording_active(app) {
+            if is_recording_active(app) && !is_meeting_active(app) {
                 let _ = app.emit("clips:recorder-stop", ());
             } else {
                 toggle_popover(app);
