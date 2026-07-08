@@ -196,6 +196,7 @@ function contentToContinuationHistory(content: ContentPart[]): string {
       if (part.text.trim()) chunks.push(part.text.trim());
       continue;
     }
+    if (part.type === "reasoning") continue;
     if (part.activity === true) continue;
     const toolSummary = [
       `Tool: ${part.toolName}`,
@@ -742,11 +743,11 @@ function combineContinuationHistory(fragments: string[]): string {
 }
 
 function hasContinuationProgress(content: ContentPart[]): boolean {
-  return content.some((part) =>
-    part.type === "text"
-      ? part.text.trim().length > 0
-      : part.result !== undefined,
-  );
+  return content.some((part) => {
+    if (part.type === "text") return part.text.trim().length > 0;
+    if (part.type === "reasoning") return false;
+    return part.result !== undefined;
+  });
 }
 
 const COMPLETED_TOOL_TIMEOUT_NAME_RE =
@@ -886,7 +887,9 @@ function lastUnresolvedToolActivity(
 
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
-    part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
+    part.type === "text" || part.type === "reasoning"
+      ? { ...part }
+      : { ...part, args: { ...part.args } },
   );
 }
 
@@ -955,6 +958,22 @@ function contentAfterContinuationPrefix(
         continue;
       }
 
+      return content.slice(contentIndex);
+    }
+
+    if (prefixPart.type === "reasoning" && currentPart.type === "reasoning") {
+      if (currentPart.text === prefixPart.text) {
+        contentIndex += 1;
+        continue;
+      }
+      if (currentPart.text.startsWith(prefixPart.text)) {
+        const appendedText = currentPart.text.slice(prefixPart.text.length);
+        if (appendedText) {
+          delta.push({ type: "reasoning", text: appendedText });
+        }
+        contentIndex += 1;
+        continue;
+      }
       return content.slice(contentIndex);
     }
 
