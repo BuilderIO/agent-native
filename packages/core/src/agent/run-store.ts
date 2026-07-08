@@ -719,7 +719,7 @@ export async function tryClaimRunSlot(
             WHERE thread_id = ?
               AND status = 'running'
               AND ${terminalRunEventExclusionSql()}
-              AND COALESCE(heartbeat_at, started_at) >= ?
+              AND ${livenessBasisSql()} >= ?
             ORDER BY started_at DESC LIMIT 1`,
       args: [threadId, heartbeatCutoff],
     });
@@ -733,7 +733,7 @@ export async function tryClaimRunSlot(
           WHERE thread_id = ?
             AND status = 'running'
             AND ${terminalRunEventExclusionSql()}
-            AND COALESCE(heartbeat_at, started_at) >= ${backgroundAwareStaleCutoffSql()}
+            AND ${livenessBasisSql()} >= ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at DESC LIMIT 1`,
     args: [threadId, now],
   });

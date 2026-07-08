@@ -216,6 +216,7 @@ function resolveView(
   if (pathname.startsWith("/destinations")) return "destinations";
   if (pathname.startsWith("/identities")) return "identities";
   if (pathname.startsWith("/approvals")) return "approvals";
+  if (pathname.startsWith("/automations")) return "automations";
   if (pathname.startsWith("/audit")) return "audit";
   if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
@@ -263,6 +264,9 @@ function resolvePath(
       return "/identities";
     case "approvals":
       return "/approvals";
+    case "automations":
+    case "jobs":
+      return "/automations";
     case "audit":
       return "/audit";
     case "dreams":

@@ -70,6 +70,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
+import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -323,19 +324,27 @@ export default function DeckEditor() {
     [deck, id, reorderSlides],
   );
 
-  const uploadImageAsset = useCallback(async (file: File): Promise<string> => {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-      method: "POST",
-      body: form,
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.url) {
-      throw new Error(data?.error || t("deckEditor.imageUploadFailed"));
-    }
-    return data.url as string;
-  }, []);
+  const uploadImageAsset = useCallback(
+    async (file: File): Promise<string> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.url) {
+        const serverError =
+          typeof data?.error === "string" ? data.error : undefined;
+        if (isMissingUploadProviderError(res.status, serverError)) {
+          throw new Error(t("deckEditor.imageUploadNeedsBuilder"));
+        }
+        throw new Error(serverError || t("deckEditor.imageUploadFailed"));
+      }
+      return data.url as string;
+    },
+    [t],
+  );
 
   // Replace an image or placeholder in the current slide's HTML content.
   const replaceImageInSlide = useCallback(

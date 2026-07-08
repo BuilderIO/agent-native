@@ -41,9 +41,22 @@ function rowStaleWindow(row: RunRow): number {
     : RUN_STALE_MS;
 }
 
-/** Effective liveness timestamp = COALESCE(heartbeat_at, started_at). */
-function liveness(row: RunRow): number {
+/** Heartbeat-only basis — used by unclaimed-worker reaper. */
+function heartbeatLiveness(row: RunRow): number {
   return row.heartbeat_at ?? row.started_at;
+}
+
+/** Effective liveness timestamp = max(heartbeat, progress, started). */
+function liveness(row: RunRow): number {
+  const heartbeat = row.heartbeat_at ?? row.started_at;
+  const progress = row.last_progress_at ?? row.started_at;
+  return Math.max(heartbeat, progress);
+}
+
+/** Mark a producer dead for tests: both heartbeat and progress must go stale. */
+function markProducerDead(row: RunRow, at: number) {
+  row.heartbeat_at = at;
+  row.last_progress_at = at;
 }
 
 function norm(sql: string): string {
@@ -120,7 +133,7 @@ const mockDb = {
           r.dispatch_mode === "background",
       );
       if (!row) return { rows: [], rowsAffected: 0 };
-      if (liveness(row) < cutoff) {
+      if (heartbeatLiveness(row) < cutoff) {
         row.status = "errored";
         row.completed_at = completedAt;
         row.error_code = args[1] as string;
@@ -311,7 +324,7 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-dead-bg", "t1", "turn", { dispatchMode: "background" });
     const row = rows.find((r) => r.id === "r-dead-bg")!;
-    row.heartbeat_at = now - 120_000; // > 90s — genuinely dead worker.
+    markProducerDead(row, now - 120_000); // > 90s — genuinely dead worker.
 
     const reaped = await reapIfStale("r-dead-bg");
     expect(reaped).toBe(true);
@@ -322,7 +335,7 @@ describe("run-store durable background", () => {
     const now = Date.now();
     await insertRun("r-dead-fg", "t1"); // foreground (no dispatch_mode)
     const row = rows.find((r) => r.id === "r-dead-fg")!;
-    row.heartbeat_at = now - 30_000; // > 15s — foreground producer died.
+    markProducerDead(row, now - 30_000); // > 15s — foreground producer died.
 
     const reaped = await reapIfStale("r-dead-fg");
     expect(reaped).toBe(true);
@@ -334,6 +347,8 @@ describe("run-store durable background", () => {
     await insertRun("r-hold-bg", "thread-bg", "turn", {
       dispatchMode: "background",
     });
+    // Quiet heartbeat only — progress may still be fresh / started_at is ok;
+    // background window still covers a 30s cold-start gap.
     rows.find((r) => r.id === "r-hold-bg")!.heartbeat_at = now - 30_000;
 
     const slot = await tryClaimRunSlot("thread-bg");
@@ -345,7 +360,7 @@ describe("run-store durable background", () => {
   it("tryClaimRunSlot frees the slot when a foreground run goes stale (30s)", async () => {
     const now = Date.now();
     await insertRun("r-stale-fg", "thread-fg");
-    rows.find((r) => r.id === "r-stale-fg")!.heartbeat_at = now - 30_000;
+    markProducerDead(rows.find((r) => r.id === "r-stale-fg")!, now - 30_000);
 
     const slot = await tryClaimRunSlot("thread-fg");
     expect(slot.claimed).toBe(true);

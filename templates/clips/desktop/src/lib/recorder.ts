@@ -69,6 +69,7 @@ import {
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
 } from "./media-capture-constraints";
+import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import {
   startTranscriptionCapture,
@@ -77,6 +78,7 @@ import {
 } from "./transcription-capture";
 
 export type { LocalExportedFile } from "./local-export";
+export { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 
 export type CaptureMode = "screen" | "screen-camera" | "camera";
 export type CaptureSource = "full-screen" | "window" | "region";
@@ -1677,6 +1679,11 @@ async function openNativeUploadUrl(
   }
 }
 
+/**
+ * Hosted native start sequencing helper: overlap Whisper start, create-recording,
+ * and deferred SCK warm so Skip no longer waits serially on Whisper then warm.
+ * `begin` / attach still waits for transcription to settle first.
+ */
 function abortCreatedRecordingOnCountdownCancel(
   err: unknown,
   recordingPromise: Promise<{ id: string }>,
@@ -1847,19 +1854,42 @@ async function startNativeFullscreenRecording(
       }).catch((err) => {
         console.warn("[clips-recorder] mic warm failed:", err);
       });
+    const clickStartedAt = Date.now();
     if (localOnly) {
+      // Local recordings have no create-recording round-trip; still overlap
+      // Whisper startup with countdown + deferred SCK warm.
       const countdownPromise = runRecordingCountdown(true);
       id = localFolderName;
-      await Promise.all([countdownPromise, warmMic(id)]);
+      const transcriptionPromise = startNativeTranscriptionBeforeRecording();
+      const warmPromise = (async () => {
+        const warmStartedAt = Date.now();
+        await warmMic(id);
+        console.log(
+          `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
+        );
+      })();
+      try {
+        await Promise.all([
+          countdownPromise,
+          transcriptionPromise,
+          warmPromise,
+        ]);
+      } catch (err) {
+        await transcriptionPromise.catch(() => {});
+        throw err;
+      }
     } else {
       const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
         source: params.source,
       });
       const countdownPromise = runRecordingCountdown(true);
+      // Kick Whisper off immediately (no recording id needed) so Skip no longer
+      // serializes create → Whisper → SCK warm on the critical path.
+      const transcriptionPromise = startNativeTranscriptionBeforeRecording();
       const recordingPromise = (async () => {
         const captureTitle = await captureTitlePromise;
-        console.time("[clips-recorder] createServerRecording duration");
+        const createStartedAt = Date.now();
         try {
           return await createServerRecording(
             params.serverUrl,
@@ -1873,26 +1903,47 @@ async function startNativeFullscreenRecording(
             },
           );
         } finally {
-          console.timeEnd("[clips-recorder] createServerRecording duration");
+          console.log(
+            `[clips-recorder] createServerRecording durationMs=${Date.now() - createStartedAt}`,
+          );
         }
       })();
-      // The recording id usually lands well before the countdown ends — warm
-      // native capture as soon as it does so setup overlaps the 3-2-1.
-      const warmAndId = (async () => {
-        const createRes = await recordingPromise;
-        uploadMode = createRes.uploadMode;
-        id = createRes.id;
-        // Start the live transcription mic tap before SCK attaches its
-        // recording output. On macOS, opening AVAudioEngine after SCK has
-        // started writing can reconfigure the shared input device and leave
-        // SCK's microphone leg near-silent while Whisper still hears audio.
-        await startNativeTranscriptionBeforeRecording();
-        await warmMic(createRes.id);
-        return createRes.id;
-      })();
+      // Once create returns an id, warm SCK with deferred_output in parallel
+      // with any remaining Whisper startup. Begin/attach still waits on
+      // transcription settling first (AVAudioEngine after SCK writing can mute
+      // the SCK mic leg).
+      const warmAndId = planNativeFullscreenWarmOverlap({
+        createRecording: async () => {
+          const createRes = await recordingPromise;
+          uploadMode = createRes.uploadMode;
+          id = createRes.id;
+          return createRes;
+        },
+        startTranscription: async () => {
+          const transcriptionStartedAt = Date.now();
+          try {
+            await transcriptionPromise;
+          } finally {
+            console.log(
+              `[clips-recorder] transcription warm durationMs=${Date.now() - transcriptionStartedAt}`,
+            );
+          }
+        },
+        warmMic: async (recordingId) => {
+          const warmStartedAt = Date.now();
+          try {
+            await warmMic(recordingId);
+          } finally {
+            console.log(
+              `[clips-recorder] native warm durationMs=${Date.now() - warmStartedAt}`,
+            );
+          }
+        },
+      });
       try {
-        const [, warmedId] = await Promise.all([countdownPromise, warmAndId]);
-        id = warmedId;
+        const [, createRes] = await Promise.all([countdownPromise, warmAndId]);
+        id = createRes.id;
+        uploadMode = createRes.uploadMode ?? uploadMode;
       } catch (err) {
         abortCreatedRecordingOnCountdownCancel(
           err,
@@ -1905,11 +1956,16 @@ async function startNativeFullscreenRecording(
 
     await audioCue.playBeforeCapture();
     // Phase 2: attach the recording output now that the mic is warm (or do a
-    // normal immediate start if warming was skipped/failed).
+    // normal immediate start if warming was skipped/failed). Transcription has
+    // already been awaited above so AVAudioEngine won't reconfigure mid-write.
+    const beginStartedAt = Date.now();
     await invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureAudioParams,
     });
+    console.log(
+      `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
+    );
     await transcriptionCapture?.resetTimeline().catch((err) => {
       console.warn(
         "[clips-recorder] transcription timeline reset failed:",
@@ -2021,7 +2077,26 @@ async function startNativeFullscreenRecording(
       stopPromise = (async () => {
         stopped = true;
         console.log("[clips-recorder] native full-screen stop requested");
+        // Tear chrome down immediately with finalizing so the live camera bubble /
+        // toolbar don't linger while ScreencaptureKit finalize + upload run.
+        // hide_recording_chrome leaves the bubble; close_bubble destroys it.
+        // Order matters: show finalizing first, and never call hide_overlays here
+        // because that also closes the finalizing window.
         if (!localOnly) showFinalizingFeedback();
+        await invoke("hide_recording_chrome").catch((err) =>
+          console.error(
+            "[clips-recorder] immediate hide_recording_chrome after stop failed:",
+            err,
+          ),
+        );
+        if (wantsCamera) {
+          await invoke("close_bubble").catch((err) =>
+            console.error(
+              "[clips-recorder] immediate close_bubble after stop failed:",
+              err,
+            ),
+          );
+        }
         clearSegmentRotator();
         if (tickHandle) {
           clearInterval(tickHandle);
@@ -3226,6 +3301,9 @@ async function startRecordingInner(
           label: params.micLabel,
         },
         wantsSystemAudio,
+        // Match native path: VoiceProcessingIO AEC/ducking on a shared mic
+        // can tank live call volume and attenuate the recorded mic leg.
+        { voiceProcessing: false },
       )
     : null;
   // Stop/Cancel can fire during the await above — at that point stop()/cancel()

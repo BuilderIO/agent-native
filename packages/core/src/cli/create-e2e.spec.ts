@@ -51,7 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(origCwd);
   removeTmpDir(tmpDir);
-});
+}, 30_000);
 
 function removeTmpDir(dir: string): void {
   const maxAttempts = 10;
@@ -291,7 +291,9 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
+    expect(workspaceYaml).toContain("typescript-7");
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
 });
@@ -351,7 +353,7 @@ describe("headless onboarding guards", { timeout: 60000 }, () => {
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Headless onboarding — real `pnpm install` + `tsgo` + `pnpm action`
+ * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
  *
  * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
  * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE

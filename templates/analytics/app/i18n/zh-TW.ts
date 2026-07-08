@@ -964,6 +964,8 @@ const messages = {
     timeline: "事件時間線",
     replayTimeline: "回放時間線",
     timelineDescription: "顯示 {{count}} / {{total}} 個有用事件。",
+    timelineSearch: "搜尋事件...",
+    timelineNoMatches: "沒有符合目前搜尋的時間線事件。",
     noTimelineEvents: "未找到時間線標記",
     sequence: "Sequence",
     size: "Size",

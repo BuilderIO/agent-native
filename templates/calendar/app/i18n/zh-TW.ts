@@ -123,6 +123,7 @@ const messages = {
   },
   attendees: {
     addAnotherGuest: "新增另一位來賓",
+    clearTimezone: "清除時區",
     contacts: "聯絡人",
     contactsReconnect: "需要重新連線聯絡人或目錄存取權限。",
     directory: "目錄",
@@ -134,6 +135,7 @@ const messages = {
     otherContacts: "其他聯絡人",
     removeAttendee: "移除 {{email}}",
     searchingPeople: "正在搜尋人員",
+    setTimezone: "設定時區…",
   },
   findTime: {
     busy: "忙碌",

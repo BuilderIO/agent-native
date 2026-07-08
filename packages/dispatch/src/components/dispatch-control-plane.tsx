@@ -3,6 +3,7 @@ import {
   isInBuilderFrame,
   useActionQuery,
   useChatModels,
+  useT,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
@@ -13,19 +14,28 @@ import {
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { CreateAppPopover } from "@/components/create-app-popover";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceAppCard } from "@/components/workspace-app-card";
-import { submitOverviewPrompt } from "@/lib/overview-chat";
-import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
+import { submitOverviewPrompt } from "../lib/overview-chat";
+import type { WorkspaceAppSummary } from "../lib/workspace-apps";
+import { CreateAppPopover } from "./create-app-popover";
+import { DispatchShell } from "./dispatch-shell";
+import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
+import { WorkspaceAppCard } from "./workspace-app-card";
 
 const PROMPT_SUGGESTIONS = [
   "Summarize the current workspace health",
   "Create an app for onboarding requests",
   "Check which agents can help with analytics",
 ];
+
+const WORKSPACE_LINKS = [
+  { to: "/automations", labelKey: "dispatch.nav.automations" },
+  { to: "/approvals", labelKey: "dispatch.nav.approvals" },
+  { to: "/destinations", labelKey: "dispatch.nav.delivery" },
+  { to: "/agents", labelKey: "dispatch.nav.agents" },
+  { to: "/vault", labelKey: "dispatch.nav.vault" },
+  { to: "/audit", labelKey: "dispatch.nav.audit" },
+] as const;
 
 function SectionHeader({
   icon: Icon,
@@ -118,6 +128,36 @@ function CommandPanel() {
   );
 }
 
+function WorkspaceLinks() {
+  const t = useT();
+
+  return (
+    <nav
+      aria-label={t("dispatch.pages.workspaceShortcutsAria")}
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+    >
+      <span className="font-medium text-foreground/70">
+        {t("dispatch.pages.also")}
+      </span>
+      {WORKSPACE_LINKS.map((item, index) => (
+        <span key={item.to} className="inline-flex items-center gap-x-3">
+          {index > 0 ? (
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+          ) : null}
+          <Link
+            to={item.to}
+            className="transition hover:text-foreground hover:underline underline-offset-4"
+          >
+            {t(item.labelKey)}
+          </Link>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
 function AppsPanel({
   apps,
   isLoading,
@@ -184,6 +224,7 @@ export function DispatchControlPlane() {
     >
       <div className="flex flex-col gap-6">
         <CommandPanel />
+        <WorkspaceLinks />
         <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
       </div>
     </DispatchShell>

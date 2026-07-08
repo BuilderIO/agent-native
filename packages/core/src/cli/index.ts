@@ -279,13 +279,14 @@ function findTsxBin(): string {
 }
 
 function findTypeScriptCompilerBin(): string {
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
-
   const localTsc = path.resolve("node_modules/.bin/tsc");
   if (fs.existsSync(localTsc)) return localTsc;
 
-  return "tsgo";
+  // Prefer TypeScript 7's tsc; fall back to legacy tsgo if present.
+  const localTsgo = path.resolve("node_modules/.bin/tsgo");
+  if (fs.existsSync(localTsgo)) return localTsgo;
+
+  return "tsc";
 }
 
 function findReactRouterBin(): string {

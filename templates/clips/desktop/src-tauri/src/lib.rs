@@ -5,6 +5,7 @@
 //! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
+mod adhoc_meetings_watcher;
 mod clips;
 mod config;
 mod debug;
@@ -211,6 +212,7 @@ pub fn run() {
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
+        .manage(adhoc_meetings_watcher::AdhocMeetingsWatcherState::default())
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
@@ -260,6 +262,9 @@ pub fn run() {
             // server URL via `meetings_watcher_set_server_url` once the
             // popover boots.
             meetings_watcher::spawn_watcher(app.handle().clone());
+            // Granola-style adhoc Zoom/Teams detection — shares session
+            // credentials with the calendar watcher above.
+            adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
 
             // Pre-download the Whisper model in the background so the first
             // meeting doesn't pay the ~142 MB download cost mid-call. Skipped

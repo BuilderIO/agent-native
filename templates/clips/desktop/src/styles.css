@@ -25,7 +25,9 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  --popover-shadow-gutter: 12px;
+  /* Must cover `--shadow-md` blur (24px in dark mode) or the transparent
+     Tauri window clips the drop shadow on every edge. */
+  --popover-shadow-gutter: 24px;
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -1417,6 +1419,13 @@ body[data-clips-route="recording-pill"] #root {
   max-height: none;
   overflow: visible;
   overscroll-behavior: contain;
+}
+
+/* Meetings / dictation drill-ins: a touch more room under the last row so
+   content isn't flush with the panel edge. Must follow `.setup` so it wins
+   over the shorthand padding above. */
+.setup.popover-view {
+  padding-bottom: 20px;
 }
 
 .setup h2 {
@@ -3599,7 +3608,7 @@ body[data-clips-route="recording-pill"] #root {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(20, 22, 28, 0.94);
@@ -3611,37 +3620,26 @@ body[data-clips-route="recording-pill"] #root {
     0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   pointer-events: auto;
-  min-width: 280px;
-  max-width: 400px;
-}
-
-.meeting-notification-with-join {
-  flex-wrap: wrap;
-  align-items: flex-start;
-  row-gap: 10px;
-}
-
-.meeting-notification-with-join .meeting-notification-actions {
-  flex: 1 1 100%;
-  justify-content: flex-end;
-  padding-left: 13px; /* align under content past the bar */
+  min-width: 320px;
+  max-width: 440px;
 }
 
 .meeting-notification-bar {
   width: 3px;
-  height: 40px;
-  border-radius: 2px;
+  height: 36px;
+  border-radius: 999px;
   flex-shrink: 0;
 }
 
 .meeting-notification-bar-calendar {
-  background: #16a34a;
+  background: #7dd3fc;
 }
 
 .meeting-notification-bar-adhoc {
   background: transparent;
   border-left: 3px dashed #a3a3a3;
   width: 3px;
+  border-radius: 0;
 }
 
 .meeting-notification-content {
@@ -3650,6 +3648,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-right: 4px;
 }
 
 .meeting-notification-title {
@@ -3666,65 +3665,141 @@ body[data-clips-route="recording-pill"] #root {
   color: rgba(255, 255, 255, 0.55);
 }
 
-.meeting-notification-btn {
-  border: none;
-  border-radius: 8px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
+.meeting-notification-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
   flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  overflow: visible;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.meeting-notification-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
+.meeting-notification-split-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: white;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 40px;
 }
 
-.meeting-notification-btn:active {
-  transform: scale(0.96);
+.meeting-notification-split-main:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.meeting-notification-btn:disabled {
-  opacity: 0.6;
+.meeting-notification-split-main:disabled {
+  opacity: 0.65;
   cursor: progress;
 }
 
-.meeting-notification-btn-primary {
-  background: #ffffff;
-  color: #111827;
+.meeting-notification-split-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.15;
 }
 
-.meeting-notification-btn-primary:hover {
-  background: #f3f4f6;
-}
-
-.meeting-notification-btn-primary:disabled {
-  background: rgba(255, 255, 255, 0.7);
-  color: #374151;
-}
-
-.meeting-notification-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.meeting-notification-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.meeting-notification-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.12);
+.meeting-notification-split-primary {
+  font-size: 12px;
+  font-weight: 600;
   color: white;
+  white-space: nowrap;
+}
+
+.meeting-notification-split-secondary {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+.meeting-notification-split-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  border-radius: 0 10px 10px 0;
+}
+
+.meeting-notification-split-chevron:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+}
+
+.meeting-notification-provider {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
+}
+
+.meeting-notification-provider-zoom {
+  background: #2d8cff;
+}
+
+.meeting-notification-provider-meet {
+  background: #34a853;
+}
+
+.meeting-notification-provider-teams {
+  background: #6264a7;
+}
+
+.meeting-notification-provider-other {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.meeting-notification-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(24, 26, 32, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meeting-notification-menu-item {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.meeting-notification-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meeting-notification-menu-item:disabled {
+  opacity: 0.5;
+  cursor: progress;
 }
 
 .meeting-notification-error {

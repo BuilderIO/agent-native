@@ -134,6 +134,7 @@ const enUS = {
   },
   attendees: {
     addAnotherGuest: "Add another guest",
+    clearTimezone: "Clear timezone",
     contacts: "Contacts",
     contactsReconnect: "Contacts or directory access needs to be reconnected.",
     directory: "Directory",
@@ -145,6 +146,7 @@ const enUS = {
     otherContacts: "Other contacts",
     removeAttendee: "Remove {{email}}",
     searchingPeople: "Searching people",
+    setTimezone: "Set timezone…",
   },
   findTime: {
     busy: "Busy",
@@ -6123,6 +6125,7 @@ const translatedCalendarRemainingRaw = {
     },
     attendees: {
       addAnotherGuest: "添加另一位来宾",
+      clearTimezone: "清除时区",
       contacts: "联系人",
       contactsReconnect: "需要重新连接联系人或目录访问权限。",
       directory: "目录",
@@ -6134,6 +6137,7 @@ const translatedCalendarRemainingRaw = {
       otherContacts: "其他联系人",
       removeAttendee: "移除 {{email}}",
       searchingPeople: "正在搜索人员",
+      setTimezone: "设置时区…",
     },
     findTime: {
       busy: "忙碌",
@@ -6254,6 +6258,8 @@ const translatedCalendarRemainingRaw = {
       otherContacts: "Otros contactos",
       removeAttendee: "Quitar {{email}}",
       searchingPeople: "Buscando personas",
+      clearTimezone: "Borrar zona horaria",
+      setTimezone: "Establecer zona horaria…",
     },
     findTime: {
       busy: "Ocupado",
@@ -6598,6 +6604,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "Autres contacts",
       removeAttendee: "Retirer {{email}}",
       searchingPeople: "Recherche de personnes",
+      clearTimezone: "Effacer le fuseau horaire",
+      setTimezone: "Définir le fuseau horaire…",
     },
     findTime: {
       busy: "Occupé",
@@ -6787,6 +6795,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "Weitere Kontakte",
       removeAttendee: "{{email}} entfernen",
       searchingPeople: "Personen werden gesucht",
+      clearTimezone: "Zeitzone löschen",
+      setTimezone: "Zeitzone festlegen…",
     },
     findTime: {
       busy: "Beschäftigt",
@@ -6966,6 +6976,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "その他の連絡先",
       removeAttendee: "{{email}} を削除",
       searchingPeople: "ユーザーを検索中",
+      clearTimezone: "タイムゾーンをクリア",
+      setTimezone: "タイムゾーンを設定…",
     },
     findTime: {
       busy: "予定あり",
@@ -7136,6 +7148,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "기타 연락처",
       removeAttendee: "{{email}} 제거",
       searchingPeople: "사람 검색 중",
+      clearTimezone: "시간대 지우기",
+      setTimezone: "시간대 설정…",
     },
     findTime: {
       busy: "바쁨",
@@ -7315,6 +7329,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "Outros contatos",
       removeAttendee: "Remover {{email}}",
       searchingPeople: "Pesquisando pessoas",
+      clearTimezone: "Limpar fuso horário",
+      setTimezone: "Definir fuso horário…",
     },
     findTime: {
       busy: "Ocupado",
@@ -7494,6 +7510,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "अन्य संपर्क",
       removeAttendee: "{{email}} हटाएं",
       searchingPeople: "लोग खोजे जा रहे हैं",
+      clearTimezone: "समय क्षेत्र साफ़ करें",
+      setTimezone: "समय क्षेत्र सेट करें…",
     },
     findTime: {
       busy: "व्यस्त",
@@ -7668,6 +7686,8 @@ const translatedCalendarExactCleanup = {
       otherContacts: "جهات اتصال أخرى",
       removeAttendee: "إزالة {{email}}",
       searchingPeople: "جارٍ البحث عن أشخاص",
+      clearTimezone: "مسح المنطقة الزمنية",
+      setTimezone: "تعيين المنطقة الزمنية…",
     },
     findTime: {
       busy: "مشغول",

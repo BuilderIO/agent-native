@@ -112,6 +112,47 @@ export function normalizeAttendees(
     }));
 }
 
+/**
+ * Google Calendar's UI always lists the organizer in Guests when inviting
+ * others. The insert API does not — unless we include the organizer/self
+ * email in `attendees`. Call this when creating/publishing an event that
+ * already has guests so AN matches GCal.
+ */
+export function ensureOrganizerInAttendees(
+  attendees: NormalizedAttendee[] | undefined,
+  organizerEmail: string,
+): NormalizedAttendee[] | undefined {
+  if (!attendees || attendees.length === 0) return attendees;
+  const organizer = organizerEmail.trim().toLowerCase();
+  if (!organizer.includes("@")) return attendees;
+
+  const existing = attendees.find(
+    (attendee) => attendee.email.trim().toLowerCase() === organizer,
+  );
+  if (existing) {
+    return attendees.map((attendee) =>
+      attendee.email.trim().toLowerCase() === organizer
+        ? {
+            ...attendee,
+            organizer: true,
+            self: true,
+            responseStatus: attendee.responseStatus ?? "accepted",
+          }
+        : attendee,
+    );
+  }
+
+  return [
+    {
+      email: organizerEmail.trim(),
+      organizer: true,
+      self: true,
+      responseStatus: "accepted",
+    },
+    ...attendees,
+  ];
+}
+
 export function requireActionUserEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");

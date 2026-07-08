@@ -46,10 +46,12 @@ const mockDb = {
     }
     // tryClaimRunSlot: SELECT id FROM agent_runs WHERE thread_id = ? AND ...
     // Must come before the broader stale-run SELECT check since both match
-    // "SELECT id FROM agent_runs ... status = 'running'".
+    // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
+    // livenessBasisSql CASE expression and any legacy heartbeat-only form.
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
-      /COALESCE\(heartbeat_at, started_at\) >=/i.test(rawSql)
+      (/COALESCE\(last_progress_at, started_at\)/i.test(rawSql) ||
+        /COALESCE\(heartbeat_at, started_at\)\s*>=/i.test(rawSql))
     ) {
       return { rows: claimSlotRows, rowsAffected: 0 };
     }
@@ -552,18 +554,19 @@ describe("run store", () => {
     expect(result.activeRunId).toBe("run-active-123");
   });
 
-  it("tryClaimRunSlot uses a heartbeat cutoff to exclude stale rows", async () => {
-    claimSlotRows = []; // stale row was filtered by heartbeat cutoff in SQL
+  it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {
+    claimSlotRows = []; // stale row was filtered by liveness cutoff in SQL
     const result = await tryClaimRunSlot("thread-stale");
     expect(result.claimed).toBe(true);
 
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
-        /COALESCE\(heartbeat_at, started_at\) >=/i.test(call.sql),
+        /COALESCE\(last_progress_at, started_at\)/i.test(call.sql) &&
+        /COALESCE\(heartbeat_at, started_at\)/i.test(call.sql),
     );
     expect(select).toBeDefined();
-    // The heartbeat cutoff arg must be a recent timestamp
+    // The liveness cutoff arg must be a recent timestamp
     expect(Number(select?.args[1])).toBeGreaterThan(Date.now() - 60_000);
   });
 
@@ -577,7 +580,7 @@ describe("run store", () => {
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
-        /COALESCE\(heartbeat_at, started_at\) >=/i.test(call.sql),
+        /COALESCE\(last_progress_at, started_at\)/i.test(call.sql),
     );
     expect(select?.sql).toMatch(/CAST\(\?\s+AS\s+BIGINT\)\s*-\s*CASE/i);
     // And the bound value is a full ms epoch (would overflow int4).

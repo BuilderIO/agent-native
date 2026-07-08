@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { submitOverviewPrompt } from "@/lib/overview-chat";
+import { submitOverviewPrompt } from "../../lib/overview-chat";
 
 function chatThreadPath(threadId: string | null): string {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";

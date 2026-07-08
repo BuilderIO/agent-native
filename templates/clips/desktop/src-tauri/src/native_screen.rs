@@ -65,17 +65,35 @@ const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
 
-// Loudness normalization, optionally preceded by the centered-stereo downmix
-// that repairs the mic+system L/R split and denoise for native mic captures.
-// Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
-// resampled back.
-fn audio_filter_chain(downmix: bool, denoise: bool) -> String {
+ // Pre-gain for mic-only native captures. ScreenCaptureKit records without
+ // WebRTC AGC (unlike Loom / the browser path), so speech often lands well
+ // below -16 LUFS. 12 dB before loudnorm matches Loom-ish perceptual loudness
+ // for MacBook mics; loudnorm still clamps true peaks at TP=-1.5.
+const AUDIO_MIC_PREGAIN_FILTER: &str = "volume=12dB";
+// After the mic+system centered downmix (0.5*L+0.5*R) each source is ~
+ // 6 dB quieter. Restore energy before loudnorm so dual-capture clips are not
+ // systematically quieter than mic-only. Dual still mixes two sources so peaks
+ // may compress more under loudnorm than mic-only — by design when both sides
+ // compete for the same LUFS budget.
+const AUDIO_DOWNMIX_MAKEUP_FILTER: &str = "volume=6dB";
+
+ // Loudness normalization, optionally preceded by the centered-stereo downmix
+ // that repairs the mic+system L/R split and denoise for native mic captures.
+ // Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
+ // resampled back.
+fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String {
     let mut filters = Vec::new();
     if downmix {
         filters.push(AUDIO_DOWNMIX_FILTER);
+        // Undo pan attenuation; do not also apply mic-only pregain here —
+        // system audio would get a double boost.
+        filters.push(AUDIO_DOWNMIX_MAKEUP_FILTER);
     }
     if denoise {
         filters.push(AUDIO_DENOISE_FILTER);
+    }
+    if mic_pregain {
+        filters.push(AUDIO_MIC_PREGAIN_FILTER);
     }
     filters.push(AUDIO_LOUDNESS_FILTER);
     filters.join(",")
@@ -522,11 +540,17 @@ struct SavedNativeRecording {
     height: Option<u32>,
     bytes: u64,
     has_audio: bool,
-    // Whether the mic was captured. Drives the centered-stereo downmix repair
-    // for the mic+system L/R split. Defaults to false for recordings queued
-    // before this field existed so their audio is left untouched.
+    // Whether the mic was captured. Drives denoise + (with system audio) the
+    // centered-stereo downmix repair for the mic+system L/R split. Defaults to
+    // false for recordings queued before this field existed so their audio is
+    // left untouched.
     #[serde(default)]
     mic_captured: bool,
+    // Whether system audio was captured alongside the mic. Needed to decide
+    // downmix vs mic-only pregain on retry uploads. Defaults to false for
+    // older pending files (safe: skips downmix that would attenuate mic-only).
+    #[serde(default)]
+    system_audio_captured: bool,
     has_camera: bool,
     saved_at: String,
     last_attempt_at: Option<String>,
@@ -2577,6 +2601,7 @@ fn saved_recording_from_path(
         bytes,
         has_audio,
         mic_captured: session.restart.mic_captured_in_file,
+        system_audio_captured: session.restart.capture_system_audio,
         has_camera,
         saved_at: now_iso(),
         last_attempt_at: None,
@@ -3071,6 +3096,7 @@ async fn upload_recording_file(
         Some(duration_ms),
         has_audio,
         session.restart.mic_captured_in_file,
+        session.restart.capture_system_audio,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -3152,6 +3178,7 @@ fn prepare_saved_recording_file(
         Some(saved.duration_ms),
         saved.has_audio,
         saved.mic_captured,
+        saved.system_audio_captured,
     )?;
     Ok((prepared, retry_combined_path))
 }
@@ -3878,7 +3905,14 @@ fn prepare_recording_file(
     duration_ms: Option<u128>,
     has_audio: bool,
     mic_captured_audio: bool,
+    system_audio_captured: bool,
 ) -> Result<PreparedRecordingFile, String> {
+    // Downmix only repairs mic+system L/R split. Applying it to mic-only
+    // capture halves speech energy (~6 dB) when SCK puts the mic on one channel.
+    let downmix_audio = mic_captured_audio && system_audio_captured;
+    let denoise_audio = mic_captured_audio;
+    // Pregain only for mic-only (no system audio compete) — SCK has no AGC.
+    let mic_pregain = mic_captured_audio && !system_audio_captured;
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
         eprintln!("[clips-tray] native recording file missing at prepare: {e}; {diag}");
@@ -3935,8 +3969,9 @@ fn prepare_recording_file(
                     ffmpeg_path,
                     path,
                     &normalized_path,
-                    mic_captured_audio,
-                    mic_captured_audio,
+                    downmix_audio,
+                    denoise_audio,
+                    mic_pregain,
                 ) {
                     Ok(()) => {
                         let normalized_bytes = std::fs::metadata(&normalized_path)
@@ -4022,8 +4057,9 @@ fn prepare_recording_file(
                 height,
                 duration_ms,
                 has_audio,
-                mic_captured_audio,
-                mic_captured_audio,
+                downmix_audio,
+                denoise_audio,
+                mic_pregain,
             ) {
                 Ok(()) => {
                     let compressed_bytes = std::fs::metadata(&compressed_path)
@@ -4421,6 +4457,7 @@ fn normalize_audio_with_ffmpeg(
     output: &Path,
     downmix_audio: bool,
     denoise_audio: bool,
+    mic_pregain: bool,
 ) -> Result<(), String> {
     let audio_bitrate = format!("{NORMALIZED_AUDIO_BITRATE_KBPS}k");
     let mut command = Command::new(ffmpeg_path);
@@ -4442,7 +4479,7 @@ fn normalize_audio_with_ffmpeg(
         .arg("-b:a")
         .arg(audio_bitrate)
         .arg("-af")
-        .arg(audio_filter_chain(downmix_audio, denoise_audio))
+        .arg(audio_filter_chain(downmix_audio, denoise_audio, mic_pregain))
         .arg("-ac")
         .arg("2")
         .arg("-ar")
@@ -4507,6 +4544,7 @@ fn transcode_with_ffmpeg(
     normalize_audio: bool,
     downmix_audio: bool,
     denoise_audio: bool,
+    mic_pregain: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_path);
     command
@@ -4532,7 +4570,7 @@ fn transcode_with_ffmpeg(
     if normalize_audio {
         command
             .arg("-af")
-            .arg(audio_filter_chain(downmix_audio, denoise_audio));
+            .arg(audio_filter_chain(downmix_audio, denoise_audio, mic_pregain));
     }
 
     let duration_rate_limit =
@@ -4965,7 +5003,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 mod audio_track_probe_tests {
     use super::{
         audio_filter_chain, mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe,
-        AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_LOUDNESS_FILTER,
+        AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
+        AUDIO_LOUDNESS_FILTER, AUDIO_MIC_PREGAIN_FILTER,
     };
     use std::io::Write;
 
@@ -5006,14 +5045,25 @@ mod audio_track_probe_tests {
 
     #[test]
     fn builds_native_audio_filter_chain_for_mic_noise_reduction() {
-        assert_eq!(audio_filter_chain(false, false), AUDIO_LOUDNESS_FILTER);
         assert_eq!(
-            audio_filter_chain(false, true),
+            audio_filter_chain(false, false, false),
+            AUDIO_LOUDNESS_FILTER
+        );
+        assert_eq!(
+            audio_filter_chain(false, true, false),
             format!("{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
         );
         assert_eq!(
-            audio_filter_chain(true, true),
-            format!("{AUDIO_DOWNMIX_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}")
+            audio_filter_chain(false, true, true),
+            format!(
+                "{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}"
+            )
+        );
+        assert_eq!(
+            audio_filter_chain(true, true, false),
+            format!(
+                "{AUDIO_DOWNMIX_FILTER},{AUDIO_DOWNMIX_MAKEUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}"
+            )
         );
     }
 

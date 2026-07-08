@@ -317,7 +317,7 @@ jobs:
           key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
           restore-keys: dist-
 
-      # postinstall rebuilds any stale/missing dists (incremental tsgo is fast on
+      # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
 

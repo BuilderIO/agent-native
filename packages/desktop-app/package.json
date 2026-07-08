@@ -22,7 +22,7 @@
     "build": "electron-vite build",
     "build:mac": "electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
@@ -39,7 +39,6 @@
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
@@ -47,7 +46,8 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:"
   },
   "productName": "Agent Native"

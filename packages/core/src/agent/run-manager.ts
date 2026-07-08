@@ -678,10 +678,31 @@ export function startRun(
 
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
   // producer (process crash, HMR restart, isolate eviction) quickly and
-  // reap the row. Paired with RUN_STALE_MS (6s) — 4x the interval to
+  // reap the row. Paired with RUN_STALE_MS (15s) — 10x the interval to
   // tolerate transient DB slowness without false positives.
+  let consecutiveHeartbeatFailures = 0;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
-    updateRunHeartbeat(runId).catch(() => {});
+    updateRunHeartbeat(runId)
+      .then(() => {
+        consecutiveHeartbeatFailures = 0;
+      })
+      .catch((error) => {
+        consecutiveHeartbeatFailures += 1;
+        // Swallow routine single-tick blips; escalate once failures approach
+        // the stale window so false-positive stale_run from silent write
+        // failures is diagnosable.
+        if (consecutiveHeartbeatFailures >= 3) {
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            tags: {
+              source: "agent-run-manager",
+              phase: "heartbeat",
+              consecutiveFailures: String(consecutiveHeartbeatFailures),
+            },
+            extra: { runId, threadId },
+          });
+        }
+      });
     checkSqlAbort();
     checkNoProgressBackstop();
   }, 1500);

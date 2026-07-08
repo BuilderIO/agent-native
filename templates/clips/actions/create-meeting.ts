@@ -65,6 +65,12 @@ export default defineAction({
         .enum(["private", "org", "public"])
         .optional()
         .describe("Initial visibility — defaults to private"),
+      source: z
+        .enum(["calendar", "adhoc", "manual"])
+        .optional()
+        .describe(
+          "How the meeting was created. Desktop adhoc Zoom/Teams detection passes `adhoc`; omit to infer from title/calendarEventId.",
+        ),
     })
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
@@ -86,9 +92,8 @@ export default defineAction({
       isOrganizer?: boolean;
     }> = args.participants ?? [];
     let calendarEventIdLink: string | null = null;
-    let source: "calendar" | "adhoc" | "manual" = args.title
-      ? "manual"
-      : "adhoc";
+    let source: "calendar" | "adhoc" | "manual" =
+      args.source ?? (args.title ? "manual" : "adhoc");
 
     if (args.calendarEventId) {
       // Verify the user owns the calendar account that hosts this event.

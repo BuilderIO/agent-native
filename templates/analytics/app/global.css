@@ -337,23 +337,33 @@
   opacity: 0.55;
 }
 
+/* Keep the playhead visually distinct from red console-error marker dots on
+   the scrubber track — those markers used to look like a second thumb. */
 .an-replay-scrub::-webkit-slider-thumb {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   appearance: none;
   border: 2px solid hsl(var(--background));
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--border));
+  background: hsl(217 91% 60%);
+  box-shadow:
+    0 0 0 1px hsl(217 91% 60% / 0.55),
+    0 1px 2px hsl(0 0% 0% / 0.35);
+  position: relative;
+  z-index: 40;
 }
 
 .an-replay-scrub::-moz-range-thumb {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   border: 2px solid hsl(var(--background));
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--border));
+  background: hsl(217 91% 60%);
+  box-shadow:
+    0 0 0 1px hsl(217 91% 60% / 0.55),
+    0 1px 2px hsl(0 0% 0% / 0.35);
+  position: relative;
+  z-index: 40;
 }
 
 .dark
@@ -570,13 +580,19 @@
   }
 }
 
-@container analytics-session-detail (min-width: 1040px) {
+@container analytics-session-detail (min-width: 880px) {
   .analytics-session-detail-workbench {
-    grid-template-columns: minmax(0, 1fr) 330px;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
   }
 
   .analytics-session-detail-timeline {
     display: flex;
+  }
+}
+
+@container analytics-session-detail (min-width: 1200px) {
+  .analytics-session-detail-workbench {
+    grid-template-columns: minmax(0, 1fr) 330px;
   }
 }
 
