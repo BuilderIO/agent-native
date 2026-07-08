@@ -25,6 +25,9 @@ const messages = {
     automationsTitle: "自動化",
     automationsDescription: "檢視、暫停並建立排程或事件觸發的工作。",
     openAutomations: "開啟自動化",
+    deliveryTitle: "投遞",
+    deliveryDescription: "管理訊息目的地並查出站投遞佇列。",
+    openDelivery: "開啟投遞",
     agentTitle: "代理設定",
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、語音和其他代理控制項。排程與事件觸發的工作請使用自動化頁面。",

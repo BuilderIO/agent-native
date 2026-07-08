@@ -8291,6 +8291,9 @@ const translatedSessionReplayTranslations = {
         "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
       timeline: "Línea de tiempo de eventos",
       timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",
+      timelineSearch: "Buscar eventos...",
+      timelineNoMatches:
+        "Ningún evento de la línea de tiempo coincide con la búsqueda actual.",
       started: "Inicio",
       signedIn: "Con sesión iniciada",
       anonymous: "Anónimo",
@@ -8416,6 +8419,9 @@ const translatedSessionReplayTranslations = {
       timeline: "Chronologie des événements",
       timelineDescription:
         "Affichage de {{count}} événements utiles sur {{total}}.",
+      timelineSearch: "Rechercher des événements...",
+      timelineNoMatches:
+        "Aucun événement de la chronologie ne correspond à la recherche actuelle.",
       started: "Début",
       signedIn: "Connecté",
       anonymous: "Anonyme",
@@ -8540,6 +8546,9 @@ const translatedSessionReplayTranslations = {
       timeline: "Ereignis-Timeline",
       timelineDescription:
         "{{count}} von {{total}} nützlichen Ereignissen werden angezeigt.",
+      timelineSearch: "Ereignisse suchen...",
+      timelineNoMatches:
+        "Keine Timeline-Ereignisse entsprechen der aktuellen Suche.",
       started: "Gestartet",
       signedIn: "Angemeldet",
       anonymous: "Anonym",
@@ -8663,6 +8672,9 @@ const translatedSessionReplayTranslations = {
       timeline: "イベントタイムライン",
       timelineDescription:
         "有用なイベント {{count}} / {{total}} 件を表示しています。",
+      timelineSearch: "イベントを検索...",
+      timelineNoMatches:
+        "現在の検索に一致するタイムラインイベントはありません。",
       started: "開始",
       signedIn: "サインイン済み",
       anonymous: "匿名",
@@ -8785,6 +8797,8 @@ const translatedSessionReplayTranslations = {
       timeline: "이벤트 타임라인",
       timelineDescription:
         "유용한 이벤트 {{count}} / {{total}}개를 표시합니다.",
+      timelineSearch: "이벤트 검색...",
+      timelineNoMatches: "현재 검색과 일치하는 타임라인 이벤트가 없습니다.",
       started: "시작",
       signedIn: "로그인됨",
       anonymous: "익명",
@@ -8907,6 +8921,9 @@ const translatedSessionReplayTranslations = {
         "Blocos com escopo usados para reconstruir este replay. As URLs do provedor permanecem privadas.",
       timeline: "Linha do tempo de eventos",
       timelineDescription: "Mostrando {{count}} de {{total}} eventos úteis.",
+      timelineSearch: "Pesquisar eventos...",
+      timelineNoMatches:
+        "Nenhum evento da linha do tempo corresponde à pesquisa atual.",
       started: "Início",
       signedIn: "Logado",
       anonymous: "Anônimo",
@@ -9027,6 +9044,8 @@ const translatedSessionReplayTranslations = {
         "इस रीप्ले को फिर से बनाने के लिए उपयोग किए गए स्कोप्ड चंक। प्रदाता URL निजी रहते हैं।",
       timeline: "इवेंट टाइमलाइन",
       timelineDescription: "{{total}} में से {{count}} उपयोगी इवेंट दिखाए जा रहे हैं।",
+      timelineSearch: "इवेंट खोजें...",
+      timelineNoMatches: "वर्तमान खोज से कोई टाइमलाइन इवेंट मेल नहीं खाता।",
       started: "शुरू हुआ",
       signedIn: "साइन इन",
       anonymous: "अनाम",
@@ -9147,6 +9166,8 @@ const translatedSessionReplayTranslations = {
         "مقاطع محددة النطاق تُستخدم لإعادة بناء هذا التسجيل. تبقى عناوين URL الخاصة بالمزوّد خاصة.",
       timeline: "الخط الزمني للأحداث",
       timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",
+      timelineSearch: "البحث عن الأحداث...",
+      timelineNoMatches: "لا توجد أحداث في الخط الزمني تطابق البحث الحالي.",
       started: "بدأت",
       signedIn: "تم تسجيل الدخول",
       anonymous: "مجهول",

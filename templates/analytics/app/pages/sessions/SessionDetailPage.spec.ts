@@ -7,6 +7,7 @@ import {
   replayPayloadEvents,
   replayViewportDimensions,
   sanitizeReplayEvents,
+  sanitizeReplayViewportEvents,
 } from "./SessionDetailPage";
 
 const originalFetch = globalThis.fetch;
@@ -326,6 +327,24 @@ describe("session replay sanitization", () => {
     ).toBeNull();
   });
 
+  it("rewrites absurd meta dimensions before playback", () => {
+    const sanitized = sanitizeReplayViewportEvents(
+      [
+        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
+        {
+          type: 3,
+          timestamp: 1100,
+          data: { source: 4, width: 5000, height: 800 },
+        },
+        { type: 4, timestamp: 1200, data: { width: 1440, height: 900 } },
+      ],
+      { width: 1024, height: 640 },
+    );
+    expect(sanitized[0]?.data).toMatchObject({ width: 1024, height: 640 });
+    expect(sanitized[1]?.data).toMatchObject({ width: 1024, height: 640 });
+    expect(sanitized[2]?.data).toMatchObject({ width: 1440, height: 900 });
+  });
+
   it("normalizes scoped chunk route payloads into replay event arrays", () => {
     const events = [{ type: 4, timestamp: 1000 }];
 
@@ -400,6 +419,28 @@ describe("session replay timeline markers", () => {
       severity: "error",
       detail: "boom",
     });
+  });
+
+  it("filters timeline markers by label and detail text", () => {
+    const markers = buildReplayMarkers([
+      {
+        type: 4,
+        timestamp: 1_000,
+        data: { width: 1280, height: 720, href: "https://app.example.test/" },
+      },
+      {
+        type: 3,
+        timestamp: 2_000,
+        data: { source: 2, type: 2, id: 7, x: 24, y: 32 },
+      },
+    ]);
+    expect(filterReplayMarkers(markers, "navigate").map((m) => m.kind)).toEqual(
+      ["navigation"],
+    );
+    expect(filterReplayMarkers(markers, "x 24").map((m) => m.kind)).toEqual([
+      "click",
+    ]);
+    expect(filterReplayMarkers(markers, "missing")).toEqual([]);
   });
 });
 
