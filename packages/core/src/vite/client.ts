@@ -2250,8 +2250,10 @@ function localWorkspacePackageAliases(
   packages: Array<{ packageName: string; packageDir: string }>,
 ): any[] {
   const aliases: any[] = [];
+  const sourceAliasExcludes = new Set(["@agent-native/pinpoint"]);
 
   for (const { packageName, packageDir } of packages) {
+    if (sourceAliasExcludes.has(packageName)) continue;
     const pkgPath = path.join(packageDir, "package.json");
     if (!fs.existsSync(pkgPath)) continue;
 

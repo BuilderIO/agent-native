@@ -33,7 +33,11 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "react-router",
   "vite",
 ] as const;
-const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
+const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@sentry/*"',
+  "typescript",
+  "typescript-7",
+];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -1100,7 +1104,7 @@ function postProcessStandalone(
     updated = mergeWorkspaceYamlListItems(
       updated,
       "minimumReleaseAgeExclude",
-      SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES,
+      MINIMUM_RELEASE_AGE_EXCLUDES,
     );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);

@@ -1201,6 +1201,7 @@ describe("local-core dev aliases and router dedupe", () => {
       path.join(appDir, "package.json"),
       JSON.stringify({
         dependencies: {
+          "@agent-native/pinpoint": "workspace:*",
           "@agent-native/toolkit": "workspace:*",
         },
       }),
@@ -1224,6 +1225,13 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(popoverAlias?.replacement).toBe(
         path.join(toolkitRoot, "src/ui/$1"),
       );
+      expect(
+        aliases.some((alias) =>
+          alias.find instanceof RegExp
+            ? alias.find.test("@agent-native/pinpoint/react")
+            : alias.find === "@agent-native/pinpoint/react",
+        ),
+      ).toBe(false);
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
