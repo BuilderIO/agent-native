@@ -1,7 +1,6 @@
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
-  IconBuilding,
   IconWorld,
   IconTrash,
   IconCheck,
@@ -11,6 +10,7 @@ import {
   IconSearch,
   IconSearchOff,
   IconShare3,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,11 +46,11 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label.
-   *  Use "label-icon" to render a leading share glyph alongside the label so
-   *  the trigger matches adjacent icon+label buttons; "icon" is icon-only. */
+  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label
+   *  with a leading visibility icon. "label-icon" is kept for callsites that
+   *  want to explicitly opt into icon+label parity; "icon" is icon-only. */
   trigger?: "label" | "icon" | "label-icon";
-  /** @deprecated Label triggers no longer render a visibility/share glyph. */
+  /** @deprecated No longer affects rendering — triggers show visibility state. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -142,6 +142,7 @@ interface Share {
   id: string;
   principalType: "user" | "org";
   principalId: string;
+  displayName?: string | null;
   role: Role;
 }
 
@@ -197,7 +198,7 @@ const VIS_META: Record<
   org: {
     label: "Organization",
     description: "Anyone in your organization can view",
-    Icon: IconBuilding,
+    Icon: IconUsersGroup,
   },
   public: {
     label: "Public",
@@ -356,10 +357,17 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The default trigger stays text-only; the icon trigger keeps the share glyph.
-  // "label-icon" renders the glyph alongside the label for icon+label parity.
+  const triggerVisibility =
+    pendingVisibility ??
+    (sharesQuery.data
+      ? ((sharesQuery.data.visibility as Visibility | null) ?? "private")
+      : null);
+  const triggerMeta = triggerVisibility
+    ? visibilityMeta(triggerVisibility, props.visibilityCopy)
+    : null;
+  const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
+  const triggerLabel = triggerMeta ? `Share (${triggerMeta.label})` : "Share";
   const iconOnly = props.trigger === "icon";
-  const showLabelIcon = props.trigger === "label-icon";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -370,11 +378,10 @@ export function ShareButton(props: ShareButtonProps) {
             iconOnly ? BUTTON_GHOST_ICON : BUTTON_OUTLINE_SM,
             props.triggerClassName,
           )}
-          aria-label={iconOnly ? "Share" : undefined}
+          aria-label={triggerLabel}
+          title={triggerLabel}
         >
-          {iconOnly || showLabelIcon ? (
-            <IconShare3 size={16} strokeWidth={1.75} />
-          ) : null}
+          <TriggerIcon size={16} strokeWidth={1.75} />
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -956,17 +963,11 @@ function SharePanel(
             )}
           >
             <Avatar
-              label={
-                s.principalType === "org"
-                  ? s.principalId
-                  : displayName(s.principalId, knownMembers)
-              }
+              label={principalLabel(s, knownMembers)}
               org={s.principalType === "org"}
             />
             <span className="flex-1 min-w-0 truncate">
-              {s.principalType === "org"
-                ? s.principalId
-                : displayName(s.principalId, knownMembers)}
+              {principalLabel(s, knownMembers)}
             </span>
             {canManage ? (
               <RoleSelect
@@ -1663,7 +1664,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       aria-hidden
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? <IconBuilding size={14} strokeWidth={1.75} /> : initials(label)}
+      {org ? <IconUsersGroup size={14} strokeWidth={1.75} /> : initials(label)}
     </span>
   );
 }
@@ -1711,8 +1712,16 @@ function initials(s: string): string {
   return (name[0] ?? "?").toUpperCase();
 }
 
-function displayName(email: string, members: OrgMember[]): string {
-  const match = members.find((m) => m.email === email);
+function principalLabel(share: Share, members: OrgMember[]): string {
+  const serverLabel = share.displayName?.trim();
+  if (serverLabel) return serverLabel;
+  if (share.principalType === "org") return "Organization";
+  return displayName(share.principalId, members);
+}
+
+function displayName(emailOrId: string, members: OrgMember[]): string {
+  const normalized = emailOrId.trim().toLowerCase();
+  const match = members.find((m) => m.email.toLowerCase() === normalized);
   if (match?.name && match.name.trim()) return match.name;
-  return email;
+  return normalized.includes("@") ? emailOrId : "Unknown person";
 }

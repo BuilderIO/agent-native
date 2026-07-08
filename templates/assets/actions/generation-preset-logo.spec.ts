@@ -190,4 +190,52 @@ describe("generation preset includeLogo option", () => {
     ).rejects.toThrow("same pixel size as the background plate");
     expect(setMock).not.toHaveBeenCalled();
   });
+
+  it("rejects background-only skeleton plates from another library on update", async () => {
+    const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    const selectMock = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: "preset-1",
+                libraryId: "lib-1",
+                settings: "{}",
+              },
+            ]),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "plate-asset-1",
+              libraryId: "other-lib",
+              width: 1200,
+              height: 1200,
+            },
+          ]),
+        })),
+      });
+    getDbMock.mockReturnValue({
+      select: selectMock,
+      update: vi.fn(() => ({ set: setMock })),
+    });
+
+    await expect(
+      updatePresetAction.run({
+        id: "preset-1",
+        settings: {
+          skeletonSpec: {
+            background: { type: "asset", assetId: "plate-asset-1" },
+            contentMode: "fill",
+          },
+        },
+      } as any),
+    ).rejects.toThrow("Skeleton image must belong to this asset library");
+    expect(setMock).not.toHaveBeenCalled();
+  });
 });

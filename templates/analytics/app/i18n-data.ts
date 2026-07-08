@@ -14,6 +14,9 @@ const enUS = {
     dataSources: "Data Sources",
     dataDictionary: "Data Dictionary",
     sessions: "Sessions",
+    monitoring: "Monitoring",
+    monitoringUptime: "Uptime",
+    monitoringErrors: "Errors",
     agents: "Agents",
     templateCatalog: "Catalog",
     dashboards: "Dashboards",
@@ -38,6 +41,8 @@ const enUS = {
   sidebar: {
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
+    collapseAsk: "Collapse Ask",
+    expandAsk: "Expand Ask",
     collapseDashboards: "Collapse dashboards",
     expandDashboards: "Expand dashboards",
     collapseAnalyses: "Collapse analyses",
@@ -347,6 +352,7 @@ const enUS = {
     dataDictionary: "Data Dictionary - Analytics",
     dataSources: "Data Sources - Analytics",
     sessions: "Sessions - Analytics",
+    monitoring: "Monitoring - Analytics",
     agents: "Agents - Analytics",
     session: "Session Replay - Analytics",
     tool: "Tool - Analytics",
@@ -976,14 +982,18 @@ const enUS = {
     installSnippetTitle: "Add session replay",
     backToSessions: "Back to sessions",
     copyForAgent: "Copy for agent",
+    copyForAgentTooltip:
+      "Copy a temporary private link an agent can use to inspect this replay.",
     copiedForAgent: "Copied",
-    askAgent: "Ask agent about this session",
+    askAgent: "Ask agent",
+    askAgentTooltip: "Ask the Analytics agent about this replay.",
     askSessionTitle: "Ask about this session",
     askSessionDescription:
       "Send a focused prompt to the Analytics agent with this replay attached as context.",
     askSessionPlaceholder: "What happened in this session?",
     replayPlayer: "Replay player",
     replayLoading: "Loading replay...",
+    replayLoadingProgress: "{{loaded}} of {{total}} replay chunks loaded",
     replayUnavailable: "No playable replay for this session",
     replayUnavailableDescription:
       "This recording has metadata, but no playable replay events were found.",
@@ -995,7 +1005,7 @@ const enUS = {
     replayEventCount: "{{events}} replay events",
     timeline: "Event timeline",
     replayTimeline: "Replay timeline",
-    timelineDescription: "Showing the first {{count}} events in this session.",
+    timelineDescription: "Showing {{count}} of {{total}} useful events.",
     noTimelineEvents: "No timeline markers found",
     sequence: "Sequence",
     size: "Size",
@@ -1029,6 +1039,7 @@ const enUS = {
     connectBuilder: "Use Builder.io (free)",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",
+    devtoolsResize: "Resize Dev Tools",
     devtoolsIssueCount: "{{count}} issues detected",
     devtoolsConsoleTab: "Console ({{count}})",
     devtoolsNetworkTab: "Network ({{count}})",
@@ -1044,6 +1055,7 @@ const enUS = {
     devtoolsNetworkSearch: "Filter requests...",
     devtoolsJumpTo: "Jump to",
     devtoolsToggleDetails: "Toggle details",
+    devtoolsMessage: "Message",
     devtoolsArgs: "Logged arguments",
     devtoolsStack: "Stack trace",
     devtoolsResponseBody: "Response body",
@@ -3698,6 +3710,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "折叠侧边栏",
       expandSidebar: "展开侧边栏",
+      collapseAsk: "收起提问",
+      expandAsk: "展开提问",
       collapseDashboards: "收起仪表板",
       expandDashboards: "展开仪表板",
       collapseAnalyses: "收起分析",
@@ -3900,6 +3914,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "Contraer barra lateral",
       expandSidebar: "Expandir barra lateral",
+      collapseAsk: "Contraer Ask",
+      expandAsk: "Expandir Ask",
       collapseDashboards: "Contraer paneles",
       expandDashboards: "Expandir paneles",
       collapseAnalyses: "Contraer análisis",
@@ -4113,6 +4129,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "Réduire la barre latérale",
       expandSidebar: "Développer la barre latérale",
+      collapseAsk: "Réduire Ask",
+      expandAsk: "Développer Ask",
       collapseDashboards: "Réduire les tableaux de bord",
       expandDashboards: "Développer les tableaux de bord",
       collapseAnalyses: "Réduire les analyses",
@@ -4332,6 +4350,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "Seitenleiste einklappen",
       expandSidebar: "Seitenleiste erweitern",
+      collapseAsk: "Ask einklappen",
+      expandAsk: "Ask ausklappen",
       collapseDashboards: "Dashboards einklappen",
       expandDashboards: "Dashboards ausklappen",
       collapseAnalyses: "Analysen einklappen",
@@ -4551,6 +4571,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "サイドバーを折りたたむ",
       expandSidebar: "サイドバーを展開",
+      collapseAsk: "Ask を折りたたむ",
+      expandAsk: "Ask を展開",
       collapseDashboards: "ダッシュボードを折りたたむ",
       expandDashboards: "ダッシュボードを展開",
       collapseAnalyses: "分析を折りたたむ",
@@ -4763,6 +4785,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "사이드바 접기",
       expandSidebar: "사이드바 펼치기",
+      collapseAsk: "Ask 접기",
+      expandAsk: "Ask 펼치기",
       collapseDashboards: "대시보드 접기",
       expandDashboards: "대시보드 펼치기",
       collapseAnalyses: "분석 접기",
@@ -4975,6 +4999,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "Recolher barra lateral",
       expandSidebar: "Expandir barra lateral",
+      collapseAsk: "Recolher Ask",
+      expandAsk: "Expandir Ask",
       collapseDashboards: "Recolher dashboards",
       expandDashboards: "Expandir dashboards",
       collapseAnalyses: "Recolher análises",
@@ -5194,6 +5220,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "साइडबार समेटें",
       expandSidebar: "साइडबार फैलाएं",
+      collapseAsk: "Ask समेटें",
+      expandAsk: "Ask फैलाएं",
       collapseDashboards: "डैशबोर्ड समेटें",
       expandDashboards: "डैशबोर्ड फैलाएं",
       collapseAnalyses: "विश्लेषण समेटें",
@@ -5403,6 +5431,8 @@ export const messagesByLocale = {
     sidebar: {
       collapseSidebar: "طي الشريط الجانبي",
       expandSidebar: "توسيع الشريط الجانبي",
+      collapseAsk: "طي Ask",
+      expandAsk: "توسيع Ask",
       collapseDashboards: "طي لوحات المعلومات",
       expandDashboards: "توسيع لوحات المعلومات",
       collapseAnalyses: "طي التحليلات",
@@ -5695,6 +5725,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "仪表板 - Analytics",
       dataDictionary: "数据字典 - Analytics",
       dataSources: "数据源 - Analytics",
+      monitoring: "监控 - Analytics",
       agents: "代理 - Analytics",
       extensions: "扩展 - Analytics",
       notFound: "未找到 - Analytics",
@@ -5904,6 +5935,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Panel de control - Analytics",
       dataDictionary: "Diccionario de datos - Analytics",
       dataSources: "Fuentes de datos - Analytics",
+      monitoring: "Monitorización - Analytics",
       agents: "Agentes - Analytics",
       extensions: "Extensiones - Analytics",
       notFound: "No encontrado - Analytics",
@@ -6118,6 +6150,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Tableau de bord - Analytics",
       dataDictionary: "Dictionnaire de données - Analytics",
       dataSources: "Sources de données - Analytics",
+      monitoring: "Surveillance - Analytics",
       agents: "Agents - Analytique",
       extensions: "Extensions-Analytics",
       notFound: "Introuvable - Analytics",
@@ -6333,6 +6366,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Dashboard – Analytics",
       dataDictionary: "Datenwörterbuch – Analytics",
       dataSources: "Datenquellen – Analytics",
+      monitoring: "Überwachung – Analytics",
       agents: "Agenten – Analytics",
       extensions: "Erweiterungen – Analytics",
       notFound: "Nicht gefunden – Analytics",
@@ -6543,6 +6577,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "ダッシュボード - Analytics",
       dataDictionary: "データディクショナリ - Analytics",
       dataSources: "データソース - Analytics",
+      monitoring: "監視 - Analytics",
       agents: "エージェント - Analytics",
       extensions: "拡張機能 - Analytics",
       notFound: "見つかりません - Analytics",
@@ -6752,6 +6787,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "대시보드 - Analytics",
       dataDictionary: "데이터 사전 - Analytics",
       dataSources: "데이터 소스 - Analytics",
+      monitoring: "모니터링 - Analytics",
       agents: "에이전트 - Analytics",
       extensions: "확장 - Analytics",
       notFound: "찾을 수 없음 - Analytics",
@@ -6965,6 +7001,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "Painel - Analytics",
       dataDictionary: "Dicionário de Dados - Analytics",
       dataSources: "Fontes de dados - Analytics",
+      monitoring: "Monitoramento - Analytics",
       agents: "Agentes - Analytics",
       extensions: "Extensões - Analytics",
       notFound: "Não encontrado - Analytics",
@@ -7174,6 +7211,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "डैशबोर्ड - Analytics",
       dataDictionary: "डेटा डिक्शनरी - Analytics",
       dataSources: "डेटा स्रोत - Analytics",
+      monitoring: "मॉनिटरिंग - Analytics",
       agents: "एजेंट - Analytics",
       extensions: "एक्सटेंशन - Analytics",
       notFound: "नहीं मिला - Analytics",
@@ -7382,6 +7420,7 @@ const translatedAnalyticsDebtTranslations = {
       dashboard: "لوحة القيادة - Analytics",
       dataDictionary: "قاموس البيانات - Analytics",
       dataSources: "مصادر البيانات - Analytics",
+      monitoring: "المراقبة - Analytics",
       agents: "الوكلاء - Analytics",
       extensions: "Extensions - Analytics",
       notFound: "Not Found - Analytics",
@@ -8112,6 +8151,9 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "添加会话回放",
       backToSessions: "返回会话",
       askAgent: "询问代理此会话",
+      replayLoadingProgress: "已加载 {{loaded}} / {{total}} 个回放分块",
+      askAgentTooltip: "向 Analytics 代理询问有关此回放的问题。",
+      copyForAgentTooltip: "复制一个临时私密链接，供代理检查此回放。",
       replayPlayer: "回放播放器",
       replayLoading: "正在加载回放...",
       replayUnavailable: "此会话没有回放分块",
@@ -8121,7 +8163,7 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "用于重建此回放的受控分块。提供商 URL 保持私有。",
       timeline: "事件时间线",
-      timelineDescription: "显示此会话的前 {{count}} 个事件。",
+      timelineDescription: "显示 {{count}} / {{total}} 个有用事件。",
       started: "开始",
       signedIn: "已登录",
       anonymous: "匿名",
@@ -8229,6 +8271,12 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "Añadir reproducción de sesión",
       backToSessions: "Volver a sesiones",
       askAgent: "Preguntar al agente sobre esta sesión",
+      replayLoadingProgress:
+        "{{loaded}} de {{total}} fragmentos de reproducción cargados",
+      askAgentTooltip:
+        "Pregunta al agente de Analytics sobre esta reproducción.",
+      copyForAgentTooltip:
+        "Copia un enlace privado temporal que un agente puede usar para inspeccionar esta reproducción.",
       replayPlayer: "Reproductor de sesión",
       replayLoading: "Cargando reproducción...",
       replayUnavailable: "Esta sesión no tiene fragmentos de reproducción",
@@ -8238,8 +8286,7 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "Fragmentos con acceso controlado usados para reconstruir esta reproducción. Las URL del proveedor permanecen privadas.",
       timeline: "Línea de tiempo de eventos",
-      timelineDescription:
-        "Mostrando los primeros {{count}} eventos de esta sesión.",
+      timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",
       started: "Inicio",
       signedIn: "Con sesión iniciada",
       anonymous: "Anónimo",
@@ -8347,6 +8394,12 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "Ajouter la relecture de session",
       backToSessions: "Retour aux sessions",
       askAgent: "Demander à l'agent au sujet de cette session",
+      replayLoadingProgress:
+        "{{loaded}} sur {{total}} fragments de relecture chargés",
+      askAgentTooltip:
+        "Demandez à l’agent Analytics des informations sur cette relecture.",
+      copyForAgentTooltip:
+        "Copiez un lien privé temporaire qu’un agent peut utiliser pour inspecter cette relecture.",
       replayPlayer: "Lecteur de relecture",
       replayLoading: "Chargement de la relecture...",
       replayUnavailable:
@@ -8358,7 +8411,7 @@ const translatedSessionReplayTranslations = {
         "Fragments à accès contrôlé utilisés pour reconstruire cette relecture. Les URL du fournisseur restent privées.",
       timeline: "Chronologie des événements",
       timelineDescription:
-        "Affichage des {{count}} premiers événements de cette session.",
+        "Affichage de {{count}} événements utiles sur {{total}}.",
       started: "Début",
       signedIn: "Connecté",
       anonymous: "Anonyme",
@@ -8467,6 +8520,11 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "Sitzungswiedergabe hinzufügen",
       backToSessions: "Zurück zu Sitzungen",
       askAgent: "Agent zu dieser Sitzung fragen",
+      replayLoadingProgress:
+        "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+      askAgentTooltip: "Fragen Sie den Analytics-Agenten zu dieser Wiedergabe.",
+      copyForAgentTooltip:
+        "Kopieren Sie einen temporären privaten Link, mit dem ein Agent diese Wiedergabe prüfen kann.",
       replayPlayer: "Wiedergabe-Player",
       replayLoading: "Wiedergabe wird geladen...",
       replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
@@ -8477,7 +8535,7 @@ const translatedSessionReplayTranslations = {
         "Zugriffsgeschützte Chunks zum Rekonstruieren dieser Wiedergabe. Anbieter-URLs bleiben privat.",
       timeline: "Ereignis-Timeline",
       timelineDescription:
-        "Die ersten {{count}} Ereignisse dieser Sitzung werden angezeigt.",
+        "{{count}} von {{total}} nützlichen Ereignissen werden angezeigt.",
       started: "Gestartet",
       signedIn: "Angemeldet",
       anonymous: "Anonym",
@@ -8584,6 +8642,12 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "セッションリプレイを追加",
       backToSessions: "セッションに戻る",
       askAgent: "このセッションについてエージェントに質問",
+      replayLoadingProgress:
+        "{{loaded}} / {{total}} 個のリプレイチャンクを読み込み済み",
+      askAgentTooltip:
+        "このリプレイについて Analytics エージェントに問い合わせます。",
+      copyForAgentTooltip:
+        "エージェントがこのリプレイを確認できる一時的なプライベートリンクをコピーします。",
       replayPlayer: "リプレイプレイヤー",
       replayLoading: "リプレイを読み込み中...",
       replayUnavailable: "このセッションにはリプレイチャンクがありません",
@@ -8594,7 +8658,7 @@ const translatedSessionReplayTranslations = {
         "このリプレイを再構築するためのスコープ付きチャンクです。プロバイダー URL は非公開のままです。",
       timeline: "イベントタイムライン",
       timelineDescription:
-        "このセッションの最初の {{count}} 件のイベントを表示しています。",
+        "有用なイベント {{count}} / {{total}} 件を表示しています。",
       started: "開始",
       signedIn: "サインイン済み",
       anonymous: "匿名",
@@ -8701,6 +8765,11 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "세션 리플레이 추가",
       backToSessions: "세션으로 돌아가기",
       askAgent: "이 세션에 대해 에이전트에게 질문",
+      replayLoadingProgress:
+        "{{loaded}} / {{total}} 개의 리플레이 청크가 로드됨",
+      askAgentTooltip: "이 리플레이에 대해 Analytics 에이전트에게 물어보세요.",
+      copyForAgentTooltip:
+        "에이전트가 이 리플레이를 검사하는 데 사용할 수 있는 임시 비공개 링크를 복사합니다.",
       replayPlayer: "리플레이 플레이어",
       replayLoading: "리플레이 로드 중...",
       replayUnavailable: "이 세션에는 리플레이 청크가 없습니다",
@@ -8710,7 +8779,8 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "이 리플레이를 재구성하는 데 사용되는 범위 제한 청크입니다. 제공자 URL은 비공개로 유지됩니다.",
       timeline: "이벤트 타임라인",
-      timelineDescription: "이 세션의 처음 {{count}}개 이벤트를 표시합니다.",
+      timelineDescription:
+        "유용한 이벤트 {{count}} / {{total}}개를 표시합니다.",
       started: "시작",
       signedIn: "로그인됨",
       anonymous: "익명",
@@ -8818,6 +8888,11 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "Adicionar replay de sessão",
       backToSessions: "Voltar para sessões",
       askAgent: "Perguntar ao agente sobre esta sessão",
+      replayLoadingProgress:
+        "{{loaded}} de {{total}} blocos de replay carregados",
+      askAgentTooltip: "Pergunte ao agente do Analytics sobre este replay.",
+      copyForAgentTooltip:
+        "Copie um link privado temporário que um agente pode usar para inspecionar este replay.",
       replayPlayer: "Player de replay",
       replayLoading: "Carregando replay...",
       replayUnavailable: "Nenhum bloco de replay para esta sessão",
@@ -8827,8 +8902,7 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "Blocos com escopo usados para reconstruir este replay. As URLs do provedor permanecem privadas.",
       timeline: "Linha do tempo de eventos",
-      timelineDescription:
-        "Mostrando os primeiros {{count}} eventos desta sessão.",
+      timelineDescription: "Mostrando {{count}} de {{total}} eventos úteis.",
       started: "Início",
       signedIn: "Logado",
       anonymous: "Anônimo",
@@ -8935,6 +9009,10 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "सत्र रीप्ले जोड़ें",
       backToSessions: "सत्रों पर वापस जाएँ",
       askAgent: "इस सत्र के बारे में एजेंट से पूछें",
+      replayLoadingProgress: "{{total}} में से {{loaded}} रीप्ले चंक लोड हुए",
+      askAgentTooltip: "इस रीप्ले के बारे में Analytics एजेंट से पूछें।",
+      copyForAgentTooltip:
+        "एक अस्थायी निजी लिंक कॉपी करें जिसे एजेंट इस रीप्ले का निरीक्षण करने के लिए उपयोग कर सकता है।",
       replayPlayer: "रीप्ले प्लेयर",
       replayLoading: "रीप्ले लोड हो रहा है...",
       replayUnavailable: "इस सत्र के लिए कोई रीप्ले चंक नहीं है",
@@ -8944,7 +9022,7 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "इस रीप्ले को फिर से बनाने के लिए उपयोग किए गए स्कोप्ड चंक। प्रदाता URL निजी रहते हैं।",
       timeline: "इवेंट टाइमलाइन",
-      timelineDescription: "इस सत्र के पहले {{count}} इवेंट दिखाए जा रहे हैं।",
+      timelineDescription: "{{total}} में से {{count}} उपयोगी इवेंट दिखाए जा रहे हैं।",
       started: "शुरू हुआ",
       signedIn: "साइन इन",
       anonymous: "अनाम",
@@ -9050,6 +9128,11 @@ const translatedSessionReplayTranslations = {
       installSnippetTitle: "إضافة إعادة تشغيل الجلسة",
       backToSessions: "العودة إلى الجلسات",
       askAgent: "اسأل الوكيل عن هذه الجلسة",
+      replayLoadingProgress:
+        "تم تحميل {{loaded}} من {{total}} مقاطع إعادة التشغيل",
+      askAgentTooltip: "اسأل وكيل Analytics عن هذا التسجيل.",
+      copyForAgentTooltip:
+        "انسخ رابطًا خاصًا مؤقتًا يمكن للوكيل استخدامه لفحص هذا التسجيل.",
       replayPlayer: "مشغل إعادة التشغيل",
       replayLoading: "جارٍ تحميل إعادة التشغيل...",
       replayUnavailable: "لا توجد مقاطع إعادة تشغيل لهذه الجلسة",
@@ -9059,7 +9142,7 @@ const translatedSessionReplayTranslations = {
       replayChunksDescription:
         "مقاطع محددة النطاق تُستخدم لإعادة بناء هذا التسجيل. تبقى عناوين URL الخاصة بالمزوّد خاصة.",
       timeline: "الخط الزمني للأحداث",
-      timelineDescription: "عرض أول {{count}} أحداث لهذه الجلسة.",
+      timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",
       started: "بدأت",
       signedIn: "تم تسجيل الدخول",
       anonymous: "مجهول",
@@ -10243,6 +10326,8 @@ const translatedSessionDevToolsTranslations = {
   "zh-CN": {
     sessions: {
       devtools: "开发工具",
+      devtoolsMessage: "消息",
+      devtoolsResize: "调整开发者工具大小",
       devtoolsIssueCount: "检测到 {{count}} 个问题",
       devtoolsConsoleTab: "控制台（{{count}}）",
       devtoolsNetworkTab: "网络（{{count}}）",
@@ -10273,6 +10358,8 @@ const translatedSessionDevToolsTranslations = {
   "es-ES": {
     sessions: {
       devtools: "Herramientas de desarrollo",
+      devtoolsMessage: "Mensaje",
+      devtoolsResize: "Cambiar tamaño de las herramientas de desarrollo",
       devtoolsIssueCount: "{{count}} problemas detectados",
       devtoolsConsoleTab: "Consola ({{count}})",
       devtoolsNetworkTab: "Red ({{count}})",
@@ -10305,6 +10392,8 @@ const translatedSessionDevToolsTranslations = {
   "fr-FR": {
     sessions: {
       devtools: "Outils de dev",
+      devtoolsMessage: "Message journalisé",
+      devtoolsResize: "Redimensionner les outils de développement",
       devtoolsIssueCount: "{{count}} problèmes détectés",
       devtoolsConsoleTab: "Console ({{count}})",
       devtoolsNetworkTab: "Réseau ({{count}})",
@@ -10339,6 +10428,8 @@ const translatedSessionDevToolsTranslations = {
   "de-DE": {
     sessions: {
       devtools: "Dev-Tools",
+      devtoolsMessage: "Protokollmeldung",
+      devtoolsResize: "Entwicklertools skalieren",
       devtoolsIssueCount: "{{count}} Probleme erkannt",
       devtoolsConsoleTab: "Konsole ({{count}})",
       devtoolsNetworkTab: "Netzwerk ({{count}})",
@@ -10373,6 +10464,8 @@ const translatedSessionDevToolsTranslations = {
   "ja-JP": {
     sessions: {
       devtools: "開発ツール",
+      devtoolsMessage: "メッセージ",
+      devtoolsResize: "開発者ツールのサイズを変更",
       devtoolsIssueCount: "{{count}} 件の問題を検出",
       devtoolsConsoleTab: "コンソール（{{count}}）",
       devtoolsNetworkTab: "ネットワーク（{{count}}）",
@@ -10407,6 +10500,8 @@ const translatedSessionDevToolsTranslations = {
   "ko-KR": {
     sessions: {
       devtools: "개발자 도구",
+      devtoolsMessage: "메시지",
+      devtoolsResize: "개발자 도구 크기 조절",
       devtoolsIssueCount: "{{count}}개의 문제 감지됨",
       devtoolsConsoleTab: "콘솔 ({{count}})",
       devtoolsNetworkTab: "네트워크 ({{count}})",
@@ -10437,6 +10532,8 @@ const translatedSessionDevToolsTranslations = {
   "pt-BR": {
     sessions: {
       devtools: "Ferramentas de dev",
+      devtoolsMessage: "Mensagem",
+      devtoolsResize: "Redimensionar ferramentas de desenvolvimento",
       devtoolsIssueCount: "{{count}} problemas detectados",
       devtoolsConsoleTab: "Console ({{count}})",
       devtoolsNetworkTab: "Rede ({{count}})",
@@ -10471,6 +10568,8 @@ const translatedSessionDevToolsTranslations = {
   "hi-IN": {
     sessions: {
       devtools: "डेव टूल्स",
+      devtoolsMessage: "संदेश",
+      devtoolsResize: "डेव टूल्स का आकार बदलें",
       devtoolsIssueCount: "{{count}} समस्याएँ मिलीं",
       devtoolsConsoleTab: "कंसोल ({{count}})",
       devtoolsNetworkTab: "नेटवर्क ({{count}})",
@@ -10501,6 +10600,8 @@ const translatedSessionDevToolsTranslations = {
   "ar-SA": {
     sessions: {
       devtools: "أدوات المطوّر",
+      devtoolsMessage: "الرسالة",
+      devtoolsResize: "تغيير حجم أدوات المطوّر",
       devtoolsIssueCount: "تم اكتشاف {{count}} من المشكلات",
       devtoolsConsoleTab: "وحدة التحكم ({{count}})",
       devtoolsNetworkTab: "الشبكة ({{count}})",

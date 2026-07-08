@@ -89,6 +89,58 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier:
       "@agent-native/core/localization/actions/set-localization-preference",
   },
+  {
+    name: "create-resource-version",
+    specifier: "@agent-native/core/history/actions/create-resource-version",
+  },
+  {
+    name: "list-resource-versions",
+    specifier: "@agent-native/core/history/actions/list-resource-versions",
+  },
+  {
+    name: "get-resource-version",
+    specifier: "@agent-native/core/history/actions/get-resource-version",
+  },
+  {
+    name: "restore-resource-version",
+    specifier: "@agent-native/core/history/actions/restore-resource-version",
+  },
+  {
+    name: "list-resource-history",
+    specifier: "@agent-native/core/history/actions/list-resource-history",
+  },
+  {
+    name: "list-review-comments",
+    specifier: "@agent-native/core/review/actions/list-review-comments",
+  },
+  {
+    name: "create-review-comment",
+    specifier: "@agent-native/core/review/actions/create-review-comment",
+  },
+  {
+    name: "reply-review-comment",
+    specifier: "@agent-native/core/review/actions/reply-review-comment",
+  },
+  {
+    name: "resolve-review-thread",
+    specifier: "@agent-native/core/review/actions/resolve-review-thread",
+  },
+  {
+    name: "delete-review-comment",
+    specifier: "@agent-native/core/review/actions/delete-review-comment",
+  },
+  {
+    name: "consume-review-feedback",
+    specifier: "@agent-native/core/review/actions/consume-review-feedback",
+  },
+  {
+    name: "get-review-feedback",
+    specifier: "@agent-native/core/review/actions/get-review-feedback",
+  },
+  {
+    name: "set-review-status",
+    specifier: "@agent-native/core/review/actions/set-review-status",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {

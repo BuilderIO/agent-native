@@ -1007,6 +1007,13 @@
   min-height: 100%;
 }
 
+.plan-html-frame[data-frame="hide"]:not([data-render-mode="design"])
+  > .plan-html-frame-content
+  > :first-child {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 .plan-html-frame[data-prototype-live="true"] {
   overflow: auto;
 }

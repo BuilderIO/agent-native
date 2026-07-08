@@ -31,6 +31,8 @@ import type {
   RefreshContentDatabaseSourceRequest,
   ReviewContentDatabaseSourceChangeSetRequest,
   SetContentDatabaseSourceWriteModeRequest,
+  StageBuilderSourceBulkUpdateRequest,
+  StageBuilderSourceBulkUpdateResponse,
   StageBuilderRevisionRequest,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
@@ -60,7 +62,7 @@ function isContentDatabaseQueryForDocument(
   return params.documentId === documentId;
 }
 
-function contentDatabaseQueryFilter(documentId: string) {
+export function contentDatabaseQueryFilter(documentId: string) {
   return {
     queryKey: ["action", "get-content-database"],
     predicate: (query: Query) =>
@@ -81,6 +83,52 @@ export function writeContentDatabaseResponseToCache(
     contentDatabaseQueryFilter(documentId),
     data,
   );
+}
+
+export function applyDocumentPropertyValueToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  patch: {
+    documentId: string;
+    propertyId: string;
+    value: ContentDatabaseResponse["properties"][number]["value"];
+  },
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  const databaseProperty = current.properties.find(
+    (property) => property.definition.id === patch.propertyId,
+  );
+  if (!databaseProperty) return current;
+
+  let changed = false;
+  const items = current.items.map((item) => {
+    if (item.document.id !== patch.documentId) return item;
+
+    const existingIndex = item.properties.findIndex(
+      (property) => property.definition.id === patch.propertyId,
+    );
+    if (existingIndex >= 0) {
+      const properties = item.properties.map((property, index) =>
+        index === existingIndex
+          ? { ...property, value: patch.value }
+          : property,
+      );
+      changed = true;
+      return { ...item, properties };
+    }
+
+    changed = true;
+    return {
+      ...item,
+      properties: [
+        ...item.properties,
+        { ...databaseProperty, value: patch.value },
+      ]
+        .slice()
+        .sort((a, b) => a.definition.position - b.definition.position),
+    };
+  });
+
+  return changed ? { ...current, items } : current;
 }
 
 // `get-content-database` returns a union at runtime: the full response, or an
@@ -700,6 +748,10 @@ export function useBuilderCmsModels(enabled: boolean) {
     {
       enabled,
       retry: false,
+      placeholderData: (previous) => previous,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      refetchOnWindowFocus: false,
     },
   );
 }
@@ -945,6 +997,23 @@ export function usePrepareBuilderSourceReview(documentId: string) {
     PrepareBuilderSourceReviewResponse,
     PrepareBuilderSourceReviewRequest
   >("prepare-builder-source-review", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useStageBuilderSourceBulkUpdate(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    StageBuilderSourceBulkUpdateResponse,
+    StageBuilderSourceBulkUpdateRequest
+  >("stage-builder-source-bulk-update", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

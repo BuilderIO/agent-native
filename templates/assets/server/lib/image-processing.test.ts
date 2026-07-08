@@ -9,6 +9,7 @@ import {
   makeThumbnail,
   maskFromManualMaskAlpha,
   maskFromPlateAlpha,
+  prepareGptImage2SkeletonInpaintImages,
 } from "./image-processing.js";
 
 async function solidPng(
@@ -40,6 +41,27 @@ async function alphaPatternPng(
     data[offset + 1] = 90;
     data[offset + 2] = 180;
     data[offset + 3] = alphas[pixel] ?? 255;
+  }
+  return sharp(data, {
+    raw: {
+      width,
+      height,
+      channels: 4,
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
+async function splitAlphaMaskPng(width: number, height: number) {
+  const data = Buffer.alloc(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const offset = pixel * 4;
+    const x = pixel % width;
+    data[offset] = 255;
+    data[offset + 1] = 255;
+    data[offset + 2] = 255;
+    data[offset + 3] = x < width / 2 ? 0 : 255;
   }
   return sharp(data, {
     raw: {
@@ -183,5 +205,40 @@ describe("image processing helpers", () => {
     await expect(
       maskFromManualMaskAlpha({ plate, mask: manualMask }),
     ).rejects.toThrow("same pixel size as the background plate");
+  });
+
+  it("normalizes small gpt-image-2 inpaint plates and masks to a valid edit size", async () => {
+    const plate = await solidPng(800, 558, { r: 0, g: 12, b: 16 });
+    const mask = await splitAlphaMaskPng(800, 558);
+
+    const prepared = await prepareGptImage2SkeletonInpaintImages({
+      plate,
+      mask,
+    });
+
+    expect(prepared.resized).toBe(true);
+    expect(prepared.size.width % 16).toBe(0);
+    expect(prepared.size.height % 16).toBe(0);
+    expect(prepared.size.width * prepared.size.height).toBeGreaterThanOrEqual(
+      655_360,
+    );
+    expect(
+      Math.abs(prepared.size.width / prepared.size.height - 800 / 558),
+    ).toBeLessThan(0.04);
+
+    const plateMeta = await sharp(prepared.plate).metadata();
+    const maskMeta = await sharp(prepared.mask).metadata();
+    expect(plateMeta.width).toBe(prepared.size.width);
+    expect(plateMeta.height).toBe(prepared.size.height);
+    expect(maskMeta.width).toBe(prepared.size.width);
+    expect(maskMeta.height).toBe(prepared.size.height);
+
+    const maskAlpha = await sharp(prepared.mask)
+      .ensureAlpha()
+      .extractChannel("alpha")
+      .raw()
+      .toBuffer();
+    expect(maskAlpha.some((value) => value === 0)).toBe(true);
+    expect(maskAlpha.some((value) => value === 255)).toBe(true);
   });
 });

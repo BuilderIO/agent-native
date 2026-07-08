@@ -1,5 +1,12 @@
 # @agent-native/scheduling
 
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [ec523c4]
+  - @agent-native/toolkit@0.4.2
+
 ## 0.1.19
 
 ### Patch Changes

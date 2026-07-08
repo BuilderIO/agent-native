@@ -121,6 +121,7 @@ export function useIsDark(): boolean {
  */
 export const KitConfigContext = createContext<{
   skeleton?: boolean;
+  flushFrame?: boolean;
   sketch?: number;
   theme?: "light" | "dark";
   style?: "sketchy" | "clean";
@@ -195,6 +196,7 @@ export function Screen({
   const isSkeleton = skeleton || Boolean(cfg.skeleton);
   const wfStyle = cfg.style ?? "sketchy";
   const wfTheme = theme ?? cfg.theme ?? "light";
+  const effectivePad = cfg.flushFrame ? 0 : pad;
   void sketch;
   return (
     <div
@@ -218,7 +220,7 @@ export function Screen({
         lineHeight: 1.25,
         display: "flex",
         flexDirection: "column",
-        padding: pad,
+        padding: effectivePad,
         boxSizing: "border-box",
         overflow: "hidden",
         ...style,

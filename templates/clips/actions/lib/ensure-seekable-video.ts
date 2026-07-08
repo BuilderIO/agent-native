@@ -218,7 +218,8 @@ export async function ensureRecordingSeekable(params: {
     filename: `${recordingId}.${videoFormat}`,
     mimeType,
     ownerEmail,
-    skipCompressionWait: true,
+    stableUrl: true,
+    recordAsset: false,
   });
 
   if (!upload?.url) {

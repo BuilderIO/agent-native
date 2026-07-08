@@ -83,6 +83,7 @@ const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const reportedDiscoverAppsReadFailures = new Set<string>();
 const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store, no-cache, max-age=0, must-revalidate",
@@ -287,6 +288,23 @@ function readJson(file: string): any {
   }
 }
 
+function shouldReportDiscoverAppsReadFailure(
+  appsDir: string,
+  code: string | undefined,
+): boolean {
+  if (code === "ENOENT") return false;
+  const key = `${appsDir}:${code ?? "unknown"}`;
+  if (reportedDiscoverAppsReadFailures.has(key)) return false;
+  reportedDiscoverAppsReadFailures.add(key);
+  return true;
+}
+
+function shouldCaptureDiscoverAppsReadFailure(
+  code: string | undefined,
+): boolean {
+  return code !== "EACCES" && code !== "EPERM";
+}
+
 function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
   if (!fs.existsSync(appsDir)) return [];
   // existsSync -> readdirSync is a TOCTOU race. Treat ENOENT as "no apps
@@ -296,15 +314,17 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
     entries = fs.readdirSync(appsDir, { withFileTypes: true });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
+    if (shouldReportDiscoverAppsReadFailure(appsDir, code)) {
       console.warn(
         `[workspace] Could not read ${appsDir} (${code ?? "unknown"}): ` +
           `${(err as Error).message}`,
       );
-      Sentry.captureException(err, {
-        tags: { handled: "dev-discover-readdir" },
-        level: "warning",
-      });
+      if (shouldCaptureDiscoverAppsReadFailure(code)) {
+        Sentry.captureException(err, {
+          tags: { handled: "dev-discover-readdir" },
+          level: "warning",
+        });
+      }
     }
     return [];
   }

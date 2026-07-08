@@ -1,8 +1,9 @@
 import {
+  AgentToggleButton,
   appApiPath,
+  callAction,
   PromptComposer,
   useActionMutation,
-  useActionQuery,
   useSendToAgentChat,
   useT,
 } from "@agent-native/core/client";
@@ -10,6 +11,7 @@ import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-
 import {
   IconArrowLeft,
   IconCheck,
+  IconChevronRight,
   IconCopy,
   IconExclamationCircle,
   IconKeyboard,
@@ -53,7 +55,10 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { extractReplayDiagnostics } from "./session-replay-devtools";
-import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
+import {
+  type SessionIssueMatch,
+  SessionDevToolsPanel,
+} from "./SessionDevToolsPanel";
 
 type SessionRecordingSummary = {
   id: string;
@@ -113,6 +118,11 @@ type SessionReplayPlaybackResponse = {
   eventCount: number;
   truncated: boolean;
   unavailableChunks: number;
+  loadedChunks: number;
+  totalChunks: number;
+  loadedBytes: number;
+  totalBytes: number;
+  isComplete: boolean;
 };
 
 type AnyReplayEvent = Record<string, any>;
@@ -124,9 +134,11 @@ type ReplayMarker = {
   id: string;
   offsetMs: number;
   timestamp: number;
-  kind: "navigation" | "input" | "click" | "custom";
+  kind: "navigation" | "input" | "click" | "console" | "custom";
   label: string;
   detail?: string;
+  severity?: "info" | "warn" | "error";
+  fields?: Array<{ label: string; value: string }>;
 };
 
 type SkipRange = {
@@ -148,6 +160,53 @@ const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
 const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
+const DEFAULT_DEVTOOLS_HEIGHT = 280;
+const SCRUBBER_MARKER_LIMIT = 500;
+const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
+const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
+
+const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
+  console: [],
+  network: [],
+  consoleErrorCount: 0,
+  networkFailedCount: 0,
+};
+
+type ReplayConsoleDiagnostics = ReturnType<
+  typeof extractReplayDiagnostics
+>["console"];
+
+type ConsoleErrorSignaturePayload = {
+  key: string;
+  source: string;
+  message: string;
+  stack?: string;
+};
+
+/**
+ * Distill the resolvable error lines from a session's console diagnostics for
+ * issue matching. Only error-level lines are worth sending: window errors,
+ * unhandled rejections, and manual `captureException` all surface at `error`
+ * level with a serialized `Name: message` (+ stack) that the server can
+ * fingerprint back to a captured issue. Non-error console lines are left alone,
+ * and anything without a captured issue simply comes back unmatched.
+ */
+function buildConsoleErrorSignatures(
+  entries: ReplayConsoleDiagnostics,
+): ConsoleErrorSignaturePayload[] {
+  const signatures: ConsoleErrorSignaturePayload[] = [];
+  for (const entry of entries) {
+    if (entry.level !== "error" || !entry.message) continue;
+    signatures.push({
+      key: entry.id,
+      source: entry.source,
+      message: entry.message,
+      ...(entry.stack ? { stack: entry.stack } : {}),
+    });
+    if (signatures.length >= 100) break;
+  }
+  return signatures;
+}
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -211,10 +270,13 @@ export default function SessionDetailPage() {
           ) : null}
         </div>
         {recording ? (
-          <div className="flex shrink-0 items-center gap-2">
-            <CopySessionForAgentButton recordingId={recording.id} />
-            <AskSessionPopover recording={recording} />
-          </div>
+          <TooltipProvider>
+            <div className="flex shrink-0 items-center gap-2">
+              <CopySessionForAgentButton recordingId={recording.id} />
+              <AskSessionPopover recording={recording} />
+              <AgentToggleButton />
+            </div>
+          </TooltipProvider>
         ) : null}
       </div>
 
@@ -257,19 +319,24 @@ function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
   }
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      onClick={() => void handleCopy()}
-      disabled={createLink.isPending}
-    >
-      {copied ? (
-        <IconCheck className="h-4 w-4" />
-      ) : (
-        <IconCopy className="h-4 w-4" />
-      )}
-      {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void handleCopy()}
+          disabled={createLink.isPending}
+        >
+          {copied ? (
+            <IconCheck className="h-4 w-4" />
+          ) : (
+            <IconCopy className="h-4 w-4" />
+          )}
+          {copied ? t("sessions.copiedForAgent") : t("sessions.copyForAgent")}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t("sessions.copyForAgentTooltip")}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -298,12 +365,17 @@ function AskSessionPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="outline" disabled={isGenerating}>
-          <IconMessageCircle className="h-4 w-4" />
-          {t("sessions.askAgent")}
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="outline" disabled={isGenerating}>
+              <IconMessageCircle className="h-4 w-4" />
+              {t("sessions.askAgent")}
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("sessions.askAgentTooltip")}</TooltipContent>
+      </Tooltip>
       <PopoverContent
         className="w-[calc(100vw-2rem)] p-3 sm:w-[460px]"
         align="end"
@@ -398,6 +470,7 @@ function ReplayPlayer({
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
   const [skipInactive, setSkipInactive] = useState(true);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
+  const [devToolsHeight, setDevToolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
   const [streamedDims, setStreamedDims] = useState<{
     width: number;
     height: number;
@@ -414,14 +487,58 @@ function ReplayPlayer({
   const skipInactiveRef = useLiveRef(skipInactive);
   const currentTimeRef = useLiveRef(currentTime);
   const playingRef = useLiveRef(playing);
+  const speedRef = useLiveRef(speed);
 
   const currentUrl = useMemo(
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
-  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
-  const devToolsIssueCount =
-    diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
+  const diagnostics = useMemo(
+    () => (devToolsOpen ? extractReplayDiagnostics(events) : EMPTY_DIAGNOSTICS),
+    [devToolsOpen, events],
+  );
+  const devToolsIssueCount = devToolsOpen
+    ? diagnostics.consoleErrorCount + diagnostics.networkFailedCount
+    : response.recording.errorCount;
+
+  // Resolve captured console errors in this replay to their Sentry-style issue
+  // groups (one batched, access-scoped call, server-computed fingerprints) so
+  // each error can deep-link to its full issue detail. Only runs once devtools
+  // are open and there is at least one error line worth looking up.
+  const errorSignatures = useMemo(
+    () => buildConsoleErrorSignatures(diagnostics.console),
+    [diagnostics.console],
+  );
+  const errorSignaturesKey = useMemo(
+    () => JSON.stringify(errorSignatures),
+    [errorSignatures],
+  );
+  const recordingId = response.recording.id;
+  const issueMatchQuery = useQuery({
+    queryKey: ["match-error-issues", recordingId, errorSignaturesKey],
+    queryFn: () =>
+      callAction<Record<string, SessionIssueMatch>>(
+        "match-error-issues",
+        { signatures: errorSignatures },
+        { method: "POST" },
+      ),
+    enabled: devToolsOpen && errorSignatures.length > 0,
+    staleTime: 60_000,
+  });
+  const issueMatches = useMemo(() => {
+    const map = new Map<string, SessionIssueMatch>();
+    const data = issueMatchQuery.data;
+    if (data) {
+      for (const [key, value] of Object.entries(data)) map.set(key, value);
+    }
+    return map;
+  }, [issueMatchQuery.data]);
+  const loadingPercent =
+    response.totalChunks > 0
+      ? clamp(response.loadedChunks / response.totalChunks, 0, 1)
+      : response.isComplete
+        ? 1
+        : 0;
 
   useEffect(() => {
     const el = stageAreaRef.current;
@@ -479,6 +596,13 @@ function ReplayPlayer({
     let localReplayer: any = null;
 
     async function loadReplay() {
+      const hasPlayableEvents = hasPlayableReplayEvents(events);
+      if (!hasPlayableEvents && !response.isComplete) {
+        setStatus("loading");
+        setError(null);
+        setPlaying(false);
+        return;
+      }
       if (events.length < 2) {
         throw new Error(t("sessions.noReplayEvents"));
       }
@@ -497,7 +621,7 @@ function ReplayPlayer({
       setStreamedDims(initialDims);
       localReplayer = new Replayer(events as any[], {
         root: stageRootRef.current,
-        speed: DEFAULT_SPEED,
+        speed: speedRef.current,
         skipInactive: false,
         showWarning: false,
         showDebug: false,
@@ -518,6 +642,11 @@ function ReplayPlayer({
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(events));
       setTotalTime(Number.isFinite(total) ? total : 0);
+      const startAt = clamp(
+        currentTimeRef.current,
+        0,
+        Number.isFinite(total) ? total : 0,
+      );
       applyReplayFrameDimensions(localReplayer, initialDims);
       localReplayer.on?.("finish", () => {
         setPlaying(false);
@@ -540,15 +669,15 @@ function ReplayPlayer({
         );
         revealReplayFrame(localReplayer);
       });
-      updateTime(0);
+      updateTime(startAt);
       setStatus("ready");
       try {
-        localReplayer.play?.(0);
+        localReplayer.play?.(startAt);
         setPlaying(true);
       } catch (autoplayError) {
         console.warn("[session-replay] autoplay failed", autoplayError);
         try {
-          localReplayer.pause?.(0);
+          localReplayer.pause?.(startAt);
         } catch {
           // Some rrweb versions only render after play; the first click still works.
         }
@@ -584,7 +713,15 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-  }, [events, initialDims, t, updateTime]);
+  }, [
+    currentTimeRef,
+    events,
+    initialDims,
+    response.isComplete,
+    speedRef,
+    t,
+    updateTime,
+  ]);
 
   useEffect(() => {
     if (!playing || status !== "ready") {
@@ -711,8 +848,26 @@ function ReplayPlayer({
                 onClick={togglePlay}
               />
               {status === "loading" ? (
-                <div className="absolute inset-0 z-30 grid place-items-center bg-background/70 text-sm text-muted-foreground">
-                  {t("sessions.replayLoading")}
+                <div className="absolute inset-0 z-30 grid place-items-center bg-background/70 p-6 text-center text-sm text-muted-foreground">
+                  <div className="w-full max-w-sm">
+                    <p>{t("sessions.replayLoading")}</p>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width]"
+                        style={{
+                          width: `${Math.round(loadingPercent * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    {response.totalChunks > 0 ? (
+                      <p className="mt-2 font-mono text-[11px]">
+                        {t("sessions.replayLoadingProgress", {
+                          loaded: String(response.loadedChunks),
+                          total: String(response.totalChunks),
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
               {status === "error" && error ? (
@@ -845,7 +1000,10 @@ function ReplayPlayer({
             <SessionDevToolsPanel
               diagnostics={diagnostics}
               currentTime={currentTime}
+              height={devToolsHeight}
+              onHeightChange={setDevToolsHeight}
               onSeek={(ms) => seek(ms, true)}
+              issueMatches={issueMatches}
             />
           ) : null}
 
@@ -880,6 +1038,10 @@ function ReplayScrubber({
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
+  const scrubberMarkers = useMemo(
+    () => visibleScrubberMarkers(markers, totalTime),
+    [markers, totalTime],
+  );
   return (
     <div className="relative min-h-8 min-w-[180px] flex-1">
       <input
@@ -904,8 +1066,8 @@ function ReplayScrubber({
             <span
               key={`${range.startMs}-${range.endMs}`}
               className={cn(
-                "absolute top-0 h-full rounded-full bg-muted-foreground transition-opacity",
-                skipInactive ? "opacity-30" : "opacity-10",
+                "absolute top-0 h-full rounded-full bg-amber-400 transition-opacity",
+                skipInactive ? "opacity-50" : "opacity-20",
               )}
               style={{ left: `${left}%`, width: `${width}%` }}
             />
@@ -913,7 +1075,7 @@ function ReplayScrubber({
         })}
       </div>
       <div className="pointer-events-none absolute inset-x-0 top-1/2 z-30 h-5 -translate-y-1/2">
-        {markers.slice(0, 200).map((marker) => {
+        {scrubberMarkers.map((marker) => {
           const left = totalTime > 0 ? (marker.offsetMs / totalTime) * 100 : 0;
           return (
             <span
@@ -926,7 +1088,13 @@ function ReplayScrubber({
                     ? "bg-emerald-500"
                     : marker.kind === "click"
                       ? "bg-sky-500"
-                      : "bg-violet-500",
+                      : marker.kind === "console"
+                        ? marker.severity === "error"
+                          ? "bg-red-500"
+                          : marker.severity === "warn"
+                            ? "bg-amber-500"
+                            : "bg-slate-400"
+                        : "bg-violet-500",
               )}
               style={{ left: `${left}%` }}
             />
@@ -978,7 +1146,8 @@ function ReplayTimeline({
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
-  const visibleMarkers = markers.slice(0, 120);
+  const [expandedMarkerId, setExpandedMarkerId] = useState<string | null>(null);
+  const visibleMarkers = markers.slice(0, 300);
   return (
     <Card className="analytics-session-detail-timeline min-h-0 overflow-hidden">
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
@@ -991,6 +1160,7 @@ function ReplayTimeline({
             {visibleMarkers.length
               ? t("sessions.timelineDescription", {
                   count: String(visibleMarkers.length),
+                  total: String(markers.length),
                 })
               : t("sessions.noTimelineEvents")}
           </p>
@@ -998,48 +1168,71 @@ function ReplayTimeline({
         <div className="min-h-0 flex-1 overflow-auto">
           {visibleMarkers.length ? (
             <div className="divide-y">
-              {visibleMarkers.map((marker) => (
-                <button
-                  key={marker.id}
-                  type="button"
-                  className={cn(
-                    "flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
-                    marker.id === activeMarkerId && "bg-muted",
-                  )}
-                  onClick={() => onSeek(marker.offsetMs)}
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
-                      marker.kind === "navigation" &&
-                        "border-amber-500/35 bg-amber-500/10 text-amber-500",
-                      marker.kind === "input" &&
-                        "border-emerald-500/35 bg-emerald-500/10 text-emerald-500",
-                      marker.kind === "click" &&
-                        "border-sky-500/35 bg-sky-500/10 text-sky-500",
-                      marker.kind === "custom" &&
-                        "border-violet-500/35 bg-violet-500/10 text-violet-500",
-                    )}
+              {visibleMarkers.map((marker) => {
+                const expanded = marker.id === expandedMarkerId;
+                return (
+                  <div
+                    key={marker.id}
+                    className={cn(marker.id === activeMarkerId && "bg-muted")}
                   >
-                    <MarkerIcon kind={marker.kind} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="truncate text-sm font-medium">
-                        {marker.label}
+                    <button
+                      type="button"
+                      className="flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                      aria-expanded={expanded}
+                      onClick={() => {
+                        onSeek(marker.offsetMs);
+                        setExpandedMarkerId((current) =>
+                          current === marker.id ? null : marker.id,
+                        );
+                      }}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
+                          marker.kind === "navigation" &&
+                            "border-amber-500/35 bg-amber-500/10 text-amber-500",
+                          marker.kind === "input" &&
+                            "border-emerald-500/35 bg-emerald-500/10 text-emerald-500",
+                          marker.kind === "click" &&
+                            "border-sky-500/35 bg-sky-500/10 text-sky-500",
+                          marker.kind === "console" &&
+                            marker.severity !== "error" &&
+                            "border-slate-500/35 bg-slate-500/10 text-slate-400",
+                          marker.kind === "console" &&
+                            marker.severity === "error" &&
+                            "border-red-500/35 bg-red-500/10 text-red-500",
+                          marker.kind === "custom" &&
+                            "border-violet-500/35 bg-violet-500/10 text-violet-500",
+                        )}
+                      >
+                        <MarkerIcon kind={marker.kind} />
                       </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {formatClock(marker.offsetMs)}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="truncate text-sm font-medium">
+                            {marker.label}
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {formatClock(marker.offsetMs)}
+                          </span>
+                        </span>
+                        {marker.detail ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {marker.detail}
+                          </span>
+                        ) : null}
                       </span>
-                    </span>
-                    {marker.detail ? (
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {marker.detail}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              ))}
+                      <IconChevronRight
+                        className={cn(
+                          "mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
+                          expanded && "rotate-90 rtl:scale-x-100",
+                        )}
+                      />
+                    </button>
+                    {expanded ? <MarkerDetail marker={marker} /> : null}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="p-4 text-sm text-muted-foreground">
@@ -1056,7 +1249,34 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
   if (kind === "navigation") return <IconRoute className="h-4 w-4" />;
   if (kind === "input") return <IconKeyboard className="h-4 w-4" />;
   if (kind === "click") return <IconMouse className="h-4 w-4" />;
+  if (kind === "console") return <IconTerminal2 className="h-4 w-4" />;
   return <IconTimelineEvent className="h-4 w-4" />;
+}
+
+function MarkerDetail({ marker }: { marker: ReplayMarker }) {
+  return (
+    <div className="space-y-2 border-t bg-muted/25 px-3 py-2 ps-12">
+      {marker.detail ? (
+        <p className="break-words text-xs text-muted-foreground">
+          {marker.detail}
+        </p>
+      ) : null}
+      {marker.fields?.length ? (
+        <dl className="grid gap-2 text-xs">
+          {marker.fields.map((field) => (
+            <div key={`${marker.id}-${field.label}`} className="min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {field.label}
+              </dt>
+              <dd className="mt-0.5 break-all font-mono text-[11px] text-foreground/80">
+                {field.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
 }
 
 function DetailSkeleton() {
@@ -1070,14 +1290,136 @@ function DetailSkeleton() {
 
 function useSessionReplayPlayback(recordingId: string) {
   const agentAccessToken = currentSessionReplayAgentAccessToken();
-  return useQuery({
-    queryKey: ["session-replay-playback", recordingId, agentAccessToken],
-    enabled: Boolean(recordingId),
-    staleTime: 30_000,
-    gcTime: 60_000,
-    queryFn: () =>
-      fetchSessionReplayPlayback(recordingId, { agentAccessToken }),
+  const [state, setState] = useState<{
+    data: SessionReplayPlaybackResponse | null;
+    isLoading: boolean;
+    error: Error | null;
+  }>({
+    data: null,
+    isLoading: Boolean(recordingId),
+    error: null,
   });
+
+  useEffect(() => {
+    if (!recordingId) {
+      setState({ data: null, isLoading: false, error: null });
+      return;
+    }
+
+    let cancelled = false;
+    setState({ data: null, isLoading: true, error: null });
+
+    async function loadProgressively() {
+      try {
+        const manifest = await fetchReplayManifest(recordingId, {
+          agentAccessToken,
+        });
+        if (cancelled) return;
+
+        const loadedChunks = new Array<ReplayChunkEvents | undefined>(
+          manifest.chunks.length,
+        );
+        let loadedCount = 0;
+        let loadedBytes = 0;
+        let unavailableChunks = 0;
+        let nextIndex = 0;
+        let firstPlayablePublished = false;
+
+        const publish = (force = false) => {
+          const complete = loadedCount >= manifest.chunks.length;
+          const chunks = loadedChunks.filter(
+            (chunk): chunk is ReplayChunkEvents => Boolean(chunk),
+          );
+          const shouldPublishEvents =
+            force ||
+            complete ||
+            (!firstPlayablePublished &&
+              hasPlayableReplayEvents(chunks.flatMap((chunk) => chunk.events)));
+
+          if (shouldPublishEvents) {
+            firstPlayablePublished = true;
+            setState({
+              data: playbackResponseFromChunks(manifest, chunks, {
+                isComplete: complete,
+                loadedChunks: loadedCount,
+                loadedBytes,
+                unavailableChunks,
+              }),
+              isLoading: false,
+              error: null,
+            });
+            return;
+          }
+
+          setState((current) => ({
+            data: current.data
+              ? {
+                  ...current.data,
+                  loadedChunks: loadedCount,
+                  loadedBytes,
+                  unavailableChunks,
+                }
+              : playbackResponseFromChunks(manifest, [], {
+                  isComplete: complete,
+                  loadedChunks: loadedCount,
+                  loadedBytes,
+                  unavailableChunks,
+                }),
+            isLoading: false,
+            error: null,
+          }));
+        };
+
+        publish();
+
+        async function worker() {
+          while (!cancelled && nextIndex < manifest.chunks.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            const chunk = await fetchReplayChunk(manifest.chunks[index], {
+              agentAccessToken,
+            });
+            loadedChunks[index] = chunk;
+            loadedCount += 1;
+            loadedBytes += manifest.chunks[index].byteLength;
+            if (chunk.unavailable) unavailableChunks += 1;
+            if (!cancelled) publish();
+          }
+        }
+
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(
+                REPLAY_CHUNK_FETCH_CONCURRENCY,
+                manifest.chunks.length,
+              ),
+            },
+            worker,
+          ),
+        );
+        if (!cancelled) publish(true);
+      } catch (loadError) {
+        if (cancelled) return;
+        cancelled = true;
+        setState({
+          data: null,
+          isLoading: false,
+          error:
+            loadError instanceof Error
+              ? loadError
+              : new Error(String(loadError)),
+        });
+      }
+    }
+
+    void loadProgressively();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentAccessToken, recordingId]);
+
+  return state;
 }
 
 interface FetchSessionReplayPlaybackOptions {
@@ -1091,8 +1433,34 @@ export async function fetchSessionReplayPlayback(
   const manifest = await fetchReplayManifest(recordingId, options);
   const chunks = await fetchReplayChunks(manifest.chunks, options);
   const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
+  const loadedBytes = manifest.chunks.reduce(
+    (sum, chunk) => sum + chunk.byteLength,
+    0,
+  );
+  return playbackResponseFromChunks(manifest, chunks, {
+    isComplete: true,
+    loadedChunks: chunks.length,
+    loadedBytes,
+    unavailableChunks,
+  });
+}
+
+function playbackResponseFromChunks(
+  manifest: SessionReplayManifestResponse,
+  chunks: ReplayChunkEvents[],
+  progress: {
+    isComplete: boolean;
+    loadedChunks: number;
+    loadedBytes: number;
+    unavailableChunks: number;
+  },
+): SessionReplayPlaybackResponse {
   const eventCount = chunks.reduce(
     (sum, chunk) => sum + chunk.events.length,
+    0,
+  );
+  const totalBytes = manifest.chunks.reduce(
+    (sum, chunk) => sum + chunk.byteLength,
     0,
   );
   return {
@@ -1100,7 +1468,12 @@ export async function fetchSessionReplayPlayback(
     chunks,
     eventCount,
     truncated: false,
-    unavailableChunks,
+    unavailableChunks: progress.unavailableChunks,
+    loadedChunks: progress.loadedChunks,
+    totalChunks: manifest.chunks.length,
+    loadedBytes: progress.loadedBytes,
+    totalBytes,
+    isComplete: progress.isComplete,
   };
 }
 
@@ -1436,7 +1809,7 @@ function isScriptLikeLink(attributes: unknown): boolean {
   );
 }
 
-function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
+export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
   const startedAt = replayStartedAt(events);
   const markers: ReplayMarker[] = [];
   for (const event of events) {
@@ -1452,19 +1825,26 @@ function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "navigation",
-        label: pathLabel(href),
+        label: "Navigate",
         detail: href,
+        fields: [{ label: "URL", value: href }],
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.Input
     ) {
+      const inputValue = replayInputValue(event.data);
       markers.push({
         id: `input-${timestamp}-${markers.length}`,
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "input",
-        label: "Input",
+        label: inputValue ? "Input changed" : "Input",
+        detail: inputValue,
+        fields: markerFields([
+          ["Element id", event.data?.id],
+          ["Value", inputValue],
+        ]),
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
@@ -1478,23 +1858,73 @@ function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "click",
-        label: event.data?.type === MOUSE_INTERACTION.Focus ? "Focus" : "Click",
+        label: mouseInteractionLabel(event.data?.type),
+        detail: pointerDetail(event.data),
+        fields: markerFields([
+          ["Element id", event.data?.id],
+          ["X", event.data?.x],
+          ["Y", event.data?.y],
+        ]),
       });
     } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
-      markers.push({
-        id: `custom-${timestamp}-${markers.length}`,
+      const marker = customReplayMarker(
+        event,
         timestamp,
-        offsetMs: Math.max(0, timestamp - startedAt),
-        kind: "custom",
-        label: String(event.data?.tag ?? "Custom event"),
-        detail:
-          typeof event.data?.payload?.message === "string"
-            ? event.data.payload.message
-            : undefined,
-      });
+        startedAt,
+        markers.length,
+      );
+      if (marker) markers.push(marker);
     }
   }
   return markers.sort((a, b) => a.offsetMs - b.offsetMs);
+}
+
+function customReplayMarker(
+  event: AnyReplayEvent,
+  timestamp: number,
+  startedAt: number,
+  index: number,
+): ReplayMarker | null {
+  const tag = String(event.data?.tag ?? "Custom event");
+  const payload = isRecord(event.data?.payload) ? event.data.payload : {};
+  const offsetMs = Math.max(0, timestamp - startedAt);
+
+  if (tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
+    const level = typeof payload.level === "string" ? payload.level : "log";
+    if (level !== "error" && level !== "warn") return null;
+    const message =
+      typeof payload.message === "string" ? payload.message : undefined;
+    return {
+      id: `console-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "console",
+      label: level === "error" ? "Console error" : `Console ${level}`,
+      detail: message,
+      severity:
+        level === "error" ? "error" : level === "warn" ? "warn" : "info",
+      fields: markerFields([
+        ["Level", level],
+        ["Source", payload.source],
+        ["Message", message],
+        ["URL", payload.url],
+        ["Stack", payload.stack],
+      ]),
+    };
+  }
+
+  if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
+    return null;
+  }
+
+  return {
+    id: `custom-${timestamp}-${index}`,
+    timestamp,
+    offsetMs,
+    kind: "custom",
+    label: tag,
+    detail: typeof payload.message === "string" ? payload.message : undefined,
+  };
 }
 
 function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
@@ -1561,6 +1991,18 @@ function currentUrlAt(events: AnyReplayEvent[], currentTime: number): string {
     else break;
   }
   return current;
+}
+
+function hasPlayableReplayEvents(events: unknown[]): boolean {
+  let hasFullSnapshot = false;
+  let hasMeta = false;
+  for (const event of events) {
+    if (!isRecord(event)) continue;
+    if (event.type === RRWEB_EVENT_TYPE.FullSnapshot) hasFullSnapshot = true;
+    if (event.type === RRWEB_EVENT_TYPE.Meta) hasMeta = true;
+    if (hasFullSnapshot && hasMeta) return true;
+  }
+  return false;
 }
 
 export function replayViewportDimensions(
@@ -1639,13 +2081,66 @@ function replayDuration(events: AnyReplayEvent[]): number {
   return Math.max(0, endedAt - startedAt);
 }
 
-function pathLabel(href: string): string {
-  try {
-    const url = new URL(href);
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return href;
+function replayInputValue(data: AnyRecord): string | undefined {
+  if (typeof data.text === "string" && data.text) return data.text;
+  if (typeof data.value === "string" && data.value) return data.value;
+  if (typeof data.isChecked === "boolean") {
+    return data.isChecked ? "Checked" : "Unchecked";
   }
+  return undefined;
+}
+
+function mouseInteractionLabel(type: unknown): string {
+  if (type === MOUSE_INTERACTION.DblClick) return "Double click";
+  if (type === MOUSE_INTERACTION.Focus) return "Focus";
+  return "Click";
+}
+
+function pointerDetail(data: AnyRecord): string | undefined {
+  const x = Number(data.x);
+  const y = Number(data.y);
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    return `x ${Math.round(x)}, y ${Math.round(y)}`;
+  }
+  return undefined;
+}
+
+function markerFields(
+  entries: Array<[string, unknown]>,
+): Array<{ label: string; value: string }> | undefined {
+  const fields = entries.flatMap(([label, value]) => {
+    if (value === undefined || value === null || value === "") return [];
+    return [{ label, value: String(value) }];
+  });
+  return fields.length ? fields : undefined;
+}
+
+function visibleScrubberMarkers(
+  markers: ReplayMarker[],
+  totalTime: number,
+): ReplayMarker[] {
+  if (markers.length <= SCRUBBER_MARKER_LIMIT || totalTime <= 0) return markers;
+  const bucketMs = Math.max(1, totalTime / SCRUBBER_MARKER_LIMIT);
+  const buckets = new Map<number, ReplayMarker>();
+
+  for (const marker of markers) {
+    const bucket = Math.floor(marker.offsetMs / bucketMs);
+    const current = buckets.get(bucket);
+    if (!current || markerPriority(marker) > markerPriority(current)) {
+      buckets.set(bucket, marker);
+    }
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.offsetMs - b.offsetMs);
+}
+
+function markerPriority(marker: ReplayMarker): number {
+  if (marker.severity === "error") return 6;
+  if (marker.kind === "navigation") return 5;
+  if (marker.kind === "click") return 4;
+  if (marker.severity === "warn") return 3;
+  if (marker.kind === "input") return 2;
+  return 1;
 }
 
 function visitorLabel(

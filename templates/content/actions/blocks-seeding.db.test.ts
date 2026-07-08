@@ -205,6 +205,45 @@ describe("read paths do not mutate (finding 2)", () => {
     expect(await blocksDefinitions(databaseId)).toHaveLength(0);
   });
 
+  it("getContentDatabaseResponse omits row document bodies from table payloads", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = `row_doc_${databaseId}`;
+    const largeBody = "Builder body paragraph. ".repeat(1_000);
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Hydrated Builder row",
+      content: largeBody,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await databaseUtils.getContentDatabaseResponse(databaseId);
+
+    expect(response.items).toHaveLength(1);
+    expect(response.items[0].document.title).toBe("Hydrated Builder row");
+    expect(response.items[0].document.content).toBe("");
+    const [stored] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(stored.content).toBe(largeBody);
+  });
+
   it("listPropertiesForDocument does not seed when opening a row", async () => {
     const { databaseId, documentId } = await createDatabaseRow();
     const db = getDb();

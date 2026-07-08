@@ -115,6 +115,7 @@ export default defineAction({
   description:
     "Save an ad-hoc analysis as a reusable artifact. Do not call this for ordinary in-chat analysis or deep-dive answers unless the user explicitly asks to save/create a reusable analysis, or this turn is re-running an existing saved analysis. Stores the analysis question, instructions for re-running, data sources used, and compact results. " +
     "This creates a reusable analysis that anyone can re-run later to get updated results. " +
+    "Saved analyses appear in the Analyses sidebar, so do not use this as scratch storage, as a transient summary, or as a duplicate companion artifact when creating a dashboard or extension unless the user explicitly asked for a saved analysis too. " +
     "Call this only after you've gathered real evidence and include non-empty, compact resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, short transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records. Never include full Gong transcripts, full tool outputs, or bulk raw provider payloads.",
   schema: z.object({
     id: z

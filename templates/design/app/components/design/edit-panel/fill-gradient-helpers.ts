@@ -342,3 +342,27 @@ export function defaultGradientLayer(
 ) {
   return buildGradientLayer(type, defaultGradientStops(colorValue));
 }
+
+/**
+ * Atomic patch for switching a solid fill to a gradient paint type: prepends
+ * a default gradient layer built from the current solid color AND clears the
+ * solid backgroundColor underneath it.
+ */
+export function solidToGradientPatch(
+  colorValue: string,
+  backgroundLayers: string[],
+  type: DesignGradientType,
+): { backgroundImage: string; backgroundColor: string } {
+  return {
+    backgroundImage: joinCssLayers([
+      defaultGradientLayer(type, cssColorOrFallback(colorValue, "#000000")),
+      ...backgroundLayers,
+    ]),
+    // Convert the solid fill into the gradient instead of stacking the
+    // gradient on top of it — leaving backgroundColor set kept a second
+    // real fill alive (the default gradient fades to alpha-0, so the old
+    // solid showed through) and the Fill panel correctly-but-confusingly
+    // listed two rows for what the user meant as one type switch.
+    backgroundColor: "transparent",
+  };
+}

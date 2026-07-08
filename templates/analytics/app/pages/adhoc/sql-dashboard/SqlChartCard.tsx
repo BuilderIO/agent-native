@@ -296,8 +296,8 @@ export function SqlChartCard({
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
   // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen, refresh, open extension); editable dashboards also get
-  // delete and drag.
+  // actions (full screen, refresh, open embedded extension); editable
+  // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     const extensionId = (panel.config as Record<string, unknown> | undefined)
       ?.extensionId as string | undefined;
@@ -349,7 +349,7 @@ export function SqlChartCard({
                   }
                 >
                   <IconExternalLink className="h-4 w-4 mr-2" />
-                  Open extension {/* i18n-ignore */}
+                  Open embedded extension {/* i18n-ignore */}
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuSeparator />

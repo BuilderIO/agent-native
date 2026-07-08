@@ -5,6 +5,7 @@ const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  getDialect: () => "sqlite",
   intType: () => "INTEGER",
   isPostgres: () => false,
 }));
@@ -42,6 +43,8 @@ type ChatThreadRow = {
   pinned_at?: number | null;
   archived_at?: number | null;
   share_token_hash?: string | null;
+  org_id?: string | null;
+  visibility?: "private" | "org" | "public";
 };
 
 const userMessage = {
@@ -373,7 +376,7 @@ describe("chat thread store", () => {
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
     expect(query.sql).toContain("LIKE ? ESCAPE '!'");
-    expect(query.args.slice(1, 4)).toEqual([
+    expect(query.args.slice(2, 5)).toEqual([
       "%100!%!_done%",
       "%100!%!_done%",
       "%100!%!_done%",
@@ -423,6 +426,7 @@ describe("chat thread store", () => {
     // ...and the "has messages" filter is the maintained column, no LIKE scan.
     expect(sql).toContain("message_count > 0");
     expect(sql).not.toMatch(/thread_data LIKE/i);
+    expect(sql).toContain("chat_thread_shares");
     expect(result.map((t) => t.id)).toEqual(["thread-1"]);
     expect(result[0].messageCount).toBe(1);
   });
@@ -514,7 +518,7 @@ describe("chat thread store", () => {
         return { rows: found ? [found] : [], rowsAffected: 0 };
       }
       if (/INSERT INTO chat_threads/i.test(sql)) {
-        if (args.length === 8) {
+        if (args.length === 9) {
           rows.set(args[0], {
             id: args[0],
             owner_email: args[1],
@@ -527,6 +531,8 @@ describe("chat thread store", () => {
             scope_type: args[5],
             scope_id: args[6],
             scope_label: args[7],
+            org_id: args[8],
+            visibility: "private",
           });
           return { rows: [], rowsAffected: 1 };
         }
@@ -542,6 +548,8 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
+          org_id: args[11],
+          visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
       }
@@ -660,6 +668,8 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
+          org_id: args[11],
+          visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
       }
@@ -739,6 +749,8 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
+          org_id: args[11],
+          visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
       }

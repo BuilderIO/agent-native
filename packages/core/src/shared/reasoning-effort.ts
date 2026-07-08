@@ -98,6 +98,29 @@ export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
   return REASONING_EFFORT_LABELS[effort ?? "auto"];
 }
 
+/**
+ * One tier down from each effort, stopping at "minimal" — "none"/"auto"
+ * (not really "tiers") and "minimal" itself are left unchanged. Used by the
+ * empty-final-response retry so a retried turn asks for meaningfully less
+ * reasoning instead of repeating the exact request that came back empty.
+ */
+const REASONING_EFFORT_STEP_DOWN: Partial<
+  Record<ReasoningEffort, ReasoningEffort>
+> = {
+  max: "xhigh",
+  xhigh: "high",
+  high: "medium",
+  medium: "low",
+  low: "minimal",
+};
+
+export function stepDownReasoningEffort(
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (!effort) return effort;
+  return REASONING_EFFORT_STEP_DOWN[effort] ?? effort;
+}
+
 function isGPTReasoningModel(model: string) {
   return /^gpt-5/.test(model) || /^o\d/.test(model);
 }

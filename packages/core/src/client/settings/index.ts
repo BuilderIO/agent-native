@@ -5,8 +5,19 @@ export {
 } from "./SettingsPanel.js";
 export {
   SettingsTabsPage,
+  type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
-export { useBuilderStatus } from "./useBuilderStatus.js";
+export {
+  openBuilderConnectPopup,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  withBuilderConnectTrackingParams,
+  type BuilderConnectFlow,
+  type BuilderConnectFlowOptions,
+  type BuilderConnectStartOptions,
+  type BuilderStatus,
+  type OpenBuilderConnectPopupOptions,
+} from "./useBuilderStatus.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";

@@ -4,6 +4,8 @@ import {
   getEmbeddedFrameDocumentContent,
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedIframeBackgroundColor,
+  isElementInfoPayload,
+  liveEditEndpointUrl,
 } from "./DesignCanvas";
 
 describe("DesignCanvas embedded frame backgrounds", () => {
@@ -49,5 +51,72 @@ describe("DesignCanvas embedded frame backgrounds", () => {
     expect(content).toContain("data-agent-native-content-offset");
     expect(content).toContain("translate:-100px -200px");
     expect(content).toContain('data-agent-native-node-id="rect"');
+  });
+
+  it("scopes the content offset to direct body children so nested board nodes are never double-shifted", () => {
+    const content = getEmbeddedFrameDocumentContent({
+      content:
+        '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="parent"><div data-agent-native-node-id="child"></div></div></body></html>',
+      contentOffsetX: 65536,
+      contentOffsetY: 65536,
+    });
+
+    // translate compounds per matched element — a blanket
+    // [data-agent-native-node-id] rule would shift the nested child by the
+    // surface offset a second time (+65536px), rendering it off-world even
+    // with correct parent-relative left/top. The rule must match top-level
+    // board children only.
+    expect(content).toContain(
+      "body > [data-agent-native-node-id]{translate:65536px 65536px;}",
+    );
+    expect(content).not.toMatch(
+      /<style[^>]*data-agent-native-content-offset[^>]*>\[data-agent-native-node-id\]/,
+    );
+  });
+});
+
+describe("DesignCanvas bridge payload validation", () => {
+  it("accepts complete element info payloads from the live edit bridge", () => {
+    expect(
+      isElementInfoPayload({
+        tagName: "section",
+        selector: "[data-agent-native-node-id='hero']",
+        sourceId: "hero",
+        classes: ["hero"],
+        computedStyles: { color: "rgb(15, 23, 42)" },
+        inlineStyles: {},
+        boundingRect: { x: 10, y: 20, width: 300, height: 120 },
+        isFlexChild: false,
+        isFlexContainer: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects partial style-change payloads before they reach inspector state", () => {
+    expect(
+      isElementInfoPayload({
+        tagName: "section",
+        selector: "[data-agent-native-node-id='hero']",
+        sourceId: "hero",
+        classes: ["hero"],
+        computedStyles: { width: "320px" },
+        isFlexChild: false,
+        isFlexContainer: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("DesignCanvas live-edit URLs", () => {
+  it("can request the bridge proxy without editor chrome for Interact mode", () => {
+    const url = liveEditEndpointUrl(
+      "http://127.0.0.1:7331",
+      "http://localhost:5173/forms",
+      { includeEditorBridge: false },
+    );
+
+    expect(url).toBe(
+      "http://127.0.0.1:7331/live-edit?url=http%3A%2F%2Flocalhost%3A5173%2Fforms&bridge=0",
+    );
   });
 });

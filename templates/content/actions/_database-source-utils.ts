@@ -43,6 +43,7 @@ import {
 } from "../shared/builder-mdx.js";
 import {
   normalizePropertyValue,
+  normalizePropertyValueWithOptions,
   parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
@@ -131,6 +132,7 @@ type SourceMetadataRecord = {
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
   federation?: ContentDatabaseSourceFederation;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
 };
 
 function parseObject<T extends object>(
@@ -302,6 +304,7 @@ export function serializeSourceField(
 
 function serializeSourceRowRecord(
   row: ContentDatabaseSourceRecordRowDb,
+  options: { includeHeavyBuilderBodyValues?: boolean } = {},
 ): ContentDatabaseSourceRow {
   return {
     id: row.id,
@@ -310,16 +313,39 @@ function serializeSourceRowRecord(
     sourceRowId: row.sourceRowId,
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
-    sourceValues:
+    sourceValues: sourceValuesForSnapshot(
       parseObject<Record<string, DocumentPropertyValue>>(
         row.sourceValuesJson,
       ) ?? {},
+      options,
+    ),
     provenance: row.provenance,
     syncState: normalizeSourceSyncState(row.syncState),
     freshness: normalizeSourceFreshness(row.freshness),
     lastSyncedAt: row.lastSyncedAt,
     lastSourceUpdatedAt: row.lastSourceUpdatedAt,
   };
+}
+
+const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_READABLE_MAP_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
+]);
+
+export function sourceValuesForSnapshot(
+  sourceValues: Record<string, DocumentPropertyValue>,
+  options: { includeHeavyBuilderBodyValues?: boolean } = {},
+): Record<string, DocumentPropertyValue> {
+  if (options.includeHeavyBuilderBodyValues === true) return sourceValues;
+  let next: Record<string, DocumentPropertyValue> | null = null;
+  for (const key of HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(sourceValues, key)) continue;
+    next ??= { ...sourceValues };
+    delete next[key];
+  }
+  return next ?? sourceValues;
 }
 
 function serializeSourceChangeSet(
@@ -1919,7 +1945,9 @@ export async function getContentDatabaseSourceSnapshot(
       asc(schema.contentDatabaseSources.id),
     );
   if (!source) return null;
-  return loadSourceSnapshot(source, database);
+  return loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: false,
+  });
 }
 
 /**
@@ -1942,7 +1970,9 @@ export async function getContentDatabaseSourceSnapshotById(
       ),
     );
   if (!source) return null;
-  return loadSourceSnapshot(source, database);
+  return loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: false,
+  });
 }
 
 /**
@@ -1955,9 +1985,36 @@ export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
 ): Promise<ContentDatabaseSource | null> {
-  return sourceId
-    ? getContentDatabaseSourceSnapshotById(database, sourceId)
-    : getContentDatabaseSourceSnapshot(database);
+  const db = getDb();
+  if (sourceId) {
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, sourceId),
+          eq(schema.contentDatabaseSources.databaseId, database.id),
+        ),
+      );
+    return source
+      ? loadSourceSnapshot(source, database, {
+          includeHeavyBuilderBodyValues: true,
+        })
+      : null;
+  }
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
+  return source
+    ? loadSourceSnapshot(source, database, {
+        includeHeavyBuilderBodyValues: true,
+      })
+    : null;
 }
 
 /**
@@ -1982,7 +2039,11 @@ export async function getAllContentDatabaseSourceSnapshots(
     );
   const snapshots: ContentDatabaseSource[] = [];
   for (const source of sources) {
-    snapshots.push(await loadSourceSnapshot(source, database));
+    snapshots.push(
+      await loadSourceSnapshot(source, database, {
+        includeHeavyBuilderBodyValues: false,
+      }),
+    );
   }
   return snapshots;
 }
@@ -2135,6 +2196,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
+  options: { includeHeavyBuilderBodyValues: boolean },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
@@ -2218,7 +2280,11 @@ async function loadSourceSnapshot(
     database,
     isBuilderSource,
   });
-  const rows = rowRows.map(serializeSourceRowRecord);
+  const rows = rowRows.map((row) =>
+    serializeSourceRowRecord(row, {
+      includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
+    }),
+  );
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
   );
@@ -2582,10 +2648,19 @@ export function normalizeSourceFederation(
 export function serializeSourceMetadataRecord(args: {
   sourceType: ContentDatabaseSourceType;
   sourceTable: string;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  existingMetadataJson?: string | null;
 }) {
   const isBuilder = args.sourceType === "builder-cms";
   if (isBuilder) {
-    return JSON.stringify(builderCmsSourceMetadata(args.sourceTable));
+    const existingMetadata = parseObject<SourceMetadataRecord>(
+      args.existingMetadataJson,
+    );
+    return JSON.stringify({
+      ...builderCmsSourceMetadata(args.sourceTable),
+      builderModelFields:
+        args.builderModelFields ?? existingMetadata?.builderModelFields,
+    });
   }
   return JSON.stringify({
     primaryKey: "id",
@@ -2607,9 +2682,16 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  existingMetadataJson?: string | null;
 }) {
+  const existingMetadata = parseObject<SourceMetadataRecord>(
+    args.existingMetadataJson,
+  );
   return JSON.stringify({
     ...builderCmsSourceMetadata(args.sourceTable),
+    builderModelFields:
+      args.builderModelFields ?? existingMetadata?.builderModelFields,
     readMode: args.readState === "live" ? "builder-api" : "fixture",
     liveReadConfigured: args.readState === "live",
     lastReadEntryCount: args.entryCount,
@@ -3131,9 +3213,10 @@ async function materializeSourceFieldPropertyValues(args: {
       const propertyId = field.propertyId!;
       const definition = definitionById.get(propertyId);
       if (!definition) continue;
-      const normalized = normalizePropertyValue(
+      const normalized = normalizePropertyValueWithOptions(
         definition.type as DocumentProperty["definition"]["type"],
         sourceValues[field.sourceFieldKey],
+        parsePropertyOptions(definition.optionsJson),
       );
       if (normalized === null) continue;
       const valueJson = serializePropertyValue(normalized);
@@ -3401,6 +3484,7 @@ export async function resyncMockSourceSnapshot(args: {
       metadataJson: serializeSourceMetadataRecord({
         sourceType: normalizeSourceType(args.source.sourceType),
         sourceTable: args.source.sourceTable,
+        existingMetadataJson: args.source.metadataJson,
       }),
       lastRefreshedAt: args.now,
       lastSourceUpdatedAt: args.now,
@@ -3806,6 +3890,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       fetchedAt: builderRead.fetchedAt,
       now: args.now,
       message: builderRead.message,
+      builderModelFields,
       progress: {
         ...builderRead.progress,
         partial: hasMore,
@@ -3916,6 +4001,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     fetchedAt: builderRead.fetchedAt,
     now: args.now,
     message: builderRead.message,
+    builderModelFields,
     progress: builderRead.progress,
     sourceFetchState: builderRead.state === "error" ? "error" : "idle",
     activeReadSourceRowIds: undefined,
@@ -4017,6 +4103,11 @@ export async function replaceSourceMetadata(args: {
         metadataJson: serializeSourceMetadataRecord({
           sourceType: args.sourceType,
           sourceTable: args.sourceTable,
+          existingMetadataJson:
+            args.source.sourceType === args.sourceType &&
+            args.source.sourceTable === args.sourceTable
+              ? args.source.metadataJson
+              : null,
         }),
         lastRefreshedAt: args.now,
         lastSourceUpdatedAt: args.now,
@@ -4248,6 +4339,7 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
   syncState?: ContentDatabaseSourceSyncState;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
 }) {
   const db = getDb();
   const [currentSource] = await db
@@ -4271,6 +4363,8 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
       progress: args.progress,
       sourceFetchState: args.sourceFetchState,
       activeReadSourceRowIds: args.activeReadSourceRowIds,
+      builderModelFields: args.builderModelFields,
+      existingMetadataJson: currentSource?.metadataJson,
     }),
   });
   await db

@@ -10,6 +10,7 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
@@ -30,7 +31,7 @@ import {
   IconTrash,
   IconUser,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
@@ -165,6 +166,7 @@ interface ClipsUserSettings {
   emailNotifications?: boolean;
   displayName?: string;
   transcriptCleanupEnabled?: boolean;
+  includeFullVideoInAi?: boolean;
 }
 
 interface SlackInstallation {
@@ -745,6 +747,61 @@ export default function SettingsIndexRoute() {
   const builderCreditsUpgradeUrl =
     builderCreditStatus.data?.upgradeUrl ?? BUILDER_CREDITS_UPGRADE_URL;
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "clips-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "clips-video-storage",
+        label: t("settings.videoStorage"),
+        keywords: "storage s3 builder bucket cloud video",
+        hash: "video-storage",
+      },
+      {
+        id: "clips-slack",
+        label: t("settings.slackTitle"),
+        keywords: "slack integration notifications workspace",
+        hash: "slack",
+      },
+      {
+        id: "clips-ai-providers",
+        label: t("settings.apiSetup"),
+        keywords:
+          "ai provider api key anthropic openai gemini groq openrouter builder",
+        hash: "ai-providers",
+      },
+      {
+        id: "clips-profile",
+        label: t("settings.profile"),
+        keywords: "profile email display name",
+        hash: "profile",
+      },
+      {
+        id: "clips-playback",
+        label: t("settings.playback"),
+        keywords: "playback speed video default",
+        hash: "playback",
+      },
+      {
+        id: "clips-transcript",
+        label: t("settings.transcript"),
+        keywords: "transcript cleanup captions",
+        hash: "transcript",
+      },
+      {
+        id: "clips-notifications",
+        label: t("settings.notifications"),
+        keywords: "email notifications alerts",
+        hash: "notifications",
+      },
+    ],
+    [t],
+  );
+
   return (
     <>
       <PageHeader>
@@ -755,6 +812,7 @@ export default function SettingsIndexRoute() {
       <SettingsTabsPage
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-4xl space-y-6">
             <div className="min-w-0 space-y-6">
@@ -762,7 +820,7 @@ export default function SettingsIndexRoute() {
                 {t("settings.intro")}
               </p>
 
-              <Card>
+              <Card id="language" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base">
                     {t("settings.languageTitle")}
@@ -1352,7 +1410,7 @@ export default function SettingsIndexRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="profile" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <IconUser className="size-4 text-primary" />
@@ -1379,7 +1437,7 @@ export default function SettingsIndexRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="playback" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base">
                     {t("settings.playback")}
@@ -1413,7 +1471,7 @@ export default function SettingsIndexRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="transcript" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base">
                     {t("settings.transcript")}
@@ -1442,7 +1500,7 @@ export default function SettingsIndexRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="notifications" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base">
                     {t("settings.notifications")}

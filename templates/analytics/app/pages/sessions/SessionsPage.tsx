@@ -1,5 +1,6 @@
 import { CodeSurface } from "@agent-native/core/blocks";
 import {
+  agentNativePath,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -18,10 +19,10 @@ import {
   IconSearch,
   IconServer,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -65,13 +66,27 @@ type SessionRecordingSummary = {
   referrer: string | null;
   app: string | null;
   template: string | null;
+  metadata?: Record<string, unknown>;
   status: "active" | "completed";
   createdAt: string;
   updatedAt: string;
   lastIngestedAt: string | null;
 };
 
+type SessionRecordingIdentity = Pick<
+  SessionRecordingSummary,
+  "id" | "userId" | "userKey" | "anonymousId" | "sessionId"
+>;
+
+type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
+
+type DemoStatus = {
+  enabled?: boolean;
+  forced?: boolean;
+};
+
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const DEMO_STATUS_URL = agentNativePath("/_agent-native/demo/status");
 
 export default function SessionsPage() {
   const t = useT();
@@ -96,6 +111,7 @@ export default function SessionsPage() {
     { staleTime: 30_000 },
   );
 
+  const demoModeEnabled = useDemoModeEnabled();
   const recordings = data ?? [];
 
   function updateFilter(key: string, value: string) {
@@ -225,6 +241,7 @@ export default function SessionsPage() {
                     recording.endedAt ??
                     recording.lastIngestedAt ??
                     recording.startedAt;
+                  const deviceLabel = sessionDeviceLabel(recording);
                   return (
                     <button
                       key={recording.id}
@@ -239,7 +256,7 @@ export default function SessionsPage() {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-foreground">
-                          {visitorLabel(recording, t)}
+                          {visitorLabel(recording, t, demoModeEnabled)}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {formatDateTime(lastSeen)} ·{" "}
@@ -260,35 +277,32 @@ export default function SessionsPage() {
                         </span>
                       </span>
                       <span className="analytics-session-app-meta min-w-0 text-left">
-                        <span className="block truncate text-sm text-muted-foreground">
-                          {recording.app ||
-                            recording.template ||
-                            t("sessions.unknownApp")}
-                        </span>
-                        <span className="analytics-session-badges mt-1 flex flex-wrap gap-1.5">
+                        <span className="analytics-session-badges flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                          <span>
+                            {t("sessions.pageCountCompact", {
+                              count: formatNumber(recording.pageCount),
+                            })}
+                          </span>
                           {recording.errorCount > 0 ? (
-                            <Badge variant="destructive">
+                            <span className="font-medium text-destructive">
                               {t("sessions.errorCount", {
                                 count: String(recording.errorCount),
                               })}
-                            </Badge>
+                            </span>
                           ) : null}
                           {recording.rageClickCount > 0 ? (
-                            <Badge variant="secondary">
+                            <span>
                               {t("sessions.rageClicks", {
                                 count: String(recording.rageClickCount),
-                              })}
-                            </Badge>
-                          ) : null}
-                          {recording.errorCount === 0 &&
-                          recording.rageClickCount === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              {t("sessions.pageCountCompact", {
-                                count: formatNumber(recording.pageCount),
                               })}
                             </span>
                           ) : null}
                         </span>
+                        {deviceLabel ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {deviceLabel}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   );
@@ -300,6 +314,22 @@ export default function SessionsPage() {
       </Card>
     </div>
   );
+}
+
+function useDemoModeEnabled(): boolean {
+  const { data } = useQuery({
+    queryKey: ["agent-native", "demo-mode"],
+    queryFn: async () => {
+      const res = await fetch(DEMO_STATUS_URL, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as DemoStatus | null;
+    },
+    refetchInterval: 4_000,
+    staleTime: 2_000,
+  });
+  return data?.enabled === true || data?.forced === true;
 }
 
 function EmptySessionsState() {
@@ -472,9 +502,11 @@ function rangeLabel(value: ReplayRange, t: ReturnType<typeof useT>): string {
 }
 
 function visitorLabel(
-  recording: SessionRecordingSummary,
+  recording: SessionRecordingIdentity,
   t: ReturnType<typeof useT>,
+  demoModeEnabled: boolean,
 ): string {
+  if (demoModeEnabled) return demoVisitorLabel(recording);
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
   return (
@@ -483,6 +515,29 @@ function visitorLabel(
     recording.anonymousId ||
     t("sessions.anonymous")
   );
+}
+
+export function demoVisitorLabel(recording: SessionRecordingIdentity): string {
+  const source =
+    emailLike(recording.userId) ||
+    emailLike(recording.userKey) ||
+    recording.userId ||
+    recording.userKey ||
+    recording.anonymousId ||
+    recording.sessionId ||
+    recording.id;
+  const hash = stableHash(source);
+  const first = DEMO_FIRST_NAMES[hash % DEMO_FIRST_NAMES.length];
+  const last =
+    DEMO_LAST_NAMES[
+      Math.floor(hash / DEMO_FIRST_NAMES.length) % DEMO_LAST_NAMES.length
+    ];
+  const domain =
+    DEMO_DOMAINS[
+      Math.floor(hash / (DEMO_FIRST_NAMES.length * DEMO_LAST_NAMES.length)) %
+        DEMO_DOMAINS.length
+    ];
+  return `${first}.${last}@${domain}`.toLowerCase();
 }
 
 function emailLike(value: string | null): string | null {
@@ -512,6 +567,81 @@ function safePathFromUrl(value: string): string {
   }
 }
 
+export function sessionDeviceLabel(
+  recording: SessionRecordingDevice,
+): string | null {
+  const metadata = recordValue(recording.metadata);
+  const device = recordValue(metadata.device);
+  const browser = recordValue(metadata.browser);
+  const client = recordValue(metadata.client);
+  const os = osLabelFromValue(
+    metadata.os ??
+      metadata.operatingSystem ??
+      metadata.operating_system ??
+      metadata.deviceOs ??
+      metadata.device_os ??
+      device.os ??
+      device.operatingSystem ??
+      browser.os ??
+      client.os,
+  );
+  if (os) return os;
+  const platform = stringValue(
+    metadata.platform ?? device.platform ?? client.platform,
+  );
+  const platformLabel = inferOsLabel(platform);
+  if (platformLabel) return platformLabel;
+  const userAgent = stringValue(
+    metadata.userAgent ??
+      metadata.user_agent ??
+      device.userAgent ??
+      device.user_agent ??
+      client.userAgent ??
+      client.user_agent,
+  );
+  return inferOsLabel(userAgent);
+}
+
+function osLabelFromValue(value: unknown): string | null {
+  const record = recordValue(value);
+  if (record) {
+    const name = stringValue(record.name ?? record.family ?? record.os);
+    const version = stringValue(record.version ?? record.release);
+    if (name && version) return `${normalizeOsName(name)} ${version}`;
+    if (name) return normalizeOsName(name);
+  }
+  const label = stringValue(value);
+  if (!label) return null;
+  return inferOsLabel(label) ?? label;
+}
+
+function inferOsLabel(value: string | null): string | null {
+  if (!value) return null;
+  if (/cros|chrome os/i.test(value)) return "ChromeOS";
+  if (/iphone|ipad|ipod|ios/i.test(value)) return "iOS";
+  if (/mac os x|macintosh|macintel|darwin|macos/i.test(value)) return "macOS";
+  if (/windows|win32|win64/i.test(value)) return "Windows";
+  if (/android/i.test(value)) return "Android";
+  if (/linux/i.test(value)) return "Linux";
+  return null;
+}
+
+function normalizeOsName(value: string): string {
+  return inferOsLabel(value) ?? value;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function formatDateTime(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
@@ -537,6 +667,53 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+const DEMO_FIRST_NAMES = [
+  "Avery",
+  "Blake",
+  "Cameron",
+  "Devon",
+  "Emerson",
+  "Finley",
+  "Harper",
+  "Jordan",
+  "Morgan",
+  "Quinn",
+  "Riley",
+  "Taylor",
+];
+
+const DEMO_LAST_NAMES = [
+  "Bennett",
+  "Carter",
+  "Ellis",
+  "Hayes",
+  "Keller",
+  "Monroe",
+  "Parker",
+  "Reed",
+  "Sullivan",
+  "Walker",
+  "Young",
+  "Zimmer",
+];
+
+const DEMO_DOMAINS = [
+  "acme.test",
+  "northstar.test",
+  "orbit.test",
+  "riverbank.test",
+  "summit.test",
+];
+
 const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client";
 
@@ -546,7 +723,7 @@ configureTracking({
   sessionReplay: {
     enabled: true,
     requireSignedInUser: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,

@@ -106,12 +106,17 @@ agent answers about browser recordings in the Analytics template.
 
 ## Capture Defaults
 
-- Replay is off unless enabled by config/env.
-- Consumers can enable replay directly with
+- Replay is on by default for signed-in hosted users when
+  `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` or `configureTracking({ key })` is
+  present. The default sample rate is 100% of eligible sessions.
+- Replay remains off when no first-party analytics key is configured, and it is
+  not auto-enabled on localhost/local dev. Consumers can still enable replay
+  directly with
   `configureTracking({ key, endpoint, sessionReplay: { enabled: true } })`.
+- Apps can opt out with `configureTracking({ sessionReplay: false })`.
 - Agent Native templates already call `configureTracking()` in their roots;
-  hosted template deployments can usually enable replay with Vite/Netlify env
-  vars on the recorded site.
+  hosted template deployments only need the normal Agent Native Analytics
+  Vite/Netlify env vars on the recorded site.
 - Inputs are masked by default. Page text is visible unless marked with
   `.an-mask` or `data-an-mask`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for

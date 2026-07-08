@@ -24,6 +24,8 @@ import {
   normalizeSourceFederation,
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceMetadataRecord,
+  sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
@@ -95,6 +97,27 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
   });
 
+  it("omits heavy Builder body payloads from read snapshots", () => {
+    const values = {
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated body",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "<BuilderText />",
+      [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
+      [BUILDER_CMS_BODY_SIDECARS_KEY]: '{"huge":"sidecar"}',
+    };
+
+    expect(sourceValuesForSnapshot(values)).toEqual({
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+    });
+    expect(
+      sourceValuesForSnapshot(values, { includeHeavyBuilderBodyValues: true }),
+    ).toBe(values);
+  });
+
   it("drops stored federation metadata with unsafe regex formulas", () => {
     expect(
       normalizeSourceFederation({
@@ -145,6 +168,51 @@ describe("database source helpers", () => {
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
     });
+  });
+
+  it("preserves existing Builder model fields during metadata rewrites", () => {
+    const existingMetadataJson = JSON.stringify({
+      builderModelFields: [
+        {
+          name: "topics",
+          label: "Topics",
+          type: "list",
+          inputType: "tags",
+          required: false,
+          options: ["Headless CMS"],
+        },
+      ],
+    });
+
+    expect(
+      JSON.parse(
+        serializeSourceMetadataRecord({
+          sourceType: "builder-cms",
+          sourceTable: "blog-article",
+          existingMetadataJson,
+        }),
+      ).builderModelFields,
+    ).toEqual([
+      {
+        name: "topics",
+        label: "Topics",
+        type: "list",
+        inputType: "tags",
+        required: false,
+        options: ["Headless CMS"],
+      },
+    ]);
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 1,
+          matchedRowCount: 1,
+          existingMetadataJson,
+        }),
+      ).builderModelFields?.[0]?.name,
+    ).toBe("topics");
   });
 
   it("creates a mock field change for text properties", () => {

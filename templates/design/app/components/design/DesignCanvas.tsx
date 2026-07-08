@@ -351,6 +351,7 @@ interface DesignCanvasProps {
    * For `"inline"` and `"localhost"` sources this prop is ignored.
    */
   fusionUrl?: string;
+  bridgeToken?: string;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
@@ -371,6 +372,28 @@ interface DesignCanvasProps {
    */
   runtimeReplacementContent?: string;
   runtimeReplacementKey?: string;
+  styleRevertRequest?: {
+    requestId: number;
+    patches: Array<{
+      selector: string;
+      sourceId?: string | null;
+      styles: Record<string, string>;
+    }>;
+  } | null;
+  styleBaselineResetRequest?: number | null;
+  textRevertRequest?: {
+    requestId: number;
+    patches: Array<{
+      selector: string;
+      sourceId?: string | null;
+      value: string;
+      html?: string;
+    }>;
+  } | null;
+  structureAckRequest?: {
+    requestId: number;
+    acks: Array<{ requestId: string; applied: boolean }>;
+  } | null;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
@@ -390,12 +413,17 @@ interface DesignCanvasProps {
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
+    metadata?: { originalStyles?: Record<string, string> },
   ) => void;
   onTextContentChange?: (
     selector: string,
     value: string,
     info?: ElementInfo,
-    details?: { html?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+    },
   ) => void;
   onTextEditingStateChange?: (state: {
     active: boolean;
@@ -420,7 +448,7 @@ interface DesignCanvasProps {
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
     },
-  ) => boolean | void;
+  ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
     selector: string,
     cloneHtml: string,
@@ -837,6 +865,87 @@ function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
   return endpoint.toString();
 }
 
+export function liveEditEndpointUrl(
+  bridgeUrl: string,
+  previewUrl: string,
+  options?: { includeEditorBridge?: boolean },
+): string {
+  const endpoint = new URL("/live-edit", bridgeUrl);
+  endpoint.searchParams.set("url", previewUrl);
+  if (options?.includeEditorBridge === false) {
+    endpoint.searchParams.set("bridge", "0");
+  }
+  return endpoint.toString();
+}
+
+function originFromUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function buildEditorChromeBridgeScript(args: {
+  readOnly: boolean;
+  editMode: boolean;
+  editorChromeScaleX: number;
+  editorChromeScaleY: number;
+  screenId: string;
+  boardSurface: boolean;
+}) {
+  return (
+    createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+    EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+      "__READ_ONLY__",
+      args.readOnly ? "true" : "false",
+    )
+      .replace("__TEXT_EDITING_ENABLED__", args.editMode ? "true" : "false")
+      .replace("__EDITOR_CHROME_SCALE_X__", String(args.editorChromeScaleX))
+      .replace("__EDITOR_CHROME_SCALE_Y__", String(args.editorChromeScaleY))
+      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(args.screenId))
+      .replace(
+        "__DESIGN_CANVAS_BOARD_SURFACE__",
+        args.boardSurface ? "true" : "false",
+      )
+  );
+}
+
+function contentHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return `${value.length}:${hash >>> 0}`;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isFiniteRect(value: unknown): value is ElementInfo["boundingRect"] {
+  if (!isPlainRecord(value)) return false;
+  return (
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.width) &&
+    Number.isFinite(value.height)
+  );
+}
+
+export function isElementInfoPayload(value: unknown): value is ElementInfo {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.tagName === "string" &&
+    Array.isArray(value.classes) &&
+    isPlainRecord(value.computedStyles) &&
+    isFiniteRect(value.boundingRect) &&
+    typeof value.isFlexChild === "boolean" &&
+    typeof value.isFlexContainer === "boolean"
+  );
+}
+
 /**
  * Exponential backoff delay (ms) for the localhost bridge snapshot auto-retry
  * loop, keyed by the zero-based retry attempt number (0 = first retry after
@@ -879,9 +988,38 @@ export function getEmbeddedIframeBackgroundColor(args: {
     : (args.embeddedFrameBackground ?? "transparent");
 }
 
+/**
+ * CSS rule that shifts embedded-frame (board) content so board-coordinate
+ * (0,0) lands at the center of the board iframe's oversized surface.
+ *
+ * The selector is deliberately scoped to DIRECT `<body>` children only.
+ * `translate` composes per element, so a blanket
+ * `[data-agent-native-node-id]{translate:…}` rule shifted every NESTED
+ * node-id-bearing descendant by the surface offset AGAIN (+65536px per
+ * nesting level) — any board child nested inside another board primitive
+ * rendered tens of thousands of px outside its parent (i.e. visually
+ * vanished) even when its persisted parent-relative left/top were perfectly
+ * correct, and every rect-based coordinate computation on nested board
+ * content was poisoned by the extra offset.
+ *
+ * Scoping (rather than wrapping content in a single offset container) is the
+ * robust fix here because board elements are DOCUMENTED direct `<body>`
+ * children (see shared/board-file.ts module doc + emptyBoardHtml): every
+ * creation path appends at body level (appendCanvasPrimitiveToHtml,
+ * boardObjectEntryToHtmlFragment, moveNodeBetweenDocuments' body-append),
+ * and several consumers key on that structure with `body > …` selectors
+ * (BOARD_SURFACE_RENDER_STYLE) and depth-1 walks
+ * (backfillBoardPrimitiveMarkers, getBoardContentLayerSignature). A wrapper
+ * element would silently break all of those structural contracts.
+ *
+ * With this rule, the offset applies exactly once — to top-level board
+ * elements — and nested children position purely via parent-relative
+ * left/top inside their (absolutely positioned) parent, like any normal
+ * CSS containing-block hierarchy.
+ */
 function embeddedContentOffsetStyle(x: number, y: number): string {
   if (x === 0 && y === 0) return "";
-  return `<style data-agent-native-content-offset>[data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
+  return `<style data-agent-native-content-offset>body > [data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
 }
 
 function injectEmbeddedFrameStyle(content: string, style: string): string {
@@ -937,6 +1075,60 @@ export interface IframeContextMenuPayload {
   info?: ElementInfo | null;
 }
 
+/**
+ * Creation-race keystroke routing: after the host calls `beginTextEdit(nodeId)`
+ * for a JUST-created text element, there is a window (persist round-trip +
+ * bridge activation) where the browser focus still sits on the HOST document.
+ * Keystrokes typed in that window used to fall into host keyboard shortcuts —
+ * letters switched tools, digits zoomed, and Delete/Backspace DELETED the
+ * selected layer/screen — while the characters themselves were silently lost.
+ *
+ * While a text edit is pending, every host keydown is routed through this
+ * pure helper:
+ * - printable characters are BUFFERED (replayed into the editable once the
+ *   bridge reports the session active) and swallowed,
+ * - Backspace edits the buffer, Delete/Enter/Tab/arrows are swallowed so they
+ *   can never reach host layer-deletion/navigation,
+ * - Escape clears the pending buffer (user aborted) and is swallowed,
+ * - IME composition and Cmd/Ctrl chords (undo!) pass through untouched.
+ *
+ * Exported for unit tests (DesignCanvas.pending-text-edit.test.ts).
+ */
+export type PendingTextEditKeyAction =
+  | { action: "buffer"; char: string }
+  | { action: "drop-last" }
+  | { action: "swallow" }
+  | { action: "clear-and-swallow" }
+  | { action: "pass" };
+
+export function routePendingTextEditKey(e: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  isComposing?: boolean;
+}): PendingTextEditKeyAction {
+  if (e.isComposing) return { action: "pass" };
+  if (e.metaKey || e.ctrlKey) return { action: "pass" };
+  if (e.key === "Escape") return { action: "clear-and-swallow" };
+  if (e.key === "Backspace") return { action: "drop-last" };
+  if (
+    e.key === "Delete" ||
+    e.key === "Enter" ||
+    e.key === "Tab" ||
+    e.key.startsWith("Arrow")
+  ) {
+    return { action: "swallow" };
+  }
+  if (e.key.length === 1) return { action: "buffer", char: e.key };
+  return { action: "pass" };
+}
+
+/** How long a pending text edit may wait for bridge activation before the
+ * keystroke routing above stands down (matches the bridge's own ~2s
+ * begin-text-edit retry window, plus round-trip slack). */
+export const PENDING_TEXT_EDIT_TIMEOUT_MS = 3000;
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -945,6 +1137,7 @@ export function DesignCanvas({
   externalSnapshotHtml,
   onExternalContentSnapshot,
   fusionUrl,
+  bridgeToken,
   zoom,
   onZoomChange,
   deviceFrame,
@@ -952,6 +1145,10 @@ export function DesignCanvas({
   boardSurface = false,
   runtimeReplacementContent,
   runtimeReplacementKey,
+  styleRevertRequest,
+  styleBaselineResetRequest,
+  textRevertRequest,
+  structureAckRequest,
   embeddedFrameBackground,
   transparentBackground = false,
   editorChromeScaleX = 1,
@@ -1082,6 +1279,8 @@ export function DesignCanvas({
     status: "loading" | "error";
     message?: string;
   } | null>(null);
+  const [registeredLiveEditBridgeKey, setRegisteredLiveEditBridgeKey] =
+    useState<string | null>(null);
   const [externalSnapshotRetryNonce, setExternalSnapshotRetryNonce] =
     useState(0);
   // Exponential backoff for the auto-retry loop below: 1.5s → 3s → 6s →
@@ -1116,20 +1315,83 @@ export function DesignCanvas({
     (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
       ? fetchedExternalSnapshot.html
       : undefined);
-  const requiresEditableExternalSnapshot =
+  const editorChromeBridgeForCurrentState = useMemo(
+    () =>
+      buildEditorChromeBridgeScript({
+        readOnly,
+        editMode,
+        editorChromeScaleX: effectiveEditorChromeScaleX,
+        editorChromeScaleY: effectiveEditorChromeScaleY,
+        screenId: screenId ?? contentKey ?? "",
+        boardSurface,
+      }),
+    [
+      boardSurface,
+      contentKey,
+      editMode,
+      effectiveEditorChromeScaleX,
+      effectiveEditorChromeScaleY,
+      readOnly,
+      screenId,
+    ],
+  );
+  const embeddedWheelBridgeForCurrentState = useMemo(
+    () =>
+      EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
+        "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
+        isEmbeddedFrame ? "true" : "false",
+      ),
+    [isEmbeddedFrame],
+  );
+  const liveEditBridgeScript = useMemo(
+    () =>
+      MOTION_PREVIEW_BRIDGE_SCRIPT +
+      SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
+      TWEAK_BRIDGE_SCRIPT +
+      ZOOM_BRIDGE_SCRIPT +
+      LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
+      embeddedWheelBridgeForCurrentState +
+      editorChromeBridgeForCurrentState,
+    [editorChromeBridgeForCurrentState, embeddedWheelBridgeForCurrentState],
+  );
+  const liveEditBridgeKey = useMemo(
+    () => contentHash(liveEditBridgeScript),
+    [liveEditBridgeScript],
+  );
+  const hasLiveEditExternalFrame =
+    sourceType === "localhost" && Boolean(bridgeUrl && rawExternalPreviewUrl);
+  const usesLiveEditEditorBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && rawExternalPreviewUrl) &&
     !interactMode &&
     !readOnly;
+  const liveEditBridgeRegistered =
+    usesLiveEditEditorBridge &&
+    registeredLiveEditBridgeKey === liveEditBridgeKey;
+  const requiresEditableExternalSnapshot = false;
+  const liveEditExternalPreviewUrl =
+    hasLiveEditExternalFrame &&
+    bridgeUrl &&
+    rawExternalPreviewUrl &&
+    interactMode
+      ? liveEditEndpointUrl(bridgeUrl, rawExternalPreviewUrl, {
+          includeEditorBridge: false,
+        })
+      : liveEditBridgeRegistered && bridgeUrl && rawExternalPreviewUrl
+        ? liveEditEndpointUrl(bridgeUrl, rawExternalPreviewUrl)
+        : null;
   const iframeRenderContent =
     activeExternalSnapshotHtml ??
     (requiresEditableExternalSnapshot ? "" : renderedContent);
   const externalPreviewUrl =
-    activeExternalSnapshotHtml || requiresEditableExternalSnapshot
+    liveEditExternalPreviewUrl ??
+    (activeExternalSnapshotHtml || requiresEditableExternalSnapshot
       ? null
-      : rawExternalPreviewUrl;
+      : rawExternalPreviewUrl);
   const waitingForEditableExternalSnapshot =
     requiresEditableExternalSnapshot && !activeExternalSnapshotHtml;
+  const waitingForLiveEditBridge =
+    usesLiveEditEditorBridge && !liveEditBridgeRegistered;
   zoomRef.current = zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
@@ -1139,8 +1401,60 @@ export function DesignCanvas({
   }, [onExternalContentSnapshot]);
 
   useEffect(() => {
+    if (!usesLiveEditEditorBridge || !bridgeUrl) {
+      setRegisteredLiveEditBridgeKey(null);
+      return;
+    }
+    let cancelled = false;
+    setRegisteredLiveEditBridgeKey((current) =>
+      current === liveEditBridgeKey ? current : null,
+    );
+    void (async () => {
+      try {
+        const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(bridgeToken ? { "x-bridge-token": bridgeToken } : {}),
+          },
+          body: JSON.stringify({ script: liveEditBridgeScript }),
+        });
+        if (!response.ok) {
+          throw new Error(`Bridge registration failed (${response.status})`);
+        }
+        if (!cancelled) {
+          setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn(
+            "[DesignCanvas] live edit bridge registration failed",
+            error,
+          );
+          setRegisteredLiveEditBridgeKey(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bridgeUrl,
+    bridgeToken,
+    liveEditBridgeKey,
+    liveEditBridgeScript,
+    usesLiveEditEditorBridge,
+  ]);
+
+  useEffect(() => {
     const previewUrl = rawExternalPreviewUrl;
-    if (sourceType !== "localhost" || !bridgeUrl || !previewUrl) {
+    if (
+      !requiresEditableExternalSnapshot ||
+      sourceType !== "localhost" ||
+      !bridgeUrl ||
+      !previewUrl
+    ) {
       snapshotRetryAttemptRef.current = 0;
       setFetchedExternalSnapshot((current) =>
         current?.url === previewUrl ? current : null,
@@ -1468,6 +1782,12 @@ export function DesignCanvas({
               origin: e.origin,
               iframeWindow,
               parentOrigin: window.location.origin,
+              allowedOrigins:
+                sourceType === "localhost" && bridgeUrl
+                  ? [originFromUrl(bridgeUrl)].filter(
+                      (origin): origin is string => Boolean(origin),
+                    )
+                  : [],
             });
       if (!trusted) {
         return;
@@ -1509,8 +1829,19 @@ export function DesignCanvas({
           e.data.styles && typeof e.data.styles === "object"
             ? (e.data.styles as Record<string, string>)
             : {};
+        const originalStyles =
+          e.data.originalStyles && typeof e.data.originalStyles === "object"
+            ? (e.data.originalStyles as Record<string, string>)
+            : undefined;
         if (selector && Object.keys(styles).length > 0) {
-          onVisualStyleChange?.(selector, styles, e.data.payload);
+          onVisualStyleChange?.(
+            selector,
+            styles,
+            isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
+            {
+              originalStyles,
+            },
+          );
         }
         return;
       }
@@ -1528,8 +1859,20 @@ export function DesignCanvas({
         const value = String(e.data.value ?? "");
         const html =
           typeof e.data.html === "string" ? String(e.data.html) : undefined;
+        const originalValue =
+          typeof e.data.originalValue === "string"
+            ? String(e.data.originalValue)
+            : undefined;
+        const originalHtml =
+          typeof e.data.originalHtml === "string"
+            ? String(e.data.originalHtml)
+            : undefined;
         if (selector) {
-          onTextContentChange?.(selector, value, e.data.payload, { html });
+          onTextContentChange?.(selector, value, e.data.payload, {
+            html,
+            originalValue,
+            originalHtml,
+          });
         }
         return;
       }
@@ -1599,7 +1942,7 @@ export function DesignCanvas({
               anchorRect,
             },
           );
-          if (requestId) {
+          if (requestId && applied !== "pending") {
             iframeRef.current?.contentWindow?.postMessage(
               {
                 type: "visual-structure-ack",
@@ -1640,7 +1983,44 @@ export function DesignCanvas({
         }
         return;
       }
+      if (e.data.type === "text-edit-pending") {
+        // The bridge is waiting for a just-created node before it can enter
+        // text-edit mode (begin-text-edit arrived first). Arm the host-side
+        // keystroke buffer for the window — repeated pending:true re-posts
+        // for the same node (DesignEditor's T6 retry loop) only extend the
+        // wait, never reset an in-progress buffer.
+        const pendingNodeId =
+          typeof e.data.nodeId === "string" ? e.data.nodeId : "";
+        const currentPending = pendingTextEditRef.current;
+        if (e.data.pending && pendingNodeId) {
+          if (currentPending && currentPending.nodeId === pendingNodeId) {
+            currentPending.startedAt = Date.now();
+          } else {
+            pendingTextEditRef.current = {
+              nodeId: pendingNodeId,
+              buffer: "",
+              startedAt: Date.now(),
+            };
+          }
+        } else if (currentPending?.nodeId === pendingNodeId) {
+          pendingTextEditRef.current = null;
+        }
+        return;
+      }
       if (e.data.type === "text-editing-state") {
+        // Creation-race replay: the bridge just armed the session for the
+        // node we were waiting on — flush any keystrokes the host buffered
+        // during the round-trip window into the now-live editable.
+        if (e.data.active && pendingTextEditRef.current) {
+          const pendingBuffer = pendingTextEditRef.current.buffer;
+          pendingTextEditRef.current = null;
+          if (pendingBuffer) {
+            postOneShotBridgeMessage({
+              type: "text-edit-insert-text",
+              text: pendingBuffer,
+            });
+          }
+        }
         onTextEditingStateChange?.({
           active: Boolean(e.data.active),
           selector:
@@ -1828,8 +2208,10 @@ export function DesignCanvas({
     onComponentSourceJump,
     isEmbeddedFrame,
     sourceType,
+    bridgeUrl,
     fusionUrl,
     flushPendingOneShotMessages,
+    postOneShotBridgeMessage,
   ]);
 
   const replayIframeEditorState = useCallback(() => {
@@ -2129,6 +2511,18 @@ export function DesignCanvas({
     (nodeId: string) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow || !nodeId) return;
+      // Arm the creation-race keystroke buffer (see routePendingTextEditKey):
+      // until the bridge reports text-editing-state active for this command,
+      // host keystrokes are buffered/swallowed instead of hitting host
+      // shortcuts, then replayed into the editable. Re-arming for the same
+      // node preserves an in-progress buffer.
+      if (pendingTextEditRef.current?.nodeId !== nodeId) {
+        pendingTextEditRef.current = {
+          nodeId,
+          buffer: "",
+          startedAt: Date.now(),
+        };
+      }
       postOneShotBridgeMessage({
         type: "begin-text-edit",
         nodeId,
@@ -2137,6 +2531,53 @@ export function DesignCanvas({
     },
     [postOneShotBridgeMessage],
   );
+
+  // Creation-race keystroke routing (host side). Active only while a
+  // beginTextEdit() command is pending; see routePendingTextEditKey's doc
+  // comment for the exact policy. Capture-phase on window so it runs before
+  // the editor's own shortcut handlers.
+  const pendingTextEditRef = useRef<{
+    nodeId: string;
+    buffer: string;
+    startedAt: number;
+  } | null>(null);
+  useEffect(() => {
+    function onPendingTextEditKeyDown(e: KeyboardEvent) {
+      const pending = pendingTextEditRef.current;
+      if (!pending) return;
+      if (Date.now() - pending.startedAt > PENDING_TEXT_EDIT_TIMEOUT_MS) {
+        pendingTextEditRef.current = null;
+        return;
+      }
+      const routed = routePendingTextEditKey(e);
+      if (routed.action === "pass") return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (routed.action === "buffer") {
+        pending.buffer += routed.char;
+      } else if (routed.action === "drop-last") {
+        pending.buffer = pending.buffer.slice(0, -1);
+      } else if (routed.action === "clear-and-swallow") {
+        pendingTextEditRef.current = null;
+      }
+    }
+    function onPendingTextEditPointerDown() {
+      // The user clicked somewhere else in the host — stand down so buffered
+      // keys are never replayed into an edit they've abandoned.
+      pendingTextEditRef.current = null;
+    }
+    window.addEventListener("keydown", onPendingTextEditKeyDown, true);
+    window.addEventListener("pointerdown", onPendingTextEditPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onPendingTextEditKeyDown, true);
+      window.removeEventListener(
+        "pointerdown",
+        onPendingTextEditPointerDown,
+        true,
+      );
+    };
+  }, []);
 
   const sendStyleChange = useCallback(
     (
@@ -2158,6 +2599,89 @@ export function DesignCanvas({
     },
     [postOneShotBridgeMessage],
   );
+
+  const lastStyleRevertRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!styleRevertRequest) return;
+    if (lastStyleRevertRequestIdRef.current === styleRevertRequest.requestId) {
+      return;
+    }
+    lastStyleRevertRequestIdRef.current = styleRevertRequest.requestId;
+    for (const patch of styleRevertRequest.patches) {
+      const selectorCandidates = [
+        patch.selector,
+        patch.sourceId
+          ? `[data-agent-native-node-id="${String(patch.sourceId).replace(/"/g, '\\"')}"]`
+          : "",
+      ].filter(Boolean);
+      for (const [property, value] of Object.entries(patch.styles)) {
+        postOneShotBridgeMessage({
+          type: "style-change",
+          selector: patch.selector,
+          property,
+          value,
+          selectorCandidates,
+          nodeId: patch.sourceId ?? "",
+        });
+      }
+    }
+  }, [postOneShotBridgeMessage, styleRevertRequest]);
+
+  const lastStyleBaselineResetRequestRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (styleBaselineResetRequest == null) return;
+    if (
+      lastStyleBaselineResetRequestRef.current === styleBaselineResetRequest
+    ) {
+      return;
+    }
+    lastStyleBaselineResetRequestRef.current = styleBaselineResetRequest;
+    postOneShotBridgeMessage({
+      type: "agent-native:reset-live-visual-edit-baselines",
+    });
+  }, [postOneShotBridgeMessage, styleBaselineResetRequest]);
+
+  const lastTextRevertRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!textRevertRequest) return;
+    if (lastTextRevertRequestIdRef.current === textRevertRequest.requestId) {
+      return;
+    }
+    lastTextRevertRequestIdRef.current = textRevertRequest.requestId;
+    for (const patch of textRevertRequest.patches) {
+      const selectorCandidates = [
+        patch.selector,
+        patch.sourceId
+          ? `[data-agent-native-node-id="${String(patch.sourceId).replace(/"/g, '\\"')}"]`
+          : "",
+      ].filter(Boolean);
+      postOneShotBridgeMessage({
+        type: "set-text-content",
+        selector: patch.selector,
+        selectorCandidates,
+        value: patch.value,
+        html: patch.html,
+      });
+    }
+  }, [postOneShotBridgeMessage, textRevertRequest]);
+
+  const lastStructureAckRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!structureAckRequest) return;
+    if (
+      lastStructureAckRequestIdRef.current === structureAckRequest.requestId
+    ) {
+      return;
+    }
+    lastStructureAckRequestIdRef.current = structureAckRequest.requestId;
+    for (const ack of structureAckRequest.acks) {
+      postOneShotBridgeMessage({
+        type: "visual-structure-ack",
+        requestId: ack.requestId,
+        applied: ack.applied,
+      });
+    }
+  }, [postOneShotBridgeMessage, structureAckRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -2675,9 +3199,15 @@ export function DesignCanvas({
           </div>
         </div>
       ) : null}
-      {waitingForEditableExternalSnapshot ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {externalSnapshotState?.status === "error" ? (
+      {waitingForEditableExternalSnapshot || waitingForLiveEditBridge ? (
+        <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
+          {waitingForLiveEditBridge ? (
+            <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
+              {
+                "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */
+              }
+            </div>
+          ) : externalSnapshotState?.status === "error" ? (
             // A real offline dev server previously looked identical to the
             // ordinary "still loading" state and retried forever on a fixed
             // 1.5s timer — see getSnapshotRetryDelayMs for the backoff that

@@ -185,6 +185,41 @@ export function EventDetailPanel({
     })();
   }, [event, promptGuestNotification, updateEvent]);
 
+  const handleToggleAttendeeOptional = useCallback(
+    (email: string, optional: boolean) => {
+      if (!event || updateEvent.isPending) return;
+      const existing = event.attendees || [];
+      const key = email.trim().toLowerCase();
+      if (!existing.some((attendee) => attendee.email.toLowerCase() === key)) {
+        return;
+      }
+      const attendees = existing.map((attendee) =>
+        attendee.email.toLowerCase() === key
+          ? {
+              ...attendee,
+              optional: optional ? true : undefined,
+            }
+          : attendee,
+      );
+      void (async () => {
+        const updates = { attendees };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) return;
+        updateEvent.mutate({
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
+      })();
+    },
+    [event, promptGuestNotification, updateEvent],
+  );
+
   return (
     <TooltipProvider>
       {isOpen && (
@@ -414,7 +449,11 @@ export function EventDetailPanel({
 
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (
-                  <EventAttendeesSection event={event} />
+                  <EventAttendeesSection
+                    event={event}
+                    canEditOptional={!isOverlay}
+                    onToggleOptional={handleToggleAttendeeOptional}
+                  />
                 )}
 
                 {/* Research Meeting */}

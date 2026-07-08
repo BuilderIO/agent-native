@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.13.10
+
+### Patch Changes
+
+- e310ac1: Make Telegram dispatch chats require an explicit linked identity and route cross-app messaging requests through the continuation-aware agent delegation path.
+
+## 0.13.9
+
+### Patch Changes
+
+- 3995e4e: Simplify the Dispatch overview to just Ask Dispatch and the apps list.
+
 ## 0.13.8
 
 ### Patch Changes

@@ -37,6 +37,7 @@ import {
   roundToOneDecimal,
   strokeHiddenByColor,
   strokeIsVisible,
+  textStrokeAddPatch,
   textStrokeIsVisible,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
@@ -533,11 +534,11 @@ function TextStrokeProperties({
         <SectionIconButton
           label={t("editPanel.labels.addLayer")}
           onClick={() => {
+            // Kebab-case keys required: camelCase webkit props get mangled by
+            // normalizeStyleProperty (camel→kebab drops the leading dash) and
+            // silently fail the persist allow-list — see textStrokeAddPatch.
             commitStylePatch(
-              {
-                webkitTextStrokeWidth: "1px",
-                webkitTextStrokeColor: resolveTextStrokeColor(color),
-              },
+              textStrokeAddPatch(color),
               onStyleChange,
               onStylesChange,
             );

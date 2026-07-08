@@ -1351,9 +1351,15 @@ function DatabaseTable({
   ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
+    const scopedChangeSetIds =
+      activeBuilderReview && activeBuilderReview.rows.length > 0
+        ? activeBuilderReview.rows.map((row) => row.changeSetId)
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
+        sourceId: source?.id,
+        changeSetIds: scopedChangeSetIds,
         pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;
@@ -2462,6 +2468,25 @@ export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
       property.editable && !isComputedPropertyType(property.definition.type),
+  );
+}
+
+export function databaseBuilderBulkUpdateSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  selectedItems: ContentDatabaseItem[],
+) {
+  if (selectedItems.length === 0) return null;
+  const candidates =
+    sources.length > 0 ? sources : primarySource ? [primarySource] : [];
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.sourceType === "builder-cms" &&
+        selectedItems.every((item) =>
+          candidate.rows.some((row) => row.documentId === item.document.id),
+        ),
+    ) ?? null
   );
 }
 
@@ -3722,7 +3747,7 @@ function DatabaseTableView({
 
   async function setSelectedPropertyValue(
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
@@ -3734,7 +3759,7 @@ function DatabaseTableView({
         await setProperty.mutateAsync({
           documentId: item.document.id,
           propertyId: property.definition.id,
-          value,
+          value: databaseBulkPropertyValueForItem(item, property, operation),
         });
         updatedCount += 1;
       } catch {
@@ -3772,6 +3797,7 @@ function DatabaseTableView({
             selectedCount={selectedCount}
             canEdit={canEdit}
             properties={bulkEditableProperties}
+            selectedItems={selectedItems}
             duplicateDisabled={
               isDuplicatingSelected ||
               duplicateItems.isPending ||
@@ -7350,6 +7376,25 @@ function shouldPreselectDetailField(
   return DETAIL_FIELD_NAME_HINTS.some((hint) => key.includes(hint));
 }
 
+function sourceFieldIconType(
+  sourceFieldType: string,
+): DocumentPropertyType | "name" {
+  const normalized = sourceFieldType.trim().toLowerCase();
+  if (normalized === "number") return "number";
+  if (normalized === "datetime" || normalized === "date") return "date";
+  if (normalized === "url") return "url";
+  if (normalized === "boolean" || normalized === "checkbox") return "checkbox";
+  if (
+    normalized === "list" ||
+    normalized === "array" ||
+    normalized === "tags" ||
+    normalized === "multi_select"
+  ) {
+    return "multi_select";
+  }
+  return "text";
+}
+
 function SourceDetailsFieldPicker({
   documentId,
   source,
@@ -7451,31 +7496,37 @@ function SourceDetailsFieldPicker({
         </div>
       ) : (
         <div className="grid min-w-0 gap-1">
-          {fields.map((field) => (
-            <button
-              key={field.id}
-              type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => toggleField(field.id)}
-            >
-              <span
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded border",
-                  selected.has(field.id)
-                    ? "border-[#2383e2] bg-[#2383e2] text-white"
-                    : "border-muted-foreground/40 text-transparent",
-                )}
+          {fields.map((field) => {
+            const iconType = sourceFieldIconType(field.sourceFieldType);
+            const Icon =
+              iconType === "name" ? IconFileText : TYPE_ICONS[iconType];
+            return (
+              <button
+                key={field.id}
+                type="button"
+                className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => toggleField(field.id)}
               >
-                <IconCheck className="size-3" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">
-                {field.sourceFieldLabel}
-              </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {field.sourceFieldType}
-              </span>
-            </button>
-          ))}
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    selected.has(field.id)
+                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      : "border-muted-foreground/40 text-transparent",
+                  )}
+                >
+                  <IconCheck className="size-3" />
+                </span>
+                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">
+                  {field.sourceFieldLabel}
+                </span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {field.sourceFieldType}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="flex justify-end gap-2">
@@ -7520,6 +7571,30 @@ function BuilderSpaceModelsView({
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
+    if (attachedModelName) {
+      return (
+        <div className="grid min-w-0 gap-2">
+          <div className="grid min-w-0 gap-1.5">
+            <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {dbText("alreadyAttached")}
+            </div>
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{attachedModelName}</span>
+              </span>
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                attached
+              </span>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            {dbText("loadingBuilderModels")}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
@@ -12828,6 +12903,156 @@ function databaseItemPropertyById(
   );
 }
 
+export type DatabaseBulkMultiSelectOperation =
+  | { kind: "multi_select_add"; optionIds: string[] }
+  | { kind: "multi_select_remove"; optionIds: string[] }
+  | {
+      kind: "multi_select_batch";
+      addOptionIds: string[];
+      removeOptionIds: string[];
+    };
+
+export type DatabaseBulkPropertyValueOperation =
+  | { kind: "set"; value: DocumentPropertyValue }
+  | DatabaseBulkMultiSelectOperation;
+
+export function databaseBulkPropertyValueForItem(
+  item: ContentDatabaseItem,
+  property: DocumentProperty,
+  operation: DatabaseBulkPropertyValueOperation,
+): DocumentPropertyValue {
+  if (operation.kind === "set") return operation.value;
+  const itemProperty = databaseItemPropertyById(
+    item,
+    [property],
+    property.definition.id,
+  );
+  return databaseBulkMultiSelectValueAfterOperation(
+    itemProperty?.value ?? null,
+    operation,
+  );
+}
+
+function databaseBulkMultiSelectValue(value: DocumentPropertyValue) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export function databaseBulkMultiSelectValueAfterOperation(
+  value: DocumentPropertyValue,
+  operation: DatabaseBulkMultiSelectOperation,
+) {
+  const current = databaseBulkMultiSelectValue(value);
+  const addOptionIds =
+    operation.kind === "multi_select_batch"
+      ? operation.addOptionIds
+      : operation.kind === "multi_select_add"
+        ? operation.optionIds
+        : [];
+  const removeOptionIds =
+    operation.kind === "multi_select_batch"
+      ? operation.removeOptionIds
+      : operation.kind === "multi_select_remove"
+        ? operation.optionIds
+        : [];
+  const removedIds = new Set(removeOptionIds);
+  const kept = current.filter((optionId) => !removedIds.has(optionId));
+  const keptIds = new Set(kept);
+  return [
+    ...kept,
+    ...Array.from(new Set(addOptionIds)).filter(
+      (optionId) => !keptIds.has(optionId),
+    ),
+  ];
+}
+
+export function databaseBulkMultiSelectOptionPresence(
+  items: ContentDatabaseItem[],
+  property: DocumentProperty,
+  optionId: string,
+  operation?: DatabaseBulkMultiSelectOperation,
+) {
+  const values = items.map((item) =>
+    operation
+      ? databaseBulkMultiSelectValueAfterOperation(
+          databaseItemPropertyById(item, [property], property.definition.id)
+            ?.value ?? null,
+          operation,
+        )
+      : databaseBulkMultiSelectValue(
+          databaseItemPropertyById(item, [property], property.definition.id)
+            ?.value ?? null,
+        ),
+  );
+  return {
+    presentInAny: values.some((value) => value.includes(optionId)),
+    presentInAll:
+      values.length > 0 && values.every((value) => value.includes(optionId)),
+  };
+}
+
+export function databaseBulkMultiSelectToggleOperation(
+  items: ContentDatabaseItem[],
+  property: DocumentProperty,
+  optionId: string,
+  operation: DatabaseBulkMultiSelectOperation = {
+    kind: "multi_select_batch",
+    addOptionIds: [],
+    removeOptionIds: [],
+  },
+): DatabaseBulkMultiSelectOperation {
+  const presence = databaseBulkMultiSelectOptionPresence(
+    items,
+    property,
+    optionId,
+    operation,
+  );
+  const addOptionIds =
+    operation.kind === "multi_select_batch"
+      ? new Set(operation.addOptionIds)
+      : operation.kind === "multi_select_add"
+        ? new Set(operation.optionIds)
+        : new Set<string>();
+  const removeOptionIds =
+    operation.kind === "multi_select_batch"
+      ? new Set(operation.removeOptionIds)
+      : operation.kind === "multi_select_remove"
+        ? new Set(operation.optionIds)
+        : new Set<string>();
+  if (presence.presentInAll) {
+    addOptionIds.delete(optionId);
+    removeOptionIds.add(optionId);
+  } else {
+    removeOptionIds.delete(optionId);
+    addOptionIds.add(optionId);
+  }
+  return {
+    kind: "multi_select_batch",
+    addOptionIds: Array.from(addOptionIds),
+    removeOptionIds: Array.from(removeOptionIds),
+  };
+}
+
+function databaseBulkMultiSelectOperationHasChanges(
+  operation: DatabaseBulkMultiSelectOperation,
+) {
+  return operation.kind === "multi_select_batch"
+    ? operation.addOptionIds.length > 0 || operation.removeOptionIds.length > 0
+    : operation.optionIds.length > 0;
+}
+
+export function databaseBulkMultiSelectFilteredOptions(
+  options: DocumentPropertyOption[],
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return options;
+  return options.filter((option) =>
+    option.name.trim().toLowerCase().includes(normalizedQuery),
+  );
+}
+
 function databaseTimelineRangeLabel(days: Date[]) {
   const first = days[0] ?? new Date();
   const last = days[days.length - 1] ?? first;
@@ -13630,6 +13855,7 @@ function DatabaseSelectionBar({
   selectedCount,
   canEdit,
   properties,
+  selectedItems,
   duplicateDisabled,
   deleteDisabled,
   updateDisabled,
@@ -13641,13 +13867,14 @@ function DatabaseSelectionBar({
   selectedCount: number;
   canEdit: boolean;
   properties: DocumentProperty[];
+  selectedItems: ContentDatabaseItem[];
   duplicateDisabled: boolean;
   deleteDisabled: boolean;
   updateDisabled: boolean;
   onClearSelection: () => void;
   onSetPropertyValue: (
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) => Promise<void>;
   onDuplicateSelected: () => void;
   onDeleteSelected: () => void;
@@ -13663,6 +13890,7 @@ function DatabaseSelectionBar({
             <DatabaseBulkEditPopover
               properties={properties}
               selectedCount={selectedCount}
+              selectedItems={selectedItems}
               disabled={updateDisabled || properties.length === 0}
               onSetPropertyValue={onSetPropertyValue}
             />
@@ -13707,15 +13935,17 @@ function DatabaseSelectionBar({
 function DatabaseBulkEditPopover({
   properties,
   selectedCount,
+  selectedItems,
   disabled,
   onSetPropertyValue,
 }: {
   properties: DocumentProperty[];
   selectedCount: number;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
   onSetPropertyValue: (
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -13736,9 +13966,9 @@ function DatabaseBulkEditPopover({
 
   async function applyValue(
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) {
-    await onSetPropertyValue(property, value);
+    await onSetPropertyValue(property, operation);
     setOpen(false);
   }
 
@@ -13753,7 +13983,7 @@ function DatabaseBulkEditPopover({
           disabled={disabled}
         >
           <IconPencil className="size-3.5" />
-          Set
+          Edit
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[28rem] p-2">
@@ -13789,6 +14019,7 @@ function DatabaseBulkEditPopover({
               {selectedProperty ? (
                 <DatabaseBulkPropertyValueEditor
                   property={selectedProperty}
+                  selectedItems={selectedItems}
                   disabled={disabled}
                   onApply={(value) => applyValue(selectedProperty, value)}
                   onCancel={() => setOpen(false)}
@@ -13808,13 +14039,15 @@ function DatabaseBulkEditPopover({
 
 function DatabaseBulkPropertyValueEditor({
   property,
+  selectedItems,
   disabled,
   onApply,
   onCancel,
 }: {
   property: DocumentProperty;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const type = property.definition.type;
@@ -13828,7 +14061,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="secondary"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(true)}
+          onClick={() => void onApply({ kind: "set", value: true })}
         >
           <IconCheck className="mr-1.5 size-3.5" />
           Checked
@@ -13839,7 +14072,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="secondary"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(false)}
+          onClick={() => void onApply({ kind: "set", value: false })}
         >
           <IconMinus className="mr-1.5 size-3.5" />
           Unchecked
@@ -13850,7 +14083,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="ghost"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           {dbText("clearValue")}
         </Button>
@@ -13862,6 +14095,7 @@ function DatabaseBulkPropertyValueEditor({
     return (
       <DatabaseBulkOptionValueEditor
         property={property}
+        selectedItems={selectedItems}
         disabled={disabled}
         onApply={onApply}
         onCancel={onCancel}
@@ -13897,7 +14131,7 @@ function DatabaseBulkScalarValueEditor({
 }: {
   property: DocumentProperty;
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const type = property.definition.type;
@@ -13922,7 +14156,7 @@ function DatabaseBulkScalarValueEditor({
       onSubmit={(event) => {
         event.preventDefault();
         if (!valueState.isValid) return;
-        void onApply(valueState.value);
+        void onApply({ kind: "set", value: valueState.value });
       }}
     >
       {type === "date" ? (
@@ -13935,8 +14169,11 @@ function DatabaseBulkScalarValueEditor({
             disabled={disabled}
             onClick={() =>
               void onApply({
-                start: dateInputValueForOffset(new Date(), 0),
-                includeTime: false,
+                kind: "set",
+                value: {
+                  start: dateInputValueForOffset(new Date(), 0),
+                  includeTime: false,
+                },
               })
             }
           >
@@ -13951,8 +14188,11 @@ function DatabaseBulkScalarValueEditor({
             disabled={disabled}
             onClick={() =>
               void onApply({
-                start: dateInputValueForOffset(new Date(), 1),
-                includeTime: false,
+                kind: "set",
+                value: {
+                  start: dateInputValueForOffset(new Date(), 1),
+                  includeTime: false,
+                },
               })
             }
           >
@@ -13965,7 +14205,7 @@ function DatabaseBulkScalarValueEditor({
         autoFocus
         value={value}
         type={inputType}
-        aria-label={`Set ${property.definition.name} for selected rows`}
+        aria-label={`Edit ${property.definition.name} for selected rows`}
         placeholder="Value"
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -13986,7 +14226,7 @@ function DatabaseBulkScalarValueEditor({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           Clear
         </Button>
@@ -14011,7 +14251,7 @@ function DatabaseBulkFilesValueEditor({
   onCancel,
 }: {
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -14022,12 +14262,12 @@ function DatabaseBulkFilesValueEditor({
       onSubmit={(event) => {
         event.preventDefault();
         const items = filesMediaItems(value);
-        void onApply(items.length > 0 ? items : null);
+        void onApply({ kind: "set", value: items.length > 0 ? items : null });
       }}
     >
       <textarea
         autoFocus
-        aria-label="Set files for selected rows"
+        aria-label={dbText("editFilesForSelectedRows")}
         value={value}
         placeholder={dbText("oneFileOrMediaLinkPerLine")}
         rows={4}
@@ -14046,7 +14286,7 @@ function DatabaseBulkFilesValueEditor({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           Clear
         </Button>
@@ -14063,18 +14303,35 @@ function DatabaseBulkFilesValueEditor({
 
 function DatabaseBulkOptionValueEditor({
   property,
+  selectedItems,
   disabled,
   onApply,
   onCancel,
 }: {
   property: DocumentProperty;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const options = property.definition.options.options ?? [];
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const multi = property.definition.type === "multi_select";
+  const selectedItemsKey = selectedItems.map((item) => item.id).join("|");
+  const [pendingMultiSelectOperation, setPendingMultiSelectOperation] =
+    useState<DatabaseBulkMultiSelectOperation>({
+      kind: "multi_select_batch",
+      addOptionIds: [],
+      removeOptionIds: [],
+    });
+  const [optionSearchQuery, setOptionSearchQuery] = useState("");
+
+  useEffect(() => {
+    setPendingMultiSelectOperation({
+      kind: "multi_select_batch",
+      addOptionIds: [],
+      removeOptionIds: [],
+    });
+  }, [property.definition.id, selectedItemsKey]);
 
   if (options.length === 0) {
     return (
@@ -14082,68 +14339,130 @@ function DatabaseBulkOptionValueEditor({
         <div className="rounded bg-muted/40 px-2 py-3 text-sm text-muted-foreground">
           {dbText("thisPropertyHasNoOptionsYet")}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="justify-start"
-          disabled={disabled}
-          onClick={() => void onApply(multi ? [] : null)}
-        >
-          {dbText("clearValue")}
-        </Button>
+        {multi ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            disabled={disabled}
+            onClick={() => void onApply({ kind: "set", value: null })}
+          >
+            {dbText("clearValue")}
+          </Button>
+        )}
       </div>
     );
   }
 
   if (multi) {
+    const hasPendingChanges = databaseBulkMultiSelectOperationHasChanges(
+      pendingMultiSelectOperation,
+    );
+    const filteredOptions = databaseBulkMultiSelectFilteredOptions(
+      options,
+      optionSearchQuery,
+    );
     return (
       <div className="grid gap-2">
+        <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+          <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={optionSearchQuery}
+            placeholder={dbText("searchOptions")}
+            aria-label={`Search ${property.definition.name} options`}
+            className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+            onChange={(event) => setOptionSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                if (optionSearchQuery) {
+                  setOptionSearchQuery("");
+                } else {
+                  onCancel();
+                }
+              }
+            }}
+          />
+        </div>
         <div className="max-h-52 overflow-auto">
-          {options.map((option) => {
-            const checked = selectedIds.includes(option.id);
+          {filteredOptions.length === 0 ? (
+            <div className="rounded px-2 py-3 text-sm text-muted-foreground">
+              {dbText("noMatchingOptions")}
+            </div>
+          ) : null}
+          {filteredOptions.map((option) => {
+            const presence = databaseBulkMultiSelectOptionPresence(
+              selectedItems,
+              property,
+              option.id,
+              pendingMultiSelectOperation,
+            );
             return (
               <button
                 key={option.id}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                aria-pressed={presence.presentInAll}
+                aria-label={`${
+                  presence.presentInAll ? "Remove" : "Add"
+                } ${option.name} for selected rows`}
+                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                disabled={disabled}
                 onClick={() =>
-                  setSelectedIds((current) =>
-                    current.includes(option.id)
-                      ? current.filter((id) => id !== option.id)
-                      : [...current, option.id],
+                  setPendingMultiSelectOperation((current) =>
+                    databaseBulkMultiSelectToggleOperation(
+                      selectedItems,
+                      property,
+                      option.id,
+                      current,
+                    ),
                   )
                 }
               >
                 <DatabaseBulkOptionPill option={option} />
-                {checked ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
+                {presence.presentInAll ? (
+                  <IconCheck className="size-4 shrink-0 text-muted-foreground" />
+                ) : presence.presentInAny ? (
+                  <IconMinus className="size-4 shrink-0 text-muted-foreground" />
                 ) : null}
               </button>
             );
           })}
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => void onApply([])}
+            onClick={() => void onApply({ kind: "set", value: [] })}
           >
-            Clear
+            {dbText("clearValue")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled}
-            onClick={() => void onApply(selectedIds)}
-          >
-            Apply
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || !hasPendingChanges}
+              onClick={() => void onApply(pendingMultiSelectOperation)}
+            >
+              Apply
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -14158,7 +14477,7 @@ function DatabaseBulkOptionValueEditor({
             type="button"
             className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
             disabled={disabled}
-            onClick={() => void onApply(option.id)}
+            onClick={() => void onApply({ kind: "set", value: option.id })}
           >
             <DatabaseBulkOptionPill option={option} />
           </button>
@@ -14170,7 +14489,7 @@ function DatabaseBulkOptionValueEditor({
         variant="ghost"
         className="justify-start"
         disabled={disabled}
-        onClick={() => void onApply(null)}
+        onClick={() => void onApply({ kind: "set", value: null })}
       >
         {dbText("clearValue")}
       </Button>
@@ -16593,6 +16912,7 @@ function DatabaseTableRow({
               <PropertyValuePopover
                 property={itemProperty}
                 documentId={item.document.id}
+                databaseDocumentId={databaseDocumentId}
               >
                 {value}
               </PropertyValuePopover>

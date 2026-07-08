@@ -34,13 +34,13 @@ description: >
 Use `sentry` for all agent-facing Sentry work. Do not call `/api/sentry/*`
 directly from the agent.
 
-| Mode | Args | Description |
-| --- | --- | --- |
-| `organizations` | | List organizations visible to the token |
-| `issues` | `statsPeriod`, `project`, `query`, `orgSlug` | Frequent issues, sorted by frequency |
-| `projects` | `orgSlug` | List projects |
-| `issue-events` | `issueId`, `orgSlug` | Events for a specific issue |
-| `stats` | `statsPeriod`, `category`, `orgSlug` | Org-level stats |
+| Mode            | Args                                         | Description                             |
+| --------------- | -------------------------------------------- | --------------------------------------- |
+| `organizations` |                                              | List organizations visible to the token |
+| `issues`        | `statsPeriod`, `project`, `query`, `orgSlug` | Frequent issues, sorted by frequency    |
+| `projects`      | `orgSlug`                                    | List projects                           |
+| `issue-events`  | `issueId`, `orgSlug`                         | Events for a specific issue             |
+| `stats`         | `statsPeriod`, `category`, `orgSlug`         | Org-level stats                         |
 
 ### API Routes
 

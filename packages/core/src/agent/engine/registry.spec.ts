@@ -1,4 +1,15 @@
+import { createHash } from "node:crypto";
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
+
+function providerFailureFingerprint(key: string, value: string): string {
+  return createHash("sha256")
+    .update(key.trim().toUpperCase())
+    .update("\0")
+    .update(value.trim())
+    .digest("hex")
+    .slice(0, 24);
+}
 
 // Registry uses a module-level Map — reset between tests by re-importing
 // with a fresh module via vi.resetModules().
@@ -212,6 +223,7 @@ describe("AgentEngine registry", () => {
         publicKey: null,
       })),
       resolveSecret: vi.fn(async () => null),
+      getProviderCredentialAuthFailure: vi.fn(async () => null),
     }));
 
     const { registerAgentEngine, isResolvedEngineUsableForRequest } =
@@ -1050,6 +1062,150 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("resolveEngine skips a stored provider whose saved key has an auth-failure marker", async () => {
+      const badOpenAiKey = "sk-example-invalid";
+      const fingerprint = providerFailureFingerprint(
+        "OPENAI_API_KEY",
+        badOpenAiKey,
+      );
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) => {
+          if (key === "agent-engine") {
+            return { engine: "ai-sdk:openai", model: "gpt-5.4" };
+          }
+          if (key === `provider-auth-failure:${fingerprint}`) {
+            return {
+              fingerprint,
+              key: "OPENAI_API_KEY",
+              message: "401 status code (no body)",
+              status: 401,
+              at: Date.now(),
+            };
+          }
+          return null;
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_API_KEY") {
+            return { key, value: badOpenAiKey };
+          }
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({});
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(builderCreate).toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
+    });
+
+    it("detectEngineFromUserSecrets skips auth-failed BYO keys before falling back to Builder", async () => {
+      process.env.AGENT_ENGINE_PREFER_BYO_KEY = "true";
+      const badOpenAiKey = "sk-example-invalid";
+      const fingerprint = providerFailureFingerprint(
+        "OPENAI_API_KEY",
+        badOpenAiKey,
+      );
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) =>
+          key === `provider-auth-failure:${fingerprint}`
+            ? {
+                fingerprint,
+                key: "OPENAI_API_KEY",
+                message: "401 status code (no body)",
+                status: 401,
+                at: Date.now(),
+              }
+            : null,
+        ),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_API_KEY") {
+            return { key, value: badOpenAiKey };
+          }
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+    });
+
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
@@ -1303,6 +1459,92 @@ describe("AgentEngine registry", () => {
         allowEnvFallback: true,
       });
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("skips auth-failed deploy env keys during env auto-detect and falls back to Builder", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const badDeployKey = "sk-deploy-rejected";
+      process.env.OPENAI_API_KEY = badDeployKey; // guard:allow-env-credential — fixture: rejected deploy key must not stick permanently
+      const fingerprint = providerFailureFingerprint(
+        "OPENAI_API_KEY",
+        badDeployKey,
+      );
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) =>
+          key === `provider-auth-failure:${fingerprint}`
+            ? {
+                fingerprint,
+                key: "OPENAI_API_KEY",
+                message: "401 status code (no body)",
+                status: 401,
+                at: Date.now(),
+              }
+            : null,
+        ),
+        deleteSetting: vi.fn(),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "new@example.com",
+        getRequestOrgId: () => "org-1",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
+          if (key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "p-key-from-app-secrets" };
+          }
+          if (key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "space-from-app-secrets" };
+          }
+          return null;
+        }),
+      }));
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const resolved = await resolveEngine({});
+      expect(openAiCreate).not.toHaveBeenCalled();
+      expect(builderCreate).toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
     });
   });
 });

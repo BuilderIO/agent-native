@@ -125,6 +125,16 @@ Use only one generated video provider per event: `--addGoogleMeet=true` or `--ad
 
 `--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
 
+To mark a guest optional, pass attendees as a JSON array with `optional: true`:
+
+```bash
+pnpm action create-event \
+  --title "Q2 planning" \
+  --start 2026-04-03T14:00:00 \
+  --end 2026-04-03T15:00:00 \
+  --attendees '[{"email":"alice@example.com"},{"email":"bob@example.com","optional":true}]'
+```
+
 Use `--startTimeZone` / `--endTimeZone` with IANA timezone names when the event should be anchored to a specific timezone, e.g. `--startTimeZone America/Los_Angeles`.
 
 Use `--reminders '[{"method":"popup","minutes":10},{"method":"email","minutes":1440}]'` for multiple alerts. Use `--remindersUseDefault false --reminders '[]'` for no alerts.
@@ -174,6 +184,17 @@ pnpm action update-event \
   --id google-event-id \
   --attendees "alice@example.com,bob@example.com,carol@example.com"
 
+# Prefer addAttendees when inviting more people so existing RSVP metadata is preserved
+pnpm action update-event \
+  --id google-event-id \
+  --addAttendees '[{"email":"dana@example.com","optional":true}]'
+
+# Mark an existing guest optional without resetting RSVPs — fetch via get-event,
+# then pass the full attendees list with optional:true on that guest
+pnpm action update-event \
+  --id google-event-id \
+  --attendees '[{"email":"alice@example.com"},{"email":"bob@example.com","optional":true}]'
+
 # Suppress invitation emails
 pnpm action update-event --id google-event-id --attendees "alice@example.com" --sendUpdates none
 
@@ -189,7 +210,7 @@ pnpm action update-event \
   --attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'
 ```
 
-`--attendees` REPLACES the entire attendee list — to add someone, fetch the existing attendees first via `get-event` and pass the merged list. Pass an empty string to clear all attendees.
+`--attendees` REPLACES the entire attendee list — to add someone, prefer `addAttendees` so existing RSVP notes/statuses are preserved. To change whether a guest is optional or required after the fact, fetch the current list via `get-event` and pass the full `attendees` array with `optional: true` or omit/false for required. Pass an empty string to clear all attendees.
 
 For "add Zoom to this meeting", fetch or use the visible event id and call `update-event --addZoom=true`. Do not create an extension for Zoom; Zoom is a first-party calendar integration handled by the event actions and the Settings page.
 
@@ -246,7 +267,8 @@ Events require a connected Google Calendar account. Check with `GET /_agent-nati
   "location": "Conference Room A",
   "allDay": false,
   "attendees": [
-    { "email": "alice@example.com", "displayName": "Alice", "responseStatus": "accepted" }
+    { "email": "alice@example.com", "displayName": "Alice", "responseStatus": "accepted" },
+    { "email": "bob@example.com", "displayName": "Bob", "responseStatus": "needsAction", "optional": true }
   ],
   "conferenceData": { ... },
   "hangoutLink": "https://meet.google.com/...",

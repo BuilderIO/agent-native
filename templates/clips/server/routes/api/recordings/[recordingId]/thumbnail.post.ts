@@ -165,6 +165,7 @@ export default defineEventHandler(async (event: H3Event) => {
       mimeType,
       filename: `thumb-${recordingId}.${ext}`,
       ownerEmail,
+      recordAsset: false,
     });
 
     let url: string;

@@ -237,8 +237,24 @@ type DashboardPatch = {
 type PanelPatch = {
   title?: string;
   sql?: string;
-  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout" | "extension";
+  source?:
+    | "bigquery"
+    | "ga4"
+    | "amplitude"
+    | "first-party"
+    | "demo"
+    | "prometheus";
+  chartType?:
+    | "line"
+    | "area"
+    | "bar"
+    | "metric"
+    | "table"
+    | "pie"
+    | "section"
+    | "heatmap"
+    | "callout"
+    | "extension";
   width?: number;
   columns?: number;
   tab?: string;
@@ -302,27 +318,27 @@ Examples:
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
-  "width": 2,
-  "config": { "description": "Updated definition." }
+  width: 2,
+  config: { description: "Updated definition." },
 });
-dashboard.panelsMatching({ "source": "first-party" }).setWidth(2);
-dashboard.panelsMatching({ "titleIncludes": "Revenue" }).setConfigPath(
-  "yAxis.format",
-  "currency"
-);
-dashboard.panelsMatching({ "titleIncludes": "Signed-In" }).moveToTop();
-dashboard.section("retention-activity-section").append([
-  "repeat-users",
-  "retention-over-time"
-]);
-dashboard.insertPanel({
-  "id": "new-kpi",
-  "title": "New KPI",
-  "source": "first-party",
-  "chartType": "metric",
-  "width": 1,
-  "sql": "SELECT COUNT(*) AS value FROM analytics_events"
-}).atTop();
+dashboard.panelsMatching({ source: "first-party" }).setWidth(2);
+dashboard
+  .panelsMatching({ titleIncludes: "Revenue" })
+  .setConfigPath("yAxis.format", "currency");
+dashboard.panelsMatching({ titleIncludes: "Signed-In" }).moveToTop();
+dashboard
+  .section("retention-activity-section")
+  .append(["repeat-users", "retention-over-time"]);
+dashboard
+  .insertPanel({
+    id: "new-kpi",
+    title: "New KPI",
+    source: "first-party",
+    chartType: "metric",
+    width: 1,
+    sql: "SELECT COUNT(*) AS value FROM analytics_events",
+  })
+  .atTop();
 ```
 
 Native tool call:

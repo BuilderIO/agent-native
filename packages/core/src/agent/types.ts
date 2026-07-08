@@ -180,8 +180,9 @@ export interface AgentChatRequest {
     continuationCount?: number;
     /**
      * True when the dispatcher expects the self-POST to land in a real
-     * Netlify `-background` function (15-min budget) rather than the ~60s
-     * synchronous function. See `shouldUseBackgroundFunctionTimeoutForWorker`.
+     * Netlify `-background` function rather than the ~60s synchronous function.
+     * This is diagnostic only; the 15-minute budget is unlocked by the worker's
+     * actual runtime marker.
      */
     backgroundFunctionRuntimeExpected?: boolean;
     /**

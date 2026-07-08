@@ -6,6 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyDocumentPropertyValueToDatabaseResponse,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
@@ -272,6 +273,43 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
     expect(applySourceFieldPropertyToDatabaseResponse(current, patch)).toBe(
       current,
     );
+  });
+});
+
+describe("applyDocumentPropertyValueToDatabaseResponse", () => {
+  it("updates a row property in the cached database response", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Published",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status" },
+      value: "Published",
+    });
+    expect(updated?.items[1]).toBe(current.items[1]);
+  });
+
+  it("inserts a visible row property when the row was falling back to the database property", () => {
+    const current = databaseResponse();
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Agent Native",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Status" },
+      value: "Agent Native",
+      editable: true,
+    });
   });
 });
 

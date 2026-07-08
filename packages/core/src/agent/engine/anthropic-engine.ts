@@ -8,14 +8,21 @@
  * All providerOptions.anthropic fields are forwarded directly to the SDK.
  */
 
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -63,12 +70,31 @@ class AnthropicEngine implements AgentEngine {
     const messages = engineMessagesToAnthropic(opts.messages);
     const anthropicOpts = opts.providerOptions?.anthropic;
 
+    // Resolved once so both max_tokens and the thinking-budget headroom
+    // clamp below agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
+
     // Build extra body params for Anthropic-native features
     const extra: Record<string, unknown> = {};
     if (anthropicOpts?.thinking) {
       extra.thinking = {
         type: anthropicOpts.thinking.type,
-        budget_tokens: anthropicOpts.thinking.budgetTokens,
+        // Only the "enabled" config carries a numeric budget_tokens; clamp it
+        // so thinking can't consume the entire max_tokens budget and leave
+        // zero room for the actual response ("adaptive" thinking has no
+        // budget_tokens field at all, so it passes through unclamped).
+        budget_tokens:
+          anthropicOpts.thinking.type === "enabled" &&
+          typeof anthropicOpts.thinking.budgetTokens === "number"
+            ? clampThinkingBudgetTokens(
+                anthropicOpts.thinking.budgetTokens,
+                resolvedMaxOutputTokens,
+              )
+            : anthropicOpts.thinking.budgetTokens,
       };
     }
     if (anthropicOpts?.topK !== undefined) {
@@ -135,11 +161,7 @@ class AnthropicEngine implements AgentEngine {
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: resolveMaxOutputTokensForEngine(
-        this.name,
-        opts.maxOutputTokens,
-        opts.model,
-      ),
+      max_tokens: resolvedMaxOutputTokens,
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages: cachedMessages,
@@ -187,6 +209,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: "ANTHROPIC_API_KEY",
+        value: this.apiKey,
+      });
 
       // Emit stop reason
       const stopReason = finalMessage.stop_reason ?? "end_turn";
@@ -200,10 +226,36 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      const statusCode: number | undefined =
+        typeof err?.status === "number"
+          ? err.status
+          : typeof err?.statusCode === "number"
+            ? err.statusCode
+            : undefined;
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: "ANTHROPIC_API_KEY",
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: err?.message ?? String(err),
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
+        // Forward the provider HTTP status for EVERY known status, not just
+        // 401. The Anthropic SDK reports empty-body failures as a bare
+        // "429 status code (no body)" message, so without a structured
+        // statusCode/errorCode `isRetryableError` couldn't classify a rate
+        // limit (it matches "529"/"502" substrings but not "429") and the
+        // run failed hard instead of backing off + retrying like the Builder
+        // gateway path does. `http_429`/`http_529` also let the run-level
+        // continuation logic auto-resume a rate-limited turn.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : {}),
       };
       throw err;
     }

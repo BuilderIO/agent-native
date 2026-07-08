@@ -29,6 +29,7 @@ import {
 } from "../resources/metadata.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -44,6 +45,7 @@ import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForModel,
+  stepDownReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
@@ -76,7 +78,11 @@ import {
   normalizeModelForEngine,
   isResolvedEngineUsableForRequest,
 } from "./engine/index.js";
-import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
+import {
+  resolveEmptyResponseRetryMaxOutputTokens,
+  resolveMainChatMaxOutputTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import {
   backfillEngineMessagesToolResults,
@@ -436,7 +442,15 @@ export async function getOwnerApiKey(
         scope: ref.scope,
         scopeId: ref.scopeId,
       });
-      if (fromSecrets?.value) return fromSecrets.value;
+      if (
+        fromSecrets?.value &&
+        !(await getProviderCredentialAuthFailure({
+          key: secretKey,
+          value: fromSecrets.value,
+        }))
+      ) {
+        return fromSecrets.value;
+      }
     }
   } catch {
     // app_secrets table not ready — fall through to legacy lookup.
@@ -446,12 +460,26 @@ export async function getOwnerApiKey(
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
     const key =
       stored && typeof stored.key === "string" ? stored.key.trim() : "";
-    if (key) return key;
+    if (
+      key &&
+      !(await getProviderCredentialAuthFailure({ key: secretKey, value: key }))
+    ) {
+      return key;
+    }
     if (provider === "anthropic") {
       const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
       const legacyKey =
         legacy && typeof legacy.key === "string" ? legacy.key.trim() : "";
-      return legacyKey || undefined;
+      if (
+        legacyKey &&
+        !(await getProviderCredentialAuthFailure({
+          key: secretKey,
+          value: legacyKey,
+        }))
+      ) {
+        return legacyKey;
+      }
+      return undefined;
     }
     return undefined;
   } catch {
@@ -490,9 +518,17 @@ export async function getOwnerActiveApiKey(
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
     const envVar = PROVIDER_TO_ENV[provider];
-    return envVar && canUseDeployCredentialFallbackForRequest(envVar)
-      ? readDeployCredentialEnv(envVar)
-      : undefined;
+    if (!envVar || !canUseDeployCredentialFallbackForRequest(envVar)) {
+      return undefined;
+    }
+    const envKey = readDeployCredentialEnv(envVar);
+    if (
+      envKey &&
+      !(await getProviderCredentialAuthFailure({ key: envVar, value: envKey }))
+    ) {
+      return envKey;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -984,6 +1020,10 @@ const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+// Raised from 1 -> 2 now that each retry actually adapts (raises the token
+// ceiling and steps reasoning effort down a tier) instead of re-issuing the
+// exact same doomed request twice.
+const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -1101,6 +1141,7 @@ export function isRetryableError(err: unknown): boolean {
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
+    code === "http_429" ||
     code === "http_500" ||
     code === "http_502" ||
     code === "http_503" ||
@@ -1109,6 +1150,9 @@ export function isRetryableError(err: unknown): boolean {
     // Anthropic
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
+    // Bare provider rate-limit messages that carry no structured status,
+    // e.g. the Anthropic/AI-SDK "429 status code (no body)" format.
+    /\b429\b/.test(msg) ||
     msg.includes("529") ||
     // OpenAI phrasing
     msg.includes("rate limit reached") ||
@@ -2698,7 +2742,14 @@ export async function runAgentLoop(opts: {
   }
 
   let finalGuardRetries = 0;
+  let emptyFinalResponseRetries = 0;
   let iterations = 0;
+  // Overridden (raised tokens, lowered effort) only after an empty-final-
+  // response retry below — kept separate from `opts.maxOutputTokens`/
+  // `opts.reasoningEffort` so the very first attempt is unaffected and later
+  // tool-loop turns revert to the caller's original request after a success.
+  let effectiveMaxOutputTokens = opts.maxOutputTokens;
+  let effectiveReasoningEffort = opts.reasoningEffort;
 
   // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
   // The loop emits the `tripwire` event, surfaces the reason as a final
@@ -2808,10 +2859,10 @@ export async function runAgentLoop(opts: {
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
-            opts.maxOutputTokens,
+            effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: opts.reasoningEffort,
+          reasoningEffort: effectiveReasoningEffort,
           providerOptions: opts.providerOptions,
         };
 
@@ -3314,16 +3365,33 @@ export async function runAgentLoop(opts: {
       // text — typically when reasoning consumes the entire output-token
       // budget. Without a final text part the SSE stream still ends with a
       // clean `done`, which renders as a totally empty assistant bubble.
-      // Surface a plain-language error so the user knows what happened.
-      if (
+      // Retry so a reasoning-budget miss can still finish; each retry raises
+      // the token ceiling and steps reasoning effort down a tier so it's not
+      // just re-issuing the identical doomed request. If retries also come
+      // back empty, surface a plain-language error.
+      const hasEmptyFinalResponse =
         !guardEmittedFallback &&
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
-        streamedAssistantText.trim().length === 0
-      ) {
+        streamedAssistantText.trim().length === 0;
+      if (hasEmptyFinalResponse) {
+        if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
+          emptyFinalResponseRetries += 1;
+          effectiveMaxOutputTokens =
+            resolveEmptyResponseRetryMaxOutputTokens(model);
+          effectiveReasoningEffort = stepDownReasoningEffort(
+            effectiveReasoningEffort,
+          );
+          appendAgentLoopContinuation(messages, "max_tokens");
+          continue;
+        }
         send({
           type: "text",
           text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
         });
+      } else {
+        emptyFinalResponseRetries = 0;
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
+        effectiveReasoningEffort = opts.reasoningEffort;
       }
       break;
     }
@@ -3334,6 +3402,7 @@ export async function runAgentLoop(opts: {
     // finalGuardRetries stays at 1 from a prior cycle and the guard is
     // permanently disabled for the rest of a long multi-step run.
     finalGuardRetries = 0;
+    emptyFinalResponseRetries = 0;
 
     flushUnstreamedAssistantText();
 
@@ -4589,8 +4658,8 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
  * budget:
  *   - a durable-background WORKER run (`isBackgroundWorker`) — unconditional,
  *     unchanged from before; or
- *   - a FOREGROUND run when the opt-in `foregroundSelfChainEligible` flag is
- *     set (see `isAgentChatForegroundSelfChainEnabled` in
+ *   - a FOREGROUND run when the resolved `foregroundSelfChainEligible` gate is
+ *     true (see `isAgentChatForegroundSelfChainEnabled` in
  *     `durable-background.ts`) AND this specific run was never dispatched to
  *     the durable background worker (`dispatchedToBackground` false) — a run
  *     already headed to the durable background path chains via the
@@ -6158,12 +6227,12 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
         }
       : null;
-    // Opt-in (default-OFF) foreground self-chain: gated on the env flag AND
-    // this specific run never having been routed to the durable background
-    // worker. A run that WAS dispatched to background (`dispatchToBackground`)
-    // already has its recovery owned by the background circuit-breaker /
-    // `isBackgroundWorker` chain above — this flag must never double up with
-    // that path, only stand in for it on plain foreground turns. A persistent
+    // Foreground self-chain: gated on hosted runtime + A2A_SECRET, with an
+    // explicit env opt-out, AND this specific run never having been routed to
+    // the durable background worker. A run that WAS dispatched to background
+    // (`dispatchToBackground`) already has its recovery owned by the background
+    // circuit-breaker / `isBackgroundWorker` chain above — this flag must never
+    // double up with that path, only stand in for it on plain foreground turns. A persistent
     // threadId is required: the client discovers the pre-inserted successor
     // via `/runs/active?threadId` and the successor chunk resumes from the
     // thread's persisted thread_data — without a thread there is neither a
@@ -6271,8 +6340,8 @@ export function createProductionAgentHandler(
 
     // Wrap so the background worker is unblocked even when there is no app
     // onRunComplete / tracked-progress callback configured. Also installed for
-    // a foreground run eligible for the opt-in self-chain — that path needs
-    // this same wrapper to fire the continuation dispatch below.
+    // a foreground run eligible for self-chain — that path needs this same
+    // wrapper to fire the continuation dispatch below.
     const handleRunComplete =
       isBackgroundWorker || foregroundSelfChainEligible || baseHandleRunComplete
         ? async (run: ActiveRun) => {
@@ -6749,6 +6818,11 @@ export function createProductionAgentHandler(
           orgId: getRequestOrgId() ?? null,
           attachments: requestAttachments,
           reasoningEffort,
+          // The interactive chat turn needs real completion headroom — the
+          // flat per-engine defaults (4096-8192) exist for internal/eval
+          // callers and are far below what a hard, long-context turn needs
+          // once extended thinking is in play. See output-tokens.ts.
+          maxOutputTokens: resolveMainChatMaxOutputTokens(effectiveModel),
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
@@ -6866,6 +6940,9 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        dispatchMode: foregroundSelfChainEligible
+          ? "foreground-self-chain"
+          : "foreground",
       },
     );
 
@@ -6889,7 +6966,11 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
-    setResponseHeader(event, "X-Dispatch-Mode", "foreground");
+    setResponseHeader(
+      event,
+      "X-Dispatch-Mode",
+      foregroundSelfChainEligible ? "foreground-self-chain" : "foreground",
+    );
 
     return stream;
   });

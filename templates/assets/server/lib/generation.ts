@@ -642,7 +642,11 @@ export async function generateWithManagedImageProvider(
     const shouldFallback =
       err instanceof BuilderImageGenerationError &&
       [401, 402, 403, 429, 503, 504].includes(err.status ?? 0);
-    if (shouldFallback && (await isManualImageGenerationConfigured())) {
+    if (
+      shouldFallback &&
+      input.mode !== "edit" &&
+      (await isManualImageGenerationConfigured())
+    ) {
       logGeneration("builder.fallback_to_manual", {
         model: input.model,
         status:
@@ -652,7 +656,7 @@ export async function generateWithManagedImageProvider(
       return generateWithManualImageProvider(input);
     }
     if (shouldFallback && err instanceof BuilderImageGenerationError) {
-      throw createBuilderImageGenerationFallbackError(err);
+      throw createBuilderImageGenerationFallbackError(err, input);
     }
     throw err;
   }
@@ -660,12 +664,15 @@ export async function generateWithManagedImageProvider(
 
 function createBuilderImageGenerationFallbackError(
   err: BuilderImageGenerationError,
+  input?: GenerateProviderInput,
 ): Error {
-  const message = builderImageGenerationFallbackMessage(err);
+  const message = builderImageGenerationFallbackMessage(err, input);
   if ([401, 402, 403].includes(err.status ?? 0)) {
     return new FeatureNotConfiguredError({
       requiredCredential:
-        err.status === 401 ? "BUILDER_PRIVATE_KEY" : "GEMINI_API_KEY",
+        input?.mode === "edit" || err.status === 401
+          ? "BUILDER_PRIVATE_KEY"
+          : "GEMINI_API_KEY",
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message,
@@ -676,8 +683,26 @@ function createBuilderImageGenerationFallbackError(
 
 function builderImageGenerationFallbackMessage(
   err: BuilderImageGenerationError,
+  input?: GenerateProviderInput,
 ): string {
   const detail = err.detail ? `: ${err.detail}` : ".";
+  if (input?.mode === "edit") {
+    switch (err.status) {
+      case 401:
+        return `Masked skeleton inpainting needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      case 402:
+        return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Masked skeleton inpainting cannot use manual OpenAI or Gemini fallback because it must pass an image-edit mask.`;
+      case 403:
+        return `Builder.io is connected, but this Builder space does not have access to managed image generation${detail} Ask a space admin to enable access or reconnect to a different Builder space; manual fallback cannot pass image-edit masks.`;
+      case 429:
+        return `Builder-managed masked inpainting is rate limited right now${detail} Retry shortly; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      case 503:
+      case 504:
+        return `Builder-managed masked inpainting is temporarily unavailable${detail} Retry shortly; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      default:
+        return `Builder-managed masked inpainting failed${detail} Retry with Builder-managed image generation; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+    }
+  }
   switch (err.status) {
     case 401:
       return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;

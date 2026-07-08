@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 
 import {
   canUseDeployCredentialFallbackForRequest,
+  getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentials,
   resolveSecret,
@@ -155,6 +156,10 @@ function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
  * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
  * is picked instead. Builder is still used as the fallback when no other
  * provider key is set.
+ *
+ * This sync helper is for CLI/status callers that cannot await settings. Prefer
+ * {@link detectEngineFromEnvForRequest} at request time so sticky auth-failure
+ * markers can skip rejected deploy keys.
  */
 export function detectEngineFromEnv(): AgentEngineEntry | null {
   const preferByo = /^(1|true)$/i.test(
@@ -191,6 +196,59 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
     ) {
       return entry;
     }
+  }
+  return null;
+}
+
+async function envKeyUsableForEntry(
+  entry: AgentEngineEntry,
+  key: string,
+): Promise<boolean> {
+  if (
+    !(
+      canUseDeployCredentialFallbackForRequest(key) &&
+      !!readDeployCredentialEnv(key)
+    )
+  ) {
+    return false;
+  }
+  if (entry.name === "builder") {
+    return true;
+  }
+  const value = readDeployCredentialEnv(key);
+  if (!value) return false;
+  return !(await getProviderCredentialAuthFailure({ key, value }));
+}
+
+async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.requiredEnvVars.length === 0) return false;
+  for (const key of entry.requiredEnvVars) {
+    if (!(await envKeyUsableForEntry(entry, key))) return false;
+  }
+  return true;
+}
+
+/**
+ * Request-aware env auto-detect. Same priority as {@link detectEngineFromEnv},
+ * but skips provider keys that currently have an auth-failure marker so a
+ * rejected deploy key does not permanently win selection and leave chat stuck
+ * on `missing_credentials`.
+ */
+export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
+  const preferByo = /^(1|true)$/i.test(
+    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
+  );
+
+  if (preferByo) {
+    for (const entry of _registry.values()) {
+      if (entry.name === "builder") continue;
+      if (await hasUsableEnvKeys(entry)) return entry;
+    }
+  }
+
+  for (const entry of _registry.values()) {
+    if (await hasUsableEnvKeys(entry)) return entry;
   }
   return null;
 }
@@ -260,7 +318,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     }
     for (const key of entry.requiredEnvVars) {
       try {
-        if (!(await resolveSecret(key))) return false;
+        if (!(await resolveUsableProviderSecret(key))) return false;
       } catch {
         return false;
       }
@@ -366,6 +424,15 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
 }
 
+async function resolveUsableProviderSecret(
+  key: string,
+): Promise<string | null> {
+  const value = await resolveSecret(key);
+  if (!value) return null;
+  const authFailure = await getProviderCredentialAuthFailure({ key, value });
+  return authFailure ? null : value;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
@@ -389,6 +456,9 @@ async function engineCreateConfigForEntry(
  * AND an API key for it is reachable via the engine's required env vars.
  * Inline keys on the global settings row are ignored; see
  * `isAgentEngineSettingConfigured`.
+ *
+ * Sync helper for CLI/status. Prefer {@link isStoredEngineUsableForRequest}
+ * so sticky auth-failure markers are respected.
  */
 export function isStoredEngineUsable(
   stored: unknown,
@@ -425,16 +495,11 @@ export async function isStoredEngineUsableForRequest(
   }
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to the deployment-level check below.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest(key) ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }
@@ -461,20 +526,22 @@ export async function isResolvedEngineUsableForRequest(
     return Boolean(creds.privateKey && creds.publicKey);
   }
 
-  if (options.apiKey?.trim()) return true;
+  if (options.apiKey?.trim()) {
+    const key = entry.requiredEnvVars[0];
+    if (!key) return true;
+    return !(await getProviderCredentialAuthFailure({
+      key,
+      value: options.apiKey,
+    }));
+  }
 
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to deployment-level fallback when allowed.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest(key) ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }
@@ -611,8 +678,9 @@ export async function resolveEngine(
   }
 
   // 8. Auto-detect from any provider env var — so just dropping a key in
-  // .env works without also setting AGENT_ENGINE.
-  const detected = detectEngineFromEnv();
+  // .env works without also setting AGENT_ENGINE. Skip keys with active
+  // auth-failure markers so a rejected deploy key cannot permanently win.
+  const detected = await detectEngineFromEnvForRequest();
   if (detected) {
     return detected.create(await engineCreateConfigForEntry(detected, apiKey));
   }

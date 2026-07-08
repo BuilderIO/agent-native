@@ -6,16 +6,17 @@ import {
   useActionMutation,
   useActionQuery,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   IconAdjustments,
-  IconBuilding,
   IconDeviceFloppy,
   IconFileText,
   IconGauge,
   IconMessageCircle,
   IconShieldCheck,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -120,6 +121,42 @@ export default function SettingsRoute() {
     setSettings((current) => ({ ...current, [key]: value }));
   }
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "brain-identity",
+        label: t("settings.identityTitle"),
+        keywords: "identity company name assistant name",
+        hash: "identity",
+      },
+      {
+        id: "brain-behavior",
+        label: t("settings.assistantBehaviorTitle"),
+        keywords: "assistant behavior tone source policy instructions",
+        hash: "assistant-behavior",
+      },
+      {
+        id: "brain-publishing",
+        label: t("settings.publishingReviewTitle"),
+        keywords: "publishing review publish tier approval connector poll",
+        hash: "publishing-review",
+      },
+      {
+        id: "brain-safety",
+        label: t("settings.safetyEvidenceTitle"),
+        keywords: "safety evidence sanitize redact citations sources",
+        hash: "safety-evidence",
+      },
+      {
+        id: "brain-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+    ],
+    [t],
+  );
+
   return (
     <div className="min-h-full bg-background">
       <PageHeader
@@ -146,13 +183,14 @@ export default function SettingsRoute() {
       <SettingsTabsPage
         teamLabel={t("team.title")}
         extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">
-              <Card>
+              <Card id="identity" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <IconBuilding className="size-4 text-primary" />
+                    <IconUsersGroup className="size-4 text-primary" />
                     {t("settings.identityTitle")}
                   </CardTitle>
                   <CardDescription>
@@ -177,7 +215,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="assistant-behavior" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconMessageCircle className="size-4 text-primary" />
@@ -235,7 +273,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="publishing-review" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconAdjustments className="size-4 text-primary" />
@@ -321,7 +359,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="safety-evidence" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconShieldCheck className="size-4 text-primary" />
@@ -406,7 +444,7 @@ export default function SettingsRoute() {
             </main>
 
             <aside className="grid content-start gap-5">
-              <Card>
+              <Card id="language" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconAdjustments className="size-4 text-primary" />

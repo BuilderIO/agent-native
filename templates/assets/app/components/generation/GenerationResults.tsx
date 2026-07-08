@@ -44,7 +44,7 @@ function variantStateKey(threadId: string | null) {
 // STALE_IMAGE_RUN_MS in refresh-generation-run, so a slow-but-healthy run (e.g.
 // gpt-image-2) is not flagged "interrupted" and flipped to an error slot before
 // its finished image arrives.
-const STALE_PENDING_RUN_MS = 6 * 60 * 1000;
+const STALE_PENDING_RUN_MS = 10 * 60 * 1000;
 
 function slotTime(slot: AssetVariantState["slots"][number]): number {
   const raw = slot.createdAt ?? slot.updatedAt ?? "";

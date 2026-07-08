@@ -8,6 +8,7 @@ import {
   setCookie,
   deleteCookie,
   getRequestURL,
+  getRequestIP,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -285,9 +286,16 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
+  "docs_build_online_waitlist",
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
+const BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS = 60_000;
+const BUILDER_WAITLIST_RATE_LIMIT_MAX = 5;
+const builderWaitlistRateLimitHits = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
 
 interface BuilderWaitlistFormTarget {
   formId: string;
@@ -295,6 +303,7 @@ interface BuilderWaitlistFormTarget {
 }
 
 export interface BuilderWaitlistBody {
+  email?: unknown;
   prompt?: unknown;
   orgName?: unknown;
   appUrl?: unknown;
@@ -330,6 +339,106 @@ function normalizeBuilderWaitlistUseCase(value: unknown): string {
   return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
     ? useCase
     : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+}
+
+function isValidWaitlistEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function isAnonymousWaitlistSessionEmail(email: string): boolean {
+  return email.startsWith("anon-") && email.endsWith("@agent-native.com");
+}
+
+export function resolveWaitlistEmail(
+  sessionEmail: string | undefined,
+  bodyEmail: unknown,
+): string | null {
+  const provided = cleanBuilderWaitlistText(bodyEmail, 320);
+  if (provided && isValidWaitlistEmail(provided)) return provided;
+  if (sessionEmail && !isAnonymousWaitlistSessionEmail(sessionEmail)) {
+    return sessionEmail;
+  }
+  return null;
+}
+
+function normalizeWaitlistRateLimitPart(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
+  const trusted =
+    getHeader(event, "x-nf-client-connection-ip") ??
+    getHeader(event, "cf-connecting-ip") ??
+    getHeader(event, "true-client-ip") ??
+    getHeader(event, "x-real-ip");
+  if (trusted && trusted.trim()) return trusted.trim();
+
+  const forwardedFor = getHeader(event, "x-forwarded-for");
+  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
+  if (forwardedClientIp) return forwardedClientIp;
+
+  try {
+    return getRequestIP(event) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getBuilderWaitlistRateLimitKeys(
+  event: H3Event,
+  email: string,
+): string[] {
+  const clientIp = getBuilderWaitlistClientIp(event);
+  return [
+    `email:${normalizeWaitlistRateLimitPart(email)}`,
+    `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
+  ];
+}
+
+export function checkBuilderWaitlistRateLimit(
+  event: H3Event,
+  email: string,
+  now = Date.now(),
+): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const keys = getBuilderWaitlistRateLimitKeys(event, email);
+  let retryAfterMs = 0;
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry) continue;
+    if (entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.delete(key);
+      continue;
+    }
+    if (entry.count >= BUILDER_WAITLIST_RATE_LIMIT_MAX) {
+      retryAfterMs = Math.max(retryAfterMs, entry.resetAt - now);
+    }
+  }
+
+  if (retryAfterMs > 0) {
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+    };
+  }
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.set(key, {
+        count: 1,
+        resetAt: now + BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS,
+      });
+    } else {
+      entry.count += 1;
+    }
+  }
+
+  return { ok: true };
+}
+
+export function resetBuilderWaitlistRateLimitForTests() {
+  builderWaitlistRateLimitHits.clear();
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -1869,15 +1978,35 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
           const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "Authentication required" };
-          }
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
+          const waitlistEmail = resolveWaitlistEmail(
+            session?.email,
+            body.email,
+          );
+          if (!waitlistEmail) {
+            setResponseStatus(event, 400);
+            return { error: "Valid email required" };
+          }
+          const waitlistRateLimit = checkBuilderWaitlistRateLimit(
+            event,
+            waitlistEmail,
+          );
+          if (!waitlistRateLimit.ok) {
+            setResponseStatus(event, 429);
+            setResponseHeader(
+              event,
+              "Retry-After",
+              String(waitlistRateLimit.retryAfterSeconds),
+            );
+            return {
+              error:
+                "Too many waitlist requests. Please try again in a minute.",
+            };
+          }
           const waitlistPayload = buildBuilderWaitlistFormPayload(
             event,
-            session.email,
+            waitlistEmail,
             body,
           );
           const waitlistSource = waitlistPayload.data.source;
@@ -1886,14 +2015,14 @@ export function createCoreRoutesPlugin(
           try {
             formSubmission = await submitBuilderWaitlistForm(
               event,
-              session.email,
+              waitlistEmail,
               body,
             );
           } catch (err) {
             await trackBuilderLifecycle(
               event,
               "builder branch waitlist form failed",
-              session.email,
+              waitlistEmail,
               {
                 reason:
                   err instanceof Error ? err.message : "unknown_waitlist_error",
@@ -1911,7 +2040,7 @@ export function createCoreRoutesPlugin(
           await trackBuilderLifecycle(
             event,
             "builder branch waitlist joined",
-            session.email,
+            waitlistEmail,
             {
               formId: formSubmission.formId ?? null,
               formSubmitted: formSubmission.submitted,

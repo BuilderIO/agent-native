@@ -8,6 +8,7 @@ import {
   assistantMessageHasUnresolvedTool,
   shouldShowAssistantMessageFooter,
   ThinkingIndicator,
+  isHiddenUserMessage,
 } from "./message-components.js";
 
 describe("ThinkingIndicator", () => {
@@ -98,6 +99,37 @@ describe("shouldShowAssistantMessageFooter", () => {
         chatRunning: true,
         hasRenderableContent: true,
         statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isHiddenUserMessage", () => {
+  it("detects internal user messages hidden from chat history", () => {
+    expect(
+      isHiddenUserMessage({
+        role: "user",
+        content: [{ type: "text", text: "Continue from where you stopped." }],
+        metadata: { custom: { agentNativeHiddenUserMessage: true } },
+      }),
+    ).toBe(true);
+  });
+
+  it("hides older recovery-action user messages", () => {
+    expect(
+      isHiddenUserMessage({
+        role: "user",
+        content: [{ type: "text", text: "Continue from where you stopped." }],
+        metadata: { custom: { agentNativeRecoveryAction: "continue" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not hide ordinary user messages", () => {
+    expect(
+      isHiddenUserMessage({
+        role: "user",
+        content: [{ type: "text", text: "What changed?" }],
       }),
     ).toBe(false);
   });

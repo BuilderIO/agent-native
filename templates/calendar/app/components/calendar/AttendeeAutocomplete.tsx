@@ -1,9 +1,10 @@
 import { useT } from "@agent-native/core/client";
 import {
   IconAddressBook,
-  IconBuilding,
+  IconDots,
   IconLoader2,
   IconUserCircle,
+  IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -19,13 +20,21 @@ import {
 
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
 import {
   filterPeopleResults,
+  mergePeopleResults,
   usePeopleContacts,
+  usePeopleSearch,
   type PeopleSearchResult,
 } from "@/hooks/use-people";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
@@ -37,6 +46,7 @@ export interface AttendeeRecipient {
   email: string;
   displayName?: string;
   photoUrl?: string;
+  optional?: boolean;
 }
 
 export interface AttendeeAutocompleteHandle {
@@ -48,6 +58,7 @@ interface AttendeeAutocompleteProps {
   selectedEmails?: string[];
   onAdd: (attendee: AttendeeRecipient) => void;
   onRemove?: (email: string) => void;
+  onToggleOptional?: (email: string, optional: boolean) => void;
   inputId?: string;
   placeholder?: string;
   autoFocus?: boolean;
@@ -87,7 +98,7 @@ function sourceLabel(
 
 function SourceIcon({ source }: { source?: PeopleSearchResult["source"] }) {
   if (source === "directory") {
-    return <IconBuilding className="h-3 w-3" />;
+    return <IconUsersGroup className="h-3 w-3" />;
   }
   return <IconAddressBook className="h-3 w-3" />;
 }
@@ -114,6 +125,7 @@ export const AttendeeAutocomplete = forwardRef<
     selectedEmails,
     onAdd,
     onRemove,
+    onToggleOptional,
     inputId,
     placeholder = "Add guests",
     autoFocus,
@@ -129,10 +141,15 @@ export const AttendeeAutocomplete = forwardRef<
 ) {
   const t = useT();
   const [inputValue, setInputValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const contacts = usePeopleContacts();
+  const peopleSearch = usePeopleSearch(
+    searchQuery,
+    inputValue.trim().length > 0,
+  );
 
   const selectedEmailSet = useMemo(
     () =>
@@ -144,19 +161,38 @@ export const AttendeeAutocomplete = forwardRef<
     [attendees, selectedEmails],
   );
 
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSearchQuery(inputValue),
+      inputValue.trim() ? 300 : 0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [inputValue]);
+
   const visibleResults = useMemo(
     () =>
       filterPeopleResults(
-        contacts.data?.results ?? [],
+        mergePeopleResults(contacts.data?.results, peopleSearch.data?.results),
         inputValue,
         selectedEmailSet,
       ),
-    [contacts.data?.results, inputValue, selectedEmailSet],
+    [
+      contacts.data?.results,
+      inputValue,
+      peopleSearch.data?.results,
+      selectedEmailSet,
+    ],
   );
 
   const canAddManual = parseEmails(inputValue).length > 0;
-  const searching = contacts.isLoading || contacts.isFetching;
-  const scopeRequired = Boolean(contacts.data?.scopeRequired);
+  const searching =
+    contacts.isLoading ||
+    contacts.isFetching ||
+    peopleSearch.isLoading ||
+    peopleSearch.isFetching;
+  const scopeRequired = Boolean(
+    contacts.data?.scopeRequired || peopleSearch.data?.scopeRequired,
+  );
   const shouldShowPopover =
     open &&
     inputValue.trim().length > 0 &&
@@ -182,6 +218,8 @@ export const AttendeeAutocomplete = forwardRef<
         email,
         displayName,
         photoUrl: person.photoUrl,
+        optional:
+          "optional" in person && person.optional === true ? true : undefined,
       });
       setInputValue("");
       setOpen(false);
@@ -322,6 +360,41 @@ export const AttendeeAutocomplete = forwardRef<
                   <span className="truncate">
                     {attendee.displayName || attendee.email}
                   </span>
+                  {attendee.optional && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {t("attendees.optionalBadge")}
+                    </span>
+                  )}
+                  {onToggleOptional && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(event) => event.stopPropagation()}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={t("attendees.guestOptions", {
+                            email: attendee.email,
+                          })}
+                        >
+                          <IconDots className="h-3 w-3" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            onToggleOptional(attendee.email, !attendee.optional)
+                          }
+                        >
+                          {attendee.optional
+                            ? t("attendees.markRequired")
+                            : t("attendees.markOptional")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   {onRemove && (
                     <button
                       type="button"

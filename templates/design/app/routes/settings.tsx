@@ -4,8 +4,10 @@ import {
   LanguagePicker,
   useAgentSettingsTabs,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { useMemo } from "react";
 
 import {
   Card,
@@ -27,13 +29,26 @@ export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
   const t = useT();
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "design-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+    ],
+    [t],
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
       <SettingsTabsPage
         extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
-            <Card>
+            <Card id="language" className="scroll-mt-16">
               <CardHeader>
                 <CardTitle className="text-base">
                   {t("settings.languageTitle")}

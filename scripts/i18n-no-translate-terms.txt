@@ -5,12 +5,17 @@
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
+Ease
+Ease In
+Ease In/Out
+Ease Out
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
 Agent-native
+Agent-Native App
 Agent-Native sidecar
 AgentHarness substrate
 AgentRunHost
@@ -50,6 +55,7 @@ JWT
 libSQL / Turso
 list-emails · get-thread · manage-draft · send
 list-events · check-availability · create-event
+Linear
 Local File Mode
 MCP
 MCP gateway

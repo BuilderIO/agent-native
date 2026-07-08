@@ -35,6 +35,7 @@ export default defineAction({
     "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
+    "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),

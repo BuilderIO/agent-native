@@ -835,6 +835,11 @@ body[data-clips-route="recording-pill"] #root {
   cursor: not-allowed;
 }
 
+.setup-connect-button {
+  height: 38px;
+  margin-top: 2px;
+}
+
 .primary.start {
   margin-top: 2px;
 }
@@ -1096,7 +1101,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .bottom-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
 }
 
@@ -1136,6 +1141,145 @@ body[data-clips-route="recording-pill"] #root {
 .bottom-label {
   font-size: 11px;
   font-weight: 500;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Popover drill-in views                                                     */
+/* ------------------------------------------------------------------------- */
+
+.app-popover-view {
+  gap: 0;
+  padding: 0;
+}
+
+.popover-view {
+  min-height: 260px;
+}
+
+.popover-view-header {
+  margin-bottom: 2px;
+}
+
+.popover-view-header-spacer {
+  flex: 1;
+}
+
+.popover-view-link {
+  font-size: 11px;
+}
+
+.popover-empty-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.popover-empty-card strong {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.popover-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popover-list-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.popover-list-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.popover-list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.popover-list-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-list-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-list-action {
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.popover-list-action:hover {
+  background: var(--surface-hover);
+}
+
+.popover-list-action-primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--bg);
+}
+
+.popover-list-action-primary:hover {
+  background: var(--brand-hover);
+}
+
+.popover-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.popover-kv span {
+  color: var(--fg-subtle);
+}
+
+.popover-kv strong {
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
 }
 
 .badge {
@@ -3468,7 +3612,19 @@ body[data-clips-route="recording-pill"] #root {
   color: white;
   pointer-events: auto;
   min-width: 280px;
-  max-width: 320px;
+  max-width: 400px;
+}
+
+.meeting-notification-with-join {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 10px;
+}
+
+.meeting-notification-with-join .meeting-notification-actions {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+  padding-left: 13px; /* align under content past the bar */
 }
 
 .meeting-notification-bar {
@@ -3534,6 +3690,20 @@ body[data-clips-route="recording-pill"] #root {
 .meeting-notification-btn:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+
+.meeting-notification-btn-primary {
+  background: #ffffff;
+  color: #111827;
+}
+
+.meeting-notification-btn-primary:hover {
+  background: #f3f4f6;
+}
+
+.meeting-notification-btn-primary:disabled {
+  background: rgba(255, 255, 255, 0.7);
+  color: #374151;
 }
 
 .meeting-notification-actions {

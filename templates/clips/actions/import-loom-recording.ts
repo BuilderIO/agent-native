@@ -296,7 +296,8 @@ export default defineAction({
       filename: `${id}.mp4`,
       mimeType: media.mimeType,
       ownerEmail,
-      skipCompressionWait: true,
+      stableUrl: true,
+      recordAsset: false,
     });
 
     const recordingValues = buildRecordingValues(media.sizeBytes);

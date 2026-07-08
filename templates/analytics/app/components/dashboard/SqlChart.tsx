@@ -155,6 +155,24 @@ export function formatMetricValue(
     : String(raw ?? "-");
 }
 
+function isNumericLikeValue(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    Number.isFinite(Number(value))
+  );
+}
+
+export function detectMetricValueColumn(
+  row: Record<string, unknown>,
+  configuredKey?: string,
+): string {
+  const cols = Object.keys(row);
+  if (configuredKey && cols.includes(configuredKey)) return configuredKey;
+  return cols.find((key) => isNumericLikeValue(row[key])) || cols[0] || "";
+}
+
 function parsePrometheusSeriesLabel(label: string): {
   metric: string;
   labels: Record<string, string>;
@@ -804,7 +822,7 @@ function detectKeys(
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
-      if (typeof sample[c] === "number") yKeys.push(c);
+      if (isNumericLikeValue(sample[c])) yKeys.push(c);
     }
   }
   if (yKeys.length === 0 && cols.length > 1) {
@@ -1120,14 +1138,10 @@ function MetricRenderer({
   panel: SqlPanel;
 }) {
   const row = rows[0];
-  const cols = Object.keys(row);
-  const valueCol =
-    panel.config?.yKey ||
-    cols.find((c) => typeof row[c] === "number") ||
-    cols[0];
+  const valueCol = detectMetricValueColumn(row, panel.config?.yKey);
 
   let raw: unknown;
-  if (rows.length > 1 && typeof row[valueCol] === "number") {
+  if (rows.length > 1 && isNumericLikeValue(row[valueCol])) {
     raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
   } else {
     raw = row[valueCol];

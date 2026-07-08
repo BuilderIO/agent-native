@@ -105,6 +105,36 @@ async function getJson(
   });
 }
 
+async function getText(url: string): Promise<{
+  status: number;
+  headers: http.IncomingHttpHeaders;
+  body: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    http
+      .get(
+        {
+          hostname: parsed.hostname,
+          port: Number(parsed.port),
+          path: `${parsed.pathname}${parsed.search}`,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: res.headers,
+              body: Buffer.concat(chunks).toString("utf8"),
+            });
+          });
+        },
+      )
+      .on("error", reject);
+  });
+}
+
 const tmpRoots: string[] = [];
 const appUrlEnvKeys = [
   "AGENT_NATIVE_URL",
@@ -370,6 +400,90 @@ describe("design connect bridge endpoints", () => {
       expect(result.body["ok"]).toBe(true);
       expect(result.body["url"]).toBe(`http://127.0.0.1:${devPort}/hello`);
       expect(result.body["html"]).toContain('data-path="/hello"');
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("serves live-edit HTML and proxies root-relative CSR assets", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url?.startsWith("/src/main.ts")) {
+        res.writeHead(200, {
+          "content-type": "application/javascript; charset=utf-8",
+          "cache-control": "no-store",
+        });
+        res.end(
+          "window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+        );
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><html><head><title>CSR</title></head><body><div id="root">Loading</div><script type="module" src="/src/main.ts"></script></body></html>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const rejectedRegistration = await postJson(`${base}/live-edit-bridge`, {
+        script:
+          "<script>window.__editorBridgeReady = 'agent-native:editor-chrome-ready';</script>",
+      });
+      expect(rejectedRegistration.status).toBe(401);
+      expect(rejectedRegistration.body["ok"]).toBe(false);
+
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__editorBridgeReady = 'agent-native:editor-chrome-ready';</script>",
+        },
+        { "x-bridge-token": bridge.bridgeToken },
+      );
+      expect(registration.status).toBe(200);
+      expect(registration.body["ok"]).toBe(true);
+
+      const html = await getText(`${base}/live-edit?path=/dashboard`);
+      expect(html.status).toBe(200);
+      expect(html.headers["content-type"]).toContain("text/html");
+      expect(html.body).toContain(`<base href="${base}/">`);
+      expect(html.body).toContain('src="/src/main.ts"');
+      expect(html.body).toContain("agent-native:editor-chrome-ready");
+
+      const interactHtml = await getText(
+        `${base}/live-edit?path=/dashboard&bridge=0`,
+      );
+      expect(interactHtml.status).toBe(200);
+      expect(interactHtml.body).toContain(`<base href="${base}/">`);
+      expect(interactHtml.body).toContain('src="/src/main.ts"');
+      expect(interactHtml.body).not.toContain(
+        "agent-native:editor-chrome-ready",
+      );
+
+      const module = await getText(`${base}/src/main.ts`);
+      expect(module.status).toBe(200);
+      expect(module.headers["content-type"]).toContain(
+        "application/javascript",
+      );
+      expect(module.body).toContain("CSR booted");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -817,6 +931,14 @@ describe("design connect bridge endpoints", () => {
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);
         expect(captured?.["devServerUrl"]).toBe(manifest.devServerUrl);
         expect(captured?.["bridgeUrl"]).toBe(manifest.bridgeUrl);
+        const registeredOperations = (
+          captured?.["capabilities"] as Array<{ operation?: string }>
+        ).map((capability) => capability.operation);
+        expect(
+          manifest.capabilities.map((capability) => capability.operation),
+        ).toContain("listFiles");
+        expect(registeredOperations).not.toContain("listFiles");
+        expect(registeredOperations).toContain("readFile");
       } finally {
         await new Promise<void>((resolve) =>
           captureServer.close(() => resolve()),

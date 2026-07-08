@@ -124,7 +124,7 @@ pub(crate) mod macos {
     use std::ffi::c_void;
     use std::mem::size_of;
     use std::ptr::NonNull;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     use block2::{RcBlock, StackBlock};
@@ -134,7 +134,7 @@ pub(crate) mod macos {
         kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, AudioUnitSetProperty,
     };
     use objc2_avf_audio::{
-        AVAudioEngine, AVAudioPCMBuffer, AVAudioTime,
+        AVAudioEngine, AVAudioInputNode, AVAudioPCMBuffer, AVAudioTime,
         AVAudioVoiceProcessingOtherAudioDuckingConfiguration,
         AVAudioVoiceProcessingOtherAudioDuckingLevel,
     };
@@ -211,11 +211,61 @@ pub(crate) mod macos {
     // inner pointers across threads — the session is moved through a Mutex.
     unsafe impl Send for SpeechSession {}
 
+    #[derive(Clone, PartialEq, Eq)]
+    struct RawMicDeviceKey {
+        id: Option<String>,
+        label: Option<String>,
+    }
+
+    impl RawMicDeviceKey {
+        fn from_selection(device_id: Option<&str>, device_label: Option<&str>) -> Self {
+            Self {
+                id: device_id
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned),
+                label: device_label
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct RawMicTapTarget {
+        app: AppHandle,
+        on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
+        level_tick: Arc<AtomicU32>,
+    }
+
+    struct WarmedRawMicEngine {
+        engine: Retained<AVAudioEngine>,
+        input_node: Retained<AVAudioInputNode>,
+        device_key: RawMicDeviceKey,
+        target: Arc<Mutex<Option<RawMicTapTarget>>>,
+    }
+
+    // SAFETY: Same argument as `SpeechSession` / `RawMicCapture`: AVAudioEngine
+    // and AVAudioInputNode are refcounted ObjC objects that we move through
+    // Mutex ownership, without sharing Rust references across threads.
+    unsafe impl Send for WarmedRawMicEngine {}
+
+    struct RawMicWarmCache {
+        device_key: RawMicDeviceKey,
+        target: Arc<Mutex<Option<RawMicTapTarget>>>,
+    }
+
     /// Process-global session slot. We only allow one dictation at a time —
     /// starting a new one while another is in flight cancels the old one
     /// first.
     fn session_slot() -> &'static Mutex<Option<SpeechSession>> {
         static SLOT: OnceLock<Mutex<Option<SpeechSession>>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(None))
+    }
+
+    fn warmed_raw_mic_engine_slot() -> &'static Mutex<Option<WarmedRawMicEngine>> {
+        static SLOT: OnceLock<Mutex<Option<WarmedRawMicEngine>>> = OnceLock::new();
         SLOT.get_or_init(|| Mutex::new(None))
     }
 
@@ -572,6 +622,160 @@ pub(crate) mod macos {
             device.name, device.id
         );
         Ok(())
+    }
+
+    fn enable_voice_processing(input_node: &AVAudioInputNode) {
+        if let Err(err) = unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
+            eprintln!(
+                "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
+                ns_error_message(&err)
+            );
+        }
+    }
+
+    fn disable_voice_processing_ducking(input_node: &AVAudioInputNode) {
+        // Disable other-audio ducking so the separately-captured system audio
+        // isn't dropped to near-silent while the mic VPIO runs.
+        unsafe {
+            let responds: bool = objc2::msg_send![
+                input_node,
+                respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
+            ];
+            if responds {
+                input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
+                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+                        enableAdvancedDucking: objc2::runtime::Bool::NO,
+                        duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
+                    },
+                );
+            }
+        }
+    }
+
+    fn take_warmed_raw_mic_engine(device_key: &RawMicDeviceKey) -> Option<WarmedRawMicEngine> {
+        let mut slot = warmed_raw_mic_engine_slot().lock().ok()?;
+        let should_reuse = slot
+            .as_ref()
+            .map(|cached| &cached.device_key == device_key)
+            .unwrap_or(false);
+        if should_reuse {
+            slot.take()
+        } else {
+            // A selected mic changed while the engine was warm. Drop the stale
+            // engine so the next start configures the requested device.
+            if let Some(stale) = slot.take() {
+                discard_warmed_raw_mic_engine(stale);
+            }
+            None
+        }
+    }
+
+    fn store_warmed_raw_mic_engine(engine: WarmedRawMicEngine) {
+        if let Ok(mut slot) = warmed_raw_mic_engine_slot().lock() {
+            if let Some(previous) = slot.replace(engine) {
+                discard_warmed_raw_mic_engine(previous);
+            }
+        }
+    }
+
+    fn clear_warmed_raw_mic_engine() {
+        if let Ok(mut slot) = warmed_raw_mic_engine_slot().lock() {
+            if let Some(engine) = slot.take() {
+                discard_warmed_raw_mic_engine(engine);
+            }
+        }
+    }
+
+    fn discard_warmed_raw_mic_engine(engine: WarmedRawMicEngine) {
+        let WarmedRawMicEngine {
+            engine,
+            input_node,
+            device_key: _,
+            target,
+        } = engine;
+        if let Ok(mut current) = target.lock() {
+            *current = None;
+        }
+        unsafe {
+            if engine.isRunning() {
+                engine.stop();
+            }
+        }
+        let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            input_node.removeTapOnBus(0);
+        }));
+    }
+
+    fn install_reusable_raw_mic_tap(
+        input_node: &AVAudioInputNode,
+        target: Arc<Mutex<Option<RawMicTapTarget>>>,
+    ) -> Result<(), String> {
+        let target_for_tap = target.clone();
+        let tap_block = StackBlock::new(
+            move |buffer: std::ptr::NonNull<AVAudioPCMBuffer>,
+                  _when: std::ptr::NonNull<AVAudioTime>| {
+                let Some(target) = target_for_tap
+                    .try_lock()
+                    .ok()
+                    .and_then(|guard| guard.as_ref().cloned())
+                else {
+                    return;
+                };
+                let buf = unsafe { buffer.as_ref() };
+                let mono = mono_mix_pcm(buf);
+                if !mono.is_empty() {
+                    (target.on_samples)(&mono);
+                }
+                let n = target.level_tick.fetch_add(1, Ordering::Relaxed);
+                if n % 2 == 0 {
+                    let level = peak_level_for_pcm(buf);
+                    let _ = target.app.emit(
+                        "voice:audio-level",
+                        AudioLevelPayload {
+                            level,
+                            source: "mic",
+                        },
+                    );
+                }
+            },
+        )
+        .copy();
+        let block_ptr: *mut block2::Block<
+            dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>) + 'static,
+        > = (&*tap_block) as *const _ as *mut _;
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            input_node.installTapOnBus_bufferSize_format_block(
+                0, 1024,
+                None, // use hardware's current format — avoids SCO↔A2DP stale-format race
+                block_ptr,
+            );
+        }))
+        .map_err(|e| format!("installTapOnBus threw: {e:?}"))
+    }
+
+    fn build_warmed_raw_mic_engine(
+        mic_device_id: Option<&str>,
+        mic_device_label: Option<&str>,
+        device_key: RawMicDeviceKey,
+    ) -> Result<WarmedRawMicEngine, String> {
+        let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
+        configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
+        let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
+        enable_voice_processing(&input_node);
+        // Finalize input format negotiation once. Dictation-owned Whisper starts
+        // can then reuse this stopped VPIO engine instead of paying the
+        // per-press VoiceProcessingIO setup cost.
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
+            .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
+        let target = Arc::new(Mutex::new(None));
+        install_reusable_raw_mic_tap(&input_node, target.clone())?;
+        disable_voice_processing_ducking(&input_node);
+        Ok(WarmedRawMicEngine {
+            engine,
+            input_node,
+            device_key,
+            target,
+        })
     }
 
     /// Tear down whatever session is currently running. Called from `start`
@@ -983,12 +1187,13 @@ pub(crate) mod macos {
         Ok(())
     }
 
-    /// Handle for a running raw mic capture. `stop()` removes the tap and stops
-    /// the engine.
+    /// Handle for a running raw mic capture. `stop()` either tears down the tap
+    /// or parks a dictation-owned VPIO engine for the next press.
     pub(crate) struct RawMicCapture {
         engine: Retained<AVAudioEngine>,
-        input_node: Retained<objc2_avf_audio::AVAudioInputNode>,
+        input_node: Retained<AVAudioInputNode>,
         sample_rate: f64,
+        warm_cache: Option<RawMicWarmCache>,
     }
 
     // SAFETY: same argument as `SpeechSession` — refcounted ObjC objects that
@@ -1003,13 +1208,101 @@ pub(crate) mod macos {
         }
 
         pub(crate) fn stop(self) {
+            let RawMicCapture {
+                engine,
+                input_node,
+                sample_rate: _,
+                warm_cache,
+            } = self;
+            if let Some(cache) = warm_cache {
+                unsafe {
+                    if engine.isRunning() {
+                        engine.stop();
+                    }
+                }
+                if let Ok(mut target) = cache.target.lock() {
+                    *target = None;
+                }
+                store_warmed_raw_mic_engine(WarmedRawMicEngine {
+                    engine,
+                    input_node,
+                    device_key: cache.device_key,
+                    target: cache.target,
+                });
+                return;
+            }
             unsafe {
-                self.input_node.removeTapOnBus(0);
-                if self.engine.isRunning() {
-                    self.engine.stop();
+                input_node.removeTapOnBus(0);
+                if engine.isRunning() {
+                    engine.stop();
                 }
             }
         }
+    }
+
+    fn start_warmed_raw_mic_capture(
+        app: AppHandle,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
+    ) -> Result<RawMicCapture, String> {
+        let device_key =
+            RawMicDeviceKey::from_selection(mic_device_id.as_deref(), mic_device_label.as_deref());
+        let warmed = match take_warmed_raw_mic_engine(&device_key) {
+            Some(warmed) => warmed,
+            None => build_warmed_raw_mic_engine(
+                mic_device_id.as_deref(),
+                mic_device_label.as_deref(),
+                device_key.clone(),
+            )?,
+        };
+        if let Ok(mut target) = warmed.target.lock() {
+            *target = Some(RawMicTapTarget {
+                app: app.clone(),
+                on_samples,
+                level_tick: Arc::new(AtomicU32::new(0)),
+            });
+        } else {
+            return Err("warmed mic target lock poisoned".into());
+        }
+
+        let start_result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            warmed.engine.startAndReturnError()
+        }))
+        .map_err(|e| format!("AVAudioEngine start threw: {e:?}"))
+        .and_then(|r| {
+            r.map_err(|e| format!("AVAudioEngine start failed: {}", ns_error_message(&e)))
+        });
+        if let Err(msg) = start_result {
+            if let Ok(mut target) = warmed.target.lock() {
+                *target = None;
+            }
+            return Err(msg);
+        }
+
+        // Read the format only after the engine has started — at this point the
+        // engine has committed to its I/O configuration and the sample rate
+        // matches what the tap will actually deliver.
+        let format = unsafe { warmed.input_node.outputFormatForBus(0) };
+        let sample_rate = unsafe { format.sampleRate() };
+        eprintln!(
+            "[whisper-mic] reused warm VPIO tap format: {} Hz, {} ch",
+            sample_rate as u32,
+            unsafe { format.channelCount() }
+        );
+
+        let WarmedRawMicEngine {
+            engine,
+            input_node,
+            device_key,
+            target,
+        } = warmed;
+        Ok(RawMicCapture {
+            engine,
+            input_node,
+            sample_rate,
+            warm_cache: Some(RawMicWarmCache { device_key, target }),
+        })
     }
 
     /// Start mic capture and forward a mono mix of every available channel to
@@ -1020,23 +1313,24 @@ pub(crate) mod macos {
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
         voice_processing: bool,
+        reuse_voice_processing_engine: bool,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
+        if voice_processing && reuse_voice_processing_engine {
+            return start_warmed_raw_mic_capture(app, mic_device_id, mic_device_label, on_samples);
+        }
+        clear_warmed_raw_mic_engine();
+
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(
             &engine,
             mic_device_id.as_deref(),
             mic_device_label.as_deref(),
         )?;
-        let input_node: Retained<objc2_avf_audio::AVAudioInputNode> = unsafe { engine.inputNode() };
+        let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
 
         if voice_processing {
-            if let Err(err) = unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
-                eprintln!(
-                    "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
-                    ns_error_message(&err)
-                );
-            }
+            enable_voice_processing(&input_node);
         } else {
             eprintln!("[whisper-mic] voice processing disabled for shared mic capture");
         }
@@ -1102,28 +1396,14 @@ pub(crate) mod macos {
         );
 
         if voice_processing {
-            // Disable other-audio ducking so the separately-captured system audio
-            // isn't dropped to near-silent while the mic VPIO runs.
-            unsafe {
-                let responds: bool = objc2::msg_send![
-                    &*input_node,
-                    respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
-                ];
-                if responds {
-                    input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
-                        AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
-                            enableAdvancedDucking: objc2::runtime::Bool::NO,
-                            duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
-                        },
-                    );
-                }
-            }
+            disable_voice_processing_ducking(&input_node);
         }
 
         Ok(RawMicCapture {
             engine,
             input_node,
             sample_rate,
+            warm_cache: None,
         })
     }
 

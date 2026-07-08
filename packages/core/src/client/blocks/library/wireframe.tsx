@@ -414,7 +414,12 @@ function KitArtboard({
       caption={data.caption}
       render={({ theme, style }) => (
         <KitConfigContext.Provider
-          value={{ skeleton: data.skeleton, theme, style }}
+          value={{
+            skeleton: data.skeleton,
+            flushFrame: !showFrame,
+            theme,
+            style,
+          }}
         >
           {renderKitScreen(data.screen ?? [])}
         </KitConfigContext.Provider>

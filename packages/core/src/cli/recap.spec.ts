@@ -3132,6 +3132,10 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     );
     expect(content).toContain("const trustedAssociations = [");
     expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");
+    expect(content).toContain("github.rest.pulls.get");
+    expect(content).toContain(
+      "pull_request_target webhook author_association is unreliable",
+    );
     expect(content).toContain("freshRecapLabel");
     expect(content).toContain(
       "external fork PR requires a maintainer to apply the recap label to the current head SHA",

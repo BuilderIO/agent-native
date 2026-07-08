@@ -596,7 +596,7 @@ export default defineAction({
             typeof resumableSession.meta.filename === "string"
               ? resumableSession.meta.filename
               : "",
-            { skipCompressionWait: true },
+            { stableUrl: true, recordAsset: false },
           );
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           try {
@@ -966,7 +966,8 @@ export default defineAction({
           filename: `${id}.${videoFormat}`,
           mimeType,
           ownerEmail,
-          skipCompressionWait: true,
+          stableUrl: true,
+          recordAsset: false,
         });
       } catch (err) {
         // Capture structured context so a "Builder.io upload failed (500)" can

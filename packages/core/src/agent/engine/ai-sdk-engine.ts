@@ -12,10 +12,17 @@
  * so the core package remains installable without the AI SDK.
  */
 
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -258,16 +265,34 @@ class AISDKEngine implements AgentEngine {
       toolResultImages: this.capabilities.vision,
     });
 
+    // Resolved once so both `maxOutputTokens` (below, in the streamText call)
+    // and the thinking-budget headroom clamp agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
+
     // Build providerOptions for Anthropic-native features when using Anthropic provider
     const providerOpts: Record<string, unknown> = {};
     if (this.provider === "anthropic" && opts.providerOptions?.anthropic) {
       const anthropicOpts = opts.providerOptions.anthropic;
       if (anthropicOpts.thinking) {
+        // Only the "enabled" config carries a numeric budgetTokens; clamp it
+        // so thinking can't consume the entire maxOutputTokens budget and
+        // leave zero room for the actual response ("adaptive" thinking has
+        // no budgetTokens field at all per @ai-sdk/anthropic's schema).
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
           thinking: {
             type: "enabled",
-            budgetTokens: anthropicOpts.thinking.budgetTokens,
+            budgetTokens:
+              typeof anthropicOpts.thinking.budgetTokens === "number"
+                ? clampThinkingBudgetTokens(
+                    anthropicOpts.thinking.budgetTokens,
+                    resolvedMaxOutputTokens,
+                  )
+                : anthropicOpts.thinking.budgetTokens,
           },
         };
       }
@@ -305,11 +330,26 @@ class AISDKEngine implements AgentEngine {
         // Gemini 3.x models reject thinkingBudget — they require thinkingLevel.
         // Gemini 2.5.x models use thinkingBudget (integer token count or -1).
         const isGemini3 = /^gemini-3/.test(opts.model);
+        const thinkingBudget = googleThinkingBudget(reasoningEffort);
         providerOpts.google = {
           ...((providerOpts.google as object) ?? {}),
           thinkingConfig: isGemini3
             ? { thinkingLevel: gemini3ThinkingLevel(reasoningEffort) }
-            : { thinkingBudget: googleThinkingBudget(reasoningEffort) },
+            : {
+                // Unlike Anthropic's adaptive thinking, Gemini 2.5's
+                // thinkingBudget IS a concrete numeric token count, so the
+                // same headroom clamp applies: at "max" effort this maps to
+                // 32000 tokens, which can equal (or exceed) a small
+                // maxOutputTokens cap and leave zero room for the actual
+                // response. Preserve Gemini's -1 "dynamic" sentinel.
+                thinkingBudget:
+                  thinkingBudget > 0
+                    ? clampThinkingBudgetTokens(
+                        thinkingBudget,
+                        resolvedMaxOutputTokens,
+                      )
+                    : thinkingBudget,
+              },
         };
       }
     }
@@ -322,11 +362,7 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: resolveMaxOutputTokensForEngine(
-          this.name,
-          opts.maxOutputTokens,
-          opts.model,
-        ),
+        maxOutputTokens: resolvedMaxOutputTokens,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
@@ -354,6 +390,10 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: PROVIDER_ENV_VARS[this.provider][0],
+        value: this.apiKey,
+      });
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       // Surface structured fields from AI SDK's APICallError so
@@ -363,11 +403,27 @@ class AISDKEngine implements AgentEngine {
         typeof err?.statusCode === "number" ? err.statusCode : undefined;
       const providerRetryable: boolean | undefined =
         typeof err?.isRetryable === "boolean" ? err.isRetryable : undefined;
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: PROVIDER_ENV_VARS[this.provider][0],
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: err?.message ?? String(err),
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
         error: err?.message ?? String(err),
-        ...(statusCode !== undefined ? { statusCode } : {}),
+        // Tag every known status with `http_<status>` (not just 401) so a
+        // rate limit surfaces as `http_429`. The structured statusCode
+        // already drives turn-level retries, but the run-level continuation
+        // logic keys off the errorCode, so this lets a rate-limited turn
+        // auto-resume too — matching the Builder gateway path.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;

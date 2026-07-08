@@ -15,12 +15,13 @@ import {
   IconSearch,
   IconArchive,
   IconActivity,
+  IconHeartbeat,
   IconPin,
   IconPlus,
-  IconBuilding,
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconUsersGroup,
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
@@ -136,6 +137,7 @@ import { NewDashboardDialog } from "./NewDashboardDialog";
 type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
+const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
@@ -169,12 +171,16 @@ const bottomItems = [
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
-function getStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return fallback;
+function getStoredBooleanPreference(key: string): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    // localStorage unavailable — ignore, section state is best-effort.
+  }
+  return null;
 }
 
 function setStoredBoolean(key: string, value: boolean): void {
@@ -704,7 +710,7 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="me-2 h-3.5 w-3.5" />
+                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
                   ) : (
                     <IconLock className="me-2 h-3.5 w-3.5" />
                   )}
@@ -1476,7 +1482,15 @@ function AnalyticsChatsSection() {
                       onClick={() => openThread(thread.id)}
                       className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="block truncate">{title}</span>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {thread.pinnedAt ? (
+                          <IconPin
+                            aria-hidden="true"
+                            className="size-3 shrink-0 text-current opacity-60"
+                          />
+                        ) : null}
+                        <span className="block min-w-0 truncate">{title}</span>
+                      </span>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">{title}</TooltipContent>
@@ -1573,13 +1587,30 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
 
-  const [dashOpen, setDashOpen] = useState(() =>
-    getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
+  const isAskRoute = location.pathname === "/ask";
+  const activeDashboardId = useMemo(() => {
+    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
+    if (!match?.[1]) return null;
+    return new URLSearchParams(location.search).get("id") || match[1];
+  }, [location.pathname, location.search]);
+  const activeAnalysisId = useMemo(() => {
+    const match = location.pathname.match(/^\/analyses\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [location.pathname]);
+  const [askOpen, setAskOpen] = useState(
+    () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
+  );
+  const [dashOpen, setDashOpen] = useState(
+    () =>
+      getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
+      activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
   const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
-  const [analysesOpen, setAnalysesOpen] = useState(() =>
-    getStoredBoolean(ANALYSES_OPEN_KEY, true),
+  const [analysesOpen, setAnalysesOpen] = useState(
+    () =>
+      getStoredBooleanPreference(ANALYSES_OPEN_KEY) ??
+      activeAnalysisId !== null,
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
   const [analysisFilter, setAnalysisFilter] =
@@ -1681,6 +1712,32 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setAnalysisSortModeState(mode);
   }, []);
 
+  useEffect(() => {
+    if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
+      setAskOpen(isAskRoute);
+    }
+  }, [isAskRoute]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) === null) {
+      setDashOpen(activeDashboardId !== null);
+    }
+  }, [activeDashboardId]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(ANALYSES_OPEN_KEY) === null) {
+      setAnalysesOpen(activeAnalysisId !== null);
+    }
+  }, [activeAnalysisId]);
+
+  const toggleAskOpen = useCallback(() => {
+    setAskOpen((current) => {
+      const next = !current;
+      setStoredBoolean(ASK_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
   const toggleDashOpen = useCallback(() => {
     setDashOpen((current) => {
       const next = !current;
@@ -1764,12 +1821,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         : filteredAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
     [filteredAnalyses, analysesShowAll],
   );
-
-  const activeDashboardId = useMemo(() => {
-    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
-    if (!match?.[1]) return null;
-    return new URLSearchParams(location.search).get("id") || match[1];
-  }, [location.pathname, location.search]);
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
@@ -2341,6 +2392,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/sessions"),
     },
     {
+      icon: IconHeartbeat,
+      label: t("navigation.monitoring"),
+      href: "/monitoring",
+      active: location.pathname.startsWith("/monitoring"),
+    },
+    {
       icon: IconActivity,
       label: t("navigation.agents"),
       href: "/agents",
@@ -2480,33 +2537,57 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-              {/* Ask link */}
-              <div className="min-w-0 space-y-1">
-                <Link
-                  to="/ask"
-                  onClick={(event) => {
-                    if (
-                      location.pathname !== "/ask" &&
-                      !event.metaKey &&
-                      !event.ctrlKey &&
-                      !event.shiftKey &&
-                      !event.altKey
-                    ) {
-                      event.preventDefault();
-                      navigateWithAgentChatViewTransition(navigate, "/ask");
-                    }
-                  }}
+              {/* Ask section */}
+              <div className="group/section min-w-0 space-y-1">
+                <div
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                    location.pathname === "/ask"
+                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    isAskRoute
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <IconMessageCircle className="h-4 w-4" />
-                  {t("navigation.ask")}
-                </Link>
-                {location.pathname === "/ask" && <AnalyticsChatsSection />}
+                  <Link
+                    to="/ask"
+                    onClick={(event) => {
+                      if (
+                        !isAskRoute &&
+                        !event.metaKey &&
+                        !event.ctrlKey &&
+                        !event.shiftKey &&
+                        !event.altKey
+                      ) {
+                        event.preventDefault();
+                        navigateWithAgentChatViewTransition(navigate, "/ask");
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                  >
+                    <IconMessageCircle className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("navigation.ask")}
+                    </span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={toggleAskOpen}
+                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                    aria-label={
+                      askOpen
+                        ? t("sidebar.collapseAsk")
+                        : t("sidebar.expandAsk")
+                    }
+                    aria-expanded={askOpen}
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 transition-transform",
+                        !askOpen && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                </div>
+                {askOpen && <AnalyticsChatsSection />}
               </div>
 
               {/* Sessions link */}
@@ -2521,6 +2602,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               >
                 <IconPlayerPlay className="h-4 w-4" />
                 {t("navigation.sessions")}
+              </Link>
+
+              {/* Monitoring link */}
+              <Link
+                to="/monitoring"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  location.pathname.startsWith("/monitoring")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconHeartbeat className="h-4 w-4" />
+                {t("navigation.monitoring")}
               </Link>
 
               {/* Agents link */}

@@ -228,6 +228,7 @@ function mapAttendees(event: any): CalendarEvent["attendees"] {
     responseStatus: attendee.responseStatus || undefined,
     organizer: attendee.organizer || undefined,
     self: attendee.self || undefined,
+    optional: attendee.optional === true ? true : undefined,
   }));
 }
 
@@ -1094,6 +1095,7 @@ export async function createEvent(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.comment ? { comment: a.comment } : {}),
+      ...(a.optional === true ? { optional: true } : {}),
     }));
   }
 
@@ -1204,6 +1206,7 @@ export async function updateEvent(
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+      ...(a.optional === true ? { optional: true } : { optional: false }),
     }));
   }
   if (eventPatch.recurrence !== undefined) {
@@ -1241,6 +1244,7 @@ export async function updateEvent(
       responseStatus: a.responseStatus || undefined,
       organizer: a.organizer || undefined,
       self: a.self || undefined,
+      optional: a.optional === true ? true : undefined,
     })),
   };
 }
