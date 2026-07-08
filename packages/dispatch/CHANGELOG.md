@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.12
+
+### Patch Changes
+
+- 680b1eb: Keep Dispatch metrics available as an empty state when usage storage bootstrap or reads are unavailable.
+
 ## 0.13.11
 
 ### Patch Changes
