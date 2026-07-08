@@ -5,6 +5,10 @@ import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import {
+  getOrCreateAnalyticsAnonymousId,
+  getOrCreateAnalyticsSessionId,
+} from "./analytics-session.js";
 import { agentNativePath } from "./api-path.js";
 import {
   installErrorCapture,
@@ -145,15 +149,8 @@ const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
 );
 
-const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
-const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
-const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
-// 30-minute idle timeout matches GA4 / Mixpanel defaults — a tab left open
-// overnight starts a new session in the morning rather than stretching one
-// session over multiple visits.
-const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 // First-touch referral attribution (viral attribution). Captured once on the
 // visitor's first page load and persisted across the signup boundary so the
@@ -191,24 +188,6 @@ export interface FirstTouchAttribution {
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
-}
-
-function generateVisitorId(): string {
-  try {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // fall through to Math.random
-  }
-  return (
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2) +
-    Math.random().toString(36).slice(2)
-  );
 }
 
 function safeStorageGet(key: string): string | null {
@@ -421,13 +400,7 @@ function applyTrackingIdentity(
 }
 
 function getOrCreateAnonymousId(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
-  if (!id) {
-    id = generateVisitorId();
-    safeStorageSet(ANONYMOUS_ID_STORAGE_KEY, id);
-  }
-  return id;
+  return getOrCreateAnalyticsAnonymousId();
 }
 
 export function getAnalyticsAnonymousId(): string | undefined {
@@ -435,23 +408,7 @@ export function getAnalyticsAnonymousId(): string | undefined {
 }
 
 function getOrCreateSessionId(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  const now = Date.now();
-  const lastActivityRaw = safeStorageGet(SESSION_LAST_ACTIVITY_STORAGE_KEY);
-  const lastActivity = lastActivityRaw
-    ? Number.parseInt(lastActivityRaw, 10)
-    : 0;
-  let id = safeStorageGet(SESSION_ID_STORAGE_KEY);
-  const expired =
-    !lastActivity ||
-    Number.isNaN(lastActivity) ||
-    now - lastActivity > SESSION_IDLE_TIMEOUT_MS;
-  if (!id || expired) {
-    id = generateVisitorId();
-    safeStorageSet(SESSION_ID_STORAGE_KEY, id);
-  }
-  safeStorageSet(SESSION_LAST_ACTIVITY_STORAGE_KEY, String(now));
-  return id;
+  return getOrCreateAnalyticsSessionId();
 }
 
 export function getAnalyticsSessionId(): string | undefined {

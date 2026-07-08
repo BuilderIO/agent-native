@@ -1,8 +1,8 @@
 import {
-  getAnalyticsSessionId,
-  getAnalyticsAnonymousId,
-  scrubUrl,
-} from "./analytics.js";
+  getOrCreateAnalyticsAnonymousId,
+  getOrCreateAnalyticsSessionId,
+} from "./analytics-session.js";
+import { scrubUrl } from "./url-scrub.js";
 
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
@@ -842,7 +842,7 @@ function buildReplayBody(
 ): ReplayUploadPayload | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
-  const sessionId = getAnalyticsSessionId();
+  const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return null;
   const properties = replayPropertiesForUpload(state, options);
   const userEmail = replayUserEmail(properties);
@@ -864,7 +864,7 @@ function buildReplayBody(
     sessionId,
     ...(userId ? { userId } : {}),
     ...(userEmail ? { userEmail } : {}),
-    anonymousId: getAnalyticsAnonymousId(),
+    anonymousId: getOrCreateAnalyticsAnonymousId(),
     sequence: state.sequence,
     reason,
     status: isFinalFlushReason(reason) ? "completed" : "active",
@@ -1956,7 +1956,7 @@ export async function startSessionReplay(
   const normalized = normalizeOptions(options);
   if (!normalized) return { started: false, reason: "missing-public-key" };
 
-  const sessionId = getAnalyticsSessionId();
+  const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return { started: false, reason: "missing-session-id" };
   const sampled = shouldSampleSessionReplay(
     sessionId,

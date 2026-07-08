@@ -198,6 +198,7 @@ async function freshSessionReplay() {
 
 describe("session replay", () => {
   afterEach(() => {
+    vi.resetModules();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -318,7 +319,7 @@ describe("session replay", () => {
     configureTracking({
       key: "anpk_configured",
       endpoint: "https://analytics.example.test/api/analytics/track",
-      sessionReplay: true,
+      sessionReplay: { enabled: true, sampleRate: 1 },
     });
     await tick();
 
@@ -1154,11 +1155,10 @@ describe("session replay", () => {
     configureTracking({
       key: "anpk_configured",
       endpoint: "https://analytics.example.test/api/analytics/track",
-      sessionReplay: true,
+      sessionReplay: { enabled: true, sampleRate: 1 },
     });
-    await tick();
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
 
-    expect(recordOptions).toBeDefined();
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
     await waitForAssertion(() =>
@@ -1207,9 +1207,9 @@ describe("session replay", () => {
         app: "agent-native-test",
         userId: "user_123",
       }),
-      sessionReplay: true,
+      sessionReplay: { enabled: true, sampleRate: 1 },
     });
-    await tick();
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
@@ -1258,9 +1258,13 @@ describe("session replay", () => {
         ...properties,
         app: "agent-native-clips",
       }),
-      sessionReplay: { enabled: true, requireSignedInUser: true },
+      sessionReplay: {
+        enabled: true,
+        requireSignedInUser: true,
+        sampleRate: 1,
+      },
     });
-    await tick();
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
@@ -1310,6 +1314,7 @@ describe("session replay", () => {
       sessionReplay: {
         enabled: true,
         requireSignedInUser: true,
+        sampleRate: 1,
         flushIntervalMs: 100_000,
       },
     });
