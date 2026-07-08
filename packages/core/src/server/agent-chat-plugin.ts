@@ -2739,7 +2739,11 @@ export interface AgentChatPluginOptions {
    * agent starts with only these tools plus `tool-search`; the live registry
    * remains searchable, and matching schemas from `tool-search` results are
    * loaded into the next model request. Use this for domain-focused apps that
-   * have a few common actions and many rare framework utilities.
+   * have a few common actions and many rare framework utilities. Common
+   * provider/corpus/code-execution tools are promoted automatically when present
+   * in the current app/mode registry, so broad integration guidance stays
+   * immediately callable without overloading apps that do not expose those
+   * tools.
    */
   initialToolNames?: string[];
   /**
