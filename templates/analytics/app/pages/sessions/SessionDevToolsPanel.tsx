@@ -57,6 +57,27 @@ const DEVTOOLS_OVERSCAN_ROWS = 10;
 const DEVTOOLS_MIN_HEIGHT = 180;
 const DEVTOOLS_MAX_HEIGHT = 620;
 
+/**
+ * Layout offsets for the virtualized Dev Tools list. Expanded rows reserve
+ * extra height so details render inline under the selected line without
+ * disabling virtualization for the rest of the list.
+ */
+export function buildDevToolsRowOffsets(
+  entryCount: number,
+  expandedIndex: number,
+): number[] {
+  const offsets = new Array<number>(entryCount + 1);
+  offsets[0] = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    const height =
+      index === expandedIndex
+        ? DEVTOOLS_EXPANDED_ESTIMATE
+        : DEVTOOLS_ROW_HEIGHT;
+    offsets[index + 1] = offsets[index] + height;
+  }
+  return offsets;
+}
+
 export function SessionDevToolsPanel({
   diagnostics,
   currentTime,
@@ -249,12 +270,11 @@ export function SessionDevToolsPanel({
                 active={entry.id === activeConsoleId}
                 selected={expanded}
                 issueMatch={issueMatches?.get(entry.id) ?? null}
-                onSelect={() => {
-                  onSeek(entry.offsetMs);
+                onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
-                  );
-                }}
+                  )
+                }
                 onSeek={onSeek}
               />
             )}
@@ -315,12 +335,11 @@ export function SessionDevToolsPanel({
                 entry={entry}
                 active={entry.id === activeNetworkId}
                 selected={expanded}
-                onSelect={() => {
-                  onSeek(entry.offsetMs);
+                onSelect={() =>
                   setSelectedNetworkId((current) =>
                     current === entry.id ? null : entry.id,
-                  );
-                }}
+                  )
+                }
                 onSeek={onSeek}
               />
             )}
@@ -408,18 +427,10 @@ function VirtualizedDevToolsList<T extends { id: string }>({
     ? entries.findIndex((entry) => entry.id === expandedEntryId)
     : -1;
 
-  const rowOffsets = useMemo(() => {
-    const offsets = new Array<number>(entries.length + 1);
-    offsets[0] = 0;
-    for (let index = 0; index < entries.length; index += 1) {
-      const height =
-        index === expandedIndex
-          ? DEVTOOLS_EXPANDED_ESTIMATE
-          : DEVTOOLS_ROW_HEIGHT;
-      offsets[index + 1] = offsets[index] + height;
-    }
-    return offsets;
-  }, [entries.length, expandedIndex]);
+  const rowOffsets = useMemo(
+    () => buildDevToolsRowOffsets(entries.length, expandedIndex),
+    [entries.length, expandedIndex],
+  );
 
   const totalHeight = rowOffsets[entries.length] ?? 0;
 
@@ -462,26 +473,6 @@ function VirtualizedDevToolsList<T extends { id: string }>({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto border-t">
         <DevToolsEmptyState message={emptyMessage} />
-      </div>
-    );
-  }
-
-  // Expanded rows have variable height; fall back to a plain list so details
-  // render inline under the row (Chrome-style) without clipping neighbors.
-  if (expandedEntryId) {
-    return (
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 overflow-y-auto border-t"
-        onWheel={markManualScroll}
-        onPointerDown={markManualScroll}
-        onTouchMove={markManualScroll}
-      >
-        {entries.map((entry) => (
-          <div key={entry.id}>
-            {renderRow(entry, entry.id === expandedEntryId)}
-          </div>
-        ))}
       </div>
     );
   }

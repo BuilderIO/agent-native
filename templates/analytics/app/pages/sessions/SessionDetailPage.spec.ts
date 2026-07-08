@@ -5,6 +5,7 @@ import {
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   replayPayloadEvents,
+  replayViewportAt,
   replayViewportDimensions,
   sanitizeReplayEvents,
   sanitizeReplayViewportEvents,
@@ -354,6 +355,27 @@ describe("session replay sanitization", () => {
     expect(sanitized[0]?.data).toMatchObject({ width: 1024, height: 640 });
     expect(sanitized[1]?.data).toMatchObject({ width: 1024, height: 640 });
     expect(sanitized[2]?.data).toMatchObject({ width: 1440, height: 900 });
+  });
+
+  it("picks the viewport that was active at a playback offset", () => {
+    const events = [
+      { type: 4, timestamp: 1000, data: { width: 1280, height: 720 } },
+      {
+        type: 3,
+        timestamp: 2500,
+        data: { source: 4, width: 1440, height: 900 },
+      },
+      { type: 4, timestamp: 4000, data: { width: 1024, height: 768 } },
+    ];
+    expect(replayViewportAt(events, 0)).toEqual({ width: 1280, height: 720 });
+    expect(replayViewportAt(events, 1600)).toEqual({
+      width: 1440,
+      height: 900,
+    });
+    expect(replayViewportAt(events, 3500)).toEqual({
+      width: 1024,
+      height: 768,
+    });
   });
 
   it("normalizes scoped chunk route payloads into replay event arrays", () => {

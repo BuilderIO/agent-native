@@ -89,9 +89,9 @@ agent answers about browser recordings in the Analytics template.
 - The `/sessions/:recordingId` replay player has a Dev Tools toggle that opens
   a panel with Console and Network tabs: filter chips, search, an error-count
   badge, and playback-time highlighting.
-- Rows expand inline under the selected line (Chrome-style), and clicking a row
-  seeks the player to that moment. Extend this panel instead of adding a
-  separate debugging surface.
+- Rows expand inline under the selected line (Chrome-style). Expanding a row
+  does not seek; use Jump to to move the playhead. Extend this panel instead of
+  adding a separate debugging surface.
 
 ## Playback Viewer
 
