@@ -29,11 +29,7 @@ import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { writeClipboardText } from "../clipboard.js";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "../components/ui/dialog.js";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import type { ContentPart } from "../sse-event-processor.js";
@@ -259,7 +255,11 @@ function resolveToolIcon(toolName: string): ToolIconComponent {
   ) {
     return IconDatabase;
   }
-  if (name.includes("search") || name.includes("find") || name.includes("grep")) {
+  if (
+    name.includes("search") ||
+    name.includes("find") ||
+    name.includes("grep")
+  ) {
     return IconSearch;
   }
   if (

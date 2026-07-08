@@ -846,9 +846,9 @@ function ReasoningMessagePart() {
   return <ReasoningCell text={part.text} isStreaming={isStreaming} />;
 }
 
-function groupAssistantWorkParts(
-  part: { type?: string },
-): ["group-work"] | null {
+function groupAssistantWorkParts(part: {
+  type?: string;
+}): ["group-work"] | null {
   if (part.type === "reasoning" || part.type === "tool-call") {
     return ["group-work"];
   }

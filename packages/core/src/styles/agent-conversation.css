@@ -684,7 +684,7 @@
   }
 }
 
-/* Tool-code viewer that uses shiki inside the ToolDetailViewer. */
+/* Tool-code viewer that uses shiki inside the Codex-style gray box. */
 .agent-tool-code .agent-markdown-shiki {
   margin: 0;
   border-radius: 0;
