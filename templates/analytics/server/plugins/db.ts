@@ -1114,6 +1114,16 @@ const runAnalyticsMigrations = runMigrations(
       name: "status-pages-scope-updated-idx",
       sql: `CREATE INDEX IF NOT EXISTS status_pages_scope_updated_idx ON status_pages (owner_email, org_id, updated_at)`,
     },
+    {
+      version: 106,
+      name: "uptime-monitors-slack-webhook-url",
+      sql: `ALTER TABLE monitors ADD COLUMN IF NOT EXISTS slack_webhook_url TEXT`,
+    },
+    {
+      version: 107,
+      name: "uptime-monitors-webhook-url",
+      sql: `ALTER TABLE monitors ADD COLUMN IF NOT EXISTS webhook_url TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -1,17 +1,22 @@
 /**
  * Built-in notification channels.
  *
- * Set environment variables to auto-register the webhook channel at startup.
+ * Webhook and Slack are always registered. Delivery uses (in order):
+ *   1. per-notification `metadata.webhookUrl` / `metadata.slackWebhookUrl`
+ *   2. the matching `NOTIFICATIONS_*` env URL (workspace default)
+ * If neither is set, that channel no-ops for the emission.
+ *
  * Extra channels can be registered at any time via
  * `registerNotificationChannel()` from a server plugin.
  *
- * NOTIFICATIONS_WEBHOOK_URL  → POST notifications as JSON to this URL.
+ * NOTIFICATIONS_WEBHOOK_URL  → default POST JSON URL when metadata omits one.
  *                              Supports `${keys.NAME}` substitution — the raw
  *                              value never enters the agent context.
  * NOTIFICATIONS_WEBHOOK_AUTH → optional `Authorization` header value (also
  *                              supports `${keys.NAME}`).
  * NOTIFICATIONS_SLACK_WEBHOOK_URL
- *                            → POST notifications to a Slack incoming webhook.
+ *                            → default Slack incoming webhook when metadata
+ *                              omits `slackWebhookUrl`.
  *                              Supports `${keys.NAME}` substitution.
  * NOTIFICATIONS_EMAIL_CHANNEL=1
  *                            → enable the built-in email channel for
@@ -30,7 +35,7 @@ import {
 } from "../secrets/substitution.js";
 import { sendEmail } from "../server/email.js";
 import { registerNotificationChannel } from "./registry.js";
-import type { NotificationChannel } from "./types.js";
+import type { NotificationChannel, NotificationInput } from "./types.js";
 
 let _registered = false;
 
@@ -38,27 +43,29 @@ export function registerBuiltinNotificationChannels(): void {
   if (_registered) return;
   _registered = true;
 
-  const url = process.env.NOTIFICATIONS_WEBHOOK_URL;
-  if (url) {
-    registerNotificationChannel(createWebhookChannel(url));
-  }
-
-  const slackUrl = process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL;
-  if (slackUrl) {
-    registerNotificationChannel(createSlackWebhookChannel(slackUrl));
-  }
-
-  const emailRecipients = process.env.NOTIFICATIONS_EMAIL_RECIPIENTS?.trim();
-  if (process.env.NOTIFICATIONS_EMAIL_CHANNEL === "1" || emailRecipients) {
-    registerNotificationChannel(createEmailChannel());
-  }
+  registerNotificationChannel(
+    createWebhookChannel(process.env.NOTIFICATIONS_WEBHOOK_URL),
+  );
+  registerNotificationChannel(
+    createSlackWebhookChannel(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL),
+  );
+  // Email is always registered so per-notification `metadata.emailRecipients`
+  // work without a workspace-wide env flag (same pattern as webhook/slack).
+  registerNotificationChannel(createEmailChannel());
 }
 
-function createWebhookChannel(urlTemplate: string): NotificationChannel {
+function createWebhookChannel(
+  envUrlTemplate: string | undefined,
+): NotificationChannel {
   const authTemplate = process.env.NOTIFICATIONS_WEBHOOK_AUTH;
   return {
     name: "webhook",
     async deliver(input, meta) {
+      const urlTemplate =
+        metadataString(input.metadata, "webhookUrl") ?? envUrlTemplate?.trim();
+      // No-op when neither a per-notification nor workspace URL is set —
+      // mirrors email's empty-recipients behavior so notify-all stays quiet.
+      if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
         authTemplate,
@@ -92,11 +99,17 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
   };
 }
 
-function createSlackWebhookChannel(urlTemplate: string): NotificationChannel {
+function createSlackWebhookChannel(
+  envUrlTemplate: string | undefined,
+): NotificationChannel {
   const authTemplate = process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH;
   return {
     name: "slack",
     async deliver(input, meta) {
+      const urlTemplate =
+        metadataString(input.metadata, "slackWebhookUrl") ??
+        envUrlTemplate?.trim();
+      if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
         authTemplate,
@@ -159,7 +172,7 @@ function createEmailChannel(): NotificationChannel {
     name: "email",
     async deliver(input) {
       const recipients = notificationEmailRecipients(input.metadata);
-      if (recipients.length === 0) return;
+      if (recipients.length === 0) return false;
       const subject =
         typeof input.metadata?.emailSubject === "string" &&
         input.metadata.emailSubject.trim()
@@ -240,6 +253,16 @@ async function resolveWebhookRequest(
   return { url, headers };
 }
 
+function metadataString(
+  metadata: NotificationInput["metadata"],
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 function notificationEmailRecipients(
   metadata: Record<string, unknown> | undefined,
 ): string[] {
@@ -275,7 +298,11 @@ function scrubEmailMetadata(
 ): Record<string, unknown> | null {
   if (!metadata) return null;
   const entries = Object.entries(metadata).filter(
-    ([key]) => key !== "emailRecipients" && key !== "emailSubject",
+    ([key]) =>
+      key !== "emailRecipients" &&
+      key !== "emailSubject" &&
+      key !== "webhookUrl" &&
+      key !== "slackWebhookUrl",
   );
   return entries.length ? Object.fromEntries(entries) : null;
 }

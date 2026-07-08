@@ -77,9 +77,30 @@ afterEach(() => {
 });
 
 describe("webhook notification channel", () => {
-  it("is not registered when NOTIFICATIONS_WEBHOOK_URL is unset", async () => {
+  it("is always registered and no-ops when no URL is configured", async () => {
     delete process.env.NOTIFICATIONS_WEBHOOK_URL;
-    await expect(loadWebhookChannel()).resolves.toBeUndefined();
+    const channel = (await loadWebhookChannel())!;
+    expect(channel).toBeDefined();
+    await channel.deliver(
+      { severity: "critical", title: "x" },
+      { owner: "alice@example.com" },
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("prefers metadata.webhookUrl over the env default", async () => {
+    const channel = (await loadWebhookChannel())!;
+    await channel.deliver(
+      {
+        severity: "critical",
+        title: "DB offline",
+        metadata: { webhookUrl: "https://hooks.example.com/per-rule" },
+      },
+      { owner: "alice@example.com" },
+    );
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://hooks.example.com/per-rule",
+    );
   });
 
   it("POSTs the notification payload as JSON scoped to the owner", async () => {
@@ -229,7 +250,7 @@ describe("webhook notification channel", () => {
 });
 
 describe("Slack notification channel", () => {
-  it("is registered from NOTIFICATIONS_SLACK_WEBHOOK_URL and posts Slack JSON", async () => {
+  it("is always registered and posts Slack JSON from env or metadata", async () => {
     process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL =
       "https://hooks.slack.example.com/services/T/B/C";
     const channels = await loadChannels();
@@ -252,6 +273,26 @@ describe("Slack notification channel", () => {
     const payload = JSON.parse(init.body);
     expect(payload.text).toContain("[critical] Clip uploads failing");
     expect(payload.blocks[0].text.text).toBe("*Clip uploads failing*");
+  });
+
+  it("prefers metadata.slackWebhookUrl over the env default", async () => {
+    process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example.com/services/T/B/ENV";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "slack")!;
+    await channel.deliver(
+      {
+        severity: "warning",
+        title: "Slow",
+        metadata: {
+          slackWebhookUrl: "https://hooks.slack.example.com/services/T/B/META",
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://hooks.slack.example.com/services/T/B/META",
+    );
   });
 });
 

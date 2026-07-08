@@ -745,99 +745,6 @@ function serializeReplayEvent(event: ReplayEvent): string {
   }
 }
 
-/** rrweb Meta event type. */
-const RRWEB_META_EVENT = 4;
-/** rrweb IncrementalSnapshot event type. */
-const RRWEB_INCREMENTAL_EVENT = 3;
-/** rrweb ViewportResize incremental source. */
-const RRWEB_VIEWPORT_RESIZE_SOURCE = 4;
-
-/**
- * Bounds for captured viewport frames. Multi-monitor spans and corrupt
- * resize payloads produce absurd aspect ratios that collapse the replay
- * stage into an ultra-wide ribbon after fit-to-scale. Clamp at capture so
- * bad dimensions are never stored.
- */
-const MIN_CAPTURED_VIEWPORT = 240;
-const MAX_CAPTURED_ASPECT_RATIO = 2.45;
-const MIN_CAPTURED_ASPECT_RATIO = 0.5;
-
-/**
- * Rewrite Meta / ViewportResize frames with absurd dimensions before they
- * enter the upload queue. Returns the original event when dimensions are
- * already sane or the event is not a viewport frame.
- */
-export function sanitizeCapturedReplayViewportEvent(
-  event: ReplayEvent,
-): ReplayEvent {
-  const type = event.type;
-  if (type === RRWEB_META_EVENT) {
-    return sanitizeCapturedViewportData(event, event.data);
-  }
-  if (type === RRWEB_INCREMENTAL_EVENT) {
-    const data = event.data;
-    if (
-      data &&
-      typeof data === "object" &&
-      !Array.isArray(data) &&
-      (data as Record<string, unknown>).source === RRWEB_VIEWPORT_RESIZE_SOURCE
-    ) {
-      return sanitizeCapturedViewportData(event, data);
-    }
-  }
-  return event;
-}
-
-function sanitizeCapturedViewportData(
-  event: ReplayEvent,
-  data: unknown,
-): ReplayEvent {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return event;
-  const record = data as Record<string, unknown>;
-  const width = record.width;
-  const height = record.height;
-  if (
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return event;
-  }
-  const clamped = clampCapturedViewport(width, height);
-  if (
-    clamped.width === Math.round(width) &&
-    clamped.height === Math.round(height)
-  ) {
-    return event;
-  }
-  return {
-    ...event,
-    data: {
-      ...record,
-      width: clamped.width,
-      height: clamped.height,
-    },
-  };
-}
-
-function clampCapturedViewport(
-  width: number,
-  height: number,
-): { width: number; height: number } {
-  let nextWidth = Math.max(MIN_CAPTURED_VIEWPORT, Math.round(width));
-  let nextHeight = Math.max(MIN_CAPTURED_VIEWPORT, Math.round(height));
-  const aspect = nextWidth / nextHeight;
-  if (aspect > MAX_CAPTURED_ASPECT_RATIO) {
-    nextWidth = Math.round(nextHeight * MAX_CAPTURED_ASPECT_RATIO);
-  } else if (aspect < MIN_CAPTURED_ASPECT_RATIO) {
-    nextHeight = Math.round(nextWidth / MIN_CAPTURED_ASPECT_RATIO);
-  }
-  return { width: nextWidth, height: nextHeight };
-}
-
 function replayEventTimestampMs(event: ReplayEvent): number {
   const timestamp = event.timestamp;
   if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
@@ -855,8 +762,7 @@ function enqueueReplayEvent(
   event: ReplayEvent,
 ): void {
   if (!state.options) return;
-  const sanitized = sanitizeCapturedReplayViewportEvent(event);
-  const serialized = serializeReplayEvent(sanitized);
+  const serialized = serializeReplayEvent(event);
   if (!serialized) return;
   const estimatedBytes = serialized.length;
   if (
@@ -867,8 +773,8 @@ function enqueueReplayEvent(
   }
   state.queue.push({
     json: serialized,
-    timestampMs: replayEventTimestampMs(sanitized),
-    type: typeof sanitized.type === "number" ? sanitized.type : null,
+    timestampMs: replayEventTimestampMs(event),
+    type: typeof event.type === "number" ? event.type : null,
   });
   state.queuedBytes += estimatedBytes;
   flushQueuedReplayIfNeeded(state);

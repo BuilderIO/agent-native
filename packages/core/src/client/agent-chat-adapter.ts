@@ -577,6 +577,12 @@ function contentToStructuredMessages(
       continue;
     }
 
+    // Reasoning/thinking is UI-only — do not send chain-of-thought back into
+    // model history on continuation.
+    if (part.type === "reasoning") {
+      continue;
+    }
+
     if (isToolCallContentPart(part)) {
       if (part.activity === true) continue;
       const toolCallId = nextToolCallId();

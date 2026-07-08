@@ -98,12 +98,11 @@ agent answers about browser recordings in the Analytics template.
 - Wait for all replay chunks (`isComplete`) before constructing the rrweb
   `Replayer`. Progressive chunk publishes should only update the loading bar;
   rebuilding the player mid-load desyncs the scrubber and playhead.
-- Prefer the latest sane Meta / ViewportResize frame for stage dimensions.
-  Out-of-range aspect ratios are clamped (preserve height, shrink width) before
-  handing events to rrweb so the stage does not collapse into an ultra-wide
-  ribbon and the recorded DOM stays roughly aligned. Capture also clamps the
-  same frames in `@agent-native/core` so new recordings never store absurd
-  Meta widths.
+- Pass events to `Replayer` untouched (aside from stylesheet/script sanitization
+  that prevents blank frames from live CSS loads). Let rrweb own iframe sizing
+  via Meta / ViewportResize; use those dimensions only for CSS fit-to-stage of
+  the outer wrapper. Never rewrite Meta widths or force iframe dimensions —
+  that desyncs the FullSnapshot DOM and blanks the stage.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.

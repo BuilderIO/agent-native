@@ -212,49 +212,6 @@ describe("session replay", () => {
     amplitudeMock.track.mockReset();
   });
 
-  it("clamps absurd Meta and ViewportResize dimensions before upload", async () => {
-    const { sanitizeCapturedReplayViewportEvent } = await freshSessionReplay();
-
-    expect(
-      sanitizeCapturedReplayViewportEvent({
-        type: 4,
-        timestamp: 1,
-        data: { width: 3840, height: 1080, href: "https://app.example.test/" },
-      }),
-    ).toMatchObject({
-      data: { width: 2646, height: 1080 },
-    });
-    expect(
-      sanitizeCapturedReplayViewportEvent({
-        type: 3,
-        timestamp: 2,
-        data: { source: 4, width: 5000, height: 800 },
-      }),
-    ).toMatchObject({
-      data: { width: 1960, height: 800 },
-    });
-    expect(
-      sanitizeCapturedReplayViewportEvent({
-        type: 4,
-        timestamp: 3,
-        data: { width: 1440, height: 900 },
-      }),
-    ).toMatchObject({
-      data: { width: 1440, height: 900 },
-    });
-    expect(
-      sanitizeCapturedReplayViewportEvent({
-        type: 2,
-        timestamp: 4,
-        data: { node: {} },
-      }),
-    ).toEqual({
-      type: 2,
-      timestamp: 4,
-      data: { node: {} },
-    });
-  });
-
   it("does not import or start rrweb from configureTracking without replay config or an analytics key", async () => {
     installBrowser();
     const { configureTracking } = await import("./analytics.js");

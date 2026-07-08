@@ -140,11 +140,13 @@ details live in `.agents/skills/`.
   `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
   Alert notifications use the shared notification channel registry, so
   `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
-  registered channel. Configure Slack with `NOTIFICATIONS_SLACK_WEBHOOK_URL`
-  and optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with
-  `NOTIFICATIONS_EMAIL_CHANNEL=1`, existing `RESEND_API_KEY` or
-  `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule `emailRecipients` or
-  the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  registered channel. Slack/webhook prefer per-notification
+  `metadata.slackWebhookUrl` / `metadata.webhookUrl` (uptime monitors store
+  these on the monitor row), then fall back to
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL`. Configure
+  optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with existing
+  `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule
+  `emailRecipients` or the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
   Netlify builds emit an alert cron trigger plus background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.

@@ -101,6 +101,8 @@ export interface MonitorInput {
   severity?: MonitorSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   cooldownMinutes?: number;
   enabled?: boolean;
 }
@@ -120,6 +122,8 @@ export interface Monitor {
   severity: MonitorSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   cooldownMinutes: number;
   enabled: boolean;
   lastStatus: MonitorStatus | null;
@@ -462,9 +466,42 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
   return normalized;
 }
 
+function normalizeOptionalHttpUrl(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  return trimmed;
+}
+
 function ensureInboxChannel(channels: string[]): string[] {
   const normalized = channels.map((c) => c.trim()).filter(Boolean);
   return normalized.includes("inbox") ? normalized : ["inbox", ...normalized];
+}
+
+function monitorNotifyMetadata(monitor: Monitor): Record<string, unknown> {
+  return {
+    kind: "uptime_monitor",
+    monitorId: monitor.id,
+    monitorName: monitor.name,
+    url: monitor.url,
+    emailRecipients: monitor.emailRecipients,
+    requestedChannels: monitor.channels,
+    ...(monitor.slackWebhookUrl
+      ? { slackWebhookUrl: monitor.slackWebhookUrl }
+      : {}),
+    ...(monitor.webhookUrl ? { webhookUrl: monitor.webhookUrl } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -891,6 +928,8 @@ function rowToMonitor(row: any): Monitor {
     severity: row.severity === "warning" ? "warning" : "critical",
     channels: safeJsonParse<string[]>(row.channels, ["inbox"]),
     emailRecipients: safeJsonParse<string[]>(row.emailRecipients, []),
+    slackWebhookUrl: row.slackWebhookUrl?.trim() || null,
+    webhookUrl: row.webhookUrl?.trim() || null,
     cooldownMinutes: Number(row.cooldownMinutes ?? 15),
     enabled: row.enabled === true || row.enabled === 1,
     lastStatus: (row.lastStatus ?? null) as MonitorStatus | null,
@@ -1121,6 +1160,11 @@ export async function saveMonitor(
   const severity = input.severity === "warning" ? "warning" : "critical";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
+  const slackWebhookUrl = normalizeOptionalHttpUrl(
+    input.slackWebhookUrl,
+    "Slack webhook URL",
+  );
+  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const cooldownMinutes = clampInt(input.cooldownMinutes ?? 15, 0, 24 * 60, 15);
   const enabled = input.enabled ?? true;
 
@@ -1138,6 +1182,8 @@ export async function saveMonitor(
     severity,
     channels: JSON.stringify(channels),
     emailRecipients: JSON.stringify(emailRecipients),
+    slackWebhookUrl,
+    webhookUrl,
     cooldownMinutes,
     enabled,
   };
@@ -1440,16 +1486,11 @@ async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
       body: `${host} is ${label}${detail}.${latency}`,
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
-        kind: "uptime_monitor",
-        monitorId: monitor.id,
-        monitorName: monitor.name,
-        url: monitor.url,
+        ...monitorNotifyMetadata(monitor),
         status: outcome.status,
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,
         failedAssertions: outcome.failedAssertions,
-        emailRecipients: monitor.emailRecipients,
-        requestedChannels: monitor.channels,
       },
     },
     { owner: monitor.ownerEmail },
@@ -1475,16 +1516,11 @@ async function notifyMonitorRecovered(
       body: `${host} is back up${downFor ? ` after ${downFor} of downtime` : ""}.${latency}`,
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
-        kind: "uptime_monitor",
-        monitorId: monitor.id,
-        monitorName: monitor.name,
-        url: monitor.url,
+        ...monitorNotifyMetadata(monitor),
         status: "up",
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,
         incidentId: incident.id,
-        emailRecipients: monitor.emailRecipients,
-        requestedChannels: monitor.channels,
       },
     },
     { owner: monitor.ownerEmail },

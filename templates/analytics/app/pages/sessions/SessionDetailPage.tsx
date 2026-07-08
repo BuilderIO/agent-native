@@ -166,15 +166,12 @@ const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
-/** Reject Meta/resize frames that produce the ultra-wide ribbon letterbox.
- *  True 21:9 ultrawide is ~2.33; multi-monitor spans and corrupt frames are
- *  usually well above that and collapse the stage after fit-to-scale. */
-const MIN_REPLAY_VIEWPORT_WIDTH = 320;
-const MIN_REPLAY_VIEWPORT_HEIGHT = 240;
-const MAX_REPLAY_ASPECT_RATIO = 2.45;
-const MIN_REPLAY_ASPECT_RATIO = 0.5;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
+/** Toast/snackbar noise only — keep insertStyleRules minimal like builder-internal. */
+const SUPPRESS_OVERLAYS_CSS = [
+  "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
+];
 const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 
@@ -695,33 +692,21 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      const frameDims = replayViewportDimensions(replayEvents);
-      const playbackEvents = sanitizeReplayViewportEvents(
-        replayEvents,
-        frameDims ?? {
-          width: DEFAULT_PLAYER_WIDTH,
-          height: DEFAULT_PLAYER_HEIGHT,
-        },
-      );
-      setStreamedDims(frameDims);
-      localReplayer = new Replayer(playbackEvents as any[], {
+      // Match builder-internal: pass events through untouched and let rrweb own
+      // iframe sizing via Meta / ViewportResize. Only use dimensions for CSS
+      // fit-to-stage scaling of the outer wrapper — never rewrite Meta or force
+      // iframe width/height (that mismatches the FullSnapshot DOM and blanks
+      // the stage).
+      setStreamedDims(replayViewportDimensions(replayEvents));
+      localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
         skipInactive: false,
         showWarning: false,
         showDebug: false,
         triggerFocus: false,
-        // Subtle FullStory-style trail behind the visitor cursor. The canvas
-        // is resized alongside the iframe in applyReplayFrameDimensions.
-        mouseTail: {
-          strokeStyle: "rgba(59, 130, 246, 0.35)",
-          lineWidth: 2,
-          duration: 600,
-          lineCap: "round",
-        },
-        insertStyleRules: [
-          "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'] { display: none !important; }",
-        ],
+        mouseTail: false,
+        insertStyleRules: SUPPRESS_OVERLAYS_CSS,
       });
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
@@ -732,7 +717,6 @@ function ReplayPlayer({
         0,
         Number.isFinite(total) ? total : 0,
       );
-      applyReplayFrameDimensions(localReplayer, frameDims);
       localReplayer.on?.("finish", () => {
         setPlaying(false);
         const finalTime = Number(localReplayer.getCurrentTime?.() ?? total);
@@ -740,20 +724,19 @@ function ReplayPlayer({
       });
       localReplayer.on?.("resize", (payload: unknown) => {
         const dims = payload as { width?: unknown; height?: unknown };
-        const nextDims = normalizeReplayDimensions(dims.width, dims.height);
-        if (nextDims) {
-          applyReplayFrameDimensions(localReplayer, nextDims);
-          revealReplayFrame(localReplayer);
-          setStreamedDims(nextDims);
+        if (
+          typeof dims.width === "number" &&
+          typeof dims.height === "number" &&
+          Number.isFinite(dims.width) &&
+          Number.isFinite(dims.height) &&
+          dims.width > 0 &&
+          dims.height > 0
+        ) {
+          setStreamedDims({
+            width: Math.round(dims.width),
+            height: Math.round(dims.height),
+          });
         }
-      });
-      localReplayer.on?.("fullsnapshot-rebuilded", () => {
-        applyReplayFrameDimensions(
-          localReplayer,
-          replayViewportAt(eventsRef.current, currentTimeRef.current) ??
-            frameDims,
-        );
-        revealReplayFrame(localReplayer);
       });
       updateTime(startAt);
       setStatus("ready");
@@ -769,14 +752,6 @@ function ReplayPlayer({
         }
         setPlaying(false);
       }
-      window.requestAnimationFrame(() => {
-        applyReplayFrameDimensions(
-          localReplayer,
-          replayViewportAt(eventsRef.current, currentTimeRef.current) ??
-            frameDims,
-        );
-        revealReplayFrame(localReplayer);
-      });
     }
 
     void loadReplay().catch((loadError: any) => {
@@ -2177,31 +2152,14 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
 export function replayViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
-  // Prefer the most recent sane Meta/ViewportResize frame. Early Meta events
-  // (or corrupt resize payloads) can report absurd aspect ratios that collapse
-  // the stage into an ultra-wide ribbon after fit-to-stage scaling.
+  // Latest Meta / ViewportResize for CSS fit-to-stage only. Never rewrite these
+  // into the event stream — rrweb must keep Meta in sync with the FullSnapshot.
   let best: ReplayViewportDimensions | null = null;
   for (const event of events) {
     const dims = dimensionsFromReplayEvent(event);
     if (dims) best = dims;
   }
   return best;
-}
-
-export function replayViewportAt(
-  events: AnyReplayEvent[],
-  currentTime: number,
-): ReplayViewportDimensions | null {
-  const startedAt = replayStartedAt(events);
-  let current: ReplayViewportDimensions | null = null;
-  for (const event of events) {
-    const dims = dimensionsFromReplayEvent(event);
-    if (!dims) continue;
-    const offset = Number(event.timestamp ?? 0) - startedAt;
-    if (offset <= currentTime + 50) current = dims;
-    else break;
-  }
-  return current ?? replayViewportDimensions(events);
 }
 
 function dimensionsFromReplayEvent(
@@ -2219,12 +2177,7 @@ function dimensionsFromReplayEvent(
   return null;
 }
 
-/**
- * Prefer a sane viewport for the stage. Returns null only when width/height
- * are missing or non-positive. Out-of-range aspect ratios are clamped rather
- * than rejected so genuine wide windows keep their height (and most of their
- * width) instead of collapsing to the default 1024×640 fallback.
- */
+/** Read raw positive finite dimensions; no aspect clamping. */
 export function normalizeReplayDimensions(
   width: unknown,
   height: unknown,
@@ -2239,28 +2192,10 @@ export function normalizeReplayDimensions(
   ) {
     return null;
   }
-  return clampReplayViewport(width, height);
-}
-
-/**
- * Clamp Meta / ViewportResize dimensions into a displayable aspect range.
- * Multi-monitor spans and corrupt frames often report absurd widths; keep the
- * captured height and shrink width (or vice versa) so the DOM still roughly
- * matches the recorded layout.
- */
-export function clampReplayViewport(
-  width: number,
-  height: number,
-): ReplayViewportDimensions {
-  let nextWidth = Math.max(MIN_REPLAY_VIEWPORT_WIDTH, Math.round(width));
-  let nextHeight = Math.max(MIN_REPLAY_VIEWPORT_HEIGHT, Math.round(height));
-  const aspect = nextWidth / nextHeight;
-  if (aspect > MAX_REPLAY_ASPECT_RATIO) {
-    nextWidth = Math.round(nextHeight * MAX_REPLAY_ASPECT_RATIO);
-  } else if (aspect < MIN_REPLAY_ASPECT_RATIO) {
-    nextHeight = Math.round(nextWidth / MIN_REPLAY_ASPECT_RATIO);
-  }
-  return { width: nextWidth, height: nextHeight };
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
 }
 
 export function filterReplayMarkers(
@@ -2282,98 +2217,6 @@ export function filterReplayMarkers(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-/**
- * Rewrite Meta / ViewportResize frames so rrweb never applies absurd aspect
- * ratios that collapse the stage into an ultra-wide ribbon. Prefer clamping
- * the captured dimensions (preserve height, shrink width) over replacing them
- * with the default fallback, which would misalign the recorded DOM.
- */
-export function sanitizeReplayViewportEvents(
-  events: AnyReplayEvent[],
-  fallback: ReplayViewportDimensions,
-): AnyReplayEvent[] {
-  return events.map((event) => {
-    if (event.type === RRWEB_EVENT_TYPE.Meta && isRecord(event.data)) {
-      return rewriteViewportEventData(event, event.data, fallback);
-    }
-    if (
-      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-      event.data?.source === INCREMENTAL_SOURCE.ViewportResize &&
-      isRecord(event.data)
-    ) {
-      return rewriteViewportEventData(event, event.data, fallback);
-    }
-    return event;
-  });
-}
-
-function rewriteViewportEventData(
-  event: AnyReplayEvent,
-  data: AnyRecord,
-  fallback: ReplayViewportDimensions,
-): AnyReplayEvent {
-  const width = data.width;
-  const height = data.height;
-  if (
-    typeof width === "number" &&
-    typeof height === "number" &&
-    Number.isFinite(width) &&
-    Number.isFinite(height) &&
-    width > 0 &&
-    height > 0
-  ) {
-    const clamped = clampReplayViewport(width, height);
-    if (
-      clamped.width === Math.round(width) &&
-      clamped.height === Math.round(height)
-    ) {
-      return event;
-    }
-    return {
-      ...event,
-      data: {
-        ...data,
-        width: clamped.width,
-        height: clamped.height,
-      },
-    };
-  }
-  return {
-    ...event,
-    data: {
-      ...data,
-      width: fallback.width,
-      height: fallback.height,
-    },
-  };
-}
-
-function applyReplayFrameDimensions(
-  replayer: any,
-  dims: ReplayViewportDimensions | null,
-) {
-  const width = dims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const height = dims?.height ?? DEFAULT_PLAYER_HEIGHT;
-  const wrapper = replayer?.wrapper as HTMLElement | undefined;
-  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
-  const mouseTail = replayer?.mouseTail as HTMLCanvasElement | undefined;
-  for (const element of [wrapper, iframe]) {
-    if (!element) continue;
-    element.style.width = `${width}px`;
-    element.style.height = `${height}px`;
-  }
-  for (const element of [iframe, mouseTail]) {
-    if (!element) continue;
-    element.setAttribute("width", String(width));
-    element.setAttribute("height", String(height));
-  }
-}
-
-function revealReplayFrame(replayer: any) {
-  const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
-  if (iframe) iframe.style.display = "inherit";
 }
 
 function replayStartedAt(events: AnyReplayEvent[]): number {

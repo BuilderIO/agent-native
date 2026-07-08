@@ -132,13 +132,15 @@ export async function notifyWithDelivery(
   // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      await channel.deliver(input, meta);
+      const delivered = await channel.deliver(input, meta);
+      // Explicit `false` means the channel skipped (no URL / recipients).
+      if (delivered === false) return null;
       return channel.name;
     }),
   );
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
-      delivered.push(r.value);
+      if (r.value) delivered.push(r.value);
     } else {
       console.error(
         `[notifications] channel "${channels[i].name}" failed:`,

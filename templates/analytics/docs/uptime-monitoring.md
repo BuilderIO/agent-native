@@ -61,9 +61,11 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
 - On a transition **into failure**, it opens a `monitor_incidents` row (one per
   continuous failure streak) and calls `notifyWithDelivery` with a clear title
   and body plus metadata
-  `{ kind: "uptime_monitor", monitorId, url, statusCode, latencyMs, failedAssertions }`.
-  The `inbox` channel is always included; `email`/`slack`/`webhook` are added
-  when configured, and email uses the monitor's `emailRecipients`.
+  `{ kind: "uptime_monitor", monitorId, url, statusCode, latencyMs, failedAssertions, emailRecipients, slackWebhookUrl?, webhookUrl? }`.
+  The `inbox` channel is the in-app bell; `email` uses the monitor's
+  `emailRecipients`; `slack` / `webhook` use the monitor's optional
+  `slackWebhookUrl` / `webhookUrl` (falling back to workspace
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL` when unset).
 - While an incident is open it will not re-alert. After an incident resolves,
   `cooldownMinutes` suppresses a fresh "down" alert for that window to prevent
   flapping.
@@ -119,13 +121,13 @@ have their schema.
 Every operation is an owner-scoped action, so the agent can create and triage
 monitors from chat exactly like the UI:
 
-| action              | method | what it does                                                                                                                                                        |
-| ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `save-monitor`      | POST   | create or update a monitor (name, url, method, interval, timeout, expected status, assertions, redirects, severity, channels, email recipients, cooldown, enabled). |
-| `list-monitors`     | GET    | list monitors with latest status, latency, and 24h/7d uptime %.                                                                                                     |
-| `get-monitor`       | GET    | one monitor plus its recent check results and incidents.                                                                                                            |
-| `delete-monitor`    | POST   | delete a monitor and its results + incidents.                                                                                                                       |
-| `run-monitor-check` | POST   | run one check now, record it, and open/resolve incidents.                                                                                                           |
+| action              | method | what it does                                                                                                                                                                                     |
+| ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `save-monitor`      | POST   | create or update a monitor (name, url, method, interval, timeout, expected status, assertions, redirects, severity, channels, email recipients, optional Slack/webhook URLs, cooldown, enabled). |
+| `list-monitors`     | GET    | list monitors with latest status, latency, and 24h/7d uptime %.                                                                                                                                  |
+| `get-monitor`       | GET    | one monitor plus its recent check results and incidents.                                                                                                                                         |
+| `delete-monitor`    | POST   | delete a monitor and its results + incidents.                                                                                                                                                    |
+| `run-monitor-check` | POST   | run one check now, record it, and open/resolve incidents.                                                                                                                                        |
 
 Example prompts:
 

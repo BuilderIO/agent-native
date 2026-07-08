@@ -6,12 +6,14 @@ import {
   IconLoader2,
   IconCircleX,
   IconCheck,
-  IconSquareFilled,
-  IconChevronDown,
+  IconChevronRight,
   IconCopy,
+  IconCode,
+  IconBrandSlack,
+  IconTerminal2,
+  IconDatabase,
   IconSearch,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
+  IconFileCode,
   IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
@@ -19,7 +21,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
-  useMemo,
+  useLayoutEffect,
   useRef,
 } from "react";
 
@@ -27,6 +29,11 @@ import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { writeClipboardText } from "../clipboard.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "../components/ui/dialog.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import type { ContentPart } from "../sse-event-processor.js";
@@ -225,53 +232,93 @@ export function toolResultPayload(
   };
 }
 
-// ─── Search highlight helpers ─────────────────────────────────────────────────
+// ─── Tool icon helpers ────────────────────────────────────────────────────────
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+type ToolIconComponent = React.ComponentType<{
+  className?: string;
+  size?: number | string;
+}>;
 
-function countTextMatches(text: string, query: string): number {
-  const needle = query.trim();
-  if (!needle) return 0;
-  return Array.from(text.matchAll(new RegExp(escapeRegExp(needle), "gi")))
-    .length;
-}
-
-function renderHighlightedSearchText(
-  text: string,
-  query: string,
-): React.ReactNode {
-  const needle = query.trim();
-  if (!needle) return text;
-  const regex = new RegExp(escapeRegExp(needle), "gi");
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
-    lastIndex = match.index + match[0].length;
-    if (match[0].length === 0) regex.lastIndex += 1;
+function resolveToolIcon(toolName: string): ToolIconComponent {
+  const name = toolName.toLowerCase();
+  if (name.includes("slack")) return IconBrandSlack;
+  if (
+    name.includes("bash") ||
+    name.includes("shell") ||
+    name.includes("terminal") ||
+    name.includes("run-code") ||
+    name.includes("exec")
+  ) {
+    return IconTerminal2;
   }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
+  if (
+    name.includes("sql") ||
+    name.includes("bigquery") ||
+    name.includes("db-query") ||
+    name.includes("query")
+  ) {
+    return IconDatabase;
+  }
+  if (name.includes("search") || name.includes("find") || name.includes("grep")) {
+    return IconSearch;
+  }
+  if (
+    name.includes("file") ||
+    name.includes("read") ||
+    name.includes("write") ||
+    name.includes("edit")
+  ) {
+    return IconFileCode;
+  }
+  return IconCode;
 }
 
-// ─── ToolDetailViewer ──────────────────────────────────────────────────────────
+// ─── Simple code viewer (Codex-style gray box) ────────────────────────────────
 
-function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
-  const [expanded, setExpanded] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [search, setSearch] = useState("");
+function SimpleCodeViewer({
+  text,
+  lang,
+  className,
+  maxHeightClass = "max-h-56",
+}: {
+  text: string;
+  lang: string;
+  className?: string;
+  maxHeightClass?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "agent-tool-code overflow-auto rounded-md bg-muted/70 font-mono text-[11px] leading-relaxed text-foreground",
+        maxHeightClass,
+        className,
+      )}
+    >
+      {lang !== "text" && (
+        <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-border/40 bg-muted/90 px-2.5 py-1">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/80">
+            {lang}
+          </span>
+        </div>
+      )}
+      <HighlightedCodeBlock code={text} lang={lang} />
+    </div>
+  );
+}
+
+function ToolOutputModal({
+  open,
+  onOpenChange,
+  title,
+  payload,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  payload: ToolDetailPayload;
+}) {
   const [copied, setCopied] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const matchCount = useMemo(
-    () => countTextMatches(payload.text, search),
-    [payload.text, search],
-  );
 
   useEffect(() => {
     return () => {
@@ -292,81 +339,95 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
   }, [payload.copyText]);
 
   return (
-    <div className="rounded-md border border-border/50 bg-background/60">
-      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-border/50 px-2.5 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[11px] font-medium text-foreground/85">
-              {payload.title}
-            </span>
-            {payload.lang !== "text" && (
-              <span className="shrink-0 rounded border border-border/60 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
-                {payload.lang}
-              </span>
-            )}
-          </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[min(80vh,720px)] w-[min(92vw,760px)] max-w-[760px] flex-col gap-0 overflow-hidden p-0">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3 pr-12">
+          <DialogTitle className="truncate text-sm font-medium">
+            {title}
+          </DialogTitle>
+          <button
+            type="button"
+            onClick={copyValue}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((v) => !v)}
-          aria-label={`Search ${payload.title.toLowerCase()}`}
-          aria-pressed={searchOpen}
-          className={cn(
-            "inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-            searchOpen && "bg-accent text-foreground",
-          )}
-        >
-          <IconSearch size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Shrink code viewer" : "Expand code viewer"}
-          aria-pressed={expanded}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {expanded ? (
-            <IconArrowsMinimize size={12} />
-          ) : (
-            <IconArrowsMaximize size={12} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={copyValue}
-          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      {searchOpen && (
-        <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find"
-            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <SimpleCodeViewer
+            text={payload.text}
+            lang={payload.lang}
+            maxHeightClass="max-h-none"
           />
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {search.trim() ? matchCount : ""}
-          </span>
         </div>
-      )}
-      <div
-        className={cn(
-          "agent-tool-code overflow-auto font-mono text-[11px] leading-relaxed text-foreground",
-          expanded ? "max-h-[70vh]" : "max-h-72",
-        )}
-      >
-        {search.trim() ? (
-          <pre>
-            <code>{renderHighlightedSearchText(payload.text, search)}</code>
-          </pre>
-        ) : (
-          <HighlightedCodeBlock code={payload.text} lang={payload.lang} />
-        )}
-      </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Collapsible height animation ─────────────────────────────────────────────
+
+function AnimatedCollapse({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | "auto">(open ? "auto" : 0);
+  const [mounted, setMounted] = useState(open);
+  const reduceMotionRef = useRef(false);
+
+  useEffect(() => {
+    reduceMotionRef.current =
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !mounted) return;
+    if (reduceMotionRef.current) {
+      setHeight(open ? "auto" : 0);
+      if (!open) setMounted(false);
+      return;
+    }
+    if (open) {
+      const full = el.scrollHeight;
+      setHeight(0);
+      const frame = requestAnimationFrame(() => setHeight(full));
+      return () => cancelAnimationFrame(frame);
+    }
+    setHeight(el.scrollHeight);
+    const frame = requestAnimationFrame(() => setHeight(0));
+    return () => cancelAnimationFrame(frame);
+  }, [open, mounted]);
+
+  const onTransitionEnd = useCallback(
+    (event: React.TransitionEvent<HTMLDivElement>) => {
+      if (event.propertyName !== "height") return;
+      if (open) setHeight("auto");
+      else setMounted(false);
+    },
+    [open],
+  );
+
+  if (!mounted) return null;
+
+  return (
+    <div
+      ref={ref}
+      className="overflow-hidden transition-[height] duration-200 ease-out"
+      style={{ height: height === "auto" ? "auto" : `${height}px` }}
+      onTransitionEnd={onTransitionEnd}
+    >
+      {children}
     </div>
   );
 }
@@ -646,6 +707,7 @@ function ToolCallDisplayGeneric({
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
+  const [outputOpen, setOutputOpen] = useState(false);
 
   const displayName = isAgentCall
     ? isRunning
@@ -659,34 +721,47 @@ function ToolCallDisplayGeneric({
     ? hasStreamText
     : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
+  const ToolIcon = resolveToolIcon(toolName);
+  const outputTitle = `Raw ${toolName} tool call output`;
 
   return (
-    <div className="my-1 w-full overflow-hidden">
+    <div className="group/tool my-0.5 w-full overflow-hidden">
       {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
+        type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
         className={cn(
-          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
+          "flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors",
+          canExpand && "hover:text-foreground",
+          isRunning && "text-muted-foreground",
         )}
       >
-        <span className="shrink-0">
+        <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-3.5 animate-spin" />
           ) : isAgentError ? (
-            <IconCircleX className="h-3 w-3 text-destructive" />
-          ) : result !== undefined ? (
-            <IconCheck className="h-3 w-3 text-emerald-500" />
+            <IconCircleX className="size-3.5 text-destructive" />
           ) : (
-            <IconSquareFilled className="h-3 w-3 text-muted-foreground" />
+            <>
+              <ToolIcon
+                className={cn(
+                  "size-3.5 transition-opacity",
+                  canExpand && "group-hover/tool:opacity-0",
+                )}
+              />
+              {canExpand && (
+                <IconChevronRight
+                  className={cn(
+                    "absolute size-3.5 opacity-0 transition-all group-hover/tool:opacity-100",
+                    isExpanded && "rotate-90",
+                  )}
+                />
+              )}
+            </>
           )}
         </span>
-        <span className="truncate min-w-0">
-          <span className="font-medium">{displayName}</span>
-        </span>
+        <span className="min-w-0 truncate font-normal">{displayName}</span>
         {repeatCount && repeatCount > 1 && (
           <span
             className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
@@ -695,16 +770,8 @@ function ToolCallDisplayGeneric({
             {repeatCount}x
           </span>
         )}
-        {canExpand && (
-          <IconChevronDown
-            className={cn(
-              "ml-auto h-3 w-3 shrink-0 opacity-40",
-              isExpanded && "rotate-180",
-            )}
-          />
-        )}
       </button>
-      {isExpanded && isAgentCall && hasStreamText && (
+      <AnimatedCollapse open={isExpanded && isAgentCall && hasStreamText}>
         <div
           ref={streamRef}
           className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
@@ -721,12 +788,36 @@ function ToolCallDisplayGeneric({
             <span style={{ whiteSpace: "pre-wrap" }}>{agentStreamText}</span>
           )}
         </div>
-      )}
-      {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
-        <div className="mt-1 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {inputPayload && <ToolDetailViewer payload={inputPayload} />}
-          {resultPayload && <ToolDetailViewer payload={resultPayload} />}
+      </AnimatedCollapse>
+      <AnimatedCollapse
+        open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
+      >
+        <div className="mt-1 space-y-2 pl-5">
+          {inputPayload && (
+            <SimpleCodeViewer
+              text={inputPayload.text}
+              lang={inputPayload.lang}
+            />
+          )}
+          {resultPayload && (
+            <button
+              type="button"
+              onClick={() => setOutputOpen(true)}
+              aria-label={`View ${toolName} output`}
+              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <IconCode className="size-3.5" />
+            </button>
+          )}
         </div>
+      </AnimatedCollapse>
+      {resultPayload && (
+        <ToolOutputModal
+          open={outputOpen}
+          onOpenChange={setOutputOpen}
+          title={outputTitle}
+          payload={resultPayload}
+        />
       )}
       {approval && (
         <ApprovalAffordance toolName={toolName} approval={approval} />
@@ -788,6 +879,8 @@ export function ReconnectStreamMessage({
   const chatRunning = React.useContext(ChatRunningContext);
   const streamingTextPartIndex =
     content.at(-1)?.type === "text" ? content.length - 1 : -1;
+  const streamingReasoningPartIndex =
+    content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
 
   return (
     <div className="flex justify-start">
@@ -802,6 +895,15 @@ export function ReconnectStreamMessage({
                 streaming={partStreaming}
                 resetKey={`reconnect-text-${i}`}
                 statusType={partStreaming ? "running" : "complete"}
+              />
+            );
+          }
+          if (part.type === "reasoning") {
+            return (
+              <ReasoningCell
+                key={`reconnect-reasoning-${i}`}
+                text={part.text}
+                isStreaming={chatRunning && i === streamingReasoningPartIndex}
               />
             );
           }
@@ -828,6 +930,115 @@ export function ReconnectStreamMessage({
           return null;
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── Reasoning / Thinking cell ────────────────────────────────────────────────
+
+export function ReasoningCell({
+  text,
+  isStreaming = false,
+  defaultOpen,
+}: {
+  text: string;
+  isStreaming?: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? isStreaming);
+  const trimmed = text.trim();
+  if (!trimmed && !isStreaming) return null;
+
+  return (
+    <div className="my-0.5 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <span>{isStreaming ? "Thinking" : "Thought"}</span>
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="pl-5 pb-1 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+          {trimmed || (isStreaming ? "…" : "")}
+        </div>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+// ─── Worked-for duration helpers ──────────────────────────────────────────────
+
+export function formatWorkedDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) {
+    return totalSeconds <= 1 ? "1s" : `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    if (seconds === 0) return `${minutes}m`;
+    return `${minutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (remMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remMinutes}m`;
+}
+
+export function WorkedForSummary({
+  durationMs,
+  autoCollapse = false,
+  children,
+}: {
+  durationMs?: number | null;
+  /** When true, start open then animate closed (post-run collapse). */
+  autoCollapse?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(autoCollapse);
+  const didAutoCollapseRef = useRef(false);
+
+  useEffect(() => {
+    if (!autoCollapse || didAutoCollapseRef.current) return;
+    didAutoCollapseRef.current = true;
+    const frame = requestAnimationFrame(() => {
+      setOpen(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoCollapse]);
+
+  const label =
+    durationMs != null && durationMs >= 1000
+      ? `Worked for ${formatWorkedDuration(durationMs)}`
+      : "Worked";
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="pt-1">{children}</div>
+      </AnimatedCollapse>
     </div>
   );
 }

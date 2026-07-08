@@ -123,6 +123,20 @@ export default defineAction({
       .array(z.string().email())
       .optional()
       .describe("Email recipients used by the email channel."),
+    slackWebhookUrl: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Optional Slack incoming webhook URL for this monitor. Overrides NOTIFICATIONS_SLACK_WEBHOOK_URL when set.",
+      ),
+    webhookUrl: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Optional generic webhook URL for this monitor. Overrides NOTIFICATIONS_WEBHOOK_URL when set.",
+      ),
     cooldownMinutes: z
       .number()
       .int()

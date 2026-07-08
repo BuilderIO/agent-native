@@ -61,6 +61,8 @@ export interface MonitorSummary {
   severity: MonitorSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   cooldownMinutes: number;
   enabled: boolean;
   lastStatus: MonitorStatus | null;
@@ -156,6 +158,8 @@ export interface SaveMonitorInput {
   severity?: MonitorSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   cooldownMinutes?: number;
   enabled?: boolean;
 }
