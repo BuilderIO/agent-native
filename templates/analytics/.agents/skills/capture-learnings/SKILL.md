@@ -24,37 +24,42 @@ Memories are stored as **resources** in the SQL database (personal scope), not a
 
 ## Memory Types
 
-| Type | Use for |
-|------|---------|
-| `user` | Preferences, role, personal context, contacts |
-| `feedback` | Corrections, confirmed approaches, things to avoid or repeat |
-| `project` | Ongoing work context, decisions, deadlines, status |
-| `reference` | Pointers to external systems, URLs, API details |
+| Type        | Use for                                                      |
+| ----------- | ------------------------------------------------------------ |
+| `user`      | Preferences, role, personal context, contacts                |
+| `feedback`  | Corrections, confirmed approaches, things to avoid or repeat |
+| `project`   | Ongoing work context, decisions, deadlines, status           |
+| `reference` | Pointers to external systems, URLs, API details              |
 
 ## When to Capture
 
 ### User Preferences & Memory (`user`)
+
 - **Tone and style** — "I prefer casual tone", "don't use emojis", "keep replies short"
 - **Personal context** — contacts, relationships, habits ("my wife's email is...", "I'm in PST timezone")
 - **Workflow preferences** — "always CC my assistant", "I like to review before sending"
 - **Role and expertise** — "I'm a data scientist", "new to React"
 
 ### Feedback & Corrections (`feedback`)
+
 - **Corrections** — user says "no, do it this way" → capture the right way
 - **Confirmed approaches** — user validates a non-obvious choice ("yes, that's perfect")
 - **Repeated friction** — you hit the same issue twice; save it
 
 ### Project Context (`project`)
+
 - **Ongoing work** — who is doing what, why, by when
 - **Decisions** — why something is done a certain way
 - **Status** — current state of initiatives
 
 ### References (`reference`)
+
 - **External systems** — "bugs are tracked in Linear project INGEST"
 - **URLs** — dashboards, documentation, tools
 - **API quirks** — undocumented behavior, version-specific gotchas
 
 ### Don't Capture
+
 - Things obvious from reading the code
 - Standard language/framework behavior
 - Temporary debugging notes
@@ -72,5 +77,6 @@ Memories are stored as **resources** in the SQL database (personal scope), not a
 ## Graduation
 
 When a memory is referenced repeatedly, it may belong in AGENTS.md or a skill:
+
 - Saving a memory is lightweight (auto-apply, personal scope)
 - Updating AGENTS.md or a skill is heavier (affects all users/agents)

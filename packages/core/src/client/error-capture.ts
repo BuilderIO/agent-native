@@ -124,6 +124,10 @@ const MAX_MESSAGE_LENGTH = 1000;
 const MAX_STACK_LENGTH = 8000;
 const MAX_TAGS = 30;
 const MAX_EXTRA_KEYS = 50;
+const MAX_EXTRA_DEPTH = 4;
+const MAX_EXTRA_OBJECT_KEYS = 20;
+const MAX_EXTRA_ARRAY_ITEMS = 20;
+const MAX_EXTRA_STRING_LENGTH = 2000;
 
 const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 
@@ -136,6 +140,7 @@ const UNQUOTED_SECRET_RE = new RegExp(
   `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
   "gi",
 );
+const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
 
 function redactSecrets(value: string): string {
   return value
@@ -247,10 +252,54 @@ function coerceExtra(
   let count = 0;
   for (const [key, value] of Object.entries(extra)) {
     if (count >= MAX_EXTRA_KEYS) break;
-    out[key] = value;
+    const safeKey = truncate(redactSecrets(key), 100);
+    out[safeKey] = SECRET_KEY_RE.test(safeKey)
+      ? "<redacted>"
+      : coerceExtraValue(value, MAX_EXTRA_DEPTH);
     count += 1;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+function coerceExtraValue(value: unknown, depth: number): unknown {
+  if (
+    value == null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return truncate(redactSecrets(value), MAX_EXTRA_STRING_LENGTH);
+  }
+  if (typeof value === "bigint") {
+    return truncate(redactSecrets(value.toString()), MAX_EXTRA_STRING_LENGTH);
+  }
+  if (depth <= 0) {
+    return truncate(
+      redactSecrets(safeStringify(value)),
+      MAX_EXTRA_STRING_LENGTH,
+    );
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MAX_EXTRA_ARRAY_ITEMS)
+      .map((item) => coerceExtraValue(item, depth - 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    let count = 0;
+    for (const [rawKey, child] of Object.entries(value)) {
+      if (count >= MAX_EXTRA_OBJECT_KEYS) break;
+      const key = truncate(redactSecrets(rawKey), 100);
+      out[key] = SECRET_KEY_RE.test(key)
+        ? "<redacted>"
+        : coerceExtraValue(child, depth - 1);
+      count += 1;
+    }
+    return out;
+  }
+  return truncate(redactSecrets(String(value)), MAX_EXTRA_STRING_LENGTH);
 }
 
 function firstStackLine(stack: string | undefined): string {
@@ -557,6 +606,7 @@ export function installErrorCapture(
       }
     }
     runtime.removeHandlers = null;
+    runtime.installed = false;
   };
   return runtime.removeHandlers;
 }

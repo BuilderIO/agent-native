@@ -1968,7 +1968,9 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
             const owner =
               getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
             if (!owner) return "No authenticated user is available.";
-            const thread = await resolveThreadAccess(owner, id, "editor");
+            const thread = await resolveThreadAccess(owner, id, "editor", {
+              orgId: getRequestOrgId(),
+            });
             if (!thread) {
               return `Chat thread "${id}" not found.`;
             }
@@ -5606,6 +5608,7 @@ export function createAgentChatPlugin(
             ownerEmail,
             threadId,
             "editor",
+            { orgId: getRequestOrgId() },
           );
           if (!access) {
             throw createError({

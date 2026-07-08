@@ -28,7 +28,18 @@ import {
 } from "@agent-native/core/extensions/url-safety";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -187,6 +198,14 @@ const MAX_RESPONSE_BODY_BYTES = 512 * 1024; // 512 KB read cap for text assertio
 const MAX_REDIRECT_HOPS = 5;
 const MONITOR_RUNNING_STALE_MS = 5 * 60 * 1000;
 const DEFAULT_RESULT_RETENTION_DAYS = 30;
+const DEFAULT_MONITOR_LIMIT_PER_OWNER = 100;
+const MAX_REQUEST_HEADER_COUNT = 20;
+const MAX_REQUEST_HEADER_NAME_LENGTH = 128;
+const MAX_REQUEST_HEADER_VALUE_BYTES = 2048;
+const MAX_REQUEST_BODY_BYTES = 16 * 1024;
+const MAX_ASSERTIONS_PER_MONITOR = 20;
+const MAX_ASSERTION_VALUE_BYTES = 2048;
+const MAX_ASSERTION_HEADER_LENGTH = 128;
 
 const MIN_INTERVAL_SECONDS = 30;
 const MAX_INTERVAL_SECONDS = 24 * 60 * 60;
@@ -230,6 +249,10 @@ function boolEnv(name: string): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
 /** Opt-in escape hatch for monitoring internal/private hosts (dev, self-host). */
 export function monitorAllowPrivateHosts(): boolean {
   return boolEnv("UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS");
@@ -242,6 +265,15 @@ function resultRetentionDays(): number {
   return Number.isFinite(parsed) && parsed > 0
     ? Math.min(parsed, 365)
     : DEFAULT_RESULT_RETENTION_DAYS;
+}
+
+function monitorLimitPerOwner(): number {
+  const raw = process.env.UPTIME_MONITOR_LIMIT_PER_OWNER?.trim();
+  if (!raw) return DEFAULT_MONITOR_LIMIT_PER_OWNER;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(parsed, 1000)
+    : DEFAULT_MONITOR_LIMIT_PER_OWNER;
 }
 
 export function hostFromUrl(url: string): string {
@@ -303,9 +335,25 @@ function normalizeHeaders(
   const out: Record<string, string> = {};
   if (!headers || typeof headers !== "object") return out;
   for (const [rawKey, rawValue] of Object.entries(headers)) {
+    if (Object.keys(out).length >= MAX_REQUEST_HEADER_COUNT) {
+      throw badRequest(
+        `Monitor request headers are limited to ${MAX_REQUEST_HEADER_COUNT}`,
+      );
+    }
     const key = String(rawKey).trim();
     if (!key) continue;
-    out[key] = String(rawValue ?? "");
+    if (key.length > MAX_REQUEST_HEADER_NAME_LENGTH) {
+      throw badRequest(
+        `Monitor request header names are limited to ${MAX_REQUEST_HEADER_NAME_LENGTH} characters`,
+      );
+    }
+    const value = String(rawValue ?? "");
+    if (byteLength(value) > MAX_REQUEST_HEADER_VALUE_BYTES) {
+      throw badRequest(
+        `Monitor request header values are limited to ${MAX_REQUEST_HEADER_VALUE_BYTES} bytes`,
+      );
+    }
+    out[key] = value;
   }
   return out;
 }
@@ -338,6 +386,11 @@ export function normalizeAssertions(input: unknown): Assertion[] {
   if (!Array.isArray(input)) return [];
   const out: Assertion[] = [];
   for (const raw of input) {
+    if (out.length >= MAX_ASSERTIONS_PER_MONITOR) {
+      throw badRequest(
+        `Monitors are limited to ${MAX_ASSERTIONS_PER_MONITOR} assertions`,
+      );
+    }
     if (!raw || typeof raw !== "object") continue;
     const entry = raw as Record<string, unknown>;
     const type = String(entry.type ?? "") as AssertionType;
@@ -353,9 +406,19 @@ export function normalizeAssertions(input: unknown): Assertion[] {
     }
     const value = String(entry.value ?? "").trim();
     if (!value) continue;
+    if (byteLength(value) > MAX_ASSERTION_VALUE_BYTES) {
+      throw badRequest(
+        `Monitor assertion values are limited to ${MAX_ASSERTION_VALUE_BYTES} bytes`,
+      );
+    }
     if (type === "header_contains" || type === "header_equals") {
       const header = String(entry.header ?? "").trim();
       if (!header) continue;
+      if (header.length > MAX_ASSERTION_HEADER_LENGTH) {
+        throw badRequest(
+          `Monitor assertion header names are limited to ${MAX_ASSERTION_HEADER_LENGTH} characters`,
+        );
+      }
       out.push({ type, value, header });
       continue;
     }
@@ -476,7 +539,10 @@ export function evaluateAssertions(
         if (actual !== expected) {
           failures.push({
             type: assertion.type,
-            message: `Header "${assertion.header}" expected "${expected}" but got "${actual ?? "(missing)"}"`,
+            message:
+              actual == null
+                ? `Header "${assertion.header}" is missing`
+                : `Header "${assertion.header}" did not match the expected value`,
           });
         }
         break;
@@ -1032,6 +1098,11 @@ export async function saveMonitor(
   const method = normalizeMethod(input.method);
   const requestHeaders = normalizeHeaders(input.requestHeaders);
   const requestBody = input.requestBody?.trim() ? input.requestBody : null;
+  if (requestBody && byteLength(requestBody) > MAX_REQUEST_BODY_BYTES) {
+    throw badRequest(
+      `Monitor request bodies are limited to ${MAX_REQUEST_BODY_BYTES} bytes`,
+    );
+  }
   const intervalSeconds = clampInt(
     input.intervalSeconds ?? 300,
     MIN_INTERVAL_SECONDS,
@@ -1081,6 +1152,16 @@ export async function saveMonitor(
       .set({ ...shared, updatedAt })
       .where(ownerWhere(ctx, id));
   } else {
+    const [{ total = 0 } = { total: 0 }] = await db
+      .select({ total: count() })
+      .from(schema.monitors)
+      .where(ownerWhere(ctx));
+    const limit = monitorLimitPerOwner();
+    if (Number(total) >= limit) {
+      throw Object.assign(new Error(`Monitor limit reached (${limit})`), {
+        statusCode: 429,
+      });
+    }
     await db.insert(schema.monitors).values({
       id,
       ...shared,
@@ -1194,6 +1275,7 @@ export async function listDueMonitors(options: {
       options.orgId ? eq(table.orgId, options.orgId) : isNull(table.orgId),
     );
   }
+  const limit = clampInt(options.limit, 1, 500, 100);
   const rows = await db
     .select()
     .from(table)
@@ -1203,8 +1285,11 @@ export async function listDueMonitors(options: {
       asc(table.lastCheckedAt),
       asc(table.createdAt),
     )
-    .limit(clampInt(options.limit, 1, 500, 100));
-  return rows.map(rowToMonitor).filter((m: Monitor) => isMonitorDue(m, now));
+    .limit(Math.min(limit * 5, 500));
+  return rows
+    .map(rowToMonitor)
+    .filter((m: Monitor) => isMonitorDue(m, now))
+    .slice(0, limit);
 }
 
 /**
@@ -1546,7 +1631,14 @@ export async function runMonitorNow(
   if (!row) {
     throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
   }
-  return runAndProcessMonitor(rowToMonitor(row), ctx);
+  const monitor = rowToMonitor(row);
+  const claimed = await claimMonitorRun(monitor);
+  if (!claimed) {
+    throw Object.assign(new Error("Monitor check is already running"), {
+      statusCode: 409,
+    });
+  }
+  return runAndProcessMonitor(monitor, ctx);
 }
 
 // ---------------------------------------------------------------------------

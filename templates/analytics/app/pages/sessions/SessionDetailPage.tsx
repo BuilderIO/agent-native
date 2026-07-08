@@ -509,9 +509,13 @@ function ReplayPlayer({
     () => buildConsoleErrorSignatures(diagnostics.console),
     [diagnostics.console],
   );
+  const errorSignaturesKey = useMemo(
+    () => JSON.stringify(errorSignatures),
+    [errorSignatures],
+  );
   const recordingId = response.recording.id;
   const issueMatchQuery = useQuery({
-    queryKey: ["match-error-issues", recordingId, errorSignatures.length],
+    queryKey: ["match-error-issues", recordingId, errorSignaturesKey],
     queryFn: () =>
       callAction<Record<string, SessionIssueMatch>>(
         "match-error-issues",

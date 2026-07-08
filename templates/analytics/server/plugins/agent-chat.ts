@@ -189,7 +189,8 @@ export default createAgentChatPlugin({
       "<analytics-artifact-guidance>\n" +
       "Native Analytics dashboards and saved analyses are constrained artifacts: dashboards are JSON configs rendered by the built-in dashboard components, and analyses are Markdown reports with generated chart images plus structured resultData. " +
       "If the user's requested dashboard, analysis surface, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within those native components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension` instead, using Alpine.js HTML and the available app/data helpers. " +
-      "After creating the extension, briefly tell the user that the request needed bespoke UI/code beyond the native Analytics dashboard or analysis format, so you built it as an extension.\n" +
+      "After creating the extension, briefly tell the user that the request needed bespoke UI/code beyond the native Analytics dashboard or analysis format, so you built it as an extension. " +
+      "Do not also create a same-named dashboard or saved analysis unless the user explicitly asked for multiple artifacts; saved analyses appear in the sidebar and should not be used for throwaway notes or scratch summaries.\n" +
       "</analytics-artifact-guidance>";
 
     // In the durable background-function worker, skip the data-dictionary read

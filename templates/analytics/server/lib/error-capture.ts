@@ -473,12 +473,21 @@ function changeScope(scope: IngestScope): { owner?: string; orgId?: string } {
 
 async function pruneAndCountUsers(
   issueId: string,
+  scope: IngestScope,
 ): Promise<{ usersAffected: number }> {
   const db = getDb() as any;
   const keep = await db
     .select({ id: schema.errorEvents.id })
     .from(schema.errorEvents)
-    .where(eq(schema.errorEvents.issueId, issueId))
+    .where(
+      and(
+        eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
+        scope.orgId
+          ? eq(schema.errorEvents.orgId, scope.orgId)
+          : isNull(schema.errorEvents.orgId),
+      ),
+    )
     .orderBy(
       desc(schema.errorEvents.occurredAt),
       desc(schema.errorEvents.createdAt),
@@ -491,6 +500,10 @@ async function pruneAndCountUsers(
       .where(
         and(
           eq(schema.errorEvents.issueId, issueId),
+          eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
+          scope.orgId
+            ? eq(schema.errorEvents.orgId, scope.orgId)
+            : isNull(schema.errorEvents.orgId),
           notInArray(schema.errorEvents.id, keepIds),
         ),
       );
@@ -500,7 +513,15 @@ async function pruneAndCountUsers(
       users: sql<number>`count(distinct coalesce(${schema.errorEvents.userKey}, ${schema.errorEvents.anonymousId}, ${schema.errorEvents.id}))`,
     })
     .from(schema.errorEvents)
-    .where(eq(schema.errorEvents.issueId, issueId));
+    .where(
+      and(
+        eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
+        scope.orgId
+          ? eq(schema.errorEvents.orgId, scope.orgId)
+          : isNull(schema.errorEvents.orgId),
+      ),
+    );
   return { usersAffected: Number(row?.users ?? 0) };
 }
 
@@ -509,6 +530,73 @@ export interface IngestExceptionResult {
   eventId: string;
   isNewIssue: boolean;
   sessionRecordingId: string | null;
+}
+
+async function findIssueForFingerprint(
+  db: any,
+  scope: IngestScope,
+  fingerprint: string,
+) {
+  const [issue] = await db
+    .select()
+    .from(schema.errorIssues)
+    .where(
+      and(
+        eq(schema.errorIssues.ownerEmail, scope.ownerEmail),
+        scope.orgId
+          ? eq(schema.errorIssues.orgId, scope.orgId)
+          : isNull(schema.errorIssues.orgId),
+        eq(schema.errorIssues.fingerprint, fingerprint),
+      ),
+    )
+    .limit(1);
+  return issue;
+}
+
+async function updateIssueForOccurrence(
+  db: any,
+  existing: any,
+  params: {
+    raw: RawExceptionInput;
+    derived: DerivedExceptionFields;
+    eventId: string;
+    sessionRecordingId: string | null;
+    occurredAt: string;
+    now: string;
+    title: string;
+    culprit: string | null;
+  },
+): Promise<string> {
+  const firstSeenAt =
+    params.occurredAt < existing.firstSeenAt
+      ? params.occurredAt
+      : existing.firstSeenAt;
+  const lastSeenAt =
+    params.occurredAt > existing.lastSeenAt
+      ? params.occurredAt
+      : existing.lastSeenAt;
+  // Reopen a resolved issue on regression; leave ignored issues muted.
+  const status: IssueStatus =
+    existing.status === "resolved" ? "unresolved" : existing.status;
+  await db
+    .update(schema.errorIssues)
+    .set({
+      title: params.title,
+      culprit: params.culprit,
+      level: maxLevel(coerceLevel(existing.level), params.raw.level),
+      status,
+      firstSeenAt,
+      lastSeenAt,
+      eventCount: Number(existing.eventCount ?? 0) + 1,
+      sampleEventId: params.eventId,
+      lastSessionRecordingId:
+        params.sessionRecordingId ?? existing.lastSessionRecordingId ?? null,
+      app: params.derived.app ?? existing.app ?? null,
+      template: params.derived.template ?? existing.template ?? null,
+      updatedAt: params.now,
+    })
+    .where(eq(schema.errorIssues.id, existing.id));
+  return existing.id;
 }
 
 /**
@@ -532,76 +620,64 @@ export async function ingestException(
     raw.clientRecordingId,
   );
 
-  const [existing] = await db
-    .select()
-    .from(schema.errorIssues)
-    .where(
-      and(
-        eq(schema.errorIssues.ownerEmail, scope.ownerEmail),
-        scope.orgId
-          ? eq(schema.errorIssues.orgId, scope.orgId)
-          : isNull(schema.errorIssues.orgId),
-        eq(schema.errorIssues.fingerprint, fp),
-      ),
-    )
-    .limit(1);
+  const existing = await findIssueForFingerprint(db, scope, fp);
 
   const eventId = newId("errev");
-  const isNewIssue = !existing;
+  let isNewIssue = !existing;
   let issueId: string;
 
   if (existing) {
-    issueId = existing.id;
-    const firstSeenAt =
-      occurredAt < existing.firstSeenAt ? occurredAt : existing.firstSeenAt;
-    const lastSeenAt =
-      occurredAt > existing.lastSeenAt ? occurredAt : existing.lastSeenAt;
-    // Reopen a resolved issue on regression; leave ignored issues muted.
-    const status: IssueStatus =
-      existing.status === "resolved" ? "unresolved" : existing.status;
-    await db
-      .update(schema.errorIssues)
-      .set({
-        title,
-        culprit,
-        level: maxLevel(coerceLevel(existing.level), raw.level),
-        status,
-        firstSeenAt,
-        lastSeenAt,
-        eventCount: Number(existing.eventCount ?? 0) + 1,
-        sampleEventId: eventId,
-        lastSessionRecordingId:
-          sessionRecordingId ?? existing.lastSessionRecordingId ?? null,
-        app: derived.app ?? existing.app ?? null,
-        template: derived.template ?? existing.template ?? null,
-        updatedAt: now,
-      })
-      .where(eq(schema.errorIssues.id, issueId));
-  } else {
-    issueId = newId("erriss");
-    await db.insert(schema.errorIssues).values({
-      id: issueId,
-      fingerprint: fp,
-      type: raw.type,
+    issueId = await updateIssueForOccurrence(db, existing, {
+      raw,
+      derived,
+      eventId,
+      sessionRecordingId,
+      occurredAt,
+      now,
       title,
       culprit,
-      level: raw.level,
-      status: "unresolved",
-      firstSeenAt: occurredAt,
-      lastSeenAt: occurredAt,
-      eventCount: 1,
-      usersAffected: 0,
-      sampleEventId: eventId,
-      lastSessionRecordingId: sessionRecordingId,
-      assignee: null,
-      app: derived.app,
-      template: derived.template,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail: scope.ownerEmail,
-      orgId: scope.orgId,
-      visibility: scope.orgId ? "org" : "private",
     });
+  } else {
+    issueId = newId("erriss");
+    try {
+      await db.insert(schema.errorIssues).values({
+        id: issueId,
+        fingerprint: fp,
+        type: raw.type,
+        title,
+        culprit,
+        level: raw.level,
+        status: "unresolved",
+        firstSeenAt: occurredAt,
+        lastSeenAt: occurredAt,
+        eventCount: 1,
+        usersAffected: 0,
+        sampleEventId: eventId,
+        lastSessionRecordingId: sessionRecordingId,
+        assignee: null,
+        app: derived.app,
+        template: derived.template,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        visibility: scope.orgId ? "org" : "private",
+      });
+    } catch (err) {
+      const racedIssue = await findIssueForFingerprint(db, scope, fp);
+      if (!racedIssue) throw err;
+      isNewIssue = false;
+      issueId = await updateIssueForOccurrence(db, racedIssue, {
+        raw,
+        derived,
+        eventId,
+        sessionRecordingId,
+        occurredAt,
+        now,
+        title,
+        culprit,
+      });
+    }
   }
 
   await db.insert(schema.errorEvents).values({
@@ -633,7 +709,7 @@ export async function ingestException(
     orgId: scope.orgId,
   });
 
-  const { usersAffected } = await pruneAndCountUsers(issueId);
+  const { usersAffected } = await pruneAndCountUsers(issueId, scope);
   await db
     .update(schema.errorIssues)
     .set({ usersAffected })
@@ -1055,7 +1131,15 @@ export async function getErrorIssue(
   const eventRows = await db
     .select()
     .from(schema.errorEvents)
-    .where(eq(schema.errorEvents.issueId, issueId))
+    .where(
+      and(
+        eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.ownerEmail, issueRow.ownerEmail),
+        issueRow.orgId
+          ? eq(schema.errorEvents.orgId, issueRow.orgId)
+          : isNull(schema.errorEvents.orgId),
+      ),
+    )
     .orderBy(desc(schema.errorEvents.occurredAt))
     .limit(eventsLimit);
 

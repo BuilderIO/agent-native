@@ -128,6 +128,7 @@ let _sessionReplayIdentitySnapshot: TrackingIdentity | null = null;
 let _sessionReplayStartPromise: Promise<SessionReplayStartResult | null> | null =
   null;
 let _errorCaptureInstalled = false;
+let _errorCaptureDisposer: (() => void) | null = null;
 let _sessionReplayModuleForCapture:
   | typeof import("./session-replay.js")
   | null = null;
@@ -1074,13 +1075,18 @@ function maybeInstallErrorCapture(
   config: boolean | ErrorCaptureConfigOptions | undefined,
 ): void {
   if (typeof window === "undefined") return;
-  if (config === false) return;
+  if (config === false) {
+    _errorCaptureDisposer?.();
+    _errorCaptureDisposer = null;
+    _errorCaptureInstalled = false;
+    return;
+  }
   if (_errorCaptureInstalled && config === undefined) return;
   const enabled = config === undefined ? errorCaptureAutoEnabled() : true;
   if (!enabled) return;
   const options = typeof config === "object" ? config : {};
   loadSessionReplayModuleForCapture();
-  installErrorCapture({
+  _errorCaptureDisposer = installErrorCapture({
     send: sendExceptionEvent,
     getSessionContext: errorCaptureSessionContext,
     emitReplayEvent: emitExceptionToReplay,

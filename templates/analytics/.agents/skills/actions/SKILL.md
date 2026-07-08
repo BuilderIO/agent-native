@@ -81,6 +81,7 @@ API credential adapter. Use `process.env` only for explicitly deploy-level
 configuration, and keep examples to obvious placeholders.
 
 Tips:
+
 - Use `.describe()` for parameter descriptions
 - Use `.optional()` for optional params
 - Use `z.coerce.number()` for numeric params that arrive as strings from HTTP.
@@ -177,14 +178,14 @@ persist intermediate progress with `workspaceWrite` and re-run.
 
 Controls how the action is exposed as an HTTP endpoint:
 
-| Value                     | Behavior                                                    | Use for                          |
-| ------------------------- | ----------------------------------------------------------- | -------------------------------- |
-| _(omitted)_               | Auto-exposed as `POST /_agent-native/actions/:name`         | Write operations (default)       |
-| `{ method: "GET" }`       | Auto-exposed as `GET /_agent-native/actions/:name`          | Read-only queries                |
-| `{ method: "PUT" }`       | Auto-exposed as `PUT /_agent-native/actions/:name`          | Update operations                |
-| `{ method: "DELETE" }`    | Auto-exposed as `DELETE /_agent-native/actions/:name`       | Delete operations                |
-| `{ method: "GET", path: "custom" }` | Auto-exposed as `GET /_agent-native/actions/custom` | Custom route path                |
-| `false`                   | Agent-only, never exposed as HTTP                           | `navigate`, `view-screen`, internal actions |
+| Value                               | Behavior                                              | Use for                                     |
+| ----------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| _(omitted)_                         | Auto-exposed as `POST /_agent-native/actions/:name`   | Write operations (default)                  |
+| `{ method: "GET" }`                 | Auto-exposed as `GET /_agent-native/actions/:name`    | Read-only queries                           |
+| `{ method: "PUT" }`                 | Auto-exposed as `PUT /_agent-native/actions/:name`    | Update operations                           |
+| `{ method: "DELETE" }`              | Auto-exposed as `DELETE /_agent-native/actions/:name` | Delete operations                           |
+| `{ method: "GET", path: "custom" }` | Auto-exposed as `GET /_agent-native/actions/custom`   | Custom route path                           |
+| `false`                             | Agent-only, never exposed as HTTP                     | `navigate`, `view-screen`, internal actions |
 
 ### Screen Refresh (automatic)
 
@@ -208,13 +209,13 @@ Actions should return **structured data** (objects, arrays) — not `JSON.string
 run: async (args) => {
   const events = await fetchEvents(args.from, args.to);
   return events;
-}
+};
 
 // Bad — don't stringify
 run: async (args) => {
   const events = await fetchEvents(args.from, args.to);
   return JSON.stringify(events, null, 2);
-}
+};
 ```
 
 ### Returning Images the Agent Can See (`_agentImages`)

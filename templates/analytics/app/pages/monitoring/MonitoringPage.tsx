@@ -29,6 +29,15 @@ export default function MonitoringPage() {
   const rawView = searchParams.get("view");
   const view: MonitoringView = isMonitoringView(rawView) ? rawView : "uptime";
 
+  // A panel is in a sub-view (full-page form / detail) when it has drilled into
+  // a specific record via its own query param. The section-switcher tabs only
+  // belong at the list level; inside a sub-view the panel's own "Back" header is
+  // the way out. Param names mirror UptimePanel (`monitor`) and ErrorsPanel
+  // (`issue`); `monitor=new` counts as a sub-view (the create form).
+  const inSubView =
+    (view === "uptime" && searchParams.get("monitor") !== null) ||
+    (view === "errors" && searchParams.get("issue") !== null);
+
   const setView = (next: string) => {
     setSearchParams(
       (prev) => {
@@ -44,16 +53,18 @@ export default function MonitoringPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <Tabs value={view} onValueChange={setView} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="uptime" className="gap-2">
-            <IconHeartbeat className="h-4 w-4" />
-            {t("navigation.monitoringUptime")}
-          </TabsTrigger>
-          <TabsTrigger value="errors" className="gap-2">
-            <IconAlertTriangle className="h-4 w-4" />
-            {t("navigation.monitoringErrors")}
-          </TabsTrigger>
-        </TabsList>
+        {inSubView ? null : (
+          <TabsList>
+            <TabsTrigger value="uptime" className="gap-2">
+              <IconHeartbeat className="h-4 w-4" />
+              {t("navigation.monitoringUptime")}
+            </TabsTrigger>
+            <TabsTrigger value="errors" className="gap-2">
+              <IconAlertTriangle className="h-4 w-4" />
+              {t("navigation.monitoringErrors")}
+            </TabsTrigger>
+          </TabsList>
+        )}
         <TabsContent value="uptime" className="focus-visible:outline-none">
           <UptimePanel />
         </TabsContent>

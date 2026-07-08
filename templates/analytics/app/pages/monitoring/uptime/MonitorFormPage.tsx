@@ -382,6 +382,8 @@ export function MonitorFormPage({
       name: formValues.name.trim(),
       url: formValues.url.trim(),
       method: formValues.method,
+      requestHeaders: resolved?.requestHeaders,
+      requestBody: resolved?.requestBody,
       intervalSeconds: formValues.intervalSeconds,
       timeoutMs: Math.max(1000, Math.round(formValues.timeoutSeconds * 1000)),
       expectedStatus: matcher,
@@ -410,7 +412,7 @@ export function MonitorFormPage({
   // Edit deep-link before the monitor resolves.
   if (isEdit && !resolved && isLoading) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -422,7 +424,7 @@ export function MonitorFormPage({
   const saving = saveMonitor.isPending;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div>
       {/* Header */}
       <div className="mb-6">
         <Button

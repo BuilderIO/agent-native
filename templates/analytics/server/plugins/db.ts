@@ -764,7 +764,17 @@ const runAnalyticsMigrations = runMigrations(
     {
       version: 84,
       name: "error-issue-shares-table",
-      sql: `CREATE TABLE IF NOT EXISTS error_issue_shares (
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS error_issue_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS error_issue_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -773,6 +783,7 @@ const runAnalyticsMigrations = runMigrations(
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+      },
     },
     {
       version: 85,
@@ -1037,6 +1048,16 @@ const runAnalyticsMigrations = runMigrations(
       version: 100,
       name: "uptime-monitor-incidents-open-idx",
       sql: `CREATE INDEX IF NOT EXISTS monitor_incidents_open_idx ON monitor_incidents (monitor_id, resolved_at)`,
+    },
+    {
+      version: 101,
+      name: "error-issues-personal-fingerprint-unique-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS error_issues_personal_fingerprint_unique_idx ON error_issues (owner_email, fingerprint) WHERE org_id IS NULL`,
+    },
+    {
+      version: 102,
+      name: "error-issues-org-fingerprint-unique-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS error_issues_org_fingerprint_unique_idx ON error_issues (owner_email, org_id, fingerprint) WHERE org_id IS NOT NULL`,
     },
   ],
   { table: "analytics_migrations" },

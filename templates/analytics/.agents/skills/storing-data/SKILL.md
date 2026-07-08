@@ -35,12 +35,12 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Core SQL Stores (auto-created, available in all templates)
 
-| Store               | Purpose                                              | Access                                     |
-| ------------------- | ---------------------------------------------------- | ------------------------------------------ |
-| `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
-| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `putSetting()`            |
-| `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
-| `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
+| Store               | Purpose                                          | Access                               |
+| ------------------- | ------------------------------------------------ | ------------------------------------ |
+| `application_state` | Ephemeral UI state (compose windows, navigation) | `readAppState()` / `writeAppState()` |
+| `settings`          | Persistent KV config (preferences, app settings) | `getSetting()` / `putSetting()`      |
+| `oauth_tokens`      | OAuth credentials                                | `@agent-native/core/oauth-tokens`    |
+| `sessions`          | Auth sessions                                    | `@agent-native/core/server`          |
 
 ### Domain Data (per-template)
 
@@ -53,9 +53,7 @@ import { table, text, integer, now } from "@agent-native/core/db/schema";
 export const tasks = table("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  completed: integer("completed", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  completed: integer("completed", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
 });
 
@@ -64,14 +62,14 @@ const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 
 Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
 
-| Template     | Tables                                        |
-| ------------ | --------------------------------------------- |
-| **Mail**     | emails, labels (+ Gmail API when connected)   |
-| **Calendar** | events, bookings                              |
-| **Forms**    | forms, responses                              |
-| **Content**  | documents                                     |
-| **Slides**   | decks (JSON stored in SQL)                    |
-| **Videos**   | compositions in registry + localStorage       |
+| Template     | Tables                                      |
+| ------------ | ------------------------------------------- |
+| **Mail**     | emails, labels (+ Gmail API when connected) |
+| **Calendar** | events, bookings                            |
+| **Forms**    | forms, responses                            |
+| **Content**  | documents                                   |
+| **Slides**   | decks (JSON stored in SQL)                  |
+| **Videos**   | compositions in registry + localStorage     |
 
 ### Agent Access
 
@@ -85,16 +83,16 @@ The agent uses app-specific actions to read/write the database. Core DB scripts 
 
 **For one-off maintenance, how to choose between `db-exec UPDATE` and `db-patch`:**
 
-| Scenario                                                       | Use          |
-| -------------------------------------------------------------- | ------------ |
-| `SET status = 'published'` on one row                          | `db-exec`    |
-| `SET calories = calories + 50`                                 | `db-exec`    |
-| Updating several columns at once                               | `db-exec`    |
-| Inserting/updating several rows as one logical operation        | `db-exec --statements` |
-| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`   |
-| Changing a single key in a dashboard's JSON blob               | `db-patch`   |
-| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`   |
-| Any edit where you'd otherwise re-send thousands of characters | `db-patch`   |
+| Scenario                                                       | Use                    |
+| -------------------------------------------------------------- | ---------------------- |
+| `SET status = 'published'` on one row                          | `db-exec`              |
+| `SET calories = calories + 50`                                 | `db-exec`              |
+| Updating several columns at once                               | `db-exec`              |
+| Inserting/updating several rows as one logical operation       | `db-exec --statements` |
+| Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`             |
+| Changing a single key in a dashboard's JSON blob               | `db-patch`             |
+| Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`             |
+| Any edit where you'd otherwise re-send thousands of characters | `db-patch`             |
 
 All of these honor the per-user / per-org data scoping — you can't read or write rows outside the current user's data, regardless of which tool you choose.
 

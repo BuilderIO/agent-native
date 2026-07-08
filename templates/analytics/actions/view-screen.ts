@@ -12,6 +12,7 @@ import { z } from "zod";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
+import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 import {
   getSessionReplaySummary,
@@ -19,6 +20,7 @@ import {
   replayRangeToIso,
   type ReplayRange,
 } from "../server/lib/session-replay.js";
+import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 
 const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
 const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
@@ -148,6 +150,148 @@ export default defineAction({
           }
         } catch (error: any) {
           screen.sessionReplayError = error?.message || String(error);
+        }
+      }
+    } else if (nav?.view === "monitoring") {
+      screen.page = "monitoring";
+      const monitoringView =
+        nav?.monitoringView === "errors" ? "errors" : "uptime";
+      screen.monitoringView = monitoringView;
+      screen.monitoringSurfaces = [
+        {
+          id: "uptime",
+          label: "Uptime",
+          path: "/monitoring",
+          includes: [
+            "synthetic HTTP/status uptime checks",
+            "latency + body/header assertions",
+            "incidents",
+            "down/degraded alerting",
+          ],
+        },
+        {
+          id: "errors",
+          label: "Errors",
+          path: "/monitoring?view=errors",
+          includes: [
+            "captured JavaScript exceptions",
+            "grouped error issues",
+            "linked session replays",
+          ],
+        },
+      ];
+      const email = getRequestUserEmail();
+      if (email) {
+        const orgId = getRequestOrgId() || null;
+        try {
+          if (monitoringView === "errors") {
+            if (nav?.errorIssueId) {
+              screen.errorIssueId = nav.errorIssueId;
+              const detail = await getErrorIssue(
+                { userEmail: email, orgId },
+                nav.errorIssueId,
+              );
+              const issue = detail.issue;
+              const sample = detail.events[0];
+              screen.errorIssue = {
+                id: issue.id,
+                title: issue.title,
+                type: issue.type,
+                culprit: issue.culprit,
+                level: issue.level,
+                status: issue.status,
+                firstSeenAt: issue.firstSeenAt,
+                lastSeenAt: issue.lastSeenAt,
+                eventCount: issue.eventCount,
+                usersAffected: issue.usersAffected,
+                assignee: issue.assignee,
+                app: issue.app,
+                template: issue.template,
+                lastSessionRecordingPath: issue.lastSessionRecordingPath,
+                sampleEvent: sample
+                  ? {
+                      message: sample.message,
+                      culprit: sample.culprit,
+                      handled: sample.handled,
+                      url: sample.url,
+                      occurredAt: sample.occurredAt,
+                      sessionRecordingPath: sample.sessionRecordingPath,
+                    }
+                  : null,
+                linkedSessions: detail.sessions.slice(0, 5),
+              };
+            } else {
+              const issues = await listErrorIssues(
+                { userEmail: email, orgId },
+                { status: "unresolved", limit: 25 },
+              );
+              screen.errorIssues = issues.map((issue) => ({
+                id: issue.id,
+                title: issue.title,
+                culprit: issue.culprit,
+                level: issue.level,
+                status: issue.status,
+                eventCount: issue.eventCount,
+                usersAffected: issue.usersAffected,
+                lastSeenAt: issue.lastSeenAt,
+              }));
+            }
+          } else if (nav?.monitorId === "new") {
+            screen.monitorMode = "create";
+          } else if (nav?.monitorId) {
+            screen.monitorId = nav.monitorId;
+            const detail = await getMonitor(nav.monitorId, { email, orgId });
+            if (detail) {
+              const monitor = detail.monitor;
+              const openIncidents = detail.incidents.filter(
+                (incident) => !incident.resolvedAt,
+              );
+              screen.monitor = {
+                id: monitor.id,
+                name: monitor.name,
+                url: monitor.url,
+                method: monitor.method,
+                enabled: monitor.enabled,
+                severity: monitor.severity,
+                intervalSeconds: monitor.intervalSeconds,
+                lastStatus: monitor.lastStatus,
+                lastCheckedAt: monitor.lastCheckedAt,
+                lastSuccessAt: monitor.lastSuccessAt,
+                lastError: monitor.lastError,
+                lastLatencyMs: monitor.lastLatencyMs,
+                lastStatusCode: monitor.lastStatusCode,
+                consecutiveFailures: monitor.consecutiveFailures,
+                uptime24h: monitor.uptime24h,
+                uptime7d: monitor.uptime7d,
+                checks24h: monitor.checks24h,
+                openIncidentCount: openIncidents.length,
+                recentIncidents: detail.incidents
+                  .slice(0, 5)
+                  .map((incident) => ({
+                    id: incident.id,
+                    startedAt: incident.startedAt,
+                    resolvedAt: incident.resolvedAt,
+                    status: incident.status,
+                    severity: incident.severity,
+                    cause: incident.cause,
+                  })),
+              };
+            }
+          } else {
+            const monitors = await listMonitors({ email, orgId });
+            screen.monitors = monitors.map((monitor) => ({
+              id: monitor.id,
+              name: monitor.name,
+              url: monitor.url,
+              enabled: monitor.enabled,
+              lastStatus: monitor.lastStatus,
+              lastCheckedAt: monitor.lastCheckedAt,
+              uptime24h: monitor.uptime24h,
+              uptime7d: monitor.uptime7d,
+            }));
+          }
+        } catch (error: any) {
+          screen.monitoringError = error?.message || String(error);
         }
       }
     } else if (nav?.view === "overview" || nav?.view === "home" || !nav?.view) {
