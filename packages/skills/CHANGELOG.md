@@ -1,5 +1,18 @@
 # @agent-native/skills
 
+## 0.2.270
+
+### Patch Changes
+
+- 823d635: Include the skills package in the TypeScript toolchain upgrade release coverage.
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+- Updated dependencies [823d635]
+  - @agent-native/core@0.91.2
+
 ## 0.2.269
 
 ### Patch Changes

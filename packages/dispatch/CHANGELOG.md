@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.13.11
+
+### Patch Changes
+
+- 823d635: Add a dedicated Automations page with sidebar navigation so scheduled and event-triggered jobs can be reviewed and toggled without restoring the old overview dashboard.
+- 823d635: Surface outbound delivery-queue health on Destinations and add quiet overview shortcuts so cleaned-up overview capabilities stay discoverable without restoring the old dashboard. Localize those overview shortcut and delivery-queue labels across Dispatch locales.
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
 ## 0.13.10
 
 ### Patch Changes
