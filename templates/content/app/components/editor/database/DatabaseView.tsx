@@ -5707,6 +5707,11 @@ function BuilderSourceContinuationBar({
         )
       : rawFetchedCount;
   const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
+  const fetchedCountDetail = builderSourceContinuationFetchedCountDetail(
+    source,
+    fetchedCount,
+    rowsComplete,
+  );
   const bodyHydrationActive =
     !hasMore &&
     !!bodyHydration &&
@@ -5760,7 +5765,9 @@ function BuilderSourceContinuationBar({
               failed: bodyHydration.error,
             },
           )
-        : dbText("builderRowsFetchedSoFar", { count: fetchedCount });
+        : dbText("builderRowsFetchedSoFar", {
+            count: fetchedCountDetail ?? fetchedCount,
+          });
 
   return (
     <div
@@ -6576,6 +6583,24 @@ export function builderSourceContinuationProgressPercent(
   return source.metadata.lastReadHasMore === true
     ? Math.min(95, rawPercent)
     : rawPercent;
+}
+
+export function builderSourceContinuationFetchedCountDetail(
+  source: Pick<ContentDatabaseSource, "metadata">,
+  fetchedCount: number | null,
+  rowsComplete = false,
+) {
+  const knownFetchTotal =
+    !rowsComplete &&
+    source.metadata.lastReadHasMore === true &&
+    typeof source.metadata.lastReadLimit === "number"
+      ? source.metadata.lastReadLimit
+      : null;
+  return fetchedCount !== null &&
+    knownFetchTotal !== null &&
+    knownFetchTotal > fetchedCount
+    ? `${fetchedCount} of ${knownFetchTotal}`
+    : fetchedCount;
 }
 
 export function builderSourceContinuationWatchdogDecision(refires: number) {
@@ -10770,12 +10795,24 @@ function isTablePropertyVisible(
   });
 }
 
-function databaseTableCellDisplayValue(property: DocumentProperty) {
+function databaseTableCellDisplayValue(
+  property: DocumentProperty,
+  item?: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
+) {
   // Blocks columns show a word count, never the dumped body content.
   if (property.definition.type === "blocks") {
     const content = typeof property.value === "string" ? property.value : "";
     const words = countWords(content);
-    if (words === 0) return <span aria-hidden="true">&nbsp;</span>;
+    if (words === 0) {
+      if (item && databaseItemBodyHydrationIsPending(item)) {
+        return (
+          <span className="text-muted-foreground">
+            {dbText("builderBodySyncing")}
+          </span>
+        );
+      }
+      return <span aria-hidden="true">&nbsp;</span>;
+    }
     return (
       <span className="text-muted-foreground">{formatWordCount(content)}</span>
     );
@@ -14827,6 +14864,9 @@ function DatabaseTableRow({
           item.properties.find(
             (candidate) => candidate.definition.id === property.definition.id,
           ) ?? property;
+        const bodyCellHydrationPending =
+          itemProperty.definition.type === "blocks" &&
+          databaseItemBodyHydrationIsPending(item);
 
         const value = (
           <div
@@ -14835,10 +14875,12 @@ function DatabaseTableRow({
               wrapCells
                 ? "whitespace-normal break-words"
                 : "truncate whitespace-nowrap",
-              isEmptyPropertyValue(itemProperty.value) && "text-transparent",
+              isEmptyPropertyValue(itemProperty.value) &&
+                !bodyCellHydrationPending &&
+                "text-transparent",
             )}
           >
-            {databaseTableCellDisplayValue(itemProperty)}
+            {databaseTableCellDisplayValue(itemProperty, item)}
           </div>
         );
         const isEditableCheckbox =

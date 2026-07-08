@@ -14,6 +14,7 @@ import {
   databaseBulkMultiSelectToggleOperation,
   databaseBulkMultiSelectValueAfterOperation,
   builderSourceContinuationKey,
+  builderSourceContinuationFetchedCountDetail,
   builderSourceContinuationWatchdogDelay,
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
@@ -88,6 +89,41 @@ describe("Builder source continuation state", () => {
         },
       }),
     ).toBe(95);
+  });
+
+  it("includes the known Builder total in partial fetch details", () => {
+    expect(
+      builderSourceContinuationFetchedCountDetail(
+        {
+          metadata: {
+            primaryKey: "id",
+            titleField: "data.title",
+            lastReadFetchedEntryCount: 100,
+            lastReadLimit: 300,
+            lastReadHasMore: true,
+          },
+        },
+        100,
+      ),
+    ).toBe("100 of 300");
+  });
+
+  it("keeps completed fetch details to the fetched count", () => {
+    expect(
+      builderSourceContinuationFetchedCountDetail(
+        {
+          metadata: {
+            primaryKey: "id",
+            titleField: "data.title",
+            lastReadFetchedEntryCount: 300,
+            lastReadLimit: 300,
+            lastReadHasMore: false,
+          },
+        },
+        300,
+        true,
+      ),
+    ).toBe(300);
   });
 
   it("falls back to indeterminate progress when counts are missing", () => {

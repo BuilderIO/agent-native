@@ -54,7 +54,10 @@ describe("body hydration editing gates", () => {
       false,
     );
     expect(
-      documentBodyHydrationIsPending(documentWithHydration("hydrated")),
+      documentBodyHydrationIsPending({
+        ...documentWithHydration("hydrated"),
+        content: "Hydrated body",
+      }),
     ).toBe(false);
   });
 
@@ -154,6 +157,42 @@ describe("body hydration editing gates", () => {
 
     expect(databaseItemBodyHydrationIsPending(item)).toBe(true);
     expect(previewBodyHydrationIsPending({ item, document: null })).toBe(true);
+  });
+
+  it("treats source-backed empty documents with no body hydration as pending", () => {
+    const document = {
+      ...documentWithHydration("hydrated"),
+      databaseMembership: {
+        databaseId: "database",
+        databaseDocumentId: "database-page",
+        databaseTitle: "Content calendar",
+        position: 0,
+        sourceId: "builder-source",
+      },
+    } satisfies Document;
+
+    expect(documentBodyHydrationIsPending(document)).toBe(true);
+  });
+
+  it("treats source-backed empty documents marked hydrated without a version as pending", () => {
+    expect(
+      documentBodyHydrationIsPending(documentWithHydration("hydrated")),
+    ).toBe(true);
+  });
+
+  it("keeps non-empty source-backed documents editable even when the old body version is missing", () => {
+    expect(
+      documentBodyHydrationIsPending({
+        ...documentWithHydration("hydrated"),
+        content: "The Builder body is here.",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not hide source-backed body hydration errors behind a pending gate", () => {
+    expect(documentBodyHydrationIsPending(documentWithHydration("error"))).toBe(
+      false,
+    );
   });
 
   it("uses fresh document-level hydration for preview gating", () => {
