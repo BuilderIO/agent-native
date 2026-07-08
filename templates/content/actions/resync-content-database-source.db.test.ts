@@ -29,6 +29,10 @@ const builderReadMock = vi.hoisted(() => ({
   calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
   modelFieldsErrorFor: null as string | null,
   singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
+  singleEntryErrorFor: null as string | null,
+  beforeSingleEntryRead: null as
+    | ((args: { model: string; entryId: string }) => Promise<void> | void)
+    | null,
 }));
 
 // Mock the Builder read client so resync runs "live" with deterministic entries
@@ -48,6 +52,10 @@ vi.mock("./_builder-cms-read-client.js", async () => {
     readBuilderCmsContentEntry: vi.fn(
       async ({ model, entryId }: { model: string; entryId: string }) => {
         builderReadMock.singleEntryCalls.push({ model, entryId });
+        await builderReadMock.beforeSingleEntryRead?.({ model, entryId });
+        if (builderReadMock.singleEntryErrorFor === model) {
+          throw new Error(`read failed for ${model}`);
+        }
         if (model !== "collection-open-hydration-live") return null;
         return {
           id: entryId,
@@ -297,6 +305,8 @@ beforeAll(async () => {
 
 afterEach(() => {
   builderReadMock.modelFieldsErrorFor = null;
+  builderReadMock.singleEntryErrorFor = null;
+  builderReadMock.beforeSingleEntryRead = null;
 });
 
 afterAll(() => {
@@ -1032,20 +1042,6 @@ it("materializes duplicate source rows with last value winning for new property 
   await db.insert(schema.contentDatabaseSourceFields).values(field);
   await db.insert(schema.contentDatabaseSourceRows).values([
     {
-      id: "row_materialize_last_new_first",
-      ownerEmail: OWNER,
-      sourceId,
-      databaseItemId: "item_materialize_last_new",
-      documentId,
-      sourceRowId: "entry_materialize_last_new_first",
-      sourceQualifiedId: "builder-cms://collection-materialize-last-new/first",
-      sourceDisplayKey: "First",
-      sourceValuesJson: JSON.stringify({ "data.author": "First author" }),
-      provenance: "test",
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
       id: "row_materialize_last_new_second",
       ownerEmail: OWNER,
       sourceId,
@@ -1055,6 +1051,20 @@ it("materializes duplicate source rows with last value winning for new property 
       sourceQualifiedId: "builder-cms://collection-materialize-last-new/second",
       sourceDisplayKey: "Second",
       sourceValuesJson: JSON.stringify({ "data.author": "Second author" }),
+      provenance: "test",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "row_materialize_last_new_first",
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: "item_materialize_last_new",
+      documentId,
+      sourceRowId: "entry_materialize_last_new_first",
+      sourceQualifiedId: "builder-cms://collection-materialize-last-new/first",
+      sourceDisplayKey: "First",
+      sourceValuesJson: JSON.stringify({ "data.author": "First author" }),
       provenance: "test",
       createdAt: now,
       updatedAt: now,
@@ -1167,21 +1177,6 @@ it("materializes duplicate source rows with last value winning for existing prop
   await db.insert(schema.contentDatabaseSourceFields).values(field);
   await db.insert(schema.contentDatabaseSourceRows).values([
     {
-      id: "row_materialize_last_existing_first",
-      ownerEmail: OWNER,
-      sourceId,
-      databaseItemId: "item_materialize_last_existing",
-      documentId,
-      sourceRowId: "entry_materialize_last_existing_first",
-      sourceQualifiedId:
-        "builder-cms://collection-materialize-last-existing/first",
-      sourceDisplayKey: "First",
-      sourceValuesJson: JSON.stringify({ "data.author": "First author" }),
-      provenance: "test",
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
       id: "row_materialize_last_existing_second",
       ownerEmail: OWNER,
       sourceId,
@@ -1192,6 +1187,21 @@ it("materializes duplicate source rows with last value winning for existing prop
         "builder-cms://collection-materialize-last-existing/second",
       sourceDisplayKey: "Second",
       sourceValuesJson: JSON.stringify({ "data.author": "Second author" }),
+      provenance: "test",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "row_materialize_last_existing_first",
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: "item_materialize_last_existing",
+      documentId,
+      sourceRowId: "entry_materialize_last_existing_first",
+      sourceQualifiedId:
+        "builder-cms://collection-materialize-last-existing/first",
+      sourceDisplayKey: "First",
+      sourceValuesJson: JSON.stringify({ "data.author": "First author" }),
       provenance: "test",
       createdAt: now,
       updatedAt: now,
@@ -2050,6 +2060,160 @@ it("does not claim a preloaded Builder body job after it is superseded", async (
   });
   expect(after.content).toBe("");
   expect(after.status).toBe("pending");
+});
+
+it("does not let failed stale hydration retries clobber superseding queue rows", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_failed_superseded";
+  const databaseDocId = "doc_db_hydration_failed_superseded";
+  const documentId = "doc_hydration_failed_superseded";
+  const itemId = "item_hydration_failed_superseded";
+  const sourceId = "src_hydration_failed_superseded";
+  const sourceRowId = "entry-hydration-failed-superseded";
+  const queueId = "queue_hydration_failed_superseded";
+  const originalEntry = {
+    id: sourceRowId,
+    model: "collection-hydration-failed-superseded",
+    title: "Hydration failed superseded",
+    urlPath: "/blog/hydration-failed-superseded",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sourceValues: {
+      "data.title": "Hydration failed superseded",
+      "data.url": "/blog/hydration-failed-superseded",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    },
+  };
+  const supersedingEntry = {
+    ...originalEntry,
+    sourceValues: {
+      ...originalEntry.sourceValues,
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Superseding retry body",
+    },
+  };
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration failed superseded",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration failed superseded",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration failed superseded",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-failed-superseded",
+    sourceTable: "collection-hydration-failed-superseded",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_failed_superseded",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-failed-superseded/${sourceRowId}`,
+    sourceDisplayKey: "Hydration failed superseded",
+    sourceValuesJson: JSON.stringify(originalEntry.sourceValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: queueId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-hydration-failed-superseded",
+    sourceEntryJson: JSON.stringify(originalEntry),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  builderReadMock.beforeSingleEntryRead = async () => {
+    await db
+      .update(schema.contentDatabaseBodyHydrationQueue)
+      .set({
+        sourceEntryJson: JSON.stringify(supersedingEntry),
+        attempts: 0,
+        lastError: null,
+        priority: 0,
+        updatedAt: "2026-01-01T00:05:00.000Z",
+      })
+      .where(eq(schema.contentDatabaseBodyHydrationQueue.id, queueId));
+  };
+  builderReadMock.singleEntryErrorFor =
+    "collection-hydration-failed-superseded";
+
+  const result = await hydrateQueuedBodies({ sourceId, limit: 1 });
+
+  const [after] = await db
+    .select({
+      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
+      sourceEntryJson: schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+      lastError: schema.contentDatabaseBodyHydrationQueue.lastError,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      itemError: schema.contentDatabaseItems.bodyHydrationError,
+    })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.id, queueId));
+
+  expect(result.processed).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(after.attempts).toBe(0);
+  expect(after.lastError).toBeNull();
+  expect(JSON.parse(after.sourceEntryJson).sourceValues).toMatchObject({
+    [BUILDER_CMS_BODY_CONTENT_KEY]: "Superseding retry body",
+  });
+  expect(after.status).toBe("pending");
+  expect(after.itemError).toBeNull();
 });
 
 it("re-enqueues pending Builder rows with empty document content on resync", async () => {

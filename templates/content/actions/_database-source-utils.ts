@@ -828,7 +828,7 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   const liveEntry = await readBuilderCmsContentEntry({
     model: args.sourceTable,
     entryId: args.row.sourceRowId,
-  }).catch(() => null);
+  });
   if (!liveEntry || liveEntry.id !== args.row.sourceRowId) return null;
   const entryWithStoredValues = {
     ...liveEntry,
@@ -1705,6 +1705,64 @@ export async function processBuilderBodyHydrationQueue(args: {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
         const attempts = job.attempts;
+        const queueRowCas = and(
+          eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
+          eq(
+            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+            job.sourceEntryJson,
+          ),
+        );
+        const markPendingIfReplaced = async () => {
+          const [replacedByNewerJob] = await db
+            .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+            .from(schema.contentDatabaseBodyHydrationQueue)
+            .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
+          if (!replacedByNewerJob) return;
+          await db
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "pending",
+              bodyHydrationAttemptedAt: attemptNow,
+              bodyHydrationError: null,
+              updatedAt: attemptNow,
+            })
+            .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+        };
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          const [deleted] = await db
+            .delete(schema.contentDatabaseBodyHydrationQueue)
+            .where(queueRowCas)
+            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+          if (!deleted) {
+            await markPendingIfReplaced();
+            return;
+          }
+          await db
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "error",
+              bodyHydrationAttemptedAt: attemptNow,
+              bodyHydrationError: message,
+              updatedAt: attemptNow,
+            })
+            .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+          return;
+        }
+        const [updatedQueueRow] = await db
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({
+            attempts,
+            lastAttemptedAt: attemptNow,
+            lastError: message,
+            priority: job.priority + 10,
+            updatedAt: attemptNow,
+          })
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!updatedQueueRow) {
+          await markPendingIfReplaced();
+          return;
+        }
         await db
           .update(schema.contentDatabaseItems)
           .set({
@@ -1714,22 +1772,6 @@ export async function processBuilderBodyHydrationQueue(args: {
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
-          await db
-            .delete(schema.contentDatabaseBodyHydrationQueue)
-            .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
-          return;
-        }
-        await db
-          .update(schema.contentDatabaseBodyHydrationQueue)
-          .set({
-            attempts,
-            lastAttemptedAt: attemptNow,
-            lastError: message,
-            priority: job.priority + 10,
-            updatedAt: attemptNow,
-          })
-          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, job.id));
       }
     },
   );
@@ -3438,6 +3480,11 @@ export async function materializeSourceFieldPropertyValues(args: {
               eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
               inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
             ),
+          )
+          .orderBy(
+            asc(schema.contentDatabaseSourceRows.updatedAt),
+            asc(schema.contentDatabaseSourceRows.createdAt),
+            asc(schema.contentDatabaseSourceRows.id),
           )),
       );
     }
@@ -3449,7 +3496,12 @@ export async function materializeSourceFieldPropertyValues(args: {
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
         })
         .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))),
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))
+        .orderBy(
+          asc(schema.contentDatabaseSourceRows.updatedAt),
+          asc(schema.contentDatabaseSourceRows.createdAt),
+          asc(schema.contentDatabaseSourceRows.id),
+        )),
     );
   }
   if (scopedRows.length === 0) return;
@@ -3457,11 +3509,17 @@ export async function materializeSourceFieldPropertyValues(args: {
   const existingValues: Array<
     typeof schema.documentPropertyValues.$inferSelect
   > = [];
-  for (const propertyIdChunk of chunks(propertyIds, idChunkSize())) {
+  const scopedExistingValueChunkSize = documentIdSet
+    ? bulkChunkSizeForColumnCount(2)
+    : idChunkSize();
+  for (const propertyIdChunk of chunks(
+    propertyIds,
+    scopedExistingValueChunkSize,
+  )) {
     if (documentIdSet) {
       for (const documentIdChunk of chunks(
         Array.from(documentIdSet),
-        idChunkSize(),
+        scopedExistingValueChunkSize,
       )) {
         existingValues.push(
           ...(await db

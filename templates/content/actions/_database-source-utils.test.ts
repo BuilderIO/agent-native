@@ -81,6 +81,7 @@ describe("database source helpers", () => {
   it("sizes bulk chunks from the D1 parameter budget and column count", () => {
     expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
     expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
+    expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
     expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
     expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
   });
