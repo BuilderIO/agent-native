@@ -9,6 +9,12 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 
+// Feature-owned schema modules. Re-exported so their tables join this app's
+// Drizzle schema namespace (schema.<table>). Each file is owned by a single
+// feature so parallel work never collides on this shared file.
+export * from "./schema-monitoring.js";
+export * from "./schema-errors.js";
+
 /**
  * Dashboards table — covers both Explorer and SQL dashboards. The
  * distinction lives in `kind` and the shape of the `config` JSON blob.

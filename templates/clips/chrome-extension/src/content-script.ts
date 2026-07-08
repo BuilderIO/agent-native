@@ -350,6 +350,7 @@
   let cameraReady = false;
   let countdownDeferred = false;
   let countdownFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastWantedParts = new Set<OverlayPart>();
 
   function showConnecting(container: HTMLDivElement): void {
     if (document.getElementById(CONNECTING_ID)) return;
@@ -430,6 +431,10 @@
   function reconcile(parts: OverlayPart[]): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
+    const enteringCameraCountdown =
+      wanted.has("countdown") &&
+      wanted.has("bubble") &&
+      !lastWantedParts.has("countdown");
     // Leaving the countdown phase (recording / saving / idle): cancel any pending
     // deferred countdown + spinner so a late fallback timer can't pop the "3-2-1"
     // back up over a later overlay (this was the "countdown over the saving card"
@@ -438,13 +443,21 @@
       countdownDeferred = false;
       clearTimeout(countdownFallbackTimer);
       hideConnecting();
+      setBubbleHidden(false);
     }
     if (wanted.size === 0) {
       document.getElementById(CONTAINER_ID)?.remove();
       cameraReady = false;
+      lastWantedParts = wanted;
       return;
     }
     const container = ensureContainer();
+    if (enteringCameraCountdown) {
+      cameraReady = false;
+      hideConnecting();
+      setBubbleHidden(false);
+      document.getElementById(partFrameId("bubble"))?.remove();
+    }
     const gateCountdown =
       wanted.has("countdown") && wanted.has("bubble") && !cameraReady;
     for (const part of ALL_PARTS) {
@@ -467,6 +480,7 @@
       }
     }
     if (gateCountdown) showConnecting(container);
+    lastWantedParts = wanted;
   }
 
   // Guard against rare double-injection (SPA soft-reloads re-running the script).

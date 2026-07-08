@@ -22,6 +22,13 @@ type InputDevice = {
   label: string;
 };
 
+type InputDevices = {
+  cameras: InputDevice[];
+  microphones: InputDevice[];
+  defaultCameraName: string;
+  defaultMicrophoneName: string;
+};
+
 type PopupStartResponse = {
   ok?: boolean;
   error?: string;
@@ -58,6 +65,11 @@ type PopupStatusResponse = {
 };
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
+
+type CachedMediaPermission = {
+  camera?: boolean;
+  microphone?: boolean;
+};
 
 type StoredAuth = {
   token: string;
@@ -205,35 +217,66 @@ function isVirtualDefaultDevice(device: MediaDeviceInfo): boolean {
   return VIRTUAL_DEVICE_ID_RE.test(device.deviceId);
 }
 
+function isSystemDefaultDevice(device: MediaDeviceInfo): boolean {
+  return /^default$/i.test(device.deviceId);
+}
+
+function normalizeDefaultDeviceName(label: string): string {
+  const value = label.trim();
+  const parenthesized = value.match(/^default\s*\((.+)\)$/i);
+  const normalized = (parenthesized?.[1] ?? value)
+    .replace(/^default\s*[-–—:]\s*/i, "")
+    .replace(/\s*\((?:default|communications)\)\s*$/i, "")
+    .trim();
+  return /^(?:default|communications)$/i.test(normalized) ? "" : normalized;
+}
+
 // Enumerate the user's input devices for the camera/mic pickers. Labels only
 // populate after camera/mic permission is granted (the extension's permission
 // onboarding page handles that), so fall back to a generic label otherwise.
-async function enumerateInputDevices(): Promise<{
-  cameras: InputDevice[];
-  microphones: InputDevice[];
-}> {
+async function enumerateInputDevices(): Promise<InputDevices> {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cameras: InputDevice[] = [];
     const microphones: InputDevice[] = [];
+    let defaultCameraName = "";
+    let defaultMicrophoneName = "";
     for (const device of devices) {
       if (!device.deviceId) continue;
-      if (isVirtualDefaultDevice(device)) continue;
+      const label = device.label.trim();
+      if (isVirtualDefaultDevice(device)) {
+        if (isSystemDefaultDevice(device)) {
+          const defaultName = normalizeDefaultDeviceName(label);
+          if (device.kind === "videoinput") defaultCameraName ||= defaultName;
+          if (device.kind === "audioinput") {
+            defaultMicrophoneName ||= defaultName;
+          }
+        }
+        continue;
+      }
       if (device.kind === "videoinput") {
+        defaultCameraName ||= label;
         cameras.push({
           deviceId: device.deviceId,
-          label: device.label.trim() || `Camera ${cameras.length + 1}`,
+          label: label || `Camera ${cameras.length + 1}`,
         });
-      } else if (isSelectableAudioInputDevice(device)) {
+      } else if (device.kind === "audioinput") {
+        defaultMicrophoneName ||= label;
+        if (!isSelectableAudioInputDevice(device)) continue;
         microphones.push({
           deviceId: device.deviceId,
-          label: device.label.trim() || `Microphone ${microphones.length + 1}`,
+          label: label || `Microphone ${microphones.length + 1}`,
         });
       }
     }
-    return { cameras, microphones };
+    return { cameras, microphones, defaultCameraName, defaultMicrophoneName };
   } catch {
-    return { cameras: [], microphones: [] };
+    return {
+      cameras: [],
+      microphones: [],
+      defaultCameraName: "",
+      defaultMicrophoneName: "",
+    };
   }
 }
 
@@ -368,18 +411,39 @@ function createTab(url: string): Promise<void> {
   });
 }
 
-async function permissionGranted(
+function permissionPageUrl(settings: ExtensionSettings): string {
+  const url = new URL(chrome.runtime.getURL("src/permission.html"));
+  url.searchParams.set("startAfterGrant", "1");
+  url.searchParams.set(
+    "needsCamera",
+    String(settings.captureSurface === "camera" || settings.includeCamera),
+  );
+  url.searchParams.set("needsMicrophone", String(settings.includeMicrophone));
+  return url.toString();
+}
+
+async function mediaPermissionState(
   name: "camera" | "microphone",
-): Promise<boolean> {
+): Promise<PermissionState | "unknown"> {
   try {
     const status = await navigator.permissions.query({
       name: name as PermissionName,
     });
-    return status.state === "granted";
+    return status.state;
   } catch {
-    // Older Chrome can't query these names — don't block; getUserMedia will ask.
-    return true;
+    return "unknown";
   }
+}
+
+function readCachedMediaPermission(): Promise<CachedMediaPermission> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get("clipsMediaPermission", (value) => {
+      const cached = value.clipsMediaPermission as
+        | CachedMediaPermission
+        | undefined;
+      resolve(cached && typeof cached === "object" ? cached : {});
+    });
+  });
 }
 
 // True when every device the chosen mode needs is already granted to the
@@ -390,8 +454,17 @@ async function ensureMediaPermission(
   const needsCamera =
     settings.captureSurface === "camera" || settings.includeCamera;
   const needsMic = settings.includeMicrophone;
-  if (needsCamera && !(await permissionGranted("camera"))) return false;
-  if (needsMic && !(await permissionGranted("microphone"))) return false;
+  const cached = await readCachedMediaPermission();
+  if (needsCamera) {
+    const state = await mediaPermissionState("camera");
+    if (state === "denied") return false;
+    if (state !== "granted" && cached.camera !== true) return false;
+  }
+  if (needsMic) {
+    const state = await mediaPermissionState("microphone");
+    if (state === "denied") return false;
+    if (state !== "granted" && cached.microphone !== true) return false;
+  }
   return true;
 }
 
@@ -574,9 +647,11 @@ function renderSource(settings: ExtensionSettings): void {
 
 // Holds the most recent device enumeration so the menus and labels can render
 // without re-querying on every paint. Refreshed by refreshDevices().
-let inputDevices: { cameras: InputDevice[]; microphones: InputDevice[] } = {
+let inputDevices: InputDevices = {
   cameras: [],
   microphones: [],
+  defaultCameraName: "",
+  defaultMicrophoneName: "",
 };
 
 // Distinguishes "the user explicitly picked the OS default" from "the id we
@@ -592,6 +667,10 @@ function deviceLabel(
   if (!deviceId) return fallback;
   const match = devices.find((device) => device.deviceId === deviceId);
   return match ? match.label : `${fallback} (device disconnected)`;
+}
+
+function defaultDeviceLabel(fallback: string, deviceName: string): string {
+  return deviceName ? `${fallback} (${deviceName})` : fallback;
 }
 
 function renderDeviceMenu(
@@ -640,16 +719,20 @@ function renderDevicePickers(settings: ExtensionSettings): void {
     settings.captureSurface === "camera" || settings.includeCamera;
   cameraButton.hidden = !showCamera;
   if (showCamera) {
+    const defaultCameraLabel = defaultDeviceLabel(
+      "System default",
+      inputDevices.defaultCameraName,
+    );
     cameraLabel.textContent = deviceLabel(
       inputDevices.cameras,
       settings.videoDeviceId,
-      "System default",
+      defaultCameraLabel,
     );
     renderDeviceMenu(
       cameraMenu,
       inputDevices.cameras,
       settings.videoDeviceId,
-      "System default",
+      defaultCameraLabel,
     );
   } else {
     cameraMenu.hidden = true;
@@ -661,16 +744,20 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   const micMenu = byId<HTMLDivElement>("microphone-device-menu");
   micButton.hidden = !settings.includeMicrophone;
   if (settings.includeMicrophone) {
+    const defaultMicrophoneLabel = defaultDeviceLabel(
+      "System default",
+      inputDevices.defaultMicrophoneName,
+    );
     micLabel.textContent = deviceLabel(
       inputDevices.microphones,
       settings.audioDeviceId,
-      "System default",
+      defaultMicrophoneLabel,
     );
     renderDeviceMenu(
       micMenu,
       inputDevices.microphones,
       settings.audioDeviceId,
-      "System default",
+      defaultMicrophoneLabel,
     );
   } else {
     micMenu.hidden = true;
@@ -1187,9 +1274,22 @@ async function init(): Promise<void> {
       // there (a real extension page) is the only place Chrome reliably shows the
       // permission dialog and persists the grant for the offscreen recorder + bubble.
       if (!(await ensureMediaPermission(settings))) {
+        const prepare = await sendRuntimeMessage<PopupStartResponse>({
+          type: "CLIPS_POPUP_PREPARE_PERMISSION_START",
+          settings,
+          targetTabId: activeTab?.id,
+        });
+        if (!prepare.ok) {
+          start.disabled = false;
+          setStatus(
+            prepare.error || "Could not prepare the recording tab.",
+            "error",
+          );
+          return;
+        }
         start.disabled = false;
         setStatus("Allow camera & microphone, then start recording.", "error");
-        await createTab(chrome.runtime.getURL("src/permission.html"));
+        await createTab(permissionPageUrl(settings));
         window.close();
         return;
       }

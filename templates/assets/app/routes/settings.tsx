@@ -8,6 +8,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import {
   useOnboarding,
@@ -80,6 +81,25 @@ export default function SettingsPage() {
     data?: { count?: number };
   };
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "assets-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "assets-generation-setup",
+        label: t("settings.setupTitle"),
+        keywords:
+          "builder generation storage object storage api key gemini openai brand kit setup connect",
+        hash: "asset-generation-setup",
+      },
+    ],
+    [t],
+  );
+
   return (
     <PageShell
       title={t("settings.title")}
@@ -89,6 +109,7 @@ export default function SettingsPage() {
       <SettingsTabsPage
         teamLabel={t("team.title")}
         extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
             <div>
@@ -100,7 +121,7 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <Card>
+            <Card id="language" className="scroll-mt-4">
               <CardHeader>
                 <CardTitle className="text-base">
                   {t("settings.languageTitle")}

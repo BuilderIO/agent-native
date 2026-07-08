@@ -33,14 +33,14 @@ description: >
 
 ### API Routes
 
-| Route                                                                    | Description                            |
-| ------------------------------------------------------------------------ | -------------------------------------- |
-| `GET /api/github/search?q=...&type=pr\|issue&limit=30`                   | Full GitHub search syntax              |
-| `GET /api/github/pr?owner=...&repo=...&number=...`                       | PR detail with commits, reviews, files |
-| `GET /api/github/issue?owner=...&repo=...&number=...`                    | Issue detail                           |
-| `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`         | List repo PRs                          |
+| Route                                                                | Description                            |
+| -------------------------------------------------------------------- | -------------------------------------- |
+| `GET /api/github/search?q=...&type=pr\|issue&limit=30`               | Full GitHub search syntax              |
+| `GET /api/github/pr?owner=...&repo=...&number=...`                   | PR detail with commits, reviews, files |
+| `GET /api/github/issue?owner=...&repo=...&number=...`                | Issue detail                           |
+| `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`     | List repo PRs                          |
 | `GET /api/github/org-prs?org=<org>&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
-| `POST /api/github/graphql` body: `{ query, variables? }`                 | Raw GraphQL                            |
+| `POST /api/github/graphql` body: `{ query, variables? }`             | Raw GraphQL                            |
 
 ## Script Usage
 

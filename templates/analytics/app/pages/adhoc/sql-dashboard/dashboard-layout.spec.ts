@@ -143,6 +143,34 @@ describe("dashboard layout rows", () => {
     expect(next).toBe(panels);
   });
 
+  it("does not move a single-panel row through adjacent row slots", () => {
+    const panels = [panel("a", 3), panel("b"), panel("c")];
+
+    const beforeOwnRow = movePanelToDropSlot(
+      panels,
+      "a",
+      {
+        type: "row",
+        groupKey: "intro",
+        rowIndex: 0,
+      },
+      3,
+    );
+    const afterOwnRow = movePanelToDropSlot(
+      panels,
+      "a",
+      {
+        type: "row",
+        groupKey: "intro",
+        rowIndex: 1,
+      },
+      3,
+    );
+
+    expect(beforeOwnRow).toBe(panels);
+    expect(afterOwnRow).toBe(panels);
+  });
+
   it("keeps maxed-out row column slots out of drag targeting", () => {
     const panels = ["a", "b", "c", "d", "e", "f", "g"].map((id) => panel(id));
     const [group] = buildDashboardPanelGroups(panels, 6);

@@ -85,6 +85,20 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
+
+function recordingLink(recordingId: string): string {
+  const path = `${appBasePath()}/r/${encodeURIComponent(recordingId)}`;
+  if (typeof window === "undefined") return path;
+  return new URL(path, window.location.origin).toString();
+}
+
+async function copyRecordingLink(recordingId: string): Promise<void> {
+  if (typeof navigator === "undefined") return;
+  if (!navigator.clipboard?.writeText) return;
+  await navigator.clipboard
+    .writeText(recordingLink(recordingId))
+    .catch(() => undefined);
+}
 import {
   bugReportTitle,
   parseBugReportContext,
@@ -1786,6 +1800,7 @@ export default function RecordRoute() {
             duration: 12_000,
           });
         } else {
+          if (createdId && !reportContext) await copyRecordingLink(createdId);
           toast.success(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
@@ -1888,6 +1903,7 @@ export default function RecordRoute() {
             duration: 12_000,
           });
         } else {
+          await copyRecordingLink(recordingId);
           toast.success(t("recordRoute.loomImported"));
         }
         await writeAppState("navigate", {
@@ -2014,16 +2030,17 @@ export default function RecordRoute() {
       setCompressionProgress(null);
       setUploadProgress(null);
       setUiState("complete");
+      const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {
         toast.info(t("recordRoute.recordingReadyToUpload"), {
           description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
       } else {
+        if (!reportContext) await copyRecordingLink(recordingId);
         toast.success(t("recordRoute.recordingSaved"));
       }
 
-      const reportContext = bugReportContextRef.current;
       if (reportContext) {
         const path = bugReportDonePath(recordingId, reportContext);
         await writeAppState("navigate", {

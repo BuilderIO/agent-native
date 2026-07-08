@@ -98,6 +98,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("nanoid", () => ({

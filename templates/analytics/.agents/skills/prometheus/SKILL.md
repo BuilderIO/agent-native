@@ -101,7 +101,7 @@ issues (spikes, outages, errors, performance degradation):
 
 1. **Query actual metrics FIRST** — use Prometheus/Grafana, Sentry, and Cloud
    Logging before looking at code. Real data tells you what happened; code only
-   tells you what *could* happen.
+   tells you what _could_ happen.
 2. **Check upstream dependencies** — many incidents are caused by provider-side
    degradation (LLM APIs, external services), not local code. Query latency
    metrics for each upstream call.

@@ -93,6 +93,39 @@ describe("SettingsTabsPage", () => {
     expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
   });
 
+  it("honors the controlled value and reports changes without touching the hash", () => {
+    const onValueChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          value="team"
+          onValueChange={onValueChange}
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          whatsNew={<div>Recent updates</div>}
+        />,
+      );
+    });
+
+    // The controlled value wins over the (empty) hash.
+    expect(container.textContent).toContain("Team members");
+    expect(container.textContent).not.toContain("General content");
+
+    const whatsNewTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-whats-new",
+    );
+    act(() => {
+      whatsNewTab!.click();
+    });
+
+    // Parent owns the state: it is notified, but the component neither switches
+    // on its own nor writes the hash.
+    expect(onValueChange).toHaveBeenCalledWith("whats-new");
+    expect(window.location.hash).toBe("");
+    expect(container.textContent).toContain("Team members");
+  });
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 

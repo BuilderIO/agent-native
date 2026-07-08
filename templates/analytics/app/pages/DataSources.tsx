@@ -1440,6 +1440,34 @@ function FirstPartyAnalyticsCard() {
               </div>
             </div>
 
+            {/* Error capture note — the analytics SDK also captures uncaught
+                exceptions and links them to session replays. Static English
+                copy because shared i18n is owned elsewhere. */}
+            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+              <div className="font-medium text-foreground">
+                Error capture{/* i18n-ignore static SDK docs label */}
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                Once a public key is set, the browser SDK automatically captures
+                uncaught exceptions and unhandled promise rejections, and
+                exposes a Sentry-style{" "}
+                <code className="font-mono">captureException()</code> /{" "}
+                <code className="font-mono">captureMessage()</code> API. Errors
+                {/* i18n-ignore static SDK docs copy */} are grouped into issues
+                under Monitoring → Errors and linked to the session replay where
+                each one happened.
+              </p>
+              <a
+                href="https://www.agent-native.com/docs/tracking#error-capture"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                Error capture docs{/* i18n-ignore static SDK docs link */}
+                <IconExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+
             <div className="data-source-inline-form">
               <input
                 value={name}

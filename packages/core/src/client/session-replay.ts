@@ -1,8 +1,8 @@
 import {
-  getAnalyticsSessionId,
-  getAnalyticsAnonymousId,
-  scrubUrl,
-} from "./analytics.js";
+  getOrCreateAnalyticsAnonymousId,
+  getOrCreateAnalyticsSessionId,
+} from "./analytics-session.js";
+import { scrubUrl } from "./url-scrub.js";
 
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
@@ -842,7 +842,7 @@ function buildReplayBody(
 ): ReplayUploadPayload | null {
   const options = state.options;
   if (!options || !state.replayId) return null;
-  const sessionId = getAnalyticsSessionId();
+  const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return null;
   const properties = replayPropertiesForUpload(state, options);
   const userEmail = replayUserEmail(properties);
@@ -864,7 +864,7 @@ function buildReplayBody(
     sessionId,
     ...(userId ? { userId } : {}),
     ...(userEmail ? { userEmail } : {}),
-    anonymousId: getAnalyticsAnonymousId(),
+    anonymousId: getOrCreateAnalyticsAnonymousId(),
     sequence: state.sequence,
     reason,
     status: isFinalFlushReason(reason) ? "completed" : "active",
@@ -1956,7 +1956,7 @@ export async function startSessionReplay(
   const normalized = normalizeOptions(options);
   if (!normalized) return { started: false, reason: "missing-public-key" };
 
-  const sessionId = getAnalyticsSessionId();
+  const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return { started: false, reason: "missing-session-id" };
   const sampled = shouldSampleSessionReplay(
     sessionId,
@@ -2168,4 +2168,54 @@ export function maybeStartSessionReplay(
 
 export function isSessionReplayActive(): boolean {
   return getState().active;
+}
+
+/**
+ * The active session replay id when a recording is running, or the last one
+ * persisted for this analytics session in `localStorage`. First-party error
+ * capture uses this to tie each captured exception to the replay it happened
+ * in, so triage can jump straight to `/sessions/<recordingId>`.
+ */
+export function getSessionReplayId(): string | null {
+  const state = getState();
+  if (state.active && state.replayId) return state.replayId;
+  const stored = readStoredReplaySession();
+  return stored?.replayId ?? null;
+}
+
+/**
+ * Surface a manually captured exception on the active session replay timeline
+ * as an `agent-native.console` custom event, reusing the diagnostics contract
+ * (`level`, `source: "console"`, `message`, `stack`, `url`). No-op when no
+ * recording is active. Auto-captured `window.onerror` / `unhandledrejection`
+ * are intentionally NOT routed here — the recorder already logs those as
+ * `window-error` / `unhandledrejection`, so re-emitting would double-count.
+ */
+export function emitSessionReplayException(input: {
+  type: string;
+  message: string;
+  level?: "fatal" | "error" | "warning" | "info" | "debug";
+  stack?: string;
+  url?: string;
+}): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const level =
+    input.level === "warning"
+      ? "warn"
+      : input.level === "info" || input.level === "debug"
+        ? input.level
+        : "error";
+  emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
+    level,
+    source: "console",
+    message: `${input.type}: ${input.message}`.slice(
+      0,
+      MAX_CONSOLE_MESSAGE_LENGTH,
+    ),
+    ...(input.stack
+      ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
+      : {}),
+    ...(input.url ? { url: input.url } : {}),
+  });
 }

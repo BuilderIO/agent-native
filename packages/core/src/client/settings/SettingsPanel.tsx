@@ -53,7 +53,10 @@ import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsSection } from "./SettingsSection.js";
-import type { SettingsTabItem } from "./SettingsTabsPage.js";
+import type {
+  SettingsSearchEntry,
+  SettingsTabItem,
+} from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
   type BuilderConnectFlow,
@@ -873,6 +876,7 @@ function LLMSectionInner({
 
   return (
     <SettingsSection
+      id={settingsSectionDomId("llm")}
       icon={<IconBrain size={14} />}
       title="LLM"
       subtitle="Connect any major LLM — Claude, GPT, Gemini, and more."
@@ -1541,6 +1545,7 @@ function EmailSectionInner({
 
   return (
     <SettingsSection
+      id={settingsSectionDomId("email")}
       icon={<IconMail size={14} />}
       title="Email"
       subtitle="Needed before deploy for password resets, team invitations, share notifications, and dashboard email reports. Local development can run without it."
@@ -1859,6 +1864,7 @@ function AgentLimitsSectionInner({
 
   return (
     <SettingsSection
+      id={settingsSectionDomId("limits")}
       icon={<IconGauge size={14} />}
       title="Agent Limits"
       subtitle="Control how long a single agent response can work before pausing."
@@ -2053,6 +2059,103 @@ const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "auth",
 ];
 
+// Search metadata for each section so settings search can deep-link straight
+// to a section from any tab. Labels mirror the section headers; keywords add
+// synonyms and provider names the header doesn't spell out.
+const SETTINGS_SECTION_SEARCH_META: Record<
+  SettingsSectionId,
+  { label: string; keywords: string; description?: string }
+> = {
+  account: {
+    label: "Account",
+    keywords: "profile photo avatar identity signed in email name",
+  },
+  llm: {
+    label: "LLM",
+    keywords:
+      "model claude gpt openai anthropic gemini api key provider ai engine llm",
+  },
+  "app-models": {
+    label: "App Default Model",
+    keywords: "default model provider app template composer",
+  },
+  limits: {
+    label: "Agent Limits",
+    keywords: "max iterations budget loop timeout runtime",
+  },
+  voice: {
+    label: "Voice Transcription",
+    keywords: "microphone dictation speech to text whisper",
+  },
+  "demo-mode": {
+    label: "Demo mode",
+    keywords: "fake data anonymize redact screenshot privacy mask",
+  },
+  automations: {
+    label: "Automations",
+    keywords: "triggers scheduled events cron jobs",
+  },
+  secrets: {
+    label: "API Keys & Connections",
+    keywords: "secrets credentials tokens api keys environment variables",
+  },
+  hosting: {
+    label: "Hosting",
+    keywords: "deploy netlify vercel cloudflare builder nitro",
+  },
+  database: {
+    label: "Database",
+    keywords: "postgres sqlite neon supabase turso storage sql pglite",
+  },
+  uploads: {
+    label: "File uploads",
+    keywords: "files storage s3 avatars attachments bucket blob",
+  },
+  auth: {
+    label: "Authentication",
+    keywords: "login signup oauth google github better auth access sso",
+  },
+  email: {
+    label: "Email",
+    keywords: "resend sendgrid smtp transactional notifications reports",
+  },
+  browser: {
+    label: "Browser Automation",
+    keywords: "web scraping playwright chrome headless",
+  },
+  background: {
+    label: "Background Agent",
+    keywords: "code changes branches builder production async",
+  },
+  integrations: {
+    label: "Integrations",
+    keywords: "slack telegram whatsapp discord messaging connect",
+  },
+  usage: {
+    label: "Usage",
+    keywords: "tokens cost spend billing consumption",
+  },
+  a2a: {
+    label: "Connected Agents (A2A)",
+    keywords: "remote agents protocol a2a connected",
+  },
+};
+
+function buildSectionSearchEntries(
+  sections: readonly SettingsSectionId[],
+): SettingsSearchEntry[] {
+  return sections.map((section) => {
+    const meta = SETTINGS_SECTION_SEARCH_META[section];
+    return {
+      id: `section:${section}`,
+      label: meta.label,
+      keywords: meta.keywords,
+      description: meta.description,
+      hash: section,
+    };
+  });
+}
+
 function normalizeSettingsSection(
   value?: string | null,
 ): SettingsSectionId | null {
@@ -2238,6 +2341,7 @@ function AccountSectionInner({
 
   return (
     <SettingsSection
+      id={settingsSectionDomId("account")}
       icon={<IconUserCircle size={14} />}
       title="Account"
       subtitle="Your profile photo and signed-in identity."
@@ -2488,6 +2592,7 @@ function SettingsPanelContent({
       {/* Voice transcription */}
       {shouldShowSection("voice") && (
         <SettingsSection
+          id={settingsSectionDomId("voice")}
           icon={<IconMicrophone size={14} />}
           title="Voice Transcription"
           subtitle="How the composer microphone turns your voice into text."
@@ -2501,6 +2606,7 @@ function SettingsPanelContent({
       {/* Demo mode */}
       {shouldShowSection("demo-mode") && (
         <SettingsSection
+          id={settingsSectionDomId("demo-mode")}
           icon={<IconEyeOff size={14} />}
           title="Demo mode"
           subtitle="Replace names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. IDs and structure are preserved so the app keeps working."
@@ -2514,6 +2620,7 @@ function SettingsPanelContent({
       {/* Automations */}
       {shouldShowSection("automations") && (
         <SettingsSection
+          id={settingsSectionDomId("automations")}
           icon={<IconBolt size={14} />}
           title="Automations"
           subtitle="Event-triggered and scheduled automations."
@@ -2541,6 +2648,7 @@ function SettingsPanelContent({
       {/* Hosting */}
       {shouldShowSection("hosting") && (
         <SettingsSection
+          id={settingsSectionDomId("hosting")}
           icon={<IconCloud size={14} />}
           title="Hosting"
           subtitle="Deploy your app to the cloud."
@@ -2571,6 +2679,7 @@ function SettingsPanelContent({
       {/* Database */}
       {shouldShowSection("database") && (
         <SettingsSection
+          id={settingsSectionDomId("database")}
           icon={<IconDatabase size={14} />}
           title="Database"
           subtitle="Connect a cloud database for persistent storage."
@@ -2601,6 +2710,7 @@ function SettingsPanelContent({
       {/* File uploads */}
       {shouldShowSection("uploads") && (
         <SettingsSection
+          id={settingsSectionDomId("uploads")}
           icon={<IconUpload size={14} />}
           title="File uploads"
           subtitle="Where user-uploaded files (avatars, chat attachments) are stored."
@@ -2631,6 +2741,7 @@ function SettingsPanelContent({
       {/* Authentication */}
       {shouldShowSection("auth") && (
         <SettingsSection
+          id={settingsSectionDomId("auth")}
           icon={<IconShield size={14} />}
           title="Authentication"
           subtitle="Set up user authentication and access control."
@@ -2669,6 +2780,7 @@ function SettingsPanelContent({
       {/* Browser Automation */}
       {shouldShowSection("browser") && (
         <SettingsSection
+          id={settingsSectionDomId("browser")}
           icon={<IconBrowser size={14} />}
           title="Browser Automation"
           subtitle="Let agents control a real browser for web tasks."
@@ -2691,6 +2803,7 @@ function SettingsPanelContent({
 
       {builderBranchesAvailable && shouldShowSection("background") && (
         <SettingsSection
+          id={settingsSectionDomId("background")}
           icon={<IconGitBranch size={14} />}
           title="Background Agent"
           subtitle="Make code changes from production mode via Builder."
@@ -2714,6 +2827,7 @@ function SettingsPanelContent({
       {/* Integrations */}
       {shouldShowSection("integrations") && (
         <SettingsSection
+          id={settingsSectionDomId("integrations")}
           icon={<IconPlugConnected size={14} />}
           title="Integrations"
           subtitle="Connect messaging platforms and external services."
@@ -2729,6 +2843,7 @@ function SettingsPanelContent({
       {/* Usage & spend */}
       {shouldShowSection("usage") && (
         <SettingsSection
+          id={settingsSectionDomId("usage")}
           icon={<IconCoin size={14} />}
           title="Usage"
           subtitle="Track token consumption and estimated cost — broken down by chat, automations, and background jobs."
@@ -2742,6 +2857,7 @@ function SettingsPanelContent({
       {/* A2A Agents */}
       {shouldShowSection("a2a") && (
         <SettingsSection
+          id={settingsSectionDomId("a2a")}
           icon={<IconTopologyRing2 size={14} />}
           title="Connected Agents (A2A)"
           subtitle="Manage remote agents connected via the A2A protocol."
@@ -2778,6 +2894,8 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "agent",
         label: "Agent",
         icon: IconBrain,
+        keywords: "agent model llm limits voice automations",
+        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -2791,6 +2909,8 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "connections",
         label: "Connections",
         icon: IconPlugConnected,
+        keywords: "connections secrets integrations email browser usage",
+        searchEntries: buildSectionSearchEntries(CONNECTION_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -2804,6 +2924,8 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "workspace",
         label: "Workspace",
         icon: IconCloud,
+        keywords: "workspace account hosting database uploads auth",
+        searchEntries: buildSectionSearchEntries(WORKSPACE_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}

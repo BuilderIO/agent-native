@@ -1,4 +1,6 @@
-import { getThread } from "../chat-threads/store.js";
+import { getThread, resolveThreadAccess } from "../chat-threads/store.js";
+import type { AccessContext } from "../sharing/access.js";
+import type { ShareRole } from "../sharing/schema.js";
 /**
  * Ownership checks for the agent run HTTP routes (`/runs/:id/events`,
  * `/runs/:id/abort`, `/runs/active`).
@@ -38,10 +40,36 @@ export async function callerOwnsThread(
   return !!thread && thread.ownerEmail === owner;
 }
 
+/** True when `owner` has at least `role` access to the chat thread. */
+export async function callerHasThreadAccess(
+  owner: string,
+  threadId: string | null | undefined,
+  role: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<boolean> {
+  if (!threadId) return false;
+  return !!(await resolveThreadAccess(owner, threadId, role, ctx));
+}
+
 /** True when `owner` owns the thread that run `runId` belongs to. */
 export async function callerOwnsRun(
   owner: string,
   runId: string,
 ): Promise<boolean> {
   return callerOwnsThread(owner, await resolveRunThreadId(runId));
+}
+
+/** True when `owner` has at least `role` access to the thread behind `runId`. */
+export async function callerHasRunAccess(
+  owner: string,
+  runId: string,
+  role: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<boolean> {
+  return callerHasThreadAccess(
+    owner,
+    await resolveRunThreadId(runId),
+    role,
+    ctx,
+  );
 }

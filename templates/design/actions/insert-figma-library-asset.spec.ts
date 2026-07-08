@@ -87,6 +87,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({

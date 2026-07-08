@@ -393,6 +393,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
     );
+    expect(html).toContain("function __anMaybeRedirectSignedIn(ret)");
+    expect(html).toContain("__anMaybeRedirectSignedIn();");
+    expect(html).toContain(
+      "__anMaybeRedirectSignedIn(__anGetSignedInReturnPath()).then(function(redirected)",
+    );
     expect(html).toContain(
       "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
     );

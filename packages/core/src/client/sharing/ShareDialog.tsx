@@ -52,6 +52,7 @@ interface Share {
   id: string;
   principalType: "user" | "org";
   principalId: string;
+  displayName?: string | null;
   role: Role;
 }
 
@@ -95,9 +96,10 @@ function useOrgMembers(): OrgMember[] {
 }
 
 function displayName(email: string, members: OrgMember[]): string {
-  const match = members.find((m) => m.email === email);
+  const normalized = email.trim().toLowerCase();
+  const match = members.find((m) => m.email.toLowerCase() === normalized);
   if (match?.name && match.name.trim()) return match.name;
-  return email;
+  return normalized.includes("@") ? email : "Unknown person";
 }
 
 const BUTTON_BASE =
@@ -552,17 +554,11 @@ function InviteTab(props: {
               className="flex items-center gap-3 px-1 py-1.5 text-sm"
             >
               <Avatar
-                label={
-                  s.principalType === "org"
-                    ? s.principalId
-                    : displayName(s.principalId, orgMembers)
-                }
+                label={principalLabel(s, orgMembers)}
                 org={s.principalType === "org"}
               />
               <span className="flex-1 min-w-0 truncate">
-                {s.principalType === "org"
-                  ? s.principalId
-                  : displayName(s.principalId, orgMembers)}
+                {principalLabel(s, orgMembers)}
               </span>
               <span className="text-xs text-muted-foreground">
                 {cap(s.role)}
@@ -840,4 +836,11 @@ function getNotificationUrl(explicit?: string): string | undefined {
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function principalLabel(share: Share, members: OrgMember[]): string {
+  const serverLabel = share.displayName?.trim();
+  if (serverLabel) return serverLabel;
+  if (share.principalType === "org") return "Organization";
+  return displayName(share.principalId, members);
 }

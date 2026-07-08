@@ -484,8 +484,8 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     });
 
     expect(source).toContain("visibleReconnectContent.length === 0");
-    expect(source).toContain(
-      "reconnectContent.length === 0 &&\n                        reconnectActivityContent.length > 0",
+    expect(source).toMatch(
+      /reconnectContent\.length === 0 &&\s+reconnectActivityContent\.length > 0/,
     );
   });
 });
@@ -505,7 +505,7 @@ describe("centered empty chat setup layout", () => {
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("showScrollToBottom");
+    expect(source).toContain("<MessageScrollerButton />");
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
@@ -943,6 +943,18 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(noProgressSource).toContain("setPendingReconnectRecovery");
     expect(noProgressSource).toContain("agent-chat:auto-continue");
+    const autoRecoverStart = noProgressSource.indexOf(
+      "const canAutoRecoverReconnect",
+    );
+    const autoRecoverEnd = noProgressSource.indexOf(
+      "if (canAutoRecoverReconnect)",
+      autoRecoverStart,
+    );
+    const autoRecoverGate = noProgressSource.slice(
+      autoRecoverStart,
+      autoRecoverEnd,
+    );
+    expect(autoRecoverGate).not.toContain("reconnectTerminalReason");
     expect(source).toContain("treat that action input as stalled or too large");
     expect(source).toContain("use a smaller bounded input");
     expect(
@@ -955,7 +967,7 @@ describe("waitForThreadRunToClear", () => {
     expect(effectSource).toContain("addToQueue(");
     expect(effectSource).toContain('"continue"');
     expect(effectSource).toContain(
-      '"continue",\n        false,\n        false,\n        true,',
+      '"continue",\n        false,\n        false,\n        true,\n        true,',
     );
   });
 });

@@ -265,6 +265,7 @@
     "@rrweb/record": "2.0.1",
     "@sentry/browser": "10.60.0",
     "@sentry/node": "10.60.0",
+    "@shadcn/react": "^0.2.0",
     "@standard-schema/spec": "^1.1.0",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "3.27.1",

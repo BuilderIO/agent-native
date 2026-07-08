@@ -9,7 +9,14 @@ import {
 import { configureTracking } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
@@ -100,6 +107,31 @@ function DbSyncBridge() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+
+  // Public, unauthenticated uptime status pages (`/status/<slug>`) render
+  // SSR-first without the authenticated app chrome (sidebar/chat/command
+  // palette). See app/routes/status.$slug.tsx and the `/status` public path in
+  // server/plugins/auth.ts.
+  const isPublicStatusPath =
+    location.pathname === "/status" || location.pathname.startsWith("/status/");
+
+  if (isPublicStatusPath) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          defaultTheme="dark"
+          toaster={null}
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
   return (
     // defaultTheme="dark": analytics defaults to dark mode if no stored preference.
     // toaster={null}: suppress AppProviders' built-in sonner; analytics renders

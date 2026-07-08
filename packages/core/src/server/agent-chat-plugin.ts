@@ -64,7 +64,10 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import {
+  callerHasRunAccess,
+  callerHasThreadAccess,
+} from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
 import {
   CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
@@ -101,6 +104,8 @@ import {
   createThread,
   forkThread,
   getThread,
+  registerChatThreadsShareable,
+  resolveThreadAccess,
   listThreads,
   searchThreads,
   renameThread,
@@ -1963,8 +1968,10 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
             const owner =
               getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
             if (!owner) return "No authenticated user is available.";
-            const thread = await getThread(id);
-            if (!thread || thread.ownerEmail !== owner) {
+            const thread = await resolveThreadAccess(owner, id, "editor", {
+              orgId: getRequestOrgId(),
+            });
+            if (!thread) {
               return `Chat thread "${id}" not found.`;
             }
             const title = thread.title || thread.preview || "(untitled)";
@@ -1974,23 +1981,17 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
                   ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
                   : "";
               if (!nextTitle) return "Missing required title.";
-              const renamed = await renameThread(id, nextTitle, {
-                ownerEmail: owner,
-              });
+              const renamed = await renameThread(id, nextTitle);
               if (!renamed) return `Chat thread "${id}" could not be renamed.`;
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
-              const archived = await setThreadArchived(id, true, {
-                ownerEmail: owner,
-              });
+              const archived = await setThreadArchived(id, true);
               if (!archived)
                 return `Chat thread "${id}" could not be archived.`;
               return `Archived chat: ${title}`;
             }
-            const pinned = await setThreadPinned(id, args.action === "pin", {
-              ownerEmail: owner,
-            });
+            const pinned = await setThreadPinned(id, args.action === "pin");
             if (!pinned) return `Chat thread "${id}" could not be updated.`;
             return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }
@@ -5304,6 +5305,17 @@ export function createAgentChatPlugin(
       ): Promise<string | undefined> => {
         return (await resolveOwnerContext(event)).name;
       };
+      const getOrgIdFromEvent = async (
+        event: any,
+      ): Promise<string | undefined> => {
+        if (options?.resolveOrgId) {
+          return (await options.resolveOrgId(event)) ?? undefined;
+        }
+        const session = await getSession(event).catch(() => null);
+        return session?.orgId ?? undefined;
+      };
+
+      registerChatThreadsShareable();
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
       // Include engine management script so the UI can call manage-agent-engine.
@@ -5375,15 +5387,6 @@ export function createAgentChatPlugin(
                 `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
               );
             }
-            const runOwner =
-              getRequestRunContext()?.owner ?? getRequestUserEmail();
-            if (runOwner && thread.ownerEmail !== runOwner) {
-              throw createError({
-                statusCode: 404,
-                statusMessage: "Thread not found",
-              });
-            }
-
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
               run.runId,
@@ -5595,7 +5598,19 @@ export function createAgentChatPlugin(
               thread = await getThread(threadId);
             }
           }
-          if (!thread || thread.ownerEmail !== ownerEmail) {
+          if (!thread) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+          const access = await resolveThreadAccess(
+            ownerEmail,
+            threadId,
+            "editor",
+            { orgId: getRequestOrgId() },
+          );
+          if (!access) {
             throw createError({
               statusCode: 404,
               statusMessage: "Thread not found",
@@ -5972,6 +5987,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (runCtxForPrepare && details.threadId) {
             (runCtxForPrepare as any)._requestThreadId = details.threadId;
           }
+          if (details.threadId && details.ownerEmail) {
+            const existingThread = await getThread(details.threadId);
+            if (existingThread) {
+              const access = await resolveThreadAccess(
+                details.ownerEmail,
+                details.threadId,
+                "editor",
+                { orgId: await getOrgIdFromEvent(details.event) },
+              );
+              if (!access) {
+                throw createError({
+                  statusCode: 404,
+                  statusMessage: "Thread not found",
+                });
+              }
+            }
+          }
 
           // Drain any parent-completion injections queued by finished sub-agents
           // and prepend them to the user message so the orchestrator sees results
@@ -6193,7 +6225,30 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
-          prepareRequest: options?.prepareRequest,
+          prepareRequest: async (details) => {
+            const runCtxForPrepare = ensureRequestRunContext();
+            if (runCtxForPrepare && details.threadId) {
+              (runCtxForPrepare as any)._requestThreadId = details.threadId;
+            }
+            if (details.threadId && details.ownerEmail) {
+              const existingThread = await getThread(details.threadId);
+              if (existingThread) {
+                const access = await resolveThreadAccess(
+                  details.ownerEmail,
+                  details.threadId,
+                  "editor",
+                  { orgId: await getOrgIdFromEvent(details.event) },
+                );
+                if (!access) {
+                  throw createError({
+                    statusCode: 404,
+                    statusMessage: "Thread not found",
+                  });
+                }
+              }
+            }
+            return options?.prepareRequest?.(details);
+          },
           skipFilesContext,
           initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -7290,19 +7345,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const method = getMethod(event);
           const url = event.node?.req?.url || event.path || "";
+          const orgId = await getOrgIdFromEvent(event);
 
-          // Authorization: a run's events/abort and a thread's active-run
-          // status must only be exposed to the user who OWNS the thread.
+          // Authorization: a run's events and a thread's active-run status are
+          // visible to anyone with viewer+ access to the thread. Mutating run
+          // controls require editor+ access.
           // agent_runs carries no owner column — ownership lives on the
-          // chat_threads row via thread_id. callerOwnsRun/callerOwnsThread
-          // (agent/run-ownership.ts) resolve the run's thread (in-memory first,
-          // SQL fallback) and compare its ownerEmail. Without this, any
-          // authenticated tenant who learns another tenant's runId/threadId
-          // could stream their live agent turn (assistant text + tool-result
-          // payloads) or abort their run.
-          const ownsThread = (threadId: string | null | undefined) =>
-            callerOwnsThread(owner, threadId);
-          const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
+          // chat_threads row via thread_id.
+          const canViewThread = (threadId: string | null | undefined) =>
+            callerHasThreadAccess(owner, threadId, "viewer", { orgId });
+          const canViewRun = (runId: string) =>
+            callerHasRunAccess(owner, runId, "viewer", { orgId });
+          const canEditRun = (runId: string) =>
+            callerHasRunAccess(owner, runId, "editor", { orgId });
 
           // Route: GET /runs/list?goalId=agent-team|agent-harness
           // Returns background agents in the Code hub-compatible run shape.
@@ -7377,8 +7432,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
-            if (!(await ownsRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to non-owners.
+            if (!(await canEditRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -7448,8 +7503,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/events/);
           if (eventsMatch && method === "GET") {
             const runId = decodeURIComponent(eventsMatch[1]);
-            if (!(await ownsRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to non-owners.
+            if (!(await canViewRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -7485,11 +7540,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return { error: "threadId query parameter is required" };
             }
 
-            // Only reveal a thread's active run to the thread's owner.
-            // Present non-owners (or unknown threads) as idle rather than
-            // 404 so thread existence isn't leaked and the client polls
-            // benignly.
-            if (!(await ownsThread(threadId))) {
+            // Only reveal a thread's active run to viewers/editors of the
+            // thread. Present unauthorized users (or unknown threads) as idle
+            // rather than 404 so thread existence isn't leaked and the client
+            // polls benignly.
+            if (!(await canViewThread(threadId))) {
               return {
                 active: false,
                 threadId,
@@ -7745,6 +7800,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
           const owner = await getOwnerFromEvent(event);
+          const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7754,8 +7810,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7770,8 +7831,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const thread = await getThread(threadId);
-                if (!thread || thread.ownerEmail !== owner) {
+                const thread = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                if (!thread) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
@@ -7848,16 +7914,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
             if (method === "POST" && isThreadSubroute("queued")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               const body = await readBody(event);
               const queued = Array.isArray(body?.queuedMessages)
                 ? body.queuedMessages
                 : [];
-              // Ownership is checked inside setThreadQueuedMessages (under
-              // the thread-data lock) — no separate getThread pre-read on
-              // this debounced hot path.
-              const saved = await setThreadQueuedMessages(threadId, queued, {
-                ownerEmail: owner,
-              });
+              const saved = await setThreadQueuedMessages(threadId, queued);
               if (!saved) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7866,8 +7937,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7880,9 +7956,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
-              const renamed = await renameThread(threadId, title, {
-                ownerEmail: owner,
-              });
+              const renamed = await renameThread(threadId, title);
               if (!renamed) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7891,8 +7965,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("pin")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7901,9 +7980,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "pinned boolean is required" };
               }
-              const pinned = await setThreadPinned(threadId, body.pinned, {
-                ownerEmail: owner,
-              });
+              const pinned = await setThreadPinned(threadId, body.pinned);
               if (!pinned) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7912,8 +7989,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("archive")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7922,11 +8004,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "archived boolean is required" };
               }
-              const archived = await setThreadArchived(
-                threadId,
-                body.archived,
-                { ownerEmail: owner },
-              );
+              const archived = await setThreadArchived(threadId, body.archived);
               if (!archived) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7936,10 +8014,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             // POST /threads/:id/fork — duplicate a thread with all its messages
             if (method === "POST" && isThreadSubroute("fork")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               const body = await readBody(event);
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
                 source: parseForkSourceFromBody(body?.source),
+                sourceAccessGranted: true,
               });
               if (!forked) {
                 setResponseStatus(event, 404);
@@ -7949,10 +8038,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (isThreadSubroute("share")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "admin",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               if (method === "GET") {
-                const state = await getThreadShareState(threadId, {
-                  ownerEmail: owner,
-                });
+                const state = await getThreadShareState(threadId);
                 if (!state) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7961,9 +8058,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
 
               if (method === "POST") {
-                const link = await createThreadShareLink(threadId, {
-                  ownerEmail: owner,
-                });
+                const link = await createThreadShareLink(threadId);
                 if (!link) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7975,9 +8070,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
 
               if (method === "DELETE") {
-                const state = await revokeThreadShareLink(threadId, {
-                  ownerEmail: owner,
-                });
+                const state = await revokeThreadShareLink(threadId);
                 if (!state) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -8013,6 +8106,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (q) {
               const threads = await searchThreads(owner, q, limit, {
                 scope: scope ?? undefined,
+                orgId,
               });
               return { threads };
             }
@@ -8022,6 +8116,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               offset,
               scope: scope ?? undefined,
               unscopedOnly,
+              orgId,
             });
             return { threads };
           }

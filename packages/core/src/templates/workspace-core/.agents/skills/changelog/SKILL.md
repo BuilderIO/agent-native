@@ -15,8 +15,9 @@ metadata:
 Every template app keeps a `CHANGELOG.md` of **user-facing** changes that
 renders in-app via the command menu (Cmd+K → "What's new") and on the settings
 page. The flow mirrors changesets so it survives many agents working in
-parallel: each change drops a small **pending entry file**, and a later
-**release** rolls all pending files into a dated `CHANGELOG.md` section.
+parallel: each change drops a small **pending entry file**, the in-app surface
+reads pending files plus `CHANGELOG.md`, and a later **release** can roll those
+pending files into dated `CHANGELOG.md` sections.
 
 ## When to add an entry
 
@@ -69,9 +70,10 @@ agent-native changelog release            # uses today's date
 agent-native changelog list               # preview pending + released
 ```
 
-Releasing is usually done at deploy/merge time. The in-app surface reads
-`CHANGELOG.md`, so only released entries are visible to users — pending entries
-stay invisible until rolled up.
+Releasing is usually done at deploy/merge time to keep the source tree tidy.
+The in-app surface imports `CHANGELOG.md?raw`, and the core Vite plugin merges
+adjacent `changelog/*.md` pending entries into that raw markdown at dev/build
+time, so product notes become visible without waiting for a manual rollup.
 
 ## Wiring the in-app surface (once per template)
 
@@ -108,4 +110,5 @@ host with no server route or runtime file access.
 - [ ] Shipped a user-visible change? Run `agent-native changelog add "…"`.
 - [ ] New template UI? Pass `changelog` to its `CommandMenu` and seed a
       `CHANGELOG.md`.
-- [ ] Releasing/deploying? `agent-native changelog release` rolls pending → dated.
+- [ ] Releasing/deploying? Optional: `agent-native changelog release` rolls
+      pending → dated sections and deletes the pending files.

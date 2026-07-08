@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client";
 import {
   IconPlayerPlay,
   IconPlayerPause,
+  IconPlayerSkipForward,
   IconVolume,
   IconVolumeOff,
   IconMaximize,
@@ -35,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
+export const PLAYER_SEEK_STEP_MS = 15_000;
 
 export interface PlayerControlsProps {
   isPlaying: boolean;
@@ -54,6 +56,7 @@ export interface PlayerControlsProps {
   excludedRanges?: { startMs: number; endMs: number }[];
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
+  onSeekRelative: (deltaMs: number) => void;
   onVolumeChange: (volume: number) => void;
   onToggleMute: () => void;
   onSpeedChange: (rate: number) => void;
@@ -84,6 +87,7 @@ export function PlayerControls(props: PlayerControlsProps) {
     excludedRanges,
     onPlayPause,
     onSeek,
+    onSeekRelative,
     onVolumeChange,
     onToggleMute,
     onSpeedChange,
@@ -117,14 +121,31 @@ export function PlayerControls(props: PlayerControlsProps) {
 
       <div className="flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
+          onClick={() => onSeekRelative(-PLAYER_SEEK_STEP_MS)}
+          tooltip="Back 15 seconds"
+          ariaLabel="Back 15 seconds"
+        >
+          <SkipIcon direction="back" />
+        </IconBtn>
+
+        <IconBtn
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
+          ariaLabel={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? (
             <IconPlayerPause className="h-5 w-5" />
           ) : (
             <IconPlayerPlay className="h-5 w-5" />
           )}
+        </IconBtn>
+
+        <IconBtn
+          onClick={() => onSeekRelative(PLAYER_SEEK_STEP_MS)}
+          tooltip="Forward 15 seconds"
+          ariaLabel="Forward 15 seconds"
+        >
+          <SkipIcon direction="forward" />
         </IconBtn>
 
         <div
@@ -264,11 +285,13 @@ function IconBtn({
   children,
   onClick,
   tooltip,
+  ariaLabel,
   active,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   tooltip?: string;
+  ariaLabel?: string;
   active?: boolean;
 }) {
   return (
@@ -276,6 +299,7 @@ function IconBtn({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
+          aria-label={ariaLabel ?? tooltip}
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
             active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
@@ -286,5 +310,16 @@ function IconBtn({
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function SkipIcon({ direction }: { direction: "back" | "forward" }) {
+  return (
+    <span className="relative flex h-5 w-5 items-center justify-center">
+      <IconPlayerSkipForward
+        className={cn("h-5 w-5", direction === "back" && "rotate-180")}
+      />
+      <span className="absolute text-[7px] font-bold leading-none">15</span>
+    </span>
   );
 }

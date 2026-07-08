@@ -56,6 +56,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("../server/db/index.js", () => ({

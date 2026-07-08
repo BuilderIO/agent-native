@@ -7,6 +7,17 @@ import {
   resolveDispatchOwner,
 } from "../lib/dispatch-integrations.js";
 
+const dispatchIntegrationActions = {
+  ...dispatchActions,
+  // Messaging integrations should use the core call-agent tool for cross-app
+  // delegation because it queues A2A continuations when serverless budgets are
+  // tight. The MCP-facing ask_app action is still available outside this path.
+  ask_app: {
+    ...dispatchActions.ask_app,
+    agentTool: false,
+  },
+};
+
 const DISPATCH_INTEGRATION_SYSTEM_PROMPT = `You are the central dispatch for this workspace, responding via a messaging platform integration (Slack, Telegram, email, etc.).
 
 Default posture:
@@ -21,6 +32,7 @@ Default posture:
 
 When a user asks for something:
 - If it belongs to analytics, content, slides, clips, assets, etc., delegate via call-agent — do not re-implement the domain logic in dispatch.
+- In messaging integrations, use call-agent for cross-app delegation; do not use ask_app.
 - After call-agent returns an answer, RELAY IT DIRECTLY to the user with at most a one-line preface — do not rephrase, summarize, or add commentary. The downstream agent already crafted the answer; your job is delivery, not editing. This minimizes round-trips and keeps the user-visible reply fast.
 - Exception: if the downstream agent reports a missing model/provider credential, do not name exact env vars, Vault keys, tokens, or secrets. Say the target app needs an LLM connection and recommend connecting Builder/managed LLM for that app; keep bring-your-own provider keys as a secondary option only if the user asks.
 - If the user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging @agent-native in Slack, email, or Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and call start-workspace-app-creation.
@@ -49,7 +61,7 @@ const dispatchIntegrationsPlugin = async (nitroApp: any) => {
 
   const plugin = createIntegrationsPlugin({
     appId: "dispatch",
-    actions: dispatchActions,
+    actions: dispatchIntegrationActions,
     resolveOwner: resolveDispatchOwner,
     beforeProcess: beforeDispatchProcess,
     systemPrompt,
