@@ -9,7 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { and, eq, ne } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
@@ -19,6 +27,7 @@ import {
 const builderReadMock = vi.hoisted(() => ({
   mode: "full" as "full" | "paged",
   calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
+  modelFieldsErrorFor: null as string | null,
   singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
 }));
 
@@ -30,7 +39,12 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   >("./_builder-cms-read-client.js");
   return {
     ...actual,
-    readBuilderCmsModelFields: vi.fn(async () => []),
+    readBuilderCmsModelFields: vi.fn(async ({ model }: { model: string }) => {
+      if (builderReadMock.modelFieldsErrorFor === model) {
+        throw new Error("read ECONNRESET");
+      }
+      return [];
+    }),
     readBuilderCmsContentEntry: vi.fn(
       async ({ model, entryId }: { model: string; entryId: string }) => {
         builderReadMock.singleEntryCalls.push({ model, entryId });
@@ -277,6 +291,10 @@ beforeAll(async () => {
   hydrateQueuedBodies = (await import("./_database-source-utils.js"))
     .processBuilderBodyHydrationQueue;
 }, 60000);
+
+afterEach(() => {
+  builderReadMock.modelFieldsErrorFor = null;
+});
 
 afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
@@ -861,6 +879,81 @@ it("full Builder refresh reads every page in one resync call", async () => {
   expect(builderReadMock.calls).toEqual([
     { model: "collection-a", maxPages: undefined, offset: 0 },
   ]);
+});
+
+it("finishes a Builder continuation when optional model field metadata fails", async () => {
+  builderReadMock.mode = "paged";
+  builderReadMock.calls = [];
+  builderReadMock.modelFieldsErrorFor = "collection-a";
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_resync_model_fields_error";
+  const databaseDocId = "doc_db_resync_model_fields_error";
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB model fields error",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB model fields error",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "src-model-fields-error",
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-a",
+    sourceTable: "collection-a",
+    metadataJson: JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 1,
+      activeReadSourceRowIds: ["entry-a1"],
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-model-fields-error"));
+
+  await expect(
+    resync({
+      database,
+      source,
+      now: "2026-01-01T00:03:00.000Z",
+    }),
+  ).resolves.toBeUndefined();
+
+  const [after] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "src-model-fields-error"));
+  const metadata = JSON.parse(after.metadataJson ?? "{}");
+  expect(after.syncState).toBe("idle");
+  expect(after.lastError).toBeNull();
+  expect(metadata.lastReadFetchedEntryCount).toBe(2);
+  expect(metadata.lastReadPartial).toBe(false);
+  expect(metadata.sourceFetchState).toBe("idle");
+  expect(metadata.activeReadSourceRowIds).toBeUndefined();
+  expect(builderReadMock.calls).toEqual([
+    { model: "collection-a", maxPages: 1, offset: 1 },
+  ]);
+
+  builderReadMock.modelFieldsErrorFor = null;
 });
 
 it("does not let open-row hydration promotion downgrade a queued full Builder body", async () => {

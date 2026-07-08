@@ -3963,9 +3963,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
     }
   }
-  const builderModelFields = await readBuilderCmsModelFields({
-    model: args.source.sourceTable,
-  });
+  let builderModelFields: BuilderCmsModelFieldSummary[] = [];
+  try {
+    builderModelFields = await readBuilderCmsModelFields({
+      model: args.source.sourceTable,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
+    );
+  }
   const builderEntriesByDocumentId =
     builderRead.state === "live"
       ? mapBuilderCmsEntriesToLocalItems({
