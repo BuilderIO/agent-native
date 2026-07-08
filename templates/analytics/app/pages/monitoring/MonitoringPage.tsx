@@ -69,11 +69,17 @@ export default function MonitoringPage() {
         {inSubView ? null : (
           <div className="flex items-center justify-between gap-2">
             <TabsList>
-              <TabsTrigger value="uptime" className="gap-2">
+              <TabsTrigger
+                value="uptime"
+                className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+              >
                 <IconHeartbeat className="h-4 w-4" />
                 {t("navigation.monitoringUptime")}
               </TabsTrigger>
-              <TabsTrigger value="errors" className="gap-2">
+              <TabsTrigger
+                value="errors"
+                className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+              >
                 <IconAlertTriangle className="h-4 w-4" />
                 {t("navigation.monitoringErrors")}
               </TabsTrigger>
