@@ -7,16 +7,16 @@ function readSource(name: string): string {
 }
 
 describe("video player duration probing", () => {
-  it("does not seek to the WebM duration probe when server duration is reliable", () => {
+  it("rewinds the WebM duration probe before first play", () => {
     const videoPlayerSource = readSource("./video-player.tsx");
-    const reliableDurationGuard = videoPlayerSource.indexOf(
-      "if (hasReliableDurationProp) return;",
-    );
-    const webmDurationProbe = videoPlayerSource.indexOf(
+    const probeRewindGuard = videoPlayerSource.indexOf("v.currentTime > 1e7");
+    const playAttempt = videoPlayerSource.indexOf("attachPlayPromise(v.play()");
+    const webmDurationProbe = videoPlayerSource.lastIndexOf(
       "v.currentTime = 1e10;",
     );
 
-    expect(reliableDurationGuard).toBeGreaterThan(-1);
-    expect(webmDurationProbe).toBeGreaterThan(reliableDurationGuard);
+    expect(probeRewindGuard).toBeGreaterThan(-1);
+    expect(playAttempt).toBeGreaterThan(probeRewindGuard);
+    expect(webmDurationProbe).toBeGreaterThan(playAttempt);
   });
 });
