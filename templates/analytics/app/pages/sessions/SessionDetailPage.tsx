@@ -156,6 +156,8 @@ type ReplayViewportDimensions = {
 
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
+const MIN_REPLAY_DISPLAY_ASPECT_RATIO = 0.45;
+const MAX_REPLAY_DISPLAY_ASPECT_RATIO = 3;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
@@ -503,10 +505,9 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  const playerWidth =
-    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight =
-    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
+  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -2196,6 +2197,26 @@ export function normalizeReplayDimensions(
     width: Math.round(width),
     height: Math.round(height),
   };
+}
+
+export function clampReplayDisplayDimensions(
+  dims: ReplayViewportDimensions | null,
+): ReplayViewportDimensions | null {
+  if (!dims) return null;
+  const aspect = dims.width / dims.height;
+  if (aspect > MAX_REPLAY_DISPLAY_ASPECT_RATIO) {
+    return {
+      width: Math.round(dims.height * MAX_REPLAY_DISPLAY_ASPECT_RATIO),
+      height: dims.height,
+    };
+  }
+  if (aspect < MIN_REPLAY_DISPLAY_ASPECT_RATIO) {
+    return {
+      width: dims.width,
+      height: Math.round(dims.width / MIN_REPLAY_DISPLAY_ASPECT_RATIO),
+    };
+  }
+  return dims;
 }
 
 export function filterReplayMarkers(

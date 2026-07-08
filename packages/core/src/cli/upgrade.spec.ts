@@ -26,7 +26,9 @@ afterEach(() => {
 function makeTempProject(layout: {
   kind?: "standalone" | "workspace";
   rootPkg: Record<string, unknown>;
+  workspaceYaml?: string;
   apps?: Record<string, Record<string, unknown>>;
+  workspaces?: Record<string, Record<string, unknown>>;
 }): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-upgrade-"));
   tmpRoots.push(root);
@@ -37,7 +39,7 @@ function makeTempProject(layout: {
   if (layout.kind === "workspace") {
     fs.writeFileSync(
       path.join(root, "pnpm-workspace.yaml"),
-      "packages:\n  - apps/*\n  - packages/*\n",
+      layout.workspaceYaml ?? "packages:\n  - apps/*\n  - packages/*\n",
     );
     if (layout.apps) {
       for (const [name, pkg] of Object.entries(layout.apps)) {
@@ -45,6 +47,16 @@ function makeTempProject(layout: {
         fs.mkdirSync(appDir, { recursive: true });
         fs.writeFileSync(
           path.join(appDir, "package.json"),
+          JSON.stringify(pkg, null, 2),
+        );
+      }
+    }
+    if (layout.workspaces) {
+      for (const [relativePath, pkg] of Object.entries(layout.workspaces)) {
+        const packageDir = path.join(root, relativePath);
+        fs.mkdirSync(packageDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(packageDir, "package.json"),
           JSON.stringify(pkg, null, 2),
         );
       }
@@ -180,6 +192,41 @@ describe("detectUpgradeProject + doctor", () => {
 
     const project = detectUpgradeProject(root);
     expect(project?.kind).toBe("workspace");
+    const report = buildUpgradeDoctorReport(project!);
+    expect(report.bumps.map((b) => b.name).sort()).toEqual([
+      "@agent-native/core",
+      "@agent-native/dispatch",
+    ]);
+  });
+
+  it("walks package globs from pnpm-workspace.yaml", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      workspaceYaml: "packages:\n  - templates/*\n  - tools/**\n",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      workspaces: {
+        "templates/analytics": {
+          name: "analytics",
+          dependencies: { "@agent-native/core": "0.7.0" },
+        },
+        "tools/internal/worker": {
+          name: "worker",
+          dependencies: { "@agent-native/dispatch": "^0.7.0" },
+        },
+      },
+    });
+
+    const project = detectUpgradeProject(root);
+    expect(
+      project?.packageFiles.map((file) => path.relative(root, file)),
+    ).toEqual([
+      "package.json",
+      "templates/analytics/package.json",
+      "tools/internal/worker/package.json",
+    ]);
     const report = buildUpgradeDoctorReport(project!);
     expect(report.bumps.map((b) => b.name).sort()).toEqual([
       "@agent-native/core",

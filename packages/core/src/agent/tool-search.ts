@@ -114,7 +114,9 @@ export function searchToolRegistry(
     includeSchemas,
   });
   const runCtx = getRequestRunContext();
-  const priorSearch = runCtx?.toolSearchReads?.[cacheKey];
+  const priorSearch = includeSchemas
+    ? undefined
+    : runCtx?.toolSearchReads?.[cacheKey];
   if (priorSearch) {
     return {
       query,
@@ -212,7 +214,7 @@ export function searchToolRegistry(
     count: Math.min(candidates.length, limit),
     results: candidates.slice(0, limit),
   };
-  rememberToolSearchResult(cacheKey, result);
+  if (!includeSchemas) rememberToolSearchResult(cacheKey, result);
   return result;
 }
 

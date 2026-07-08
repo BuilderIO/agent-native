@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildReplayMarkers,
+  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   replayPayloadEvents,
@@ -74,6 +75,21 @@ describe("session replay sanitization", () => {
       tagName: "noscript",
       attributes: {},
       childNodes: [],
+    });
+  });
+
+  it("clamps replay viewport dimensions only for display sizing", () => {
+    expect(clampReplayDisplayDimensions({ width: 4800, height: 900 })).toEqual({
+      width: 2700,
+      height: 900,
+    });
+    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
+      width: 300,
+      height: 667,
+    });
+    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
+      width: 1440,
+      height: 900,
     });
   });
 

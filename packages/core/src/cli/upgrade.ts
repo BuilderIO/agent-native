@@ -299,35 +299,12 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       if (hasCore || isWorkspace) {
         const packageFiles = [pkgPath];
         if (isWorkspace) {
-          const appsDir = path.join(dir, "apps");
-          if (fs.existsSync(appsDir)) {
-            for (const entry of fs.readdirSync(appsDir, {
-              withFileTypes: true,
-            })) {
-              if (!entry.isDirectory()) continue;
-              const appPkg = path.join(appsDir, entry.name, "package.json");
-              if (fs.existsSync(appPkg)) packageFiles.push(appPkg);
-            }
-          }
-          const packagesDir = path.join(dir, "packages");
-          if (fs.existsSync(packagesDir)) {
-            for (const entry of fs.readdirSync(packagesDir, {
-              withFileTypes: true,
-            })) {
-              if (!entry.isDirectory()) continue;
-              const nestedPkg = path.join(
-                packagesDir,
-                entry.name,
-                "package.json",
-              );
-              if (fs.existsSync(nestedPkg)) packageFiles.push(nestedPkg);
-            }
-          }
+          packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
         }
         return {
           root: dir,
           kind: isWorkspace ? "workspace" : "standalone",
-          packageFiles,
+          packageFiles: Array.from(new Set(packageFiles)),
         };
       }
     }
@@ -336,6 +313,93 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
     dir = parent;
   }
   return null;
+}
+
+function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
+  const patterns = parseWorkspacePackagePatterns(workspaceYaml);
+  const included = new Set<string>();
+  const excluded = new Set<string>();
+  for (const rawPattern of patterns) {
+    const exclude = rawPattern.startsWith("!");
+    const pattern = exclude ? rawPattern.slice(1) : rawPattern;
+    const files = packageFilesForWorkspacePattern(root, pattern);
+    for (const file of files) {
+      if (exclude) excluded.add(file);
+      else included.add(file);
+    }
+  }
+  return Array.from(included)
+    .filter((file) => !excluded.has(file))
+    .sort();
+}
+
+function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
+  let text = "";
+  try {
+    text = fs.readFileSync(workspaceYaml, "utf-8");
+  } catch {
+    return ["apps/*", "packages/*"];
+  }
+  const patterns: string[] = [];
+  let inPackages = false;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^[A-Za-z0-9_-]+:/.test(trimmed)) {
+      inPackages = trimmed === "packages:";
+      continue;
+    }
+    if (!inPackages || !trimmed.startsWith("-")) continue;
+    const pattern = trimmed
+      .slice(1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
+    if (pattern) patterns.push(pattern);
+  }
+  return patterns.length ? patterns : ["apps/*", "packages/*"];
+}
+
+function packageFilesForWorkspacePattern(
+  root: string,
+  pattern: string,
+): string[] {
+  const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/g, "");
+  if (!normalized || normalized.includes("node_modules")) return [];
+  if (normalized.endsWith("/**")) {
+    return collectPackageFilesRecursive(
+      path.join(root, normalized.slice(0, -3)),
+    );
+  }
+  if (normalized.endsWith("/*")) {
+    const base = path.join(root, normalized.slice(0, -2));
+    if (!fs.existsSync(base)) return [];
+    return fs
+      .readdirSync(base, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(base, entry.name, "package.json"))
+      .filter((file) => fs.existsSync(file));
+  }
+  if (normalized.includes("*")) {
+    return collectPackageFilesRecursive(
+      path.join(root, normalized.split("*")[0]),
+    );
+  }
+  const file = path.join(root, normalized, "package.json");
+  return fs.existsSync(file) ? [file] : [];
+}
+
+function collectPackageFilesRecursive(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    const child = path.join(dir, entry.name);
+    const pkg = path.join(child, "package.json");
+    if (fs.existsSync(pkg)) files.push(pkg);
+    files.push(...collectPackageFilesRecursive(child));
+  }
+  return files;
 }
 
 function resolveInstalledPackageVersion(
