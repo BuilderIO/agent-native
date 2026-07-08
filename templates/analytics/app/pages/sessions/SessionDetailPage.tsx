@@ -489,7 +489,6 @@ function ReplayPlayer({
   const [fitScale, setFitScale] = useState(1);
   const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
   const eventsRef = useLiveRef(events);
-  const isCompleteRef = useLiveRef(response.isComplete);
   // Stable identity for the loaded event set so progressive chunk publishes
   // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(

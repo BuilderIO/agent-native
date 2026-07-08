@@ -27,6 +27,15 @@ const PROMPT_SUGGESTIONS = [
   "Check which agents can help with analytics",
 ];
 
+const WORKSPACE_LINKS = [
+  { to: "/automations", label: "Automations" },
+  { to: "/approvals", label: "Approvals" },
+  { to: "/destinations", label: "Delivery" },
+  { to: "/agents", label: "Agents" },
+  { to: "/vault", label: "Vault" },
+  { to: "/audit", label: "Audit" },
+] as const;
+
 function SectionHeader({
   icon: Icon,
   title,
@@ -118,6 +127,32 @@ function CommandPanel() {
   );
 }
 
+function WorkspaceLinks() {
+  return (
+    <nav
+      aria-label="Workspace shortcuts"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+    >
+      <span className="font-medium text-foreground/70">Also</span>
+      {WORKSPACE_LINKS.map((item, index) => (
+        <span key={item.to} className="inline-flex items-center gap-x-3">
+          {index > 0 ? (
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+          ) : null}
+          <Link
+            to={item.to}
+            className="transition hover:text-foreground hover:underline underline-offset-4"
+          >
+            {item.label}
+          </Link>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
 function AppsPanel({
   apps,
   isLoading,
@@ -184,6 +219,7 @@ export function DispatchControlPlane() {
     >
       <div className="flex flex-col gap-6">
         <CommandPanel />
+        <WorkspaceLinks />
         <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
       </div>
     </DispatchShell>

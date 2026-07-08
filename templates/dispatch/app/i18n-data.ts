@@ -32,6 +32,10 @@ const enUS = {
     automationsDescription:
       "Review, pause, and create scheduled or event-triggered jobs.",
     openAutomations: "Open automations",
+    deliveryTitle: "Delivery",
+    deliveryDescription:
+      "Manage message destinations and check the outbound delivery queue.",
+    openDelivery: "Open delivery",
     agentTitle: "Agent settings",
     agentDescription:
       "Open the agent sidebar settings for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
@@ -275,6 +279,9 @@ export const messagesByLocale = {
       automationsTitle: "自动化",
       automationsDescription: "查看、暂停并创建定时或事件触发的任务。",
       openAutomations: "打开自动化",
+      deliveryTitle: "投递",
+      deliveryDescription: "管理消息目的地并查看出站投递队列。",
+      openDelivery: "打开投递",
       agentTitle: "代理设置",
       agentDescription:
         "打开代理侧边栏设置，管理模型、API 密钥、语音和其他代理控制项。定时与事件触发的任务请使用自动化页面。",
@@ -478,6 +485,10 @@ export const messagesByLocale = {
       automationsDescription:
         "Revisa, pausa y crea trabajos programados o activados por eventos.",
       openAutomations: "Abrir automatizaciones",
+      deliveryTitle: "Entrega",
+      deliveryDescription:
+        "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
+      openDelivery: "Abrir entrega",
       agentTitle: "Ajustes del agente",
       agentDescription:
         "Abre los ajustes del agente en la barra lateral para modelos, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
@@ -701,6 +712,10 @@ export const messagesByLocale = {
       automationsDescription:
         "Consultez, mettez en pause et créez des tâches planifiées ou déclenchées par des événements.",
       openAutomations: "Ouvrir les automatisations",
+      deliveryTitle: "Livraison",
+      deliveryDescription:
+        "Gérez les destinations de messages et consultez la file d’attente sortante.",
+      openDelivery: "Ouvrir la livraison",
       agentTitle: "Paramètres de l’agent",
       agentDescription:
         "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, voix et autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
@@ -924,6 +939,10 @@ export const messagesByLocale = {
       automationsDescription:
         "Geplante oder ereignisgesteuerte Jobs prüfen, pausieren und erstellen.",
       openAutomations: "Automatisierungen öffnen",
+      deliveryTitle: "Zustellung",
+      deliveryDescription:
+        "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
+      openDelivery: "Zustellung öffnen",
       agentTitle: "Agent-Einstellungen",
       agentDescription:
         "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Sprache und weitere Steuerungen. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
@@ -1136,6 +1155,10 @@ export const messagesByLocale = {
       automationsDescription:
         "スケジュールまたはイベント駆動のジョブを確認、一時停止、作成します。",
       openAutomations: "自動化を開く",
+      deliveryTitle: "配信",
+      deliveryDescription:
+        "メッセージの送信先を管理し、送信キューを確認します。",
+      openDelivery: "配信を開く",
       agentTitle: "エージェント設定",
       agentDescription:
         "右サイドバーのエージェント設定を開き、モデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
@@ -1347,6 +1370,10 @@ export const messagesByLocale = {
       automationsDescription:
         "예약 또는 이벤트 트리거 작업을 검토, 일시 중지, 생성합니다.",
       openAutomations: "자동화 열기",
+      deliveryTitle: "전달",
+      deliveryDescription:
+        "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
+      openDelivery: "전달 열기",
       agentTitle: "에이전트 설정",
       agentDescription:
         "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",

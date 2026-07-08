@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildReplayMarkers,
   fetchSessionReplayPlayback,
+  filterReplayMarkers,
   replayPayloadEvents,
   replayViewportDimensions,
   sanitizeReplayEvents,
@@ -291,7 +292,7 @@ describe("session replay sanitization", () => {
     expect(event?.data.texts[1].value).toBe("Normal page copy");
   });
 
-  it("derives viewport dimensions from the first replay meta event", () => {
+  it("derives viewport dimensions from the latest sane meta or resize event", () => {
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 1280.4, height: 720.2 } },
@@ -300,6 +301,27 @@ describe("session replay sanitization", () => {
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 0, height: 720 } },
+      ]),
+    ).toBeNull();
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
+        { type: 4, timestamp: 1500, data: { width: 1440, height: 900 } },
+      ]),
+    ).toEqual({ width: 1440, height: 900 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 1440, height: 900 } },
+        {
+          type: 3,
+          timestamp: 1600,
+          data: { source: 4, width: 1280, height: 800 },
+        },
+      ]),
+    ).toEqual({ width: 1280, height: 800 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
       ]),
     ).toBeNull();
   });

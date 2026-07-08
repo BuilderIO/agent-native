@@ -86,6 +86,22 @@ export default function SettingsRoute() {
                 </Button>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.deliveryTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.deliveryDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link to="/destinations">{t("settings.openDelivery")}</Link>
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         }
         team={
