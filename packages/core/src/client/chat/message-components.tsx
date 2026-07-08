@@ -650,14 +650,15 @@ export function UserMessage() {
   const timestamp = formatMessageTimestamp(message.createdAt);
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
-  if (isHiddenUserMessage(message)) return null;
+  const hidden = isHiddenUserMessage(message);
   const hasDisplayableText =
-    message.content
+    !hidden &&
+    (message.content
       ?.filter((part): part is { type: "text"; text: string } => {
         return part.type === "text" && typeof part.text === "string";
       })
       .some((part) => displayableUserMessageText(part.text).length > 0) ??
-    false;
+      false);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -672,6 +673,8 @@ export function UserMessage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasDisplayableText]);
+
+  if (hidden) return null;
 
   // When in edit mode, show the inline edit composer instead of the message bubble.
   if (isEditing) {
