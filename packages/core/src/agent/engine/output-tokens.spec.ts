@@ -148,8 +148,12 @@ describe("agent output-token policy", () => {
         Math.round(0.4 * maxOutputTokens),
       );
 
-      expect(budget).toBeLessThan(maxOutputTokens);
-      expect(maxOutputTokens - budget).toBeGreaterThanOrEqual(requiredHeadroom);
+      expect(budget).toBeDefined();
+      const definedBudget = budget!;
+      expect(definedBudget).toBeLessThan(maxOutputTokens);
+      expect(maxOutputTokens - definedBudget).toBeGreaterThanOrEqual(
+        requiredHeadroom,
+      );
     });
 
     it("passes small requested budgets through unchanged when they already fit", () => {
@@ -160,10 +164,18 @@ describe("agent output-token policy", () => {
       const maxOutputTokens = 64_000;
       const budget = clampThinkingBudgetTokens(500_000, maxOutputTokens);
 
-      expect(budget).toBeGreaterThanOrEqual(
+      expect(budget).toBeDefined();
+      const definedBudget = budget!;
+      expect(definedBudget).toBeGreaterThanOrEqual(
         ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
       );
-      expect(budget).toBeLessThan(maxOutputTokens);
+      expect(definedBudget).toBeLessThan(maxOutputTokens);
+    });
+
+    it("returns undefined when maxOutputTokens is too small for any valid Anthropic thinking budget", () => {
+      expect(
+        clampThinkingBudgetTokens(10_000, ANTHROPIC_MIN_THINKING_BUDGET_TOKENS),
+      ).toBeUndefined();
     });
   });
 });

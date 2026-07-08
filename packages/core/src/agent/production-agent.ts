@@ -2746,8 +2746,8 @@ export async function runAgentLoop(opts: {
   let iterations = 0;
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
-  // `opts.reasoningEffort` so the very first attempt is unaffected and fresh
-  // runAgentLoop calls still start from the caller's original request.
+  // `opts.reasoningEffort` so the very first attempt is unaffected and later
+  // tool-loop turns revert to the caller's original request after a success.
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
   let effectiveReasoningEffort = opts.reasoningEffort;
 
@@ -3390,6 +3390,8 @@ export async function runAgentLoop(opts: {
         });
       } else {
         emptyFinalResponseRetries = 0;
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
+        effectiveReasoningEffort = opts.reasoningEffort;
       }
       break;
     }

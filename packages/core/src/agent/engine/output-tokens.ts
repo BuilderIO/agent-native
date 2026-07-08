@@ -90,16 +90,19 @@ export const ANTHROPIC_MIN_THINKING_BUDGET_TOKENS = 1024;
 export function clampThinkingBudgetTokens(
   requestedBudgetTokens: number,
   maxOutputTokens: number,
-): number {
+): number | undefined {
+  if (maxOutputTokens <= ANTHROPIC_MIN_THINKING_BUDGET_TOKENS) {
+    return undefined;
+  }
   const headroom = Math.max(8000, Math.round(0.4 * maxOutputTokens));
   const budgetCapForHeadroom = Math.max(
     ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
     maxOutputTokens - headroom,
   );
   // budget_tokens must stay strictly below max_tokens per the API contract.
-  const strictUpperBound = Math.max(1, maxOutputTokens - 1);
+  const strictUpperBound = maxOutputTokens - 1;
   return Math.max(
-    1,
+    ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
     Math.min(requestedBudgetTokens, budgetCapForHeadroom, strictUpperBound),
   );
 }
