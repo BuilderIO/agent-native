@@ -321,12 +321,35 @@ function normalizeBuilderCmsModel(
           const fieldName =
             typeof fieldRecord.name === "string" ? fieldRecord.name.trim() : "";
           if (!fieldName) return null;
+          const inputType =
+            typeof fieldRecord.inputType === "string" &&
+            fieldRecord.inputType.trim()
+              ? fieldRecord.inputType.trim()
+              : typeof fieldRecord.input === "string" &&
+                  fieldRecord.input.trim()
+                ? fieldRecord.input.trim()
+                : undefined;
+          const label =
+            typeof fieldRecord.label === "string" && fieldRecord.label.trim()
+              ? fieldRecord.label.trim()
+              : typeof fieldRecord.friendlyName === "string" &&
+                  fieldRecord.friendlyName.trim()
+                ? fieldRecord.friendlyName.trim()
+                : undefined;
+          const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
+          const options = stringOptionsFromUnknown(
+            fieldRecord.options ?? fieldRecord.allowedValues,
+          );
           return {
             name: fieldName,
+            ...(label ? { label } : {}),
             type:
               typeof fieldRecord.type === "string" && fieldRecord.type.trim()
                 ? fieldRecord.type.trim()
                 : "unknown",
+            ...(inputType ? { inputType } : {}),
+            ...(enumOptions ? { enum: enumOptions } : {}),
+            ...(options ? { options } : {}),
             required: fieldRecord.required === true,
           };
         })
@@ -336,6 +359,30 @@ function normalizeBuilderCmsModel(
     : [];
 
   return { id, name, displayName, kind, fields };
+}
+
+function stringOptionsFromUnknown(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string" || typeof option === "number") {
+        return String(option).trim();
+      }
+      if (!option || typeof option !== "object") return "";
+      const record = option as Record<string, unknown>;
+      for (const key of ["label", "name", "value"]) {
+        const candidate = record[key];
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          return String(candidate);
+        }
+      }
+      return "";
+    })
+    .filter(Boolean);
+  return options.length > 0 ? Array.from(new Set(options)) : undefined;
 }
 
 function builderMcpModelsFromToolResponse(

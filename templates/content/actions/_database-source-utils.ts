@@ -43,6 +43,7 @@ import {
 } from "../shared/builder-mdx.js";
 import {
   normalizePropertyValue,
+  normalizePropertyValueWithOptions,
   parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
@@ -131,6 +132,7 @@ type SourceMetadataRecord = {
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
   federation?: ContentDatabaseSourceFederation;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
 };
 
 function parseObject<T extends object>(
@@ -1983,8 +1985,8 @@ export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
 ): Promise<ContentDatabaseSource | null> {
+  const db = getDb();
   if (sourceId) {
-    const db = getDb();
     const [source] = await db
       .select()
       .from(schema.contentDatabaseSources)
@@ -2000,7 +2002,6 @@ export async function getContentDatabaseSourceSnapshotForWrite(
         })
       : null;
   }
-  const db = getDb();
   const [source] = await db
     .select()
     .from(schema.contentDatabaseSources)
@@ -2647,10 +2648,19 @@ export function normalizeSourceFederation(
 export function serializeSourceMetadataRecord(args: {
   sourceType: ContentDatabaseSourceType;
   sourceTable: string;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  existingMetadataJson?: string | null;
 }) {
   const isBuilder = args.sourceType === "builder-cms";
   if (isBuilder) {
-    return JSON.stringify(builderCmsSourceMetadata(args.sourceTable));
+    const existingMetadata = parseObject<SourceMetadataRecord>(
+      args.existingMetadataJson,
+    );
+    return JSON.stringify({
+      ...builderCmsSourceMetadata(args.sourceTable),
+      builderModelFields:
+        args.builderModelFields ?? existingMetadata?.builderModelFields,
+    });
   }
   return JSON.stringify({
     primaryKey: "id",
@@ -2672,9 +2682,16 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  existingMetadataJson?: string | null;
 }) {
+  const existingMetadata = parseObject<SourceMetadataRecord>(
+    args.existingMetadataJson,
+  );
   return JSON.stringify({
     ...builderCmsSourceMetadata(args.sourceTable),
+    builderModelFields:
+      args.builderModelFields ?? existingMetadata?.builderModelFields,
     readMode: args.readState === "live" ? "builder-api" : "fixture",
     liveReadConfigured: args.readState === "live",
     lastReadEntryCount: args.entryCount,
@@ -3196,9 +3213,10 @@ async function materializeSourceFieldPropertyValues(args: {
       const propertyId = field.propertyId!;
       const definition = definitionById.get(propertyId);
       if (!definition) continue;
-      const normalized = normalizePropertyValue(
+      const normalized = normalizePropertyValueWithOptions(
         definition.type as DocumentProperty["definition"]["type"],
         sourceValues[field.sourceFieldKey],
+        parsePropertyOptions(definition.optionsJson),
       );
       if (normalized === null) continue;
       const valueJson = serializePropertyValue(normalized);
@@ -3466,6 +3484,7 @@ export async function resyncMockSourceSnapshot(args: {
       metadataJson: serializeSourceMetadataRecord({
         sourceType: normalizeSourceType(args.source.sourceType),
         sourceTable: args.source.sourceTable,
+        existingMetadataJson: args.source.metadataJson,
       }),
       lastRefreshedAt: args.now,
       lastSourceUpdatedAt: args.now,
@@ -3871,6 +3890,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       fetchedAt: builderRead.fetchedAt,
       now: args.now,
       message: builderRead.message,
+      builderModelFields,
       progress: {
         ...builderRead.progress,
         partial: hasMore,
@@ -3981,6 +4001,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     fetchedAt: builderRead.fetchedAt,
     now: args.now,
     message: builderRead.message,
+    builderModelFields,
     progress: builderRead.progress,
     sourceFetchState: builderRead.state === "error" ? "error" : "idle",
     activeReadSourceRowIds: undefined,
@@ -4082,6 +4103,11 @@ export async function replaceSourceMetadata(args: {
         metadataJson: serializeSourceMetadataRecord({
           sourceType: args.sourceType,
           sourceTable: args.sourceTable,
+          existingMetadataJson:
+            args.source.sourceType === args.sourceType &&
+            args.source.sourceTable === args.sourceTable
+              ? args.source.metadataJson
+              : null,
         }),
         lastRefreshedAt: args.now,
         lastSourceUpdatedAt: args.now,
@@ -4313,6 +4339,7 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
   syncState?: ContentDatabaseSourceSyncState;
+  builderModelFields?: BuilderCmsModelFieldSummary[];
 }) {
   const db = getDb();
   const [currentSource] = await db
@@ -4336,6 +4363,8 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
       progress: args.progress,
       sourceFetchState: args.sourceFetchState,
       activeReadSourceRowIds: args.activeReadSourceRowIds,
+      builderModelFields: args.builderModelFields,
+      existingMetadataJson: currentSource?.metadataJson,
     }),
   });
   await db
