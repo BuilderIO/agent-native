@@ -31,6 +31,8 @@ import {
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
   _getToolkitDependencyVersion,
+  _resolveToolkitVersionFromCore,
+  _resetToolkitDependencyVersionCache,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _shouldSkipScaffoldEntry,
@@ -853,15 +855,63 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses the npm latest dist-tag for generated projects", () => {
+  it("uses the npm latest dist-tag for the generated core dependency", () => {
     // Pin the default behaviour even when the headless install e2e has set
     // AGENT_NATIVE_CREATE_USE_LOCAL_CORE in the ambient environment.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getCoreDependencyVersion()).toBe("latest");
-      expect(_getToolkitDependencyVersion()).toBe("latest");
     } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit dependency to whatever core@latest requires", () => {
+    // Core hard-pins an exact @agent-native/toolkit internally, so the
+    // scaffold must follow that pin instead of floating on toolkit@latest —
+    // otherwise pnpm cannot dedupe and installs two toolkit copies side by
+    // side (the ./collab-ui crash this fix addresses). With registry access
+    // the resolver returns that exact version; offline it degrades to the
+    // literal "latest" so scaffolding never fails outright.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    _resetToolkitDependencyVersionCache();
+    try {
+      const resolved = _getToolkitDependencyVersion();
+      expect(
+        resolved === "latest" || /^\d+\.\d+\.\d+(?:-.+)?$/.test(resolved),
+      ).toBe(true);
+      // Whatever it resolves to must exactly match the standalone resolver so
+      // every scaffold surface writes an identical spec.
+      expect(resolved).toBe(_resolveToolkitVersionFromCore());
+    } finally {
+      _resetToolkitDependencyVersionCache();
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("memoizes the toolkit pin so a scaffold resolves it once", () => {
+    // A workspace scaffold rewrites the toolkit dep once per app; the value
+    // must be resolved a single time so every app pins the same version even
+    // if the latest dist-tag moves mid-run.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    _resetToolkitDependencyVersionCache();
+    try {
+      const first = _getToolkitDependencyVersion();
+      const second = _getToolkitDependencyVersion();
+      expect(second).toBe(first);
+    } finally {
+      _resetToolkitDependencyVersionCache();
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
       } else {
