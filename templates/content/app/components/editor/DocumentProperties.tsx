@@ -440,7 +440,7 @@ function personInitials(value: string) {
   );
 }
 
-function PersonPill({ value }: { value: string }) {
+export function PersonPill({ value }: { value: string }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
       <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-background text-[9px] font-semibold text-muted-foreground">

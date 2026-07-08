@@ -25,12 +25,15 @@ const filterSchema = z.object({
     "less_than",
     "before",
     "after",
+    "between",
     "is_checked",
     "is_unchecked",
     "is_empty",
     "is_not_empty",
   ]),
   value: z.string(),
+  filterGroupId: z.string().optional(),
+  parentFilterGroupId: z.string().optional(),
 });
 
 const columnCalculationSchema = z.enum([

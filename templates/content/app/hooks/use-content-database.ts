@@ -6,6 +6,7 @@ import type {
   BuilderCmsModelsResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
@@ -32,6 +33,7 @@ import type {
   SetContentDatabaseSourceWriteModeRequest,
   StageBuilderRevisionRequest,
   SuggestSourceJoinKeyResponse,
+  UpdateContentDatabasePersonalViewRequest,
   UpdateContentDatabaseViewRequest,
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
@@ -562,6 +564,36 @@ export function useUpdateContentDatabaseView(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
+    },
+  });
+}
+
+export function useContentDatabasePersonalView(databaseId: string | null) {
+  return useActionQuery<ContentDatabasePersonalViewResponse>(
+    "get-content-database-personal-view",
+    databaseId ? { databaseId } : undefined,
+    {
+      enabled: !!databaseId,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
+}
+
+export function useUpdateContentDatabasePersonalView(
+  databaseId: string | null,
+) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabasePersonalViewResponse,
+    UpdateContentDatabasePersonalViewRequest
+  >("update-content-database-personal-view", {
+    onSuccess: (data) => {
+      if (!databaseId) return;
+      queryClient.setQueryData(
+        ["action", "get-content-database-personal-view", { databaseId }],
+        data,
+      );
     },
   });
 }

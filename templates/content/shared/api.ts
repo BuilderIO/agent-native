@@ -234,6 +234,7 @@ export type ContentDatabaseFilterOperator =
   | "less_than"
   | "before"
   | "after"
+  | "between"
   | "is_checked"
   | "is_unchecked"
   | "is_empty"
@@ -244,6 +245,8 @@ export interface ContentDatabaseFilter {
   label: string;
   operator: ContentDatabaseFilterOperator;
   value: string;
+  filterGroupId?: string;
+  parentFilterGroupId?: string;
 }
 
 export type ContentDatabaseColumnCalculation =
@@ -304,6 +307,27 @@ export interface ContentDatabaseViewConfig {
   sorts: ContentDatabaseSort[];
   filters: ContentDatabaseFilter[];
   columnWidths: Record<string, number>;
+}
+
+export interface ContentDatabasePersonalViewOverrides {
+  version: number;
+  activeViewId?: string;
+  views: Array<{
+    id: string;
+    sorts: ContentDatabaseSort[];
+    filters: ContentDatabaseFilter[];
+    filterMode: ContentDatabaseFilterMode;
+  }>;
+}
+
+export interface ContentDatabasePersonalViewResponse {
+  databaseId: string;
+  overrides: ContentDatabasePersonalViewOverrides | null;
+}
+
+export interface UpdateContentDatabasePersonalViewRequest {
+  databaseId: string;
+  overrides: ContentDatabasePersonalViewOverrides | null;
 }
 
 export interface ContentDatabaseMembership {
