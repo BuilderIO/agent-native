@@ -6,12 +6,26 @@ import {
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  installErrorCapture,
+  type CapturedExceptionEvent,
+} from "./error-capture.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
 import { scrubUrl } from "./url-scrub.js";
 export { scrubUrl } from "./url-scrub.js";
+export {
+  addErrorBreadcrumb,
+  captureException,
+  captureMessage,
+  isErrorCaptureInstalled,
+  type CaptureExceptionContext,
+  type CapturedExceptionEvent,
+  type ExceptionBreadcrumb,
+  type ExceptionLevel,
+} from "./error-capture.js";
 export type {
   SessionReplayConsoleOptions,
   SessionReplayNetworkOptions,
@@ -40,6 +54,25 @@ type PageviewTrackingState = {
   lastPageviewKey: string | null;
 };
 
+/**
+ * First-party, Sentry-style error capture configuration. Pass `true`/`false`
+ * to force on/off, or an options object to tune it. When omitted, error
+ * capture auto-enables whenever a first-party analytics public key is
+ * configured (mirroring pageview + session-replay auto-enable).
+ */
+export type ErrorCaptureConfigOptions = {
+  /** Build/release identifier attached to every captured exception. */
+  release?: string;
+  /** Deployment environment (e.g. "production"). Defaults to Vite MODE. */
+  environment?: string;
+  /** Auto-capture `window.onerror`. Defaults to true. */
+  captureGlobalErrors?: boolean;
+  /** Auto-capture `unhandledrejection`. Defaults to true. */
+  captureUnhandledRejections?: boolean;
+  /** Breadcrumb ring-buffer size. Defaults to 20. */
+  maxBreadcrumbs?: number;
+};
+
 export type ConfigureTrackingOptions = {
   /**
    * Agent Native first-party analytics public key. This mirrors hosted
@@ -53,6 +86,12 @@ export type ConfigureTrackingOptions = {
   endpoint?: string;
   getDefaultProps?: GetDefaultProps;
   sessionReplay?: boolean | SessionReplayOptions;
+  /**
+   * First-party, Sentry-style error capture. Auto-captures uncaught errors
+   * and unhandled rejections and exposes `captureException`/`captureMessage`.
+   * Auto-enables when a public key is present; pass `false` to disable.
+   */
+  errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
 
 type SentryUser = {
@@ -84,6 +123,10 @@ let _sessionReplayOptions: SessionReplayOptions | null = null;
 let _sessionReplayIdentitySnapshot: TrackingIdentity | null = null;
 let _sessionReplayStartPromise: Promise<SessionReplayStartResult | null> | null =
   null;
+let _errorCaptureInstalled = false;
+let _sessionReplayModuleForCapture:
+  | typeof import("./session-replay.js")
+  | null = null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -91,6 +134,13 @@ let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
+/**
+ * Dedicated first-party analytics event name for captured exceptions. The
+ * analytics server ingest forks events with this name into the error-capture
+ * tables (error_issues / error_events) while still recording them in
+ * analytics_events for alerting. Keep in sync with the template server ingest.
+ */
+export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
 );
@@ -978,7 +1028,120 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
       endpoint: options.endpoint,
       publicKey,
     });
+    maybeInstallErrorCapture(options.errorCapture);
   }
+}
+
+/**
+ * Lazily load the session-replay module so error capture can read the active
+ * replay id and surface manual captures on the replay timeline without a
+ * static import (which would create an analytics <-> session-replay import
+ * cycle and pull the replay module into the analytics chunk eagerly).
+ */
+function loadSessionReplayModuleForCapture(): void {
+  if (_sessionReplayModuleForCapture) return;
+  import("./session-replay.js")
+    .then((mod) => {
+      _sessionReplayModuleForCapture = mod;
+    })
+    .catch(() => {
+      // Session linkage is best-effort; capture still works without it.
+    });
+}
+
+function errorCaptureSessionContext(): {
+  sessionId?: string;
+  anonymousId?: string;
+  replayId?: string;
+} {
+  return {
+    sessionId: getOrCreateSessionId(),
+    anonymousId: getOrCreateAnonymousId(),
+    replayId:
+      _sessionReplayModuleForCapture?.getSessionReplayId?.() ?? undefined,
+  };
+}
+
+function exceptionEventProperties(
+  event: CapturedExceptionEvent,
+): Record<string, unknown> {
+  return {
+    exceptionType: event.type,
+    exceptionMessage: event.message,
+    ...(event.stack ? { exceptionStack: event.stack } : {}),
+    handled: event.handled,
+    level: event.level,
+    occurredAt: event.occurredAt,
+    ...(event.url ? { errorUrl: event.url } : {}),
+    ...(event.release ? { release: event.release } : {}),
+    ...(event.environment ? { environment: event.environment } : {}),
+    ...(event.sessionReplayId
+      ? { sessionReplayId: event.sessionReplayId }
+      : {}),
+    ...(event.breadcrumbs?.length ? { breadcrumbs: event.breadcrumbs } : {}),
+    ...(event.tags ? { exceptionTags: event.tags } : {}),
+    ...(event.extra ? { exceptionExtra: event.extra } : {}),
+  };
+}
+
+function sendExceptionEvent(event: CapturedExceptionEvent): void {
+  // Route through the existing first-party analytics ingest as a dedicated
+  // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
+  // transport; the server forks it into error_issues/error_events and still
+  // records it in analytics_events for alerting.
+  trackEvent(
+    AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+    exceptionEventProperties(event),
+  );
+}
+
+function emitExceptionToReplay(event: CapturedExceptionEvent): void {
+  _sessionReplayModuleForCapture?.emitSessionReplayException?.({
+    type: event.type,
+    message: event.message,
+    level: event.level,
+    ...(event.stack ? { stack: event.stack } : {}),
+    ...(event.url ? { url: event.url } : {}),
+  });
+}
+
+function errorCaptureAutoEnabled(): boolean {
+  const publicKey =
+    _agentNativeAnalyticsPublicKey ||
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  return !!publicKey;
+}
+
+function maybeInstallErrorCapture(
+  config: boolean | ErrorCaptureConfigOptions | undefined,
+): void {
+  if (typeof window === "undefined") return;
+  if (config === false) return;
+  if (_errorCaptureInstalled && config === undefined) return;
+  const enabled = config === undefined ? errorCaptureAutoEnabled() : true;
+  if (!enabled) return;
+  const options = typeof config === "object" ? config : {};
+  loadSessionReplayModuleForCapture();
+  installErrorCapture({
+    send: sendExceptionEvent,
+    getSessionContext: errorCaptureSessionContext,
+    emitReplayEvent: emitExceptionToReplay,
+    environment:
+      options.environment ||
+      (import.meta.env as Record<string, string | undefined>)?.MODE,
+    ...(options.release ? { release: options.release } : {}),
+    ...(options.captureGlobalErrors !== undefined
+      ? { captureGlobalErrors: options.captureGlobalErrors }
+      : {}),
+    ...(options.captureUnhandledRejections !== undefined
+      ? { captureUnhandledRejections: options.captureUnhandledRejections }
+      : {}),
+    ...(options.maxBreadcrumbs !== undefined
+      ? { maxBreadcrumbs: options.maxBreadcrumbs }
+      : {}),
+  });
+  _errorCaptureInstalled = true;
 }
 
 function sessionReplayEnabledFromEnv(): boolean {

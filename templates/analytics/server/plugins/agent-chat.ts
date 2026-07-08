@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { applyAnalyticsPlanModePolicy } from "../lib/agent-chat-plan-mode";
+import {
+  applyAnalyticsPlanModePolicy,
+  INITIAL_TOOL_NAMES,
+} from "../lib/agent-chat-plan-mode";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   failedDataQueryAttemptMessage,
@@ -31,43 +34,9 @@ import {
 const DATA_DICT_PREFIX = "data-dict-";
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
-const INITIAL_TOOL_NAMES = [
-  "view-screen",
-  "data-source-status",
-  "list-analyses",
-  "get-analysis",
-  "save-analysis",
-  "rename-analysis",
-  "delete-analysis",
-  "get-sql-dashboard",
-  "mutate-dashboard",
-  "generate-chart",
-  "query-agent-native-analytics",
-  "bigquery",
-  "search-bigquery-schema",
-  "bigquery-table-info",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
-  "provider-corpus-job",
-  "provider-corpus-jobs",
-  "query-staged-dataset",
-  "list-staged-datasets",
-  "delete-staged-dataset",
-  "account-deep-dive",
-  "hubspot-deals",
-  "hubspot-records",
-  "gong-calls",
-  "jira-search",
-  "slack-messages",
-  "sentry",
-  "list-data-dictionary",
-  "save-data-dictionary-entry",
-  "navigate",
-];
-
 export {
   applyAnalyticsPlanModePolicy,
+  INITIAL_TOOL_NAMES,
   PLAN_MODE_ACT_ONLY_TOOLS,
 } from "../lib/agent-chat-plan-mode";
 

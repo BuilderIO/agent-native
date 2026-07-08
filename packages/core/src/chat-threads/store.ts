@@ -6,13 +6,25 @@ import {
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestOrgId } from "../server/request-context.js";
+import { resolveAccess, type AccessContext } from "../sharing/access.js";
+import { registerShareableResource } from "../sharing/registry.js";
+import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
+import {
+  chatThreads,
+  chatThreadShares,
+  CHAT_THREAD_SHARES_CREATE_SQL,
+  CHAT_THREAD_SHARES_CREATE_SQL_PG,
+  CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
+} from "./schema.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -33,6 +45,7 @@ let _initPromise: Promise<void> | undefined;
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
 const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
+const getChatThreadsDb = createGetDb({ chatThreads, chatThreadShares });
 
 export function withThreadDataLock<T>(
   threadId: string,
@@ -73,7 +86,9 @@ async function ensureTable(): Promise<void> {
           scope_label TEXT,
           pinned_at ${intType()},
           archived_at ${intType()},
-          share_token_hash TEXT
+          share_token_hash TEXT,
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
         )
       `;
 
@@ -100,6 +115,8 @@ async function ensureTable(): Promise<void> {
           ["pinned_at", intType()],
           ["archived_at", intType()],
           ["share_token_hash", "TEXT"],
+          ["org_id", "TEXT"],
+          ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
         ] as const) {
           await ensureColumnExists(
             "chat_threads",
@@ -107,6 +124,10 @@ async function ensureTable(): Promise<void> {
             `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS ${col} ${type}`,
           );
         }
+        await ensureTableExists(
+          "chat_thread_shares",
+          CHAT_THREAD_SHARES_CREATE_SQL_PG,
+        );
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
         // overflows int4. No-op once widened / on fresh BIGINT databases.
@@ -134,6 +155,10 @@ async function ensureTable(): Promise<void> {
           "chat_threads_share_token_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
         );
+        await ensureIndexExists(
+          "chat_thread_shares_resource_idx",
+          CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
+        );
         // One-time backfill of message_count for legacy rows written before
         // the column was maintained.
         await backfillLegacyMessageCounts(client);
@@ -153,6 +178,8 @@ async function ensureTable(): Promise<void> {
         ["pinned_at", intType()],
         ["archived_at", intType()],
         ["share_token_hash", "TEXT"],
+        ["org_id", "TEXT"],
+        ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
       ] as const) {
         try {
           await client.execute(
@@ -161,6 +188,11 @@ async function ensureTable(): Promise<void> {
         } catch {
           // Column already exists.
         }
+      }
+      try {
+        await client.execute(CHAT_THREAD_SHARES_CREATE_SQL);
+      } catch {
+        // Table already exists.
       }
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
@@ -181,6 +213,7 @@ async function ensureTable(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
+        CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
       ]) {
         try {
           await client.execute(ddl);
@@ -261,6 +294,8 @@ export interface ChatThread {
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
   archivedAt: number | null;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
 }
 
 export interface ChatThreadSummary {
@@ -273,6 +308,8 @@ export interface ChatThreadSummary {
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
   archivedAt: number | null;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
 }
 
 export interface ForkThreadSourceSnapshot {
@@ -295,6 +332,10 @@ function readNullableNumber(value: unknown): number | null {
   if (value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function readVisibility(value: unknown): "private" | "org" | "public" {
+  return value === "org" || value === "public" ? value : "private";
 }
 
 function normalizeForkSourceSnapshot(
@@ -359,6 +400,8 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
     archivedAt: readNullableNumber(r.archived_at),
+    orgId: (r.org_id as string | null | undefined) ?? null,
+    visibility: readVisibility(r.visibility),
   };
 }
 
@@ -378,6 +421,8 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
     archivedAt: readNullableNumber(r.archived_at),
+    orgId: (r.org_id as string | null | undefined) ?? null,
+    visibility: readVisibility(r.visibility),
   };
 }
 
@@ -391,9 +436,10 @@ export async function createThread(
   const now = Date.now();
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
+  const orgId = getRequestOrgId() ?? null;
 
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, 'private')`,
     args: [
       id,
       ownerEmail,
@@ -403,6 +449,7 @@ export async function createThread(
       scope?.type ?? null,
       scope?.id ?? null,
       scope?.label ?? null,
+      orgId,
     ],
   });
 
@@ -418,10 +465,12 @@ export async function createThread(
     scope,
     pinnedAt: null,
     archivedAt: null,
+    orgId,
+    visibility: "private",
   };
 }
 
-const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
+const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, org_id, visibility`;
 // The list/summary path deliberately omits `thread_data`: it is the full
 // message-history JSON blob and selecting it for every row turns "open the
 // sidebar" into "download every conversation". The summary derives nothing
@@ -429,7 +478,41 @@ const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_co
 // (message_count is maintained on write and backfilled for legacy rows at
 // bootstrap). The detail path (`THREAD_COLUMNS` / `getThread`) still returns
 // the full blob.
-const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
+const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, org_id, visibility`;
+
+export function registerChatThreadsShareable(): void {
+  registerShareableResource({
+    type: "chat_thread",
+    resourceTable: chatThreads,
+    sharesTable: chatThreadShares,
+    displayName: "Chat",
+    titleColumn: "title",
+    getResourcePath: (thread) =>
+      `/?thread=${encodeURIComponent(String(thread.id ?? ""))}`,
+    getDb: () => getChatThreadsDb(),
+    allowPublic: false,
+    ownerAccessIgnoresOrg: true,
+  });
+}
+
+export async function ensureChatThreadTables(): Promise<void> {
+  await ensureTable();
+}
+
+export async function resolveThreadAccess(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<ChatThread | null> {
+  if (!userEmail || !threadId) return null;
+  const access = await resolveAccess("chat_thread", threadId, {
+    userEmail,
+    orgId: ctx.orgId,
+  });
+  if (!access || !roleSatisfies(access.role, minRole)) return null;
+  return await getThread(threadId);
+}
 
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
@@ -445,7 +528,11 @@ export async function getThread(id: string): Promise<ChatThread | null> {
 export async function forkThread(
   sourceId: string,
   ownerEmail: string,
-  opts?: { id?: string; source?: ForkThreadSourceSnapshot | null },
+  opts?: {
+    id?: string;
+    source?: ForkThreadSourceSnapshot | null;
+    sourceAccessGranted?: boolean;
+  },
 ): Promise<ChatThread | null> {
   const snapshot = normalizeForkSourceSnapshot(opts?.source);
   let source = await getThread(sourceId);
@@ -494,13 +581,19 @@ export async function forkThread(
       messageCount: snapshot.messageCount,
     };
   }
-  if (!source || source.ownerEmail !== ownerEmail) return null;
+  if (
+    !source ||
+    (!opts?.sourceAccessGranted && source.ownerEmail !== ownerEmail)
+  ) {
+    return null;
+  }
   const id = opts?.id ?? generateId();
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
+  const orgId = getRequestOrgId() ?? null;
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
     args: [
       id,
       ownerEmail,
@@ -513,6 +606,7 @@ export async function forkThread(
       source.scope?.type ?? null,
       source.scope?.id ?? null,
       source.scope?.label ?? null,
+      orgId,
     ],
   });
   return {
@@ -527,6 +621,8 @@ export async function forkThread(
     scope: source.scope,
     pinnedAt: null,
     archivedAt: null,
+    orgId,
+    visibility: "private",
   };
 }
 
@@ -542,6 +638,28 @@ export interface ListThreadsOptions {
   scope?: { type: string; id: string };
   /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
+  orgId?: string | null;
+}
+
+function chatThreadAccessSql(
+  userEmail: string,
+  orgId: string | null | undefined,
+): { sql: string; args: (string | number)[] } {
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const clauses = [
+    `LOWER(owner_email) = ?`,
+    `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?)`,
+  ];
+  const args: (string | number)[] = [normalizedEmail, normalizedEmail];
+  if (orgId) {
+    clauses.push(`(visibility = 'org' AND org_id = ?)`);
+    args.push(orgId);
+    clauses.push(
+      `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'org' AND chat_thread_shares.principal_id = ?)`,
+    );
+    args.push(orgId);
+  }
+  return { sql: `(${clauses.join(" OR ")})`, args };
 }
 
 export async function listThreads(
@@ -562,8 +680,12 @@ export async function listThreads(
   // maintained on every write and backfilled for legacy rows at bootstrap,
   // so the old `OR thread_data LIKE '%"messages"%'` substring scan over the
   // full blob is no longer needed here.
-  const filters: string[] = [`owner_email = ?`, `message_count > 0`];
-  const args: (string | number)[] = [ownerEmail];
+  const access = chatThreadAccessSql(
+    ownerEmail,
+    opts.orgId ?? getRequestOrgId(),
+  );
+  const filters: string[] = [access.sql, `message_count > 0`];
+  const args: (string | number)[] = [...access.args];
   if (opts.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(opts.scope.type, opts.scope.id);
@@ -588,7 +710,7 @@ export async function searchThreads(
   ownerEmail: string,
   query: string,
   limit = 50,
-  options: { scope?: { type: string; id: string } } = {},
+  options: { scope?: { type: string; id: string }; orgId?: string | null } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
   const client = getDbExec();
@@ -596,12 +718,16 @@ export async function searchThreads(
   // The count-guard uses the maintained/backfilled `message_count` column
   // (same as listThreads). The content match still scans `thread_data` —
   // search legitimately needs to look inside message history.
+  const access = chatThreadAccessSql(
+    ownerEmail,
+    options.orgId ?? getRequestOrgId(),
+  );
   const filters: string[] = [
-    `owner_email = ?`,
+    access.sql,
     `message_count > 0`,
     `(title LIKE ? ESCAPE '!' OR preview LIKE ? ESCAPE '!' OR thread_data LIKE ? ESCAPE '!')`,
   ];
-  const args: (string | number)[] = [ownerEmail, pattern, pattern, pattern];
+  const args: (string | number)[] = [...access.args, pattern, pattern, pattern];
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
@@ -1137,6 +1263,12 @@ export async function deleteThread(id: string): Promise<boolean> {
     args: [id],
   });
   if (result.rowsAffected > 0) {
+    await client
+      .execute({
+        sql: `DELETE FROM chat_thread_shares WHERE resource_id = ?`,
+        args: [id],
+      })
+      .catch(() => {});
     emitChatThreadChange(id);
     return true;
   }

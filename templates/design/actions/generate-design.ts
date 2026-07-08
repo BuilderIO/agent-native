@@ -125,6 +125,9 @@ const generateDesignAction = defineAction({
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +
+    "When `designSystemId` is provided, first use `get-design-system` and apply " +
+    "its `agentContext` tokens/docs before writing the file content; do not " +
+    "treat the id alone as enough design-system context. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and x/y/width/height so the new screens appear placed on the overview canvas.",

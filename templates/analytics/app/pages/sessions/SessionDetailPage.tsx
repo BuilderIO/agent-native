@@ -1,6 +1,7 @@
 import {
   AgentToggleButton,
   appApiPath,
+  callAction,
   PromptComposer,
   useActionMutation,
   useSendToAgentChat,
@@ -25,6 +26,7 @@ import {
   IconTerminal2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -53,7 +55,10 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { extractReplayDiagnostics } from "./session-replay-devtools";
-import { SessionDevToolsPanel } from "./SessionDevToolsPanel";
+import {
+  type SessionIssueMatch,
+  SessionDevToolsPanel,
+} from "./SessionDevToolsPanel";
 
 type SessionRecordingSummary = {
   id: string;
@@ -166,6 +171,42 @@ const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
   consoleErrorCount: 0,
   networkFailedCount: 0,
 };
+
+type ReplayConsoleDiagnostics = ReturnType<
+  typeof extractReplayDiagnostics
+>["console"];
+
+type ConsoleErrorSignaturePayload = {
+  key: string;
+  source: string;
+  message: string;
+  stack?: string;
+};
+
+/**
+ * Distill the resolvable error lines from a session's console diagnostics for
+ * issue matching. Only error-level lines are worth sending: window errors,
+ * unhandled rejections, and manual `captureException` all surface at `error`
+ * level with a serialized `Name: message` (+ stack) that the server can
+ * fingerprint back to a captured issue. Non-error console lines are left alone,
+ * and anything without a captured issue simply comes back unmatched.
+ */
+function buildConsoleErrorSignatures(
+  entries: ReplayConsoleDiagnostics,
+): ConsoleErrorSignaturePayload[] {
+  const signatures: ConsoleErrorSignaturePayload[] = [];
+  for (const entry of entries) {
+    if (entry.level !== "error" || !entry.message) continue;
+    signatures.push({
+      key: entry.id,
+      source: entry.source,
+      message: entry.message,
+      ...(entry.stack ? { stack: entry.stack } : {}),
+    });
+    if (signatures.length >= 100) break;
+  }
+  return signatures;
+}
 
 const RRWEB_EVENT_TYPE = {
   FullSnapshot: 2,
@@ -459,6 +500,35 @@ function ReplayPlayer({
   const devToolsIssueCount = devToolsOpen
     ? diagnostics.consoleErrorCount + diagnostics.networkFailedCount
     : response.recording.errorCount;
+
+  // Resolve captured console errors in this replay to their Sentry-style issue
+  // groups (one batched, access-scoped call, server-computed fingerprints) so
+  // each error can deep-link to its full issue detail. Only runs once devtools
+  // are open and there is at least one error line worth looking up.
+  const errorSignatures = useMemo(
+    () => buildConsoleErrorSignatures(diagnostics.console),
+    [diagnostics.console],
+  );
+  const recordingId = response.recording.id;
+  const issueMatchQuery = useQuery({
+    queryKey: ["match-error-issues", recordingId, errorSignatures.length],
+    queryFn: () =>
+      callAction<Record<string, SessionIssueMatch>>(
+        "match-error-issues",
+        { signatures: errorSignatures },
+        { method: "POST" },
+      ),
+    enabled: devToolsOpen && errorSignatures.length > 0,
+    staleTime: 60_000,
+  });
+  const issueMatches = useMemo(() => {
+    const map = new Map<string, SessionIssueMatch>();
+    const data = issueMatchQuery.data;
+    if (data) {
+      for (const [key, value] of Object.entries(data)) map.set(key, value);
+    }
+    return map;
+  }, [issueMatchQuery.data]);
   const loadingPercent =
     response.totalChunks > 0
       ? clamp(response.loadedChunks / response.totalChunks, 0, 1)
@@ -929,6 +999,7 @@ function ReplayPlayer({
               height={devToolsHeight}
               onHeightChange={setDevToolsHeight}
               onSeek={(ms) => seek(ms, true)}
+              issueMatches={issueMatches}
             />
           ) : null}
 

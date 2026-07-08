@@ -90,6 +90,12 @@ beforeEach(() => {
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
   db = drizzle(sqlite);
   registerShareableResource({
@@ -143,6 +149,42 @@ describe("shareable resource access helpers", () => {
         "https://slides.example.com",
       ),
     ).toBe("https://slides.example.com");
+  });
+
+  it("resolves organization share display names", async () => {
+    await insertDoc({ id: "doc-org-share" });
+    sqlite
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(otherOrgId, "Builder.io", ownerEmail, Date.now());
+    await db.insert(docShares).values({
+      id: "share-org",
+      resourceId: "doc-org-share",
+      principalType: "org",
+      principalId: otherOrgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-org-share",
+        }),
+    );
+
+    expect(result.shares).toEqual([
+      expect.objectContaining({
+        principalType: "org",
+        principalId: otherOrgId,
+        displayName: "Builder.io",
+      }),
+    ]);
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {

@@ -73,7 +73,7 @@ ad-hoc analysis) plus two things: a stored, named identity, and a small
    same dry-run path, no persisted row. Use this while tuning a script before
    calling `save-data-program` again.
 6. **Refresh on demand** with `run-data-program(programId, params?,
-   forceRefresh?, includeRows?)` — this is what the agent calls to get a
+forceRefresh?, includeRows?)` — this is what the agent calls to get a
    compact proof-of-result (`rowCount`, `columns`, `sampleRows`) without
    waiting for a panel view. Pass `includeRows: true` only when you need the
    full (capped) row set back in context.
@@ -101,13 +101,13 @@ addition:
 
 Caps enforced on every run (not configurable per-program):
 
-| Limit | Value |
-| --- | --- |
-| Max emitted rows | 10,000 (rows beyond this are dropped, `truncated: true`) |
-| Max emitted result size | 4 MiB (rows dropped from the end to fit; a single row over 4 MiB is a hard `result_too_large` failure — nothing to safely keep) |
-| Max active programs per app | 200 (archive unused ones to free room) |
-| Minimum refresh TTL | 60,000 ms |
-| Run rows kept per (program, params) | 5 most recent (older ones are pruned automatically) |
+| Limit                               | Value                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Max emitted rows                    | 10,000 (rows beyond this are dropped, `truncated: true`)                                                                        |
+| Max emitted result size             | 4 MiB (rows dropped from the end to fit; a single row over 4 MiB is a hard `result_too_large` failure — nothing to safely keep) |
+| Max active programs per app         | 200 (archive unused ones to free room)                                                                                          |
+| Minimum refresh TTL                 | 60,000 ms                                                                                                                       |
+| Run rows kept per (program, params) | 5 most recent (older ones are pruned automatically)                                                                             |
 
 Truncation is always honest: a partial result comes back with
 `truncated: true`, never a silent drop.
@@ -118,16 +118,16 @@ Every `(programId, paramsHash)` pair (params are canonicalized and hashed, so
 equivalent param objects share a cache entry) has its own run history. What
 happens on each call to `runDataProgram` / a panel view:
 
-| Situation | Behavior |
-| --- | --- |
-| Fresh cache hit (younger than `refreshTtlMs`, or `refreshMode: "manual"` with any prior success) | Returns cached rows instantly, `cacheHit: true` |
-| Cache is older than the TTL | Re-executes synchronously (panel views get a 25s budget; agent/manual calls get 120s), replacing the cache on success |
-| `refreshMode: "manual"` | Never auto-refreshes; only `forceRefresh: true` (or `manual_refresh` from the UI) re-runs it |
-| No cache yet | Executes synchronously like a normal first fetch |
-| `background: true` program, no fresh cache | Serves the last good run immediately with `stale: true` and enqueues a durable background execution (10-minute budget); the *next* call finalizes it if it has completed |
-| Background program, execution still running, no prior success | `background_pending` failure — the panel shows an explicit "running in background" error card, never a blank chart |
-| Execution fails (timeout, sandbox error, bad `emit()` shape) | Failure result with a structured error code; if a previous successful run exists, it is attached as `lastGoodRun` so the panel can stale-serve instead of going blank |
-| Program was archived (`delete-data-program`) | Explicit `archived` failure — panels show "This data program was archived", never a silent blank |
+| Situation                                                                                        | Behavior                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fresh cache hit (younger than `refreshTtlMs`, or `refreshMode: "manual"` with any prior success) | Returns cached rows instantly, `cacheHit: true`                                                                                                                          |
+| Cache is older than the TTL                                                                      | Re-executes synchronously (panel views get a 25s budget; agent/manual calls get 120s), replacing the cache on success                                                    |
+| `refreshMode: "manual"`                                                                          | Never auto-refreshes; only `forceRefresh: true` (or `manual_refresh` from the UI) re-runs it                                                                             |
+| No cache yet                                                                                     | Executes synchronously like a normal first fetch                                                                                                                         |
+| `background: true` program, no fresh cache                                                       | Serves the last good run immediately with `stale: true` and enqueues a durable background execution (10-minute budget); the _next_ call finalizes it if it has completed |
+| Background program, execution still running, no prior success                                    | `background_pending` failure — the panel shows an explicit "running in background" error card, never a blank chart                                                       |
+| Execution fails (timeout, sandbox error, bad `emit()` shape)                                     | Failure result with a structured error code; if a previous successful run exists, it is attached as `lastGoodRun` so the panel can stale-serve instead of going blank    |
+| Program was archived (`delete-data-program`)                                                     | Explicit `archived` failure — panels show "This data program was archived", never a silent blank                                                                         |
 
 Use `background: true` only for programs that routinely take longer than the
 foreground budget (multi-provider joins over large cohorts, deep pagination).
@@ -136,18 +136,18 @@ serves fresh data faster.
 
 ## Error codes
 
-| Code | Meaning | What to do |
-| --- | --- | --- |
-| `program_not_found` | No program with that id | Check the id via `list-data-programs` |
-| `access_denied` | Caller can't see this program | Don't leak existence; ask the owner to share it |
-| `archived` | Program was soft-deleted | Repoint the panel or unarchive by resaving under the same name |
-| `timeout` | Didn't finish within the run's budget | Reduce scope, page in fewer items, or mark `background: true` |
-| `emit_missing` | Script never called `emit(...)` | Add the `emit(rows, schema?)` call at the end |
-| `emit_shape_invalid` | `emit()` args weren't `(array-of-plain-objects, optional-schema-array)` | Fix the shape; check for a stray second `emit()` call |
-| `result_too_large` | A single row (or the whole result) exceeds the byte cap | Trim large string fields before emitting |
-| `sandbox_error` | Uncaught exception in the script | Read the thrown message; guard optional provider fields |
-| `run_code_unavailable` | The run-code module isn't available in this build | Not something a program author can fix |
-| `background_pending` | Background program has no result yet | Wait and retry, or check `lastGoodRun` if present |
+| Code                   | Meaning                                                                 | What to do                                                     |
+| ---------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `program_not_found`    | No program with that id                                                 | Check the id via `list-data-programs`                          |
+| `access_denied`        | Caller can't see this program                                           | Don't leak existence; ask the owner to share it                |
+| `archived`             | Program was soft-deleted                                                | Repoint the panel or unarchive by resaving under the same name |
+| `timeout`              | Didn't finish within the run's budget                                   | Reduce scope, page in fewer items, or mark `background: true`  |
+| `emit_missing`         | Script never called `emit(...)`                                         | Add the `emit(rows, schema?)` call at the end                  |
+| `emit_shape_invalid`   | `emit()` args weren't `(array-of-plain-objects, optional-schema-array)` | Fix the shape; check for a stray second `emit()` call          |
+| `result_too_large`     | A single row (or the whole result) exceeds the byte cap                 | Trim large string fields before emitting                       |
+| `sandbox_error`        | Uncaught exception in the script                                        | Read the thrown message; guard optional provider fields        |
+| `run_code_unavailable` | The run-code module isn't available in this build                       | Not something a program author can fix                         |
+| `background_pending`   | Background program has no result yet                                    | Wait and retry, or check `lastGoodRun` if present              |
 
 Every failure is a structured `{ code, message }`, never a bare string — treat
 `code` as the thing to branch on, `message` as the thing to show a human.
@@ -156,7 +156,7 @@ Every failure is a structured `{ code, message }`, never a bare string — treat
 
 - **Credentials are always the viewer's, never the author's.** When a shared
   program's panel is viewed, `providerFetch` inside it resolves auth using the
-  *viewing* user's own configured provider credentials — not the program
+  _viewing_ user's own configured provider credentials — not the program
   author's. A teammate missing a HubSpot key sees a HubSpot auth error on that
   panel, not someone else's data.
 - **Only share programs you trust.** Because execution uses the viewer's
@@ -204,7 +204,8 @@ const HIGH_RISK_SENTIMENTS = ["frustrated", "high_risk_detractor"];
 
 function chunk(items, size) {
   const out = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size));
   return out;
 }
 
@@ -217,19 +218,42 @@ async function main() {
     {
       method: "POST",
       body: {
-        filterGroups: [{
-          filters: [
-            { propertyName: "risk_status", operator: "IN", values: riskStatuses },
-            { propertyName: "closedate", operator: "GT", value: String(Date.now()) },
-          ],
-        }],
-        properties: ["dealname", "risk_status", "risk_summary", "risk_category",
-          "hs_next_step", "churn_notes", "total_contract_value",
-          "customer_success_owner", "dealstage", "closedate"],
+        filterGroups: [
+          {
+            filters: [
+              {
+                propertyName: "risk_status",
+                operator: "IN",
+                values: riskStatuses,
+              },
+              {
+                propertyName: "closedate",
+                operator: "GT",
+                value: String(Date.now()),
+              },
+            ],
+          },
+        ],
+        properties: [
+          "dealname",
+          "risk_status",
+          "risk_summary",
+          "risk_category",
+          "hs_next_step",
+          "churn_notes",
+          "total_contract_value",
+          "customer_success_owner",
+          "dealstage",
+          "closedate",
+        ],
         limit: 100,
       },
       itemsPath: "results",
-      pagination: { cursorBodyPath: "after", nextCursorPath: "paging.next.after", maxPages: 20 },
+      pagination: {
+        cursorBodyPath: "after",
+        nextCursorPath: "paging.next.after",
+        maxPages: 20,
+      },
     },
   );
   const deals = dealSearch.items || [];
@@ -241,28 +265,38 @@ async function main() {
   for (const batch of chunk(dealIds, 100)) {
     if (batch.length === 0) continue;
     const assoc = await providerFetch(
-      "hubspot", "/crm/v3/associations/deals/companies/batch/read",
+      "hubspot",
+      "/crm/v3/associations/deals/companies/batch/read",
       { method: "POST", body: { inputs: batch.map((id) => ({ id })) } },
     );
     for (const r of (assoc && assoc.results) || []) {
       const dealId = r && r.from && r.from.id;
-      const companyId = r && Array.isArray(r.to) && r.to.length > 0 ? r.to[0].id : null;
+      const companyId =
+        r && Array.isArray(r.to) && r.to.length > 0 ? r.to[0].id : null;
       if (dealId && companyId) companyByDeal[dealId] = companyId;
     }
   }
 
   // 3. Batched company -> domain lookup.
-  const companyIds = Array.from(new Set(Object.values(companyByDeal))).filter(Boolean);
+  const companyIds = Array.from(new Set(Object.values(companyByDeal))).filter(
+    Boolean,
+  );
   const domainByCompany = {};
   for (const batch of chunk(companyIds, 100)) {
     if (batch.length === 0) continue;
     const companies = await providerFetch(
-      "hubspot", "/crm/v3/objects/companies/batch/read",
-      { method: "POST", body: { inputs: batch.map((id) => ({ id })), properties: ["domain"] } },
+      "hubspot",
+      "/crm/v3/objects/companies/batch/read",
+      {
+        method: "POST",
+        body: { inputs: batch.map((id) => ({ id })), properties: ["domain"] },
+      },
     );
     for (const r of (companies && companies.results) || []) {
-      const domain = r && r.properties && r.properties.domain
-        ? String(r.properties.domain).toLowerCase() : null;
+      const domain =
+        r && r.properties && r.properties.domain
+          ? String(r.properties.domain).toLowerCase()
+          : null;
       if (r && r.id && domain) domainByCompany[r.id] = domain;
     }
   }
@@ -270,15 +304,25 @@ async function main() {
   // 4. A second, unrelated provider — zero bespoke glue action required.
   const pylonAccounts = await providerFetchAll("pylon", "/accounts", {
     itemsPath: "data",
-    pagination: { cursorParam: "cursor", nextCursorPath: "pagination.cursor", maxPages: 20 },
+    pagination: {
+      cursorParam: "cursor",
+      nextCursorPath: "pagination.cursor",
+      maxPages: 20,
+    },
   });
   const sentimentByDomain = {};
   for (const account of pylonAccounts.items || []) {
     if (!account) continue;
-    const domain = typeof account.domain === "string" ? account.domain.toLowerCase() : null;
+    const domain =
+      typeof account.domain === "string" ? account.domain.toLowerCase() : null;
     if (!domain) continue;
-    if (params.enterpriseOnly && account.account_profile !== "Enterprise Active Customer") continue;
-    if (account.general_sentiment) sentimentByDomain[domain] = account.general_sentiment;
+    if (
+      params.enterpriseOnly &&
+      account.account_profile !== "Enterprise Active Customer"
+    )
+      continue;
+    if (account.general_sentiment)
+      sentimentByDomain[domain] = account.general_sentiment;
   }
 
   // 5. Join + emit. csm_name is computed HERE — never baked into a generic
@@ -303,18 +347,27 @@ async function main() {
       closedate: props.closedate || null,
       domain: domain || null,
       pylon_sentiment: sentiment,
-      cross_source_flag: Boolean(domain && HIGH_RISK_SENTIMENTS.includes(sentiment)),
+      cross_source_flag: Boolean(
+        domain && HIGH_RISK_SENTIMENTS.includes(sentiment),
+      ),
     };
   });
 
   emit(rows, [
-    { name: "deal_id", type: "string" }, { name: "deal_name", type: "string" },
-    { name: "risk_status", type: "string" }, { name: "risk_summary", type: "string" },
-    { name: "risk_category", type: "string" }, { name: "next_step", type: "string" },
-    { name: "churn_notes", type: "string" }, { name: "arr", type: "number" },
-    { name: "csm_name", type: "string" }, { name: "dealstage", type: "string" },
-    { name: "closedate", type: "string" }, { name: "domain", type: "string" },
-    { name: "pylon_sentiment", type: "string" }, { name: "cross_source_flag", type: "boolean" },
+    { name: "deal_id", type: "string" },
+    { name: "deal_name", type: "string" },
+    { name: "risk_status", type: "string" },
+    { name: "risk_summary", type: "string" },
+    { name: "risk_category", type: "string" },
+    { name: "next_step", type: "string" },
+    { name: "churn_notes", type: "string" },
+    { name: "arr", type: "number" },
+    { name: "csm_name", type: "string" },
+    { name: "dealstage", type: "string" },
+    { name: "closedate", type: "string" },
+    { name: "domain", type: "string" },
+    { name: "pylon_sentiment", type: "string" },
+    { name: "cross_source_flag", type: "boolean" },
   ]);
 }
 

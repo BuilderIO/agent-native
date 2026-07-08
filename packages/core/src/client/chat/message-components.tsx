@@ -82,6 +82,22 @@ export function displayableUserMessageText(text: string): string {
     .trim();
 }
 
+export function isHiddenUserMessage(message: unknown): boolean {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: {
+          agentNativeHiddenUserMessage?: unknown;
+          agentNativeRecoveryAction?: unknown;
+        };
+      }
+    | undefined;
+  return (
+    meta?.custom?.agentNativeHiddenUserMessage === true ||
+    meta?.custom?.agentNativeRecoveryAction === "continue" ||
+    meta?.custom?.agentNativeRecoveryAction === "retry"
+  );
+}
+
 // ─── Message timestamp helpers ────────────────────────────────────────────────
 
 interface FormattedMessageTimestamp {
@@ -634,6 +650,7 @@ export function UserMessage() {
   const timestamp = formatMessageTimestamp(message.createdAt);
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
+  if (isHiddenUserMessage(message)) return null;
   const hasDisplayableText =
     message.content
       ?.filter((part): part is { type: "text"; text: string } => {

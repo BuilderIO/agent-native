@@ -5,6 +5,7 @@ export {
 } from "./SettingsPanel.js";
 export {
   SettingsTabsPage,
+  type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
