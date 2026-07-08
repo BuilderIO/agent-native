@@ -330,11 +330,26 @@ class AISDKEngine implements AgentEngine {
         // Gemini 3.x models reject thinkingBudget — they require thinkingLevel.
         // Gemini 2.5.x models use thinkingBudget (integer token count or -1).
         const isGemini3 = /^gemini-3/.test(opts.model);
+        const thinkingBudget = googleThinkingBudget(reasoningEffort);
         providerOpts.google = {
           ...((providerOpts.google as object) ?? {}),
           thinkingConfig: isGemini3
             ? { thinkingLevel: gemini3ThinkingLevel(reasoningEffort) }
-            : { thinkingBudget: googleThinkingBudget(reasoningEffort) },
+            : {
+                // Unlike Anthropic's adaptive thinking, Gemini 2.5's
+                // thinkingBudget IS a concrete numeric token count, so the
+                // same headroom clamp applies: at "max" effort this maps to
+                // 32000 tokens, which can equal (or exceed) a small
+                // maxOutputTokens cap and leave zero room for the actual
+                // response. Preserve Gemini's -1 "dynamic" sentinel.
+                thinkingBudget:
+                  thinkingBudget > 0
+                    ? clampThinkingBudgetTokens(
+                        thinkingBudget,
+                        resolvedMaxOutputTokens,
+                      )
+                    : thinkingBudget,
+              },
         };
       }
     }
