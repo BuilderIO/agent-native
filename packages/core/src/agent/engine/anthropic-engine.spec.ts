@@ -201,6 +201,49 @@ describe("createAnthropicEngine", () => {
     expect(lowParams.max_tokens).toBe(64_000);
   });
 
+  it("clamps an explicit large thinking budget so it leaves headroom under max_tokens", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-opus-4-8",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "enabled", budgetTokens: 100_000 },
+        },
+      },
+    });
+
+    expect(requestParams.max_tokens).toBe(32_000);
+    // Unclamped this would have been 100_000 (> max_tokens, invalid per the
+    // Anthropic API contract). It must stay strictly below max_tokens and
+    // leave at least max(8000, 40% of max_tokens) for the actual response.
+    expect(requestParams.thinking.budget_tokens).toBeLessThan(32_000);
+    expect(
+      requestParams.max_tokens - requestParams.thinking.budget_tokens,
+    ).toBeGreaterThanOrEqual(8000);
+  });
+
+  it("leaves a small, already-safe thinking budget unchanged", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-opus-4-8",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "enabled", budgetTokens: 2_000 },
+        },
+      },
+    });
+
+    expect(requestParams.thinking.budget_tokens).toBe(2_000);
+  });
+
   it("adds no cache_control anywhere when cacheControl is disabled", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-haiku-4-5-20251001",

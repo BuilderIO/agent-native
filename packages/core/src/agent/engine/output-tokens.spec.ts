@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
+  clampThinkingBudgetTokens,
   DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS,
   DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
   DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
   DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
   defaultMaxOutputTokensForEngine,
+  EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP,
+  MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP,
   normalizeMaxOutputTokens,
+  resolveEmptyResponseRetryMaxOutputTokens,
+  resolveMainChatMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
 
@@ -90,5 +96,86 @@ describe("agent output-token policy", () => {
     );
     // Without a model the env override is still clamped to 64K.
     expect(defaultMaxOutputTokensForEngine("ai-sdk:openai")).toBe(64_000);
+  });
+
+  describe("interactive chat path max_output_tokens floor", () => {
+    it("resolves to min(modelCeiling, 32K) — far above the flat per-engine defaults", () => {
+      expect(MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP).toBe(32_000);
+      // 128K-ceiling models (Claude flagships, GPT-5.x) still cap at 32K for
+      // the first attempt.
+      expect(resolveMainChatMaxOutputTokens("claude-sonnet-5")).toBe(32_000);
+      expect(resolveMainChatMaxOutputTokens("claude-opus-4-8")).toBe(32_000);
+      expect(resolveMainChatMaxOutputTokens("gpt-5.5")).toBe(32_000);
+      // 64K-ceiling and unknown models stay under their ceiling, but still
+      // land well above the flat per-engine defaults below.
+      expect(resolveMainChatMaxOutputTokens("claude-haiku-4-5")).toBe(32_000);
+      expect(resolveMainChatMaxOutputTokens("some-unknown-model")).toBe(32_000);
+      expect(resolveMainChatMaxOutputTokens(undefined)).toBe(32_000);
+
+      // Never below the flat per-engine defaults this replaces.
+      expect(resolveMainChatMaxOutputTokens(undefined)).toBeGreaterThan(
+        DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
+      );
+      expect(resolveMainChatMaxOutputTokens(undefined)).toBeGreaterThan(
+        DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS,
+      );
+      expect(resolveMainChatMaxOutputTokens(undefined)).toBeGreaterThan(
+        DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
+      );
+    });
+
+    it("empty-response retry ceiling (64K) is higher than the first-attempt chat cap", () => {
+      expect(EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP).toBe(64_000);
+      expect(resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5")).toBe(
+        64_000,
+      );
+      expect(resolveEmptyResponseRetryMaxOutputTokens("claude-haiku-4-5")).toBe(
+        64_000,
+      );
+      expect(resolveEmptyResponseRetryMaxOutputTokens(undefined)).toBe(64_000);
+      expect(
+        resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5"),
+      ).toBeGreaterThan(resolveMainChatMaxOutputTokens("claude-sonnet-5"));
+    });
+  });
+
+  describe("clampThinkingBudgetTokens", () => {
+    it("leaves at least max(8000, 40% of maxOutputTokens) of non-thinking headroom", () => {
+      const maxOutputTokens = 32_000;
+      const budget = clampThinkingBudgetTokens(200_000, maxOutputTokens);
+      const requiredHeadroom = Math.max(
+        8000,
+        Math.round(0.4 * maxOutputTokens),
+      );
+
+      expect(budget).toBeDefined();
+      const definedBudget = budget!;
+      expect(definedBudget).toBeLessThan(maxOutputTokens);
+      expect(maxOutputTokens - definedBudget).toBeGreaterThanOrEqual(
+        requiredHeadroom,
+      );
+    });
+
+    it("passes small requested budgets through unchanged when they already fit", () => {
+      expect(clampThinkingBudgetTokens(2_000, 32_000)).toBe(2_000);
+    });
+
+    it("never goes below Anthropic's documented minimum and always stays < max_tokens", () => {
+      const maxOutputTokens = 64_000;
+      const budget = clampThinkingBudgetTokens(500_000, maxOutputTokens);
+
+      expect(budget).toBeDefined();
+      const definedBudget = budget!;
+      expect(definedBudget).toBeGreaterThanOrEqual(
+        ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
+      );
+      expect(definedBudget).toBeLessThan(maxOutputTokens);
+    });
+
+    it("returns undefined when maxOutputTokens is too small for any valid Anthropic thinking budget", () => {
+      expect(
+        clampThinkingBudgetTokens(10_000, ANTHROPIC_MIN_THINKING_BUDGET_TOKENS),
+      ).toBeUndefined();
+    });
   });
 });

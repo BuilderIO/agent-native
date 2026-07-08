@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
+  stepDownReasoningEffort,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
@@ -73,5 +74,25 @@ describe("normalizeReasoningEffortForModel", () => {
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
+  });
+});
+
+describe("stepDownReasoningEffort", () => {
+  it("steps down one tier at a time through the standard ladder", () => {
+    expect(stepDownReasoningEffort("max")).toBe("xhigh");
+    expect(stepDownReasoningEffort("xhigh")).toBe("high");
+    expect(stepDownReasoningEffort("high")).toBe("medium");
+    expect(stepDownReasoningEffort("medium")).toBe("low");
+    expect(stepDownReasoningEffort("low")).toBe("minimal");
+  });
+
+  it("leaves minimal, none, and auto unchanged (nothing lower to step to)", () => {
+    expect(stepDownReasoningEffort("minimal")).toBe("minimal");
+    expect(stepDownReasoningEffort("none")).toBe("none");
+    expect(stepDownReasoningEffort("auto")).toBe("auto");
+  });
+
+  it("passes through undefined unchanged", () => {
+    expect(stepDownReasoningEffort(undefined)).toBeUndefined();
   });
 });

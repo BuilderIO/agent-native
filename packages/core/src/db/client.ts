@@ -856,15 +856,18 @@ export function isBackgroundFunctionPoolContext(): boolean {
   ) {
     return true;
   }
-  // Set by the HMAC-authenticated agent-chat `_process-run` route before it
-  // re-enters the normal chat handler. This mirrors the marker-only runtime
-  // proof used by durable-background.ts without importing agent code into db/.
-  if (
-    (globalThis as Record<string, unknown>)
-      .__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ === true
-  ) {
-    return true;
-  }
+  // NOTE: we deliberately do NOT trust `__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__`
+  // here. That flag is set from the dispatch MARKER (which URL the foreground
+  // targeted), not from proof the request actually LANDED on a background
+  // function. A worker dispatched toward `-background` but routed onto the ~60s
+  // synchronous function would otherwise take the 8-connection background pool
+  // while running as one of MANY warm sync-function instances — multiplying
+  // Neon connections and exhausting the pooled endpoint ("connection
+  // terminated" / statement timeouts / failed heartbeat writes → stale runs).
+  // The genuine `-background` function sets `__AGENT_NATIVE_BACKGROUND_RUNTIME__`
+  // as its first cold-start statement, so a real background worker still gets
+  // the larger pool via the check above. Mirrors the same proof-of-landing
+  // tightening applied to `shouldUseBackgroundFunctionTimeoutForWorker`.
   const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (
     typeof lambdaName === "string" &&

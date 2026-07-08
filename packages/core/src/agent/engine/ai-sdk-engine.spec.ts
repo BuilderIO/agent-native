@@ -43,6 +43,48 @@ function mockGoogleProvider() {
   return { createGoogleGenerativeAI, provider, googleModel };
 }
 
+function mockAnthropicProvider() {
+  const anthropicModel = { id: "anthropic-model" };
+  const provider = vi.fn().mockReturnValue(anthropicModel);
+  const createAnthropic = vi.fn().mockReturnValue(provider);
+  vi.doMock("@ai-sdk/anthropic", () => ({ createAnthropic }));
+  return { createAnthropic, provider, anthropicModel };
+}
+
+describe("AISDKEngine Anthropic thinking-budget headroom", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("clamps an explicit large thinking budget so it leaves headroom under maxOutputTokens", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-opus-4-8",
+        maxOutputTokens: 32_000,
+        providerOptions: {
+          anthropic: {
+            thinking: { type: "enabled", budgetTokens: 100_000 },
+          },
+        },
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const budgetTokens = call.providerOptions.anthropic.thinking
+      .budgetTokens as number;
+    expect(budgetTokens).toBeLessThan(32_000);
+    expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
+  });
+});
+
 describe("AISDKEngine Google Gemini thinking config", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -61,6 +103,10 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         ...BASE_STREAM_OPTIONS,
         model: "gemini-2.5-flash",
         reasoningEffort: "medium",
+        // Generous maxOutputTokens (matches the interactive chat floor) so
+        // the headroom clamp below is a no-op and the raw effort->budget
+        // mapping is what's under test here.
+        maxOutputTokens: 32_000,
       }),
     );
 
@@ -73,6 +119,31 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         }),
       }),
     );
+  });
+
+  it("clamps Gemini thinkingBudget so it can't consume a small maxOutputTokens entirely", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-2.5-flash",
+        reasoningEffort: "medium",
+        // Unclamped, "medium" effort maps to a 4096-token thinkingBudget —
+        // identical to this maxOutputTokens, which would leave zero tokens
+        // for the actual response (the empty-response bug this fixes).
+        maxOutputTokens: 4_096,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const thinkingBudget = call.providerOptions.google.thinkingConfig
+      .thinkingBudget as number;
+    expect(thinkingBudget).toBeLessThan(4_096);
   });
 
   it("uses thinkingLevel for Gemini 3.x models (low effort → 'low')", async () => {
