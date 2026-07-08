@@ -120,7 +120,9 @@ Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck",
 
 ```tsx
 <Button
-  onClick={() => sendToAgentChat({ message: "make a design", submit: true })}
+  onClick={() =>
+    sendToAgentChat({ message: "make a design", submit: true })
+  }
 >
   New Design
 </Button>
