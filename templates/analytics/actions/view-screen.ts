@@ -20,6 +20,10 @@ import {
   replayRangeToIso,
   type ReplayRange,
 } from "../server/lib/session-replay.js";
+import {
+  getStatusPagePreview,
+  listStatusPages,
+} from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 
 const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
@@ -170,6 +174,17 @@ export default defineAction({
           ],
         },
         {
+          id: "status-pages",
+          label: "Status pages",
+          path: "/monitoring?statuspage=list",
+          includes: [
+            "public status page config (under the uptime subview)",
+            "monitor selection + ordering",
+            "publish / slug management",
+            "public URL /status/<slug>",
+          ],
+        },
+        {
           id: "errors",
           label: "Errors",
           path: "/monitoring?view=errors",
@@ -235,6 +250,59 @@ export default defineAction({
                 usersAffected: issue.usersAffected,
                 lastSeenAt: issue.lastSeenAt,
               }));
+            }
+          } else if (nav?.statusPageId) {
+            // Status pages are a config sub-view under the uptime panel.
+            screen.uptimeSubview = "status-pages";
+            if (nav.statusPageId === "new") {
+              screen.statusPageMode = "create";
+            } else if (nav.statusPageId === "list") {
+              const pages = await listStatusPages({ email, orgId });
+              screen.statusPages = pages.map((page) => ({
+                id: page.id,
+                slug: page.slug,
+                title: page.title,
+                published: page.published,
+                monitorCount: page.monitors.length,
+                publicUrl: `/status/${page.slug}`,
+                updatedAt: page.updatedAt,
+              }));
+            } else {
+              screen.statusPageId = nav.statusPageId;
+              const preview = await getStatusPagePreview(nav.statusPageId, {
+                email,
+                orgId,
+              });
+              if (preview) {
+                const { page, view } = preview;
+                screen.statusPage = {
+                  id: page.id,
+                  slug: page.slug,
+                  title: page.title,
+                  description: page.description,
+                  published: page.published,
+                  publicUrl: `/status/${page.slug}`,
+                  layout: {
+                    density: page.density,
+                    alignment: page.alignment,
+                    showUptimeBars: page.showUptimeBars,
+                    showOverallUptime: page.showOverallUptime,
+                    showResponseTime: page.showResponseTime,
+                  },
+                  monitorCount: page.monitors.length,
+                  overall: view.overall,
+                  counts: view.counts,
+                  includedMonitors: view.monitors.map((monitor) => ({
+                    id: monitor.id,
+                    name: monitor.name,
+                    host: monitor.host,
+                    status: monitor.status,
+                    uptime24h: monitor.windows.uptime24h,
+                    uptime7d: monitor.windows.uptime7d,
+                  })),
+                  updatedAt: page.updatedAt,
+                };
+              }
             }
           } else if (nav?.monitorId === "new") {
             screen.monitorMode = "create";

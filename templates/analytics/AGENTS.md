@@ -159,10 +159,11 @@ details live in `.agents/skills/`.
   context.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
-  replay, `view="monitoring"` with `monitoringView="uptime|errors"` for uptime
-  checks or error triage, and `view="agents"` / `agentsView="database"` with
-  optional `dbAdminConnectionId` for agent monitoring or connected app database
-  admin.
+  replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
+  `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
+  public status pages, or error triage, and `view="agents"` /
+  `agentsView="database"` with optional `dbAdminConnectionId` for agent
+  monitoring or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -220,6 +221,16 @@ details live in `.agents/skills/`.
   `server/db/schema-monitoring.ts`. Deep links: list `?view=uptime`, detail
   `?view=uptime&monitor=<id>`, create `?view=uptime&monitor=new`, edit
   `?view=uptime&monitor=<id>&edit=1`. See `docs/uptime-monitoring.md`.
+- Status pages (`app/pages/monitoring/uptime/status-pages/**`) are a config
+  sub-view under Uptime that bundle chosen monitors under a public
+  `/status/<slug>` page. Actions: `list-status-pages`, `get-status-page`,
+  `save-status-page`, `delete-status-page`, `add-status-page-monitor`,
+  `remove-status-page-monitor`, `reorder-status-page-monitors`, plus the
+  unauthenticated `get-public-status-page`. Owner-scoped CRUD and the sanitized
+  public projection live in `server/lib/status-pages.ts` over
+  `server/db/schema-monitoring.ts`. Deep links: index
+  `?view=uptime&statuspage=list`, create `?view=uptime&statuspage=new`, edit
+  `?view=uptime&statuspage=<id>`.
 - Errors (`app/pages/monitoring/ErrorsPanel.tsx`,
   `app/pages/monitoring/errors/**`) is Sentry-style exception triage grouped
   into issues by fingerprint. Actions: `list-error-issues`, `get-error-issue`,
