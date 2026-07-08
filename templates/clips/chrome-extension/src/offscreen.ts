@@ -60,6 +60,34 @@ function waitForRetry(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function copyTextToClipboard(
+  message: CopyTextMessage,
+): Promise<{ ok: boolean }> {
+  const text = message.text.trim();
+  if (!text) throw new Error("Missing text to copy.");
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return { ok: true };
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Clipboard copy was rejected.");
+    }
+    return { ok: true };
+  } finally {
+    textarea.remove();
+  }
+}
+
 function isFinalUploadRecoveryCandidate(error: Error): boolean {
   const tagged = error as {
     finalUploadRecoveryAttempted?: boolean;
@@ -112,6 +140,11 @@ type SimpleMessage = {
     | "CLIPS_OFFSCREEN_RESTART"
     | "CLIPS_OFFSCREEN_START_NOW";
   sessionId: string;
+};
+
+type CopyTextMessage = {
+  type: "CLIPS_OFFSCREEN_COPY_TEXT";
+  text: string;
 };
 
 type StatusName = "recording" | "paused" | "uploading" | "complete" | "error";
@@ -1678,6 +1711,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     case "CLIPS_OFFSCREEN_START_NOW":
       task = Promise.resolve(startNow(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_COPY_TEXT":
+      task = copyTextToClipboard(message as CopyTextMessage);
       break;
     default:
       return false;

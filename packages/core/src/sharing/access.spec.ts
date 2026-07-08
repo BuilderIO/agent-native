@@ -731,6 +731,28 @@ describe("shareable resource access helpers", () => {
     expect(shares).toHaveLength(0);
   });
 
+  it("rejects non-email user share principals", async () => {
+    await insertDoc({ id: "doc-user-principal-validation" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-principal-validation",
+          principalType: "user",
+          principalId: "opaque-user-id",
+          role: "viewer",
+        }),
+      ).rejects.toThrow(/email address/);
+    });
+
+    const shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-principal-validation"));
+    expect(shares).toHaveLength(0);
+  });
+
   it("attaches legacy unscoped owner resources to the active org when making them org-visible", async () => {
     await insertDoc({ id: "doc-legacy-solo", orgId: null });
 

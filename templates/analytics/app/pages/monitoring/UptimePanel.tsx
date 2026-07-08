@@ -1,11 +1,15 @@
 /**
  * Uptime monitoring panel — OWNED BY THE UPTIME MONITORING FEATURE.
  *
- * Renders the monitor list + detail below the Monitoring tab bar. Selection is
- * reflected in the `?monitor=<id>` query param (shareable + agent-deep-linkable)
- * and mirrored into `application_state` so the agent knows what the user views.
- * Data flows through the monitor actions; `useChangeVersions(["monitors"])`
- * keeps the UI fresh as background sweeps and agent edits land.
+ * Swaps between three query-param-driven views (all under the Monitoring tab):
+ *   - list:   ?view=uptime
+ *   - detail: ?view=uptime&monitor=<id>
+ *   - create: ?view=uptime&monitor=new
+ *   - edit:   ?view=uptime&monitor=<id>&edit=1
+ * Everything is deep-linkable + back-button friendly and mirrored into
+ * `application_state` so the agent knows what the user views. Data flows through
+ * the monitor actions; `useChangeVersions(["monitors"])` keeps the UI fresh as
+ * background sweeps and agent edits land.
  */
 import {
   setClientAppState,
@@ -34,7 +38,7 @@ import { Input } from "@/components/ui/input";
 
 import { fmt, useUptimeT } from "./uptime/i18n";
 import { MonitorDetail } from "./uptime/MonitorDetail";
-import { MonitorFormDialog } from "./uptime/MonitorFormDialog";
+import { MonitorFormPage } from "./uptime/MonitorFormPage";
 import { MonitorList } from "./uptime/MonitorList";
 import type {
   CheckOutcome,
@@ -74,13 +78,12 @@ export function UptimePanel() {
   const t = useUptimeT();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedId = searchParams.get("monitor");
+  const monitorParam = searchParams.get("monitor");
+  const isCreate = monitorParam === "new";
+  const selectedId = isCreate ? null : monitorParam;
+  const isEditing = !!selectedId && searchParams.get("edit") === "1";
 
   const [search, setSearch] = useState("");
-  const [dialogMonitor, setDialogMonitor] = useState<MonitorSummary | null>(
-    null,
-  );
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [monitorToDelete, setMonitorToDelete] = useState<MonitorSummary | null>(
     null,
   );
@@ -120,57 +123,70 @@ export function UptimePanel() {
     [monitors, selectedId],
   );
 
-  // Mirror the current selection into application_state for the agent.
+  // Mirror the current selection / form mode into application_state.
   useEffect(() => {
+    const mode = isCreate ? "create" : isEditing ? "edit" : "view";
     const value = selectedMonitor
       ? {
           view: "uptime",
+          mode,
           monitorId: selectedMonitor.id,
           monitorName: selectedMonitor.name,
           url: selectedMonitor.url,
           status: selectedMonitor.lastStatus,
         }
       : selectedId
-        ? { view: "uptime", monitorId: selectedId }
-        : { view: "uptime" };
+        ? { view: "uptime", mode, monitorId: selectedId }
+        : { view: "uptime", mode };
     void setClientAppState("monitoring", value).catch(() => {});
-  }, [selectedMonitor, selectedId]);
+  }, [selectedMonitor, selectedId, isCreate, isEditing]);
 
-  const selectMonitor = (id: string | null) => {
+  const updateParams = (
+    mutate: (params: URLSearchParams) => void,
+    options?: { replace?: boolean },
+  ) => {
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
-        if (id) params.set("monitor", id);
-        else params.delete("monitor");
+        mutate(params);
         return params;
       },
-      { replace: false },
+      { replace: options?.replace ?? false },
     );
   };
 
-  const openCreate = () => {
-    setDialogMonitor(null);
-    setDialogOpen(true);
+  const showList = () =>
+    updateParams((params) => {
+      params.delete("monitor");
+      params.delete("edit");
+    });
+
+  const showDetail = (id: string, options?: { replace?: boolean }) =>
+    updateParams((params) => {
+      params.set("monitor", id);
+      params.delete("edit");
+    }, options);
+
+  const openCreate = () =>
+    updateParams((params) => {
+      params.set("monitor", "new");
+      params.delete("edit");
+    });
+
+  const openEdit = (monitor: MonitorSummary) =>
+    updateParams((params) => {
+      params.set("monitor", monitor.id);
+      params.set("edit", "1");
+    });
+
+  const handleSaved = (saved: MonitorSummary) => {
+    // Replace the form entry with the monitor's detail so Back skips the form.
+    showDetail(saved.id, { replace: true });
   };
 
-  const openEdit = (monitor: MonitorSummary) => {
-    setDialogMonitor(monitor);
-    setDialogOpen(true);
-  };
-
-  const handleSubmit = async (input: SaveMonitorInput) => {
-    try {
-      const saved = await saveMonitor.mutateAsync(input);
-      setDialogOpen(false);
-      toast.success(t.saved);
-      if (!input.id && saved?.id) selectMonitor(saved.id);
-    } catch (err) {
-      toast.error(
-        fmt(t.saveFailed, {
-          message: err instanceof Error ? err.message : String(err),
-        }),
-      );
-    }
+  const handleFormCancel = () => {
+    if (selectedId) showDetail(selectedId, { replace: true });
+    else showList();
   };
 
   const handleToggle = async (monitor: MonitorSummary, enabled: boolean) => {
@@ -236,7 +252,7 @@ export function UptimePanel() {
     queryClient.setQueryData<MonitorSummary[]>(LIST_KEY, (old) =>
       (old ?? []).filter((m) => m.id !== target.id),
     );
-    if (selectedId === target.id) selectMonitor(null);
+    if (selectedId === target.id) showList();
     try {
       await deleteMonitor.mutateAsync({ id: target.id });
       toast.success(t.deleted);
@@ -255,6 +271,26 @@ export function UptimePanel() {
     queryClient.invalidateQueries({ queryKey: ["action", "get-monitor"] });
   };
 
+  // Create / edit — full-page form
+  if (isCreate || isEditing) {
+    return (
+      <>
+        <MonitorFormPage
+          monitorId={isCreate ? null : selectedId}
+          initialMonitor={selectedMonitor}
+          onCancel={handleFormCancel}
+          onSaved={handleSaved}
+        />
+        <DeleteDialog
+          monitor={monitorToDelete}
+          onCancel={() => setMonitorToDelete(null)}
+          onConfirm={handleDelete}
+          pending={deleteMonitor.isPending}
+        />
+      </>
+    );
+  }
+
   // Detail view
   if (selectedId) {
     return (
@@ -262,18 +298,11 @@ export function UptimePanel() {
         <MonitorDetail
           monitorId={selectedId}
           fallback={selectedMonitor ?? undefined}
-          onBack={() => selectMonitor(null)}
+          onBack={showList}
           onEdit={openEdit}
           onDelete={setMonitorToDelete}
           onRunCheck={handleRunCheck}
           running={runningId === selectedId}
-        />
-        <MonitorFormDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          monitor={dialogMonitor}
-          onSubmit={handleSubmit}
-          saving={saveMonitor.isPending}
         />
         <DeleteDialog
           monitor={monitorToDelete}
@@ -331,20 +360,13 @@ export function UptimePanel() {
           isLoading={isLoading}
           hasSearch={search.trim().length > 0}
           runningId={runningId}
-          onSelect={(m) => selectMonitor(m.id)}
+          onSelect={(m) => showDetail(m.id)}
           onToggle={handleToggle}
           onRunCheck={handleRunCheck}
           onCreate={openCreate}
         />
       </div>
 
-      <MonitorFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        monitor={dialogMonitor}
-        onSubmit={handleSubmit}
-        saving={saveMonitor.isPending}
-      />
       <DeleteDialog
         monitor={monitorToDelete}
         onCancel={() => setMonitorToDelete(null)}

@@ -201,40 +201,114 @@ async function initBubble(): Promise<void> {
 
   root.appendChild(bubble);
 
-  try {
-    const videoDeviceId = await new Promise<string>((resolve) => {
-      try {
-        chrome.storage.sync.get("videoDeviceId", (v) =>
-          resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
-        );
-      } catch {
-        resolve("");
-      }
-    });
-    const stream = await getCameraBubbleStream(videoDeviceId);
-    const video = document.createElement("video");
-    video.muted = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    ring.appendChild(video);
-    await video.play().catch(() => undefined);
-    console.log("[clips-overlay] camera bubble live");
+  let currentStream: MediaStream | null = null;
+  let currentVideo: HTMLVideoElement | null = null;
+  let healthTimer: number | undefined;
+  let reconnectTimer: number | undefined;
+  let unhealthyTicks = 0;
+  let readyPosted = false;
+
+  const postReadyOnce = (): void => {
+    if (readyPosted) return;
+    readyPosted = true;
     // Tell the host the feed is live so it can start the countdown — the "3"
     // shouldn't appear until the camera is actually showing.
     postBubble("camera-ready");
-  } catch (err) {
-    console.warn("[clips-overlay] camera getUserMedia failed:", err);
-    captureExtensionError(err, {
-      tags: { surface: "overlay", overlayPart: "bubble" },
-    });
+  };
+
+  const videoDeviceId = await new Promise<string>((resolve) => {
+    try {
+      chrome.storage.sync.get("videoDeviceId", (v) =>
+        resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
+      );
+    } catch {
+      resolve("");
+    }
+  });
+
+  const stopCurrentStream = (): void => {
+    if (healthTimer !== undefined) window.clearInterval(healthTimer);
+    healthTimer = undefined;
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+    currentVideo?.remove();
+    currentVideo = null;
+    currentStream?.getTracks().forEach((track) => track.stop());
+    currentStream = null;
+    unhealthyTicks = 0;
+  };
+
+  const showCameraUnavailable = (): void => {
+    stopCurrentStream();
+    ring.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
     ring.appendChild(empty);
     // Still release the countdown — a blocked/failed camera must not hang it.
-    postBubble("camera-ready");
+    postReadyOnce();
+  };
+
+  const scheduleReconnect = (reason: string): void => {
+    if (reconnectTimer !== undefined) return;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = undefined;
+      void connectCamera(reason);
+    }, 500);
+  };
+
+  const watchCameraHealth = (
+    video: HTMLVideoElement,
+    track: MediaStreamTrack,
+  ) => {
+    healthTimer = window.setInterval(() => {
+      const unhealthy =
+        track.readyState !== "live" ||
+        track.muted ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+        video.videoWidth === 0;
+      unhealthyTicks = unhealthy ? unhealthyTicks + 1 : 0;
+      if (unhealthyTicks >= 3) scheduleReconnect("camera stream stalled");
+    }, 2000);
+  };
+
+  async function connectCamera(reason = "initial"): Promise<void> {
+    stopCurrentStream();
+    try {
+      const stream = await getCameraBubbleStream(videoDeviceId);
+      const video = document.createElement("video");
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      ring.replaceChildren(video);
+      currentStream = stream;
+      currentVideo = video;
+      const track = stream.getVideoTracks()[0];
+      track?.addEventListener("ended", () => scheduleReconnect("track ended"));
+      track?.addEventListener("mute", () => scheduleReconnect("track muted"));
+      video.addEventListener("stalled", () =>
+        scheduleReconnect("video stalled"),
+      );
+      video.addEventListener("emptied", () =>
+        scheduleReconnect("video emptied"),
+      );
+      await video.play().catch(() => undefined);
+      console.log("[clips-overlay] camera bubble live", reason);
+      postReadyOnce();
+      if (track) watchCameraHealth(video, track);
+    } catch (err) {
+      console.warn("[clips-overlay] camera getUserMedia failed:", err);
+      captureExtensionError(err, {
+        tags: { surface: "overlay", overlayPart: "bubble" },
+        extra: { reason },
+      });
+      showCameraUnavailable();
+    }
   }
+
+  window.addEventListener("pagehide", stopCurrentStream, { once: true });
+  await connectCamera();
 }
 
 /* ------------------------------------------------------------- countdown --- */

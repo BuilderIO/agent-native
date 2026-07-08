@@ -19,6 +19,9 @@ interface NavigationState {
   recordingId?: string;
   agentsView?: string;
   dbAdminConnectionId?: string;
+  monitoringView?: string;
+  monitorId?: string;
+  errorIssueId?: string;
   filters?: Record<string, string>;
 }
 
@@ -82,6 +85,17 @@ export function useNavigationState() {
           if (dbAdminConnectionId)
             state.dbAdminConnectionId = dbAdminConnectionId;
         }
+      } else if (pathname === "/monitoring") {
+        state.view = "monitoring";
+        state.monitoringView =
+          searchParams.get("view") === "errors" ? "errors" : "uptime";
+        if (state.monitoringView === "errors") {
+          const issue = searchParams.get("issue");
+          if (issue) state.errorIssueId = issue;
+        } else {
+          const monitor = searchParams.get("monitor");
+          if (monitor) state.monitorId = monitor;
+        }
       } else if (pathname === "/data-sources") {
         state.view = "data-sources";
       } else if (pathname === "/data-dictionary") {
@@ -112,6 +126,17 @@ export function useNavigationState() {
         return `/agents?${params.toString()}`;
       }
       if (cmd.view === "agents") return "/agents";
+      if (cmd.view === "monitoring") {
+        const params = new URLSearchParams();
+        if (cmd.monitoringView === "errors") {
+          params.set("view", "errors");
+          if (cmd.errorIssueId) params.set("issue", cmd.errorIssueId);
+        } else if (cmd.monitorId) {
+          params.set("monitor", cmd.monitorId);
+        }
+        const qs = params.toString();
+        return qs ? `/monitoring?${qs}` : "/monitoring";
+      }
       if (cmd.view === "data-sources") return "/data-sources";
       if (cmd.view === "data-dictionary") return "/data-dictionary";
       if (cmd.view === "catalog") return "/catalog";

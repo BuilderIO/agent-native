@@ -85,11 +85,25 @@ const MESSAGES = {
     assertHeaderContains: "Header {header} contains “{value}”",
     assertHeaderEquals: "Header {header} equals “{value}”",
     assertMaxLatency: "Response under {value} ms",
-    // Dialog
-    dialogCreateTitle: "New monitor",
-    dialogEditTitle: "Edit monitor",
-    dialogDescription:
-      "Probe a URL on a schedule and alert when it fails, is too slow, or the response body is wrong.",
+    // Form page
+    formCreateTitle: "New monitor",
+    formEditTitle: "Edit monitor",
+    formCreateSubtitle:
+      "Name it and paste a URL — everything else has smart defaults you can tweak.",
+    formEditSubtitle: "Adjust how this monitor checks and who it alerts.",
+    sectionResponseChecks: "Response checks",
+    sectionResponseChecksHint:
+      "Choose which responses count as healthy and add body, header, or latency assertions.",
+    sectionAlerting: "Alerting",
+    sectionAlertingHint: "Pick the severity and where alerts are delivered.",
+    sectionAdvanced: "Advanced",
+    sectionAdvancedHint:
+      "Request method, timeout, cooldown, redirects, and pause.",
+    assertionsCountSummary: "{count} assertions",
+    oneAssertionSummary: "1 assertion",
+    noAssertionsSummary: "No assertions",
+    channelsNoneSummary: "No channels",
+    pausedBadge: "Paused",
     fieldName: "Name",
     fieldNamePlaceholder: "Marketing site",
     fieldUrl: "URL",

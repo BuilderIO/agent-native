@@ -1,21 +1,34 @@
 /**
- * Create / edit dialog for an uptime monitor. Uses react-hook-form for field
- * state + validation and maps to the save-monitor action payload.
+ * Full-page create / edit form for an uptime monitor. Renders inside the
+ * Monitoring → Uptime panel (not a modal), driven by query params so it is
+ * deep-linkable and back-button friendly.
+ *
+ * Progressive disclosure: only Name, URL, and Check interval are always
+ * visible. Response checks, Alerting, and Advanced live in collapsed sections
+ * with smart defaults, so a working monitor needs just a name + URL.
  */
-import { IconLoader2, IconPlus, IconTrash } from "@tabler/icons-react";
-import { useEffect } from "react";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  IconArrowLeft,
+  IconBell,
+  IconChevronDown,
+  IconLoader2,
+  IconPlus,
+  IconSettings,
+  IconShieldCheck,
+  IconTrash,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,19 +38,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
-import { useUptimeT } from "./i18n";
+import { fmt, useUptimeT } from "./i18n";
 import type {
   AssertionType,
+  MonitorDetail,
   MonitorMethod,
   MonitorSeverity,
   MonitorSummary,
   SaveMonitorInput,
   StatusMatcher,
 } from "./types";
-import { isHttpUrl } from "./utils";
+import { describeMatcher, isHttpUrl } from "./utils";
 
 const METHODS: MonitorMethod[] = [
   "GET",
@@ -169,20 +185,65 @@ function buildMatcher(values: MonitorFormValues): StatusMatcher | undefined {
   };
 }
 
-export function MonitorFormDialog({
-  open,
-  onOpenChange,
-  monitor,
-  onSubmit,
-  saving,
+interface SectionState {
+  response: boolean;
+  alerting: boolean;
+  advanced: boolean;
+}
+
+/** Open a section by default when the monitor already customized it. */
+function initialSections(monitor: MonitorSummary | null): SectionState {
+  if (!monitor) return { response: false, alerting: false, advanced: false };
+  const matcher = monitor.expectedStatus;
+  const isDefaultMatcher =
+    matcher.mode === "class" &&
+    matcher.classes.length === 1 &&
+    matcher.classes[0] === "2xx";
+  const isDefaultChannels =
+    monitor.channels.length === 1 && monitor.channels[0] === "inbox";
+  return {
+    response: monitor.assertions.length > 0 || !isDefaultMatcher,
+    alerting:
+      !isDefaultChannels ||
+      monitor.emailRecipients.length > 0 ||
+      monitor.severity !== "critical",
+    advanced:
+      monitor.method !== "GET" ||
+      monitor.timeoutMs !== 15000 ||
+      monitor.cooldownMinutes !== 15 ||
+      !monitor.followRedirects ||
+      !monitor.enabled,
+  };
+}
+
+export function MonitorFormPage({
+  monitorId,
+  initialMonitor,
+  onCancel,
+  onSaved,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  monitor: MonitorSummary | null;
-  onSubmit: (input: SaveMonitorInput) => Promise<void>;
-  saving: boolean;
+  monitorId: string | null;
+  initialMonitor?: MonitorSummary | null;
+  onCancel: () => void;
+  onSaved: (monitor: MonitorSummary) => void;
 }) {
   const t = useUptimeT();
+  const isEdit = monitorId != null;
+
+  const { data: detail, isLoading } = useActionQuery<MonitorDetail>(
+    "get-monitor",
+    { id: monitorId ?? "" },
+    { enabled: isEdit && !initialMonitor, staleTime: 5_000 },
+  );
+
+  const resolved: MonitorSummary | null = isEdit
+    ? (initialMonitor ?? detail?.monitor ?? null)
+    : null;
+
+  const saveMonitor = useActionMutation<MonitorSummary, SaveMonitorInput>(
+    "save-monitor",
+  );
+
   const {
     register,
     control,
@@ -192,7 +253,7 @@ export function MonitorFormDialog({
     setError,
     formState: { errors },
   } = useForm<MonitorFormValues>({
-    defaultValues: defaultValues(monitor),
+    defaultValues: defaultValues(initialMonitor ?? null),
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -200,16 +261,87 @@ export function MonitorFormDialog({
     name: "assertions",
   });
 
+  const [sections, setSections] = useState<SectionState>(() =>
+    initialSections(initialMonitor ?? null),
+  );
+
+  // Prefill exactly once per resolved monitor id so a late get-monitor refetch
+  // never clobbers in-progress edits.
+  const initedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (open) reset(defaultValues(monitor));
-  }, [open, monitor, reset]);
+    if (!isEdit) {
+      if (initedRef.current !== "new") {
+        reset(defaultValues(null));
+        setSections(initialSections(null));
+        initedRef.current = "new";
+      }
+      return;
+    }
+    if (resolved && initedRef.current !== resolved.id) {
+      reset(defaultValues(resolved));
+      setSections(initialSections(resolved));
+      initedRef.current = resolved.id;
+    }
+  }, [isEdit, resolved, reset]);
 
-  const matcherMode = watch("matcherMode");
+  const values = watch();
 
-  const submit = handleSubmit(async (values) => {
+  const responseSummary = useMemo(() => {
     const matcher = buildMatcher(values);
+    const matcherText = matcher ? describeMatcher(matcher, t) : t.classRequired;
+    const count = values.assertions.length;
+    const assertionsText =
+      count === 0
+        ? t.noAssertionsSummary
+        : count === 1
+          ? t.oneAssertionSummary
+          : fmt(t.assertionsCountSummary, { count });
+    return `${matcherText} · ${assertionsText}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    values.matcherMode,
+    values.classes,
+    values.codes,
+    values.rangeMin,
+    values.rangeMax,
+    values.assertions.length,
+    t,
+  ]);
+
+  const alertingSummary = useMemo(() => {
+    const selected = KNOWN_CHANNELS.filter((c) => values.channels[c]).map((c) =>
+      channelLabel(c, t),
+    );
+    const channelsText =
+      selected.length > 0 ? selected.join(", ") : t.channelsNoneSummary;
+    const severityText =
+      values.severity === "critical" ? t.severityCritical : t.severityWarning;
+    return `${channelsText} · ${severityText}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.channels, values.severity, t]);
+
+  const advancedSummary = useMemo(() => {
+    const parts = [
+      values.method,
+      `${values.timeoutSeconds || 15}s`,
+      `${values.cooldownMinutes ?? 15}m`,
+    ];
+    if (!values.enabled) parts.push(t.pausedBadge);
+    return parts.join(" · ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    values.method,
+    values.timeoutSeconds,
+    values.cooldownMinutes,
+    values.enabled,
+    t,
+  ]);
+
+  const submit = handleSubmit(async (formValues) => {
+    const matcher = buildMatcher(formValues);
     if (!matcher) {
-      if (values.matcherMode === "class") {
+      setSections((prev) => ({ ...prev, response: true }));
+      if (formValues.matcherMode === "class") {
         setError("classes", { message: t.classRequired });
       } else {
         setError("codes", { message: t.codesRequired });
@@ -217,13 +349,14 @@ export function MonitorFormDialog({
       return;
     }
 
-    const channels = KNOWN_CHANNELS.filter((c) => values.channels[c]);
+    const channels = KNOWN_CHANNELS.filter((c) => formValues.channels[c]);
     if (channels.length === 0) {
+      setSections((prev) => ({ ...prev, alerting: true }));
       setError("channels", { message: t.channelRequired });
       return;
     }
 
-    const assertions = values.assertions
+    const assertions = formValues.assertions
       .map((assertion) => {
         if (assertion.type === "max_latency_ms") {
           const num = Number.parseInt(assertion.value, 10);
@@ -245,193 +378,146 @@ export function MonitorFormDialog({
       .filter((a): a is NonNullable<typeof a> => a !== null);
 
     const payload: SaveMonitorInput = {
-      id: monitor?.id,
-      name: values.name.trim(),
-      url: values.url.trim(),
-      method: values.method,
-      intervalSeconds: values.intervalSeconds,
-      timeoutMs: Math.max(1000, Math.round(values.timeoutSeconds * 1000)),
+      id: monitorId ?? undefined,
+      name: formValues.name.trim(),
+      url: formValues.url.trim(),
+      method: formValues.method,
+      intervalSeconds: formValues.intervalSeconds,
+      timeoutMs: Math.max(1000, Math.round(formValues.timeoutSeconds * 1000)),
       expectedStatus: matcher,
       assertions,
-      followRedirects: values.followRedirects,
-      severity: values.severity,
+      followRedirects: formValues.followRedirects,
+      severity: formValues.severity,
       channels,
-      emailRecipients: splitList(values.emailRecipients),
-      cooldownMinutes: values.cooldownMinutes,
-      enabled: values.enabled,
+      emailRecipients: splitList(formValues.emailRecipients),
+      cooldownMinutes: formValues.cooldownMinutes,
+      enabled: formValues.enabled,
     };
 
-    await onSubmit(payload);
+    try {
+      const saved = await saveMonitor.mutateAsync(payload);
+      toast.success(t.saved);
+      onSaved(saved);
+    } catch (err) {
+      toast.error(
+        fmt(t.saveFailed, {
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
   });
 
-  const assertionTypeLabel = (type: AssertionType): string => {
-    switch (type) {
-      case "body_contains":
-        return t.typeBodyContains;
-      case "body_absent":
-        return t.typeBodyAbsent;
-      case "header_contains":
-        return t.typeHeaderContains;
-      case "header_equals":
-        return t.typeHeaderEquals;
-      case "max_latency_ms":
-        return t.typeMaxLatency;
-      default:
-        return type;
-    }
-  };
+  // Edit deep-link before the monitor resolves.
+  if (isEdit && !resolved && isLoading) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
 
-  const classLabel = (cls: (typeof STATUS_CLASSES)[number]): string => {
-    switch (cls) {
-      case "2xx":
-        return t.classLabel2xx;
-      case "3xx":
-        return t.classLabel3xx;
-      case "4xx":
-        return t.classLabel4xx;
-      case "5xx":
-        return t.classLabel5xx;
-    }
-  };
-
-  const channelLabel = (channel: (typeof KNOWN_CHANNELS)[number]): string => {
-    switch (channel) {
-      case "inbox":
-        return t.channelInbox;
-      case "email":
-        return t.channelEmail;
-      case "slack":
-        return t.channelSlack;
-      case "webhook":
-        return t.channelWebhook;
-    }
-  };
+  const matcherMode = values.matcherMode;
+  const saving = saveMonitor.isPending;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
-        <DialogHeader>
-          <DialogTitle>
-            {monitor ? t.dialogEditTitle : t.dialogCreateTitle}
-          </DialogTitle>
-          <DialogDescription>{t.dialogDescription}</DialogDescription>
-        </DialogHeader>
+    <div className="mx-auto max-w-2xl">
+      {/* Header */}
+      <div className="mb-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ms-2 mb-2 text-muted-foreground"
+          onClick={onCancel}
+        >
+          <IconArrowLeft className="size-3.5" />
+          {t.back}
+        </Button>
+        <h2 className="text-lg font-semibold">
+          {isEdit ? t.formEditTitle : t.formCreateTitle}
+        </h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          {isEdit ? t.formEditSubtitle : t.formCreateSubtitle}
+        </p>
+      </div>
 
-        <form onSubmit={submit} className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="monitor-name">{t.fieldName}</Label>
-              <Input
-                id="monitor-name"
-                placeholder={t.fieldNamePlaceholder}
-                {...register("name", {
-                  validate: (value) =>
-                    value.trim().length > 0 || t.nameRequired,
-                })}
-              />
-              {errors.name ? (
-                <p className="text-xs text-destructive">
-                  {errors.name.message}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="monitor-url">{t.fieldUrl}</Label>
-              <Input
-                id="monitor-url"
-                placeholder={t.fieldUrlPlaceholder}
-                {...register("url", {
-                  validate: (value) => {
-                    if (!value.trim()) return t.urlRequired;
-                    return isHttpUrl(value.trim()) || t.urlInvalid;
-                  },
-                })}
-              />
-              {errors.url ? (
-                <p className="text-xs text-destructive">{errors.url.message}</p>
-              ) : null}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="monitor-method">{t.fieldMethod}</Label>
-              <Controller
-                control={control}
-                name="method"
-                render={({ field }) => (
-                  <Select
-                    value={field.value}
-                    onValueChange={(value) =>
-                      field.onChange(value as MonitorMethod)
-                    }
-                  >
-                    <SelectTrigger id="monitor-method">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {METHODS.map((method) => (
-                        <SelectItem key={method} value={method}>
-                          {method}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="monitor-interval">{t.fieldInterval}</Label>
-              <Controller
-                control={control}
-                name="intervalSeconds"
-                render={({ field }) => (
-                  <Select
-                    value={String(field.value)}
-                    onValueChange={(value) =>
-                      field.onChange(Number.parseInt(value, 10))
-                    }
-                  >
-                    <SelectTrigger id="monitor-interval">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INTERVAL_OPTIONS.map((seconds) => (
-                        <SelectItem key={seconds} value={String(seconds)}>
-                          {t.intervals[String(seconds)] ?? `${seconds}s`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="monitor-timeout">{t.fieldTimeout}</Label>
-              <Input
-                id="monitor-timeout"
-                type="number"
-                min={1}
-                max={120}
-                {...register("timeoutSeconds", { valueAsNumber: true })}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="monitor-cooldown">{t.fieldCooldown}</Label>
-              <Input
-                id="monitor-cooldown"
-                type="number"
-                min={0}
-                max={1440}
-                {...register("cooldownMinutes", { valueAsNumber: true })}
-              />
-            </div>
+      <form id="monitor-form" onSubmit={submit} className="space-y-5">
+        {/* Essentials — always visible */}
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="monitor-name">{t.fieldName}</Label>
+            <Input
+              id="monitor-name"
+              placeholder={t.fieldNamePlaceholder}
+              autoFocus
+              {...register("name", {
+                validate: (value) => value.trim().length > 0 || t.nameRequired,
+              })}
+            />
+            {errors.name ? (
+              <p className="text-xs text-destructive">{errors.name.message}</p>
+            ) : null}
           </div>
 
-          {/* Expected status */}
-          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="monitor-url">{t.fieldUrl}</Label>
+            <Input
+              id="monitor-url"
+              placeholder={t.fieldUrlPlaceholder}
+              inputMode="url"
+              {...register("url", {
+                validate: (value) => {
+                  if (!value.trim()) return t.urlRequired;
+                  return isHttpUrl(value.trim()) || t.urlInvalid;
+                },
+              })}
+            />
+            {errors.url ? (
+              <p className="text-xs text-destructive">{errors.url.message}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="monitor-interval">{t.fieldInterval}</Label>
+            <Controller
+              control={control}
+              name="intervalSeconds"
+              render={({ field }) => (
+                <Select
+                  value={String(field.value)}
+                  onValueChange={(value) =>
+                    field.onChange(Number.parseInt(value, 10))
+                  }
+                >
+                  <SelectTrigger id="monitor-interval">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INTERVAL_OPTIONS.map((seconds) => (
+                      <SelectItem key={seconds} value={String(seconds)}>
+                        {t.intervals[String(seconds)] ?? `${seconds}s`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Response checks */}
+        <Section
+          icon={<IconShieldCheck className="size-4 text-muted-foreground" />}
+          title={t.sectionResponseChecks}
+          hint={t.sectionResponseChecksHint}
+          summary={responseSummary}
+          open={sections.response}
+          onOpenChange={(open) =>
+            setSections((prev) => ({ ...prev, response: open }))
+          }
+        >
+          <div className="space-y-2">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <Label>{t.fieldExpectedStatus}</Label>
               <Controller
@@ -481,7 +567,7 @@ export function MonitorFormDialog({
                             })
                           }
                         />
-                        {classLabel(cls)}
+                        {classLabel(cls, t)}
                       </label>
                     ))}
                   </div>
@@ -532,8 +618,7 @@ export function MonitorFormDialog({
             ) : null}
           </div>
 
-          {/* Assertions */}
-          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+          <div className="space-y-2 border-t border-border/60 pt-4">
             <div className="flex items-center justify-between">
               <Label>{t.fieldAssertions}</Label>
               <Button
@@ -582,7 +667,7 @@ export function MonitorFormDialog({
                                   key={assertionType}
                                   value={assertionType}
                                 >
-                                  {assertionTypeLabel(assertionType)}
+                                  {assertionTypeLabel(assertionType, t)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -620,8 +705,19 @@ export function MonitorFormDialog({
               </div>
             )}
           </div>
+        </Section>
 
-          {/* Alerting */}
+        {/* Alerting */}
+        <Section
+          icon={<IconBell className="size-4 text-muted-foreground" />}
+          title={t.sectionAlerting}
+          hint={t.sectionAlertingHint}
+          summary={alertingSummary}
+          open={sections.alerting}
+          onOpenChange={(open) =>
+            setSections((prev) => ({ ...prev, alerting: open }))
+          }
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="monitor-severity">{t.fieldSeverity}</Label>
@@ -672,7 +768,7 @@ export function MonitorFormDialog({
                             })
                           }
                         />
-                        {channelLabel(channel)}
+                        {channelLabel(channel, t)}
                       </label>
                     ))}
                   </div>
@@ -695,8 +791,70 @@ export function MonitorFormDialog({
               ) : null}
             </div>
           </div>
+        </Section>
 
-          {/* Toggles */}
+        {/* Advanced */}
+        <Section
+          icon={<IconSettings className="size-4 text-muted-foreground" />}
+          title={t.sectionAdvanced}
+          hint={t.sectionAdvancedHint}
+          summary={advancedSummary}
+          open={sections.advanced}
+          onOpenChange={(open) =>
+            setSections((prev) => ({ ...prev, advanced: open }))
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="monitor-method">{t.fieldMethod}</Label>
+              <Controller
+                control={control}
+                name="method"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={(value) =>
+                      field.onChange(value as MonitorMethod)
+                    }
+                  >
+                    <SelectTrigger id="monitor-method">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {METHODS.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {method}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="monitor-timeout">{t.fieldTimeout}</Label>
+              <Input
+                id="monitor-timeout"
+                type="number"
+                min={1}
+                max={120}
+                {...register("timeoutSeconds", { valueAsNumber: true })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="monitor-cooldown">{t.fieldCooldown}</Label>
+              <Input
+                id="monitor-cooldown"
+                type="number"
+                min={0}
+                max={1440}
+                {...register("cooldownMinutes", { valueAsNumber: true })}
+              />
+            </div>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Controller
               control={control}
@@ -735,24 +893,116 @@ export function MonitorFormDialog({
               )}
             />
           </div>
+        </Section>
+      </form>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              {t.cancel}
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? (
-                <IconLoader2 className="size-3.5 animate-spin" />
-              ) : null}
-              {monitor ? t.save : t.create}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      {/* Sticky action bar — pinned to the content column, not over the sidebar */}
+      <div className="sticky bottom-0 z-10 mt-6 flex items-center justify-end gap-2 border-t border-border/60 bg-background/80 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          {t.cancel}
+        </Button>
+        <Button type="submit" form="monitor-form" disabled={saving}>
+          {saving ? <IconLoader2 className="size-3.5 animate-spin" /> : null}
+          {isEdit ? t.save : t.create}
+        </Button>
+      </div>
+    </div>
   );
+}
+
+function Section({
+  icon,
+  title,
+  hint,
+  summary,
+  open,
+  onOpenChange,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  summary: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="rounded-lg border border-border/60"
+    >
+      <CollapsibleTrigger className="group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-start transition-colors hover:bg-muted/30">
+        {icon}
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{title}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {open ? hint : summary}
+          </div>
+        </div>
+        <IconChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-4 border-t border-border/60 px-4 py-4">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function assertionTypeLabel(
+  type: AssertionType,
+  t: ReturnType<typeof useUptimeT>,
+): string {
+  switch (type) {
+    case "body_contains":
+      return t.typeBodyContains;
+    case "body_absent":
+      return t.typeBodyAbsent;
+    case "header_contains":
+      return t.typeHeaderContains;
+    case "header_equals":
+      return t.typeHeaderEquals;
+    case "max_latency_ms":
+      return t.typeMaxLatency;
+    default:
+      return type;
+  }
+}
+
+function classLabel(
+  cls: (typeof STATUS_CLASSES)[number],
+  t: ReturnType<typeof useUptimeT>,
+): string {
+  switch (cls) {
+    case "2xx":
+      return t.classLabel2xx;
+    case "3xx":
+      return t.classLabel3xx;
+    case "4xx":
+      return t.classLabel4xx;
+    case "5xx":
+      return t.classLabel5xx;
+  }
+}
+
+function channelLabel(
+  channel: (typeof KNOWN_CHANNELS)[number],
+  t: ReturnType<typeof useUptimeT>,
+): string {
+  switch (channel) {
+    case "inbox":
+      return t.channelInbox;
+    case "email":
+      return t.channelEmail;
+    case "slack":
+      return t.channelSlack;
+    case "webhook":
+      return t.channelWebhook;
+  }
 }

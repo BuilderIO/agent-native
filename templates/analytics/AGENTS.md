@@ -159,8 +159,10 @@ details live in `.agents/skills/`.
   context.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
-  replay, and `view="agents"` / `agentsView="database"` with optional
-  `dbAdminConnectionId` for agent monitoring or connected app database admin.
+  replay, `view="monitoring"` with `monitoringView="uptime|errors"` for uptime
+  checks or error triage, and `view="agents"` / `agentsView="database"` with
+  optional `dbAdminConnectionId` for agent monitoring or connected app database
+  admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -200,6 +202,38 @@ details live in `.agents/skills/`.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.
+
+## Monitoring
+
+- `/monitoring` is the Monitoring tab (`app/routes/monitoring._index.tsx` →
+  `app/pages/monitoring/MonitoringPage.tsx`), a thin shell hosting two
+  independently-owned panels selected by `?view=uptime|errors` (defaults to
+  uptime). `navigation` mirrors it as `view="monitoring"` with `monitoringView`
+  (plus `monitorId`/`errorIssueId` when a row is open); each panel also writes
+  richer selection to the `monitoring` application-state key.
+- Uptime (`app/pages/monitoring/UptimePanel.tsx`,
+  `app/pages/monitoring/uptime/**`) manages synthetic HTTP checks with
+  alerting. Actions: `list-monitors`, `get-monitor`, `save-monitor`,
+  `run-monitor-check`, `delete-monitor`. Checks/alerting run server-side in
+  `server/lib/uptime-monitors.ts` (sweep job `server/jobs/uptime-monitors.ts`,
+  scheduler `server/plugins/uptime-monitor-jobs.ts`) over
+  `server/db/schema-monitoring.ts`. Deep links: list `?view=uptime`, detail
+  `?view=uptime&monitor=<id>`, create `?view=uptime&monitor=new`, edit
+  `?view=uptime&monitor=<id>&edit=1`. See `docs/uptime-monitoring.md`.
+- Errors (`app/pages/monitoring/ErrorsPanel.tsx`,
+  `app/pages/monitoring/errors/**`) is Sentry-style exception triage grouped
+  into issues by fingerprint. Actions: `list-error-issues`, `get-error-issue`,
+  `resolve-error-issue`, `capture-test-error`, `match-error-issues`.
+  Ingest/grouping lives in `server/lib/error-capture.ts` over
+  `server/db/schema-errors.ts`. Browser capture uses the SDK from
+  `@agent-native/core/client` (`captureException` / `captureMessage` /
+  `addErrorBreadcrumb`), auto-enabled by `configureTracking` and transported
+  through the first-party analytics ingest as a `$exception` event. Deep link:
+  `?view=errors&issue=<id>`. See `docs/error-capture.md`.
+- Session replay ↔ Errors: a recording's devtools Console error lines link to
+  the grouped issue at `/monitoring?view=errors&issue=<id>`, resolved by
+  `match-error-issues` (exact fingerprint match, no heuristics); issues link
+  back to the originating recording at `/sessions/<recordingId>`.
 
 ## Dashboard Template Catalog
 
