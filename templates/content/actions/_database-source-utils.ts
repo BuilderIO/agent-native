@@ -1,5 +1,6 @@
 import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
-import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { getDialect, type Dialect } from "@agent-native/core/db";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -49,6 +50,7 @@ import {
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import { chunks } from "./_batch-utils.js";
 import {
   readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
@@ -535,23 +537,27 @@ const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
-const BULK_INSERT_CHUNK_SIZE = 60;
 
-function chunkArray<T>(items: T[], size = BULK_INSERT_CHUNK_SIZE): T[][] {
-  if (items.length === 0) return [];
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
+export function bulkChunkSizeForColumnCount(
+  columnCount: number,
+  dialect: Dialect = getDialect(),
+) {
+  // D1 rejects statements with more than 100 bound params, so derive every
+  // bulk chunk from the statement's column count instead of a fixed row count.
+  const budget = dialect === "d1" ? 90 : 900;
+  return Math.max(1, Math.floor(budget / Math.max(1, columnCount)));
 }
 
-async function eachWithConcurrency<T>(
+function idChunkSize() {
+  return bulkChunkSizeForColumnCount(1);
+}
+
+async function processInBatches<T>(
   items: T[],
   concurrency: number,
   worker: (item: T) => Promise<void>,
 ) {
-  for (const batch of chunkArray(items, concurrency)) {
+  for (const batch of chunks(items, concurrency)) {
     await Promise.all(batch.map((item) => worker(item)));
   }
 }
@@ -847,62 +853,7 @@ export async function enqueueBuilderBodyHydration(args: {
   now: string;
   priority?: number;
 }) {
-  const db = getDb();
-  const sourceRowId = args.entry.id;
-  const priority =
-    args.priority ??
-    builderBodyHydrationPriorityForRequest({ documentId: null });
-  const [existing] = await db
-    .select()
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        args.databaseItemId,
-      ),
-    );
-  const existingEntry = existing ? parseHydrationEntry(existing) : null;
-  const shouldPreserveExistingEntry =
-    builderEntryHasBodyContent(existingEntry) &&
-    !builderEntryHasBodyContent(args.entry);
-  const sourceEntryJson = shouldPreserveExistingEntry
-    ? existing!.sourceEntryJson
-    : JSON.stringify(args.entry);
-  const values = {
-    ownerEmail: args.ownerEmail,
-    orgId: args.orgId,
-    sourceId: args.sourceId,
-    databaseItemId: args.databaseItemId,
-    documentId: args.documentId,
-    sourceRowId,
-    sourceTable: args.sourceTable,
-    sourceEntryJson,
-    priority: Math.min(existing?.priority ?? priority, priority),
-    lastError: null,
-    updatedAt: args.now,
-  };
-  if (existing) {
-    await db
-      .update(schema.contentDatabaseBodyHydrationQueue)
-      .set(values)
-      .where(eq(schema.contentDatabaseBodyHydrationQueue.id, existing.id));
-  } else {
-    await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
-      id: crypto.randomUUID(),
-      ...values,
-      attempts: 0,
-      lastAttemptedAt: null,
-      createdAt: args.now,
-    });
-  }
-  await db
-    .update(schema.contentDatabaseItems)
-    .set({
-      bodyHydrationStatus: "pending",
-      bodyHydrationError: null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseItems.id, args.databaseItemId));
+  await enqueueBuilderBodyHydrations([args]);
 }
 
 type BuilderBodyHydrationEnqueueRequest = {
@@ -919,8 +870,8 @@ type BuilderBodyHydrationEnqueueRequest = {
 
 async function enqueueBuilderBodyHydrations(
   requests: BuilderBodyHydrationEnqueueRequest[],
-) {
-  if (requests.length === 0) return;
+): Promise<ContentDatabaseBodyHydrationQueueRowDb[]> {
+  if (requests.length === 0) return [];
   const uniqueRequestsByItemId = new Map<
     string,
     BuilderBodyHydrationEnqueueRequest
@@ -947,15 +898,20 @@ async function enqueueBuilderBodyHydrations(
   const databaseItemIds = Array.from(
     new Set(uniqueRequests.map((request) => request.databaseItemId)),
   );
-  const existingRows = await db
-    .select()
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(
-      inArray(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        databaseItemIds,
-      ),
+  const existingRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+    existingRows.push(
+      ...(await db
+        .select()
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(
+          inArray(
+            schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+            idChunk,
+          ),
+        )),
     );
+  }
   const existingByItemId = new Map(
     existingRows.map((row) => [row.databaseItemId, row]),
   );
@@ -990,34 +946,41 @@ async function enqueueBuilderBodyHydrations(
       updatedAt: request.now,
     });
   }
-  for (const chunk of chunkArray(queueRows)) {
-    await db
-      .insert(schema.contentDatabaseBodyHydrationQueue)
-      .values(chunk)
-      .onConflictDoUpdate({
-        target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        set: {
-          ownerEmail: sql`excluded.owner_email`,
-          orgId: sql`excluded.org_id`,
-          sourceId: sql`excluded.source_id`,
-          documentId: sql`excluded.document_id`,
-          sourceRowId: sql`excluded.source_row_id`,
-          sourceTable: sql`excluded.source_table`,
-          sourceEntryJson: sql`excluded.source_entry_json`,
-          priority: sql`excluded.priority`,
-          lastError: null,
-          updatedAt: sql`excluded.updated_at`,
-        },
-      });
+  const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+  for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
+    upsertedRows.push(
+      ...(await db
+        .insert(schema.contentDatabaseBodyHydrationQueue)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+          set: {
+            ownerEmail: sql`excluded.owner_email`,
+            orgId: sql`excluded.org_id`,
+            sourceId: sql`excluded.source_id`,
+            documentId: sql`excluded.document_id`,
+            sourceRowId: sql`excluded.source_row_id`,
+            sourceTable: sql`excluded.source_table`,
+            sourceEntryJson: sql`excluded.source_entry_json`,
+            priority: sql`excluded.priority`,
+            lastError: null,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        })
+        .returning()),
+    );
   }
-  await db
-    .update(schema.contentDatabaseItems)
-    .set({
-      bodyHydrationStatus: "pending",
-      bodyHydrationError: null,
-      updatedAt: uniqueRequests[0]!.now,
-    })
-    .where(inArray(schema.contentDatabaseItems.id, databaseItemIds));
+  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "pending",
+        bodyHydrationError: null,
+        updatedAt: uniqueRequests[0]!.now,
+      })
+      .where(inArray(schema.contentDatabaseItems.id, idChunk));
+  }
+  return upsertedRows;
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -1053,10 +1016,11 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       now: args.now,
     });
   }
-  await enqueueBuilderBodyHydrations(requests);
+  const queuedJobs = await enqueueBuilderBodyHydrations(requests);
   void processBuilderBodyHydrationQueue({
     sourceId: args.sourceId,
     limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
+    preloadedJobs: queuedJobs,
   }).catch((error) => {
     console.error("Builder body hydration background kick failed", error);
   });
@@ -1070,9 +1034,22 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
   const requests: BuilderBodyHydrationEnqueueRequest[] = [];
   const rows = await db
     .select({
-      item: schema.contentDatabaseItems,
-      sourceRow: schema.contentDatabaseSourceRows,
-      document: schema.documents,
+      item: {
+        id: schema.contentDatabaseItems.id,
+        ownerEmail: schema.contentDatabaseItems.ownerEmail,
+        orgId: schema.contentDatabaseItems.orgId,
+        documentId: schema.contentDatabaseItems.documentId,
+      },
+      sourceRow: {
+        sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        lastSourceUpdatedAt:
+          schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+      },
+      document: {
+        title: schema.documents.title,
+        content: schema.documents.content,
+      },
     })
     .from(schema.contentDatabaseSourceRows)
     .innerJoin(
@@ -1086,14 +1063,21 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
       schema.documents,
       eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
     )
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+        inArray(schema.contentDatabaseItems.bodyHydrationStatus, [
+          "hydrated",
+          "pending",
+        ]),
+        or(
+          isNull(schema.documents.content),
+          inArray(schema.documents.content, ["", "<empty-block/>"]),
+          eq(sql<string>`TRIM(${schema.documents.content})`, ""),
+        ),
+      ),
+    );
   for (const row of rows) {
-    if (
-      row.item.bodyHydrationStatus !== "hydrated" &&
-      row.item.bodyHydrationStatus !== "pending"
-    )
-      continue;
-    if (!isEffectivelyEmptyDocumentContent(row.document.content)) continue;
     const entry = builderEntryFromSourceRow({
       row: row.sourceRow,
       sourceTable: args.source.sourceTable,
@@ -1134,36 +1118,6 @@ async function processBuilderBodyHydrationJob(
   },
 ) {
   const db = getDb();
-  const [claimed] = await db
-    .update(schema.contentDatabaseBodyHydrationQueue)
-    .set({
-      attempts: row.attempts + 1,
-      lastAttemptedAt: now,
-      lastError: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-        eq(
-          schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-          row.sourceEntryJson,
-        ),
-      ),
-    )
-    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-  if (!claimed) return;
-
-  await db
-    .update(schema.contentDatabaseItems)
-    .set({
-      bodyHydrationStatus: "hydrating",
-      bodyHydrationAttemptedAt: now,
-      bodyHydrationError: null,
-      updatedAt: now,
-    })
-    .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-
   const entry = parseHydrationEntry(row);
   if (!entry) throw new Error("Builder body hydration entry is missing.");
   let activeSourceEntryJson = row.sourceEntryJson;
@@ -1171,7 +1125,7 @@ async function processBuilderBodyHydrationJob(
     await withBuilderBodySourceValues(entry),
   );
   const sourceRow =
-    preloaded?.sourceRow !== undefined
+    preloaded?.sourceRow != null
       ? (preloaded.sourceRow ?? undefined)
       : (
           await db
@@ -1282,7 +1236,7 @@ async function processBuilderBodyHydrationJob(
       }
     }
     if (!nextContent.trim()) {
-      const attempts = row.attempts + 1;
+      const attempts = row.attempts;
       await db.transaction(async (tx) => {
         if (builderBodyHydrationAttemptIsTerminal(attempts)) {
           await tx
@@ -1321,7 +1275,7 @@ async function processBuilderBodyHydrationJob(
     }
   }
   const documentContent =
-    preloaded?.documentContent !== undefined
+    preloaded?.documentContent != null
       ? preloaded.documentContent
       : (
           await db
@@ -1394,6 +1348,58 @@ async function processBuilderBodyHydrationJob(
       }
       return;
     }
+    const sourceRowWhere = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+      eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+      sourceRow
+        ? eq(
+            schema.contentDatabaseSourceRows.sourceValuesJson,
+            sourceRow.sourceValuesJson,
+          )
+        : isNull(schema.contentDatabaseSourceRows.id),
+    );
+    const [updatedSourceRow] = await tx
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify(nextValues),
+        lastSyncedAt: now,
+        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
+        updatedAt: now,
+      })
+      .where(sourceRowWhere)
+      .returning({ id: schema.contentDatabaseSourceRows.id });
+    if (!updatedSourceRow) {
+      const [stillQueued] = await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastError:
+            "Skipped Builder body hydration because the source row changed during sync.",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+              activeSourceEntryJson,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (stillQueued) {
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError:
+              "Skipped Builder body hydration because the source row changed during sync.",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      }
+      return;
+    }
     const [deleted] = await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(
@@ -1407,25 +1413,6 @@ async function processBuilderBodyHydrationJob(
       )
       .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
     if (!deleted) {
-      if (wroteBody) {
-        await tx
-          .update(schema.contentDatabaseSourceRows)
-          .set({
-            sourceValuesJson: JSON.stringify(nextValues),
-            lastSyncedAt: now,
-            lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-              eq(
-                schema.contentDatabaseSourceRows.databaseItemId,
-                row.databaseItemId,
-              ),
-            ),
-          );
-      }
       // Our delete matched nothing: either a NEWER job version replaced this
       // row (same id, different sourceEntryJson — mark pending so the newer
       // job's processor owns it), or a concurrent processor completed and
@@ -1448,23 +1435,6 @@ async function processBuilderBodyHydrationJob(
       }
       return;
     }
-    await tx
-      .update(schema.contentDatabaseSourceRows)
-      .set({
-        sourceValuesJson: JSON.stringify(nextValues),
-        lastSyncedAt: now,
-        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-          eq(
-            schema.contentDatabaseSourceRows.databaseItemId,
-            row.databaseItemId,
-          ),
-        ),
-      );
     await tx
       .update(schema.contentDatabaseItems)
       .set({
@@ -1563,6 +1533,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   sourceId: string;
   documentId?: string | null;
   limit?: number | null;
+  preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
 }) {
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
@@ -1589,69 +1560,132 @@ export async function processBuilderBodyHydrationQueue(args: {
         ),
       );
   }
-  const jobs = await db
-    .select()
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(
-      args.documentId
-        ? and(
-            eq(
-              schema.contentDatabaseBodyHydrationQueue.sourceId,
-              args.sourceId,
-            ),
-            eq(
-              schema.contentDatabaseBodyHydrationQueue.documentId,
-              args.documentId,
-            ),
+  const jobs =
+    args.preloadedJobs && !args.documentId
+      ? sortBuilderBodyHydrationQueueForProcessing(
+          args.preloadedJobs.filter((job) => job.sourceId === args.sourceId),
+        ).slice(0, limit)
+      : await db
+          .select()
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            args.documentId
+              ? and(
+                  eq(
+                    schema.contentDatabaseBodyHydrationQueue.sourceId,
+                    args.sourceId,
+                  ),
+                  eq(
+                    schema.contentDatabaseBodyHydrationQueue.documentId,
+                    args.documentId,
+                  ),
+                )
+              : eq(
+                  schema.contentDatabaseBodyHydrationQueue.sourceId,
+                  args.sourceId,
+                ),
           )
-        : eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
-    )
-    .orderBy(
-      asc(schema.contentDatabaseBodyHydrationQueue.priority),
-      asc(schema.contentDatabaseBodyHydrationQueue.createdAt),
-    )
-    .limit(limit);
+          .orderBy(
+            asc(schema.contentDatabaseBodyHydrationQueue.priority),
+            asc(schema.contentDatabaseBodyHydrationQueue.createdAt),
+          )
+          .limit(limit);
 
   let succeeded = 0;
   let failed = 0;
+  const claimedJobs: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+  for (const jobChunk of chunks(jobs, bulkChunkSizeForColumnCount(2))) {
+    const claimFilters = jobChunk.map((job) =>
+      and(
+        eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+          job.sourceEntryJson,
+        ),
+      ),
+    );
+    if (claimFilters.length === 0) continue;
+    claimedJobs.push(
+      ...(await db
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          attempts: sql`${schema.contentDatabaseBodyHydrationQueue.attempts} + 1`,
+          lastAttemptedAt: now,
+          lastError: null,
+          updatedAt: now,
+        })
+        .where(or(...claimFilters))
+        .returning()),
+    );
+  }
+  for (const idChunk of chunks(
+    claimedJobs.map((job) => job.databaseItemId),
+    idChunkSize(),
+  )) {
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "hydrating",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: null,
+        updatedAt: now,
+      })
+      .where(inArray(schema.contentDatabaseItems.id, idChunk));
+  }
   const sourceRows =
-    jobs.length > 0
-      ? await db
-          .select()
-          .from(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
-              inArray(
-                schema.contentDatabaseSourceRows.databaseItemId,
-                jobs.map((job) => job.databaseItemId),
-              ),
+    claimedJobs.length > 0
+      ? (
+          await Promise.all(
+            chunks(
+              claimedJobs.map((job) => job.databaseItemId),
+              idChunkSize(),
+            ).map((idChunk) =>
+              db
+                .select()
+                .from(schema.contentDatabaseSourceRows)
+                .where(
+                  and(
+                    eq(
+                      schema.contentDatabaseSourceRows.sourceId,
+                      args.sourceId,
+                    ),
+                    inArray(
+                      schema.contentDatabaseSourceRows.databaseItemId,
+                      idChunk,
+                    ),
+                  ),
+                ),
             ),
           )
+        ).flat()
       : [];
   const sourceRowsByItemId = new Map(
     sourceRows.map((row) => [row.databaseItemId, row]),
   );
   const documents =
-    jobs.length > 0
-      ? await db
-          .select({
-            id: schema.documents.id,
-            content: schema.documents.content,
-          })
-          .from(schema.documents)
-          .where(
-            inArray(
-              schema.documents.id,
-              Array.from(new Set(jobs.map((job) => job.documentId))),
+    claimedJobs.length > 0
+      ? (
+          await Promise.all(
+            chunks(
+              Array.from(new Set(claimedJobs.map((job) => job.documentId))),
+              idChunkSize(),
+            ).map((idChunk) =>
+              db
+                .select({
+                  id: schema.documents.id,
+                  content: schema.documents.content,
+                })
+                .from(schema.documents)
+                .where(inArray(schema.documents.id, idChunk)),
             ),
           )
+        ).flat()
       : [];
   const documentContentById = new Map(
     documents.map((document) => [document.id, document.content]),
   );
-  await eachWithConcurrency(
-    jobs,
+  await processInBatches(
+    claimedJobs,
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
       const attemptNow = new Date().toISOString();
@@ -1660,13 +1694,15 @@ export async function processBuilderBodyHydrationQueue(args: {
         if (delayMs > 0) await sleep(delayMs);
         await processBuilderBodyHydrationJob(job, attemptNow, {
           sourceRow: sourceRowsByItemId.get(job.databaseItemId) ?? null,
-          documentContent: documentContentById.get(job.documentId) ?? null,
+          documentContent: documentContentById.has(job.documentId)
+            ? (documentContentById.get(job.documentId) ?? null)
+            : undefined,
         });
         succeeded += 1;
       } catch (error) {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
-        const attempts = job.attempts + 1;
+        const attempts = job.attempts;
         await db
           .update(schema.contentDatabaseItems)
           .set({
@@ -1703,7 +1739,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     );
   return {
     sourceId: args.sourceId,
-    processed: jobs.length,
+    processed: claimedJobs.length,
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
@@ -3343,7 +3379,7 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
   return next;
 }
 
-async function materializeSourceFieldPropertyValues(args: {
+export async function materializeSourceFieldPropertyValues(args: {
   database: ContentDatabaseRow;
   sourceId: string;
   fields: ContentDatabaseSourceFieldRowDb[];
@@ -3367,30 +3403,88 @@ async function materializeSourceFieldPropertyValues(args: {
   const definitionById = new Map(
     definitions.map((definition) => [definition.id, definition]),
   );
-  const sourceRows = await db
-    .select()
-    .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-  const scopedRows = documentIdSet
-    ? sourceRows.filter((row) => documentIdSet.has(row.documentId))
-    : sourceRows;
+  const scopedRows: Array<{
+    documentId: string;
+    sourceValuesJson: string;
+  }> = [];
+  if (documentIdSet) {
+    for (const idChunk of chunks(Array.from(documentIdSet), idChunkSize())) {
+      scopedRows.push(
+        ...(await db
+          .select({
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
+            ),
+          )),
+      );
+    }
+  } else {
+    scopedRows.push(
+      ...(await db
+        .select({
+          documentId: schema.contentDatabaseSourceRows.documentId,
+          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        })
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))),
+    );
+  }
   if (scopedRows.length === 0) return;
 
-  const existingValues = await db
-    .select()
-    .from(schema.documentPropertyValues)
-    .where(inArray(schema.documentPropertyValues.propertyId, propertyIds));
+  const existingValues: Array<
+    typeof schema.documentPropertyValues.$inferSelect
+  > = [];
+  for (const propertyIdChunk of chunks(propertyIds, idChunkSize())) {
+    if (documentIdSet) {
+      for (const documentIdChunk of chunks(
+        Array.from(documentIdSet),
+        idChunkSize(),
+      )) {
+        existingValues.push(
+          ...(await db
+            .select()
+            .from(schema.documentPropertyValues)
+            .where(
+              and(
+                inArray(
+                  schema.documentPropertyValues.propertyId,
+                  propertyIdChunk,
+                ),
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  documentIdChunk,
+                ),
+              ),
+            )),
+        );
+      }
+    } else {
+      existingValues.push(
+        ...(await db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(
+            inArray(schema.documentPropertyValues.propertyId, propertyIdChunk),
+          )),
+      );
+    }
+  }
   const existingByDocumentAndProperty = new Map(
     existingValues.map((value) => [
       `${value.documentId}\0${value.propertyId}`,
       value,
     ]),
   );
-  const inserts: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
-  const updates: Array<{
-    id: string;
-    valueJson: string;
-  }> = [];
+  const upsertsByDocumentAndProperty = new Map<
+    string,
+    typeof schema.documentPropertyValues.$inferInsert
+  >();
 
   for (const row of scopedRows) {
     const sourceValues =
@@ -3409,32 +3503,33 @@ async function materializeSourceFieldPropertyValues(args: {
       const valueJson = serializePropertyValue(normalized);
       const key = `${row.documentId}\0${propertyId}`;
       const existing = existingByDocumentAndProperty.get(key);
-      if (existing) {
-        if (existing.valueJson === valueJson) continue;
-        updates.push({ id: existing.id, valueJson });
-      } else {
-        const value = {
-          id: nanoid(),
-          ownerEmail: args.database.ownerEmail,
-          documentId: row.documentId,
-          propertyId,
-          valueJson,
-          createdAt: args.now,
-          updatedAt: args.now,
-        };
-        inserts.push(value);
-        existingByDocumentAndProperty.set(key, value);
-      }
+      if (existing?.valueJson === valueJson) continue;
+      upsertsByDocumentAndProperty.set(key, {
+        id: existing?.id ?? nanoid(),
+        ownerEmail: existing?.ownerEmail ?? args.database.ownerEmail,
+        documentId: row.documentId,
+        propertyId,
+        valueJson,
+        createdAt: existing?.createdAt ?? args.now,
+        updatedAt: args.now,
+      });
     }
   }
-  await eachWithConcurrency(updates, 10, async (update) => {
+  for (const chunk of chunks(
+    Array.from(upsertsByDocumentAndProperty.values()),
+    bulkChunkSizeForColumnCount(7),
+  )) {
+    if (chunk.length === 0) continue;
     await db
-      .update(schema.documentPropertyValues)
-      .set({ valueJson: update.valueJson, updatedAt: args.now })
-      .where(eq(schema.documentPropertyValues.id, update.id));
-  });
-  for (const chunk of chunkArray(inserts)) {
-    await db.insert(schema.documentPropertyValues).values(chunk);
+      .insert(schema.documentPropertyValues)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: schema.documentPropertyValues.id,
+        set: {
+          valueJson: sql`excluded.value_json`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      });
   }
 }
 
@@ -3885,12 +3980,14 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
     });
     importedEntriesByDocumentId.set(documentId, entry);
   }
-  for (const chunk of chunkArray(documentRows)) {
-    await db.insert(schema.documents).values(chunk);
-  }
-  for (const chunk of chunkArray(itemRows)) {
-    await db.insert(schema.contentDatabaseItems).values(chunk);
-  }
+  await db.transaction(async (tx) => {
+    for (const chunk of chunks(documentRows, bulkChunkSizeForColumnCount(13))) {
+      await tx.insert(schema.documents).values(chunk);
+    }
+    for (const chunk of chunks(itemRows, bulkChunkSizeForColumnCount(10))) {
+      await tx.insert(schema.contentDatabaseItems).values(chunk);
+    }
+  });
 
   return { imported: itemRows.length, importedEntriesByDocumentId };
 }
@@ -4031,17 +4128,16 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     );
     const fetchedDocumentIds = itemsToLink.map((item) => item.document.id);
     if (fetchedDocumentIds.length > 0) {
-      await db
-        .delete(schema.contentDatabaseSourceRows)
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-            inArray(
-              schema.contentDatabaseSourceRows.documentId,
-              fetchedDocumentIds,
+      for (const idChunk of chunks(fetchedDocumentIds, idChunkSize())) {
+        await db
+          .delete(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
             ),
-          ),
-        );
+          );
+      }
       await seedMockSourceRows({
         sourceId: args.source.id,
         ownerEmail: args.database.ownerEmail,
@@ -4074,17 +4170,24 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       });
     }
     if (!hasMore && nextActiveReadSourceRowIds.length > 0) {
-      await db
-        .delete(schema.contentDatabaseSourceRows)
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-            notInArray(
-              schema.contentDatabaseSourceRows.sourceRowId,
-              nextActiveReadSourceRowIds,
-            ),
-          ),
-        );
+      const activeSourceRowIds = new Set(nextActiveReadSourceRowIds);
+      const staleRows = (
+        await db
+          .select({
+            id: schema.contentDatabaseSourceRows.id,
+            sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
+      ).filter((row) => !activeSourceRowIds.has(row.sourceRowId));
+      for (const idChunk of chunks(
+        staleRows.map((row) => row.id),
+        idChunkSize(),
+      )) {
+        await db
+          .delete(schema.contentDatabaseSourceRows)
+          .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
+      }
     }
 
     await updateBuilderCmsSourceReadMetadata({

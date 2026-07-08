@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { chunks } from "./_batch-utils.js";
 import {
   deleteLocalFileDocument,
   isLocalDocumentId,
@@ -13,21 +14,13 @@ import {
 
 const DELETE_BATCH_SIZE = 90;
 
-function chunks<T>(items: T[], size = DELETE_BATCH_SIZE): T[][] {
-  const out: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    out.push(items.slice(index, index + size));
-  }
-  return out;
-}
-
 async function selectDocumentChildren(
   db: ReturnType<typeof getDb>,
   parentIds: string[],
   ownerEmail: string,
 ) {
   const rows: Array<{ id: string }> = [];
-  for (const batch of chunks(parentIds)) {
+  for (const batch of chunks(parentIds, DELETE_BATCH_SIZE)) {
     rows.push(
       ...(await db
         .select({ id: schema.documents.id })
@@ -49,7 +42,7 @@ async function selectOwnedDatabaseIds(
   ownerEmail: string,
 ) {
   const rows: Array<{ id: string }> = [];
-  for (const batch of chunks(documentIds)) {
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     rows.push(
       ...(await db
         .select({ id: schema.contentDatabases.id })
@@ -71,7 +64,7 @@ async function selectDatabaseItemDocuments(
   ownerEmail: string,
 ) {
   const rows: Array<{ documentId: string }> = [];
-  for (const batch of chunks(databaseIds)) {
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
     rows.push(
       ...(await db
         .select({ documentId: schema.contentDatabaseItems.documentId })
@@ -87,7 +80,10 @@ async function selectDatabaseItemDocuments(
   if (rows.length === 0) return rows;
 
   const ownedRows: Array<{ id: string }> = [];
-  for (const batch of chunks(rows.map((row) => row.documentId))) {
+  for (const batch of chunks(
+    rows.map((row) => row.documentId),
+    DELETE_BATCH_SIZE,
+  )) {
     ownedRows.push(
       ...(await db
         .select({ id: schema.documents.id })
@@ -167,7 +163,7 @@ async function deleteWhereIn<T>(
   items: T[],
   run: (batch: T[]) => Promise<unknown>,
 ) {
-  for (const batch of chunks(items)) {
+  for (const batch of chunks(items, DELETE_BATCH_SIZE)) {
     if (batch.length > 0) await run(batch);
   }
 }
