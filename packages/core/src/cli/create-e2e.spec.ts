@@ -17,7 +17,7 @@ import { fileURLToPath } from "url";
  *   - postinstall scripts missing for required packages
  *   - dist/catalog.json not embedded in the built package
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
@@ -32,6 +32,8 @@ import {
   _getDispatchDependencyVersion,
   _getToolkitDependencyVersion,
   _resolveToolkitVersionFromCore,
+  _normalizeNpmViewVersion,
+  _lookupToolkitVersionFromNpmRegistry,
   _resetToolkitDependencyVersionCache,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
@@ -884,7 +886,7 @@ describe("template/core version compatibility", () => {
     try {
       const resolved = _getToolkitDependencyVersion();
       expect(
-        resolved === "latest" || /^\d+\.\d+\.\d+(?:-.+)?$/.test(resolved),
+        resolved === "latest" || /^\d+\.\d+\.\d+(?:[-+].*)?$/.test(resolved),
       ).toBe(true);
       // Whatever it resolves to must exactly match the standalone resolver so
       // every scaffold surface writes an identical spec.
@@ -897,6 +899,40 @@ describe("template/core version compatibility", () => {
         process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
       }
     }
+  });
+
+  it("normalizes JSON-quoted npm view output for toolkit pins", () => {
+    expect(_normalizeNpmViewVersion('"0.4.3"\n')).toBe("0.4.3");
+    expect(_normalizeNpmViewVersion("0.4.3\n")).toBe("0.4.3");
+    expect(_normalizeNpmViewVersion("")).toBeNull();
+    expect(_normalizeNpmViewVersion('"latest"')).toBeNull();
+  });
+
+  it("falls back to latest when npm view lookup times out", () => {
+    const execFile = vi.fn(() => {
+      const error = new Error(
+        "spawnSync npm ETIMEDOUT",
+      ) as NodeJS.ErrnoException;
+      error.code = "ETIMEDOUT";
+      throw error;
+    });
+    expect(
+      _resolveToolkitVersionFromCore(
+        execFile as unknown as typeof import("node:child_process").execFileSync,
+      ),
+    ).toBe("latest");
+  });
+
+  it("bounds npm view lookup with a subprocess timeout", () => {
+    const execFile = vi.fn(() => "0.4.3");
+    _lookupToolkitVersionFromNpmRegistry(
+      execFile as unknown as typeof import("node:child_process").execFileSync,
+    );
+    expect(execFile).toHaveBeenCalledWith(
+      "npm",
+      expect.arrayContaining(["--json=false"]),
+      expect.objectContaining({ timeout: 5_000 }),
+    );
   });
 
   it("memoizes the toolkit pin so a scaffold resolves it once", () => {

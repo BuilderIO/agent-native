@@ -1337,6 +1337,8 @@ export {
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   resolveToolkitVersionFromCore as _resolveToolkitVersionFromCore,
+  normalizeNpmViewVersion as _normalizeNpmViewVersion,
+  lookupToolkitVersionFromNpmRegistry as _lookupToolkitVersionFromNpmRegistry,
   resetToolkitDependencyVersionCache as _resetToolkitDependencyVersionCache,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
@@ -1655,13 +1657,66 @@ function getDispatchDependencyVersion(): string {
 // drift this fix exists to prevent. `undefined` means "not resolved yet".
 let cachedToolkitDependencyVersion: string | undefined;
 
+const TOOLKIT_VERSION_LOOKUP_TIMEOUT_MS = 5_000;
+
 // Test-only: clear the memoized value so specs can exercise both the pinned
 // and offline-fallback branches deterministically without process isolation.
 function resetToolkitDependencyVersionCache(): void {
   cachedToolkitDependencyVersion = undefined;
 }
 
-function resolveToolkitVersionFromCore(): string {
+/** Normalize `npm view` stdout into a package.json-safe version string. */
+function normalizeNpmViewVersion(output: string): string | null {
+  const trimmed = output.trim();
+  if (!trimmed) return null;
+
+  let candidate = trimmed;
+  if (candidate.startsWith('"') && candidate.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed !== "string" || !parsed.trim()) return null;
+      candidate = parsed.trim();
+    } catch {
+      return null;
+    }
+  }
+
+  // Only trust concrete semver-like specs for direct package.json deps.
+  if (/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(candidate)) {
+    return candidate;
+  }
+
+  return null;
+}
+
+function lookupToolkitVersionFromNpmRegistry(
+  execFile: typeof execFileSync = execFileSync,
+): string | null {
+  const pinned = execFile(
+    "npm",
+    [
+      "view",
+      "@agent-native/core@latest",
+      "dependencies.@agent-native/toolkit",
+      "--json=false",
+    ],
+    {
+      encoding: "utf-8",
+      timeout: TOOLKIT_VERSION_LOOKUP_TIMEOUT_MS,
+      env: {
+        ...process.env,
+        // User-level npm config can set json=true, which prints `"0.4.3"` and
+        // breaks package.json if written verbatim (EINVALIDTAGNAME on install).
+        npm_config_json: "false",
+      },
+    },
+  );
+  return normalizeNpmViewVersion(pinned);
+}
+
+function resolveToolkitVersionFromCore(
+  execFile: typeof execFileSync = execFileSync,
+): string {
   // Core hard-pins an exact @agent-native/toolkit version internally at
   // publish time (e.g. core@0.91.2 -> toolkit@0.4.3). Because the scaffold
   // writes `"latest"` for core, resolving toolkit independently via its own
@@ -1672,22 +1727,13 @@ function resolveToolkitVersionFromCore(): string {
   // the `latest` core release actually depends on instead so both resolve
   // from the same core manifest.
   try {
-    const pinned = execFileSync(
-      "npm",
-      [
-        "view",
-        "@agent-native/core@latest",
-        "dependencies.@agent-native/toolkit",
-      ],
-      { encoding: "utf-8" },
-    ).trim();
-    // `npm view` prints an empty string when the field is absent; only trust a
-    // concrete version spec.
+    const pinned = lookupToolkitVersionFromNpmRegistry(execFile);
     if (pinned) return pinned;
   } catch {
-    // Registry lookup failed (offline, npm outage, etc.) — fall back below.
-    // The `try/catch` keeps scaffolding working: worst case we revert to
-    // today's independent `"latest"` behaviour rather than failing outright.
+    // Registry lookup failed (offline, npm outage, subprocess timeout, etc.) —
+    // fall back below. The `try/catch` keeps scaffolding working: worst case
+    // we revert to today's independent `"latest"` behaviour rather than
+    // failing outright.
   }
 
   return "latest";
