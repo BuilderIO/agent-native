@@ -714,6 +714,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }
           return;
         }
+        if (hasReliableDurationProp) return;
         if (playAttemptPendingRef.current || !v.paused) return;
 
         // Poke the browser into computing the real duration for MediaRecorder
