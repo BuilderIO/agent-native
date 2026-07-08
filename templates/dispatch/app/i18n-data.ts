@@ -28,9 +28,13 @@ const enUS = {
       "Manage team access and shared workspace resources for Dispatch.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
+    automationsTitle: "Automations",
+    automationsDescription:
+      "Review, pause, and create scheduled or event-triggered jobs.",
+    openAutomations: "Open automations",
     agentTitle: "Agent settings",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+      "Open the agent sidebar settings for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
     openAgentSettings: "Open agent settings",
   },
   integrations: {
@@ -268,9 +272,12 @@ export const messagesByLocale = {
       workspaceDescription: "管理 Dispatch 的团队访问权限和共享工作区资源。",
       openTeamSettings: "打开团队设置",
       openResourceSettings: "打开资源设置",
+      automationsTitle: "自动化",
+      automationsDescription: "查看、暂停并创建定时或事件触发的任务。",
+      openAutomations: "打开自动化",
       agentTitle: "代理设置",
       agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+        "打开代理侧边栏设置，管理模型、API 密钥、语音和其他代理控制项。定时与事件触发的任务请使用自动化页面。",
       openAgentSettings: "打开代理设置",
     },
     integrations: {
@@ -467,9 +474,13 @@ export const messagesByLocale = {
         "Gestiona el acceso del equipo y los recursos compartidos de Dispatch.",
       openTeamSettings: "Abrir ajustes del equipo",
       openResourceSettings: "Abrir ajustes de recursos",
+      automationsTitle: "Automatizaciones",
+      automationsDescription:
+        "Revisa, pausa y crea trabajos programados o activados por eventos.",
+      openAutomations: "Abrir automatizaciones",
       agentTitle: "Ajustes del agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+        "Abre los ajustes del agente en la barra lateral para modelos, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
       openAgentSettings: "Abrir ajustes del agente",
     },
     integrations: {
@@ -686,9 +697,13 @@ export const messagesByLocale = {
         "Gérez l’accès de l’équipe et les ressources partagées de Dispatch.",
       openTeamSettings: "Ouvrir les paramètres d’équipe",
       openResourceSettings: "Ouvrir les paramètres des ressources",
+      automationsTitle: "Automatisations",
+      automationsDescription:
+        "Consultez, mettez en pause et créez des tâches planifiées ou déclenchées par des événements.",
+      openAutomations: "Ouvrir les automatisations",
       agentTitle: "Paramètres de l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, voix et autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
       openAgentSettings: "Ouvrir les paramètres de l’agent",
     },
     integrations: {
@@ -905,9 +920,13 @@ export const messagesByLocale = {
         "Verwalte Teamzugriff und gemeinsam genutzte Dispatch-Ressourcen.",
       openTeamSettings: "Teameinstellungen öffnen",
       openResourceSettings: "Ressourceneinstellungen öffnen",
+      automationsTitle: "Automatisierungen",
+      automationsDescription:
+        "Geplante oder ereignisgesteuerte Jobs prüfen, pausieren und erstellen.",
+      openAutomations: "Automatisierungen öffnen",
       agentTitle: "Agent-Einstellungen",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Sprache und weitere Steuerungen. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
       openAgentSettings: "Agent-Einstellungen öffnen",
     },
     integrations: {
@@ -1113,9 +1132,13 @@ export const messagesByLocale = {
         "Dispatch のチームアクセスと共有ワークスペースリソースを管理します。",
       openTeamSettings: "チーム設定を開く",
       openResourceSettings: "リソース設定を開く",
+      automationsTitle: "自動化",
+      automationsDescription:
+        "スケジュールまたはイベント駆動のジョブを確認、一時停止、作成します。",
+      openAutomations: "自動化を開く",
       agentTitle: "エージェント設定",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+        "右サイドバーのエージェント設定を開き、モデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
       openAgentSettings: "エージェント設定を開く",
     },
     integrations: {
@@ -1320,9 +1343,13 @@ export const messagesByLocale = {
         "Dispatch의 팀 접근 권한과 공유 워크스페이스 리소스를 관리합니다.",
       openTeamSettings: "팀 설정 열기",
       openResourceSettings: "리소스 설정 열기",
+      automationsTitle: "자동화",
+      automationsDescription:
+        "예약 또는 이벤트 트리거 작업을 검토, 일시 중지, 생성합니다.",
+      openAutomations: "자동화 열기",
       agentTitle: "에이전트 설정",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
       openAgentSettings: "에이전트 설정 열기",
     },
     integrations: {
@@ -1525,9 +1552,13 @@ export const messagesByLocale = {
         "Gerencie acesso da equipe e recursos compartilhados do Dispatch.",
       openTeamSettings: "Abrir configurações da equipe",
       openResourceSettings: "Abrir configurações de recursos",
+      automationsTitle: "Automações",
+      automationsDescription:
+        "Revise, pause e crie trabalhos agendados ou acionados por eventos.",
+      openAutomations: "Abrir automações",
       agentTitle: "Configurações do agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+        "Abra as configurações do agente na barra lateral para modelos, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
       openAgentSettings: "Abrir configurações do agente",
     },
     integrations: {
@@ -1738,9 +1769,13 @@ export const messagesByLocale = {
         "Dispatch के लिए टीम पहुंच और साझा कार्यस्थान संसाधनों को प्रबंधित करें।",
       openTeamSettings: "टीम सेटिंग्स खोलें",
       openResourceSettings: "संसाधन सेटिंग्स खोलें",
+      automationsTitle: "ऑटोमेशन",
+      automationsDescription:
+        "शेड्यूल या इवेंट-ट्रिगर जॉब्स की समीक्षा करें, रोकें और बनाएं।",
+      openAutomations: "ऑटोमेशन खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+        "मॉडल, API कुंजियों, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
       openAgentSettings: "एजेंट सेटिंग्स खोलें",
     },
     integrations: {
@@ -1937,9 +1972,12 @@ export const messagesByLocale = {
         "إدارة وصول الفريق وموارد مساحة العمل المشتركة في Dispatch.",
       openTeamSettings: "فتح إعدادات الفريق",
       openResourceSettings: "فتح إعدادات الموارد",
+      automationsTitle: "الأتمتة",
+      automationsDescription: "راجع وأوقف وأنشئ مهامًا مجدولة أو مُشغَّلة بالأحداث.",
+      openAutomations: "فتح الأتمتة",
       agentTitle: "إعدادات الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
       openAgentSettings: "فتح إعدادات الوكيل",
     },
     integrations: {

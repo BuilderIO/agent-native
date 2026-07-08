@@ -70,6 +70,22 @@ export default function SettingsRoute() {
                 </Button>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.automationsTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.automationsDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link to="/automations">{t("settings.openAutomations")}</Link>
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         }
         team={

@@ -23,6 +23,7 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconSearch,
   IconTerminal2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
@@ -34,11 +35,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
 } from "react";
 import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -162,6 +165,13 @@ const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 const DEFAULT_DEVTOOLS_HEIGHT = 280;
 const SCRUBBER_MARKER_LIMIT = 500;
+/** Reject Meta/resize frames that produce the ultra-wide ribbon letterbox. */
+const MIN_REPLAY_VIEWPORT_WIDTH = 320;
+const MIN_REPLAY_VIEWPORT_HEIGHT = 240;
+const MAX_REPLAY_ASPECT_RATIO = 3.2;
+const MIN_REPLAY_ASPECT_RATIO = 0.45;
+const TIMELINE_MARKER_LIMIT = 300;
+const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 
@@ -219,6 +229,7 @@ const INCREMENTAL_SOURCE = {
   Mutation: 0,
   MouseInteraction: 2,
   Scroll: 3,
+  ViewportResize: 4,
   Input: 5,
   TouchMove: 6,
 } as const;
@@ -477,6 +488,19 @@ function ReplayPlayer({
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
   const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
+  const eventsRef = useLiveRef(events);
+  const isCompleteRef = useLiveRef(response.isComplete);
+  // Stable identity for the loaded event set so progressive chunk publishes
+  // that only grow the array do not tear down a healthy Replayer mid-playback.
+  const eventsIdentity = useMemo(
+    () =>
+      `${events.length}:${Number(events[0]?.timestamp ?? 0)}:${Number(
+        events[events.length - 1]?.timestamp ?? 0,
+      )}`,
+    [events],
+  );
+  const eventsIdentityRef = useLiveRef(eventsIdentity);
+  const scrubbingRef = useRef(false);
 
   const playerWidth =
     streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
@@ -586,6 +610,22 @@ function ReplayPlayer({
     [playingRef, status, totalTime, updateTime],
   );
 
+  const beginScrub = useCallback(
+    (ms: number) => {
+      scrubbingRef.current = true;
+      seek(ms, false);
+    },
+    [seek],
+  );
+
+  const endScrub = useCallback(
+    (ms: number) => {
+      scrubbingRef.current = false;
+      seek(ms, false);
+    },
+    [seek],
+  );
+
   useEffect(() => {
     registerSeek(seek);
   }, [registerSeek, seek]);
@@ -596,8 +636,10 @@ function ReplayPlayer({
     let localReplayer: any = null;
 
     async function loadReplay() {
-      const hasPlayableEvents = hasPlayableReplayEvents(events);
-      if (!hasPlayableEvents && !response.isComplete) {
+      // Wait for the full recording before creating the Replayer. Progressive
+      // chunk publishes used to rebuild the player on every append, which
+      // reset the clock, disabled the scrubber, and desynced the playhead.
+      if (!response.isComplete) {
         setStatus("loading");
         setError(null);
         setPlaying(false);
@@ -611,6 +653,9 @@ function ReplayPlayer({
       ) {
         throw new Error(t("sessions.noReplayEvents"));
       }
+      if (!hasPlayableReplayEvents(events)) {
+        throw new Error(t("sessions.noReplayEvents"));
+      }
       setStatus("loading");
       setError(null);
       await import("@rrweb/replay/dist/style.css");
@@ -618,7 +663,8 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      setStreamedDims(initialDims);
+      const frameDims = replayViewportDimensions(events);
+      setStreamedDims(frameDims);
       localReplayer = new Replayer(events as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
@@ -647,7 +693,7 @@ function ReplayPlayer({
         0,
         Number.isFinite(total) ? total : 0,
       );
-      applyReplayFrameDimensions(localReplayer, initialDims);
+      applyReplayFrameDimensions(localReplayer, frameDims);
       localReplayer.on?.("finish", () => {
         setPlaying(false);
         const finalTime = Number(localReplayer.getCurrentTime?.() ?? total);
@@ -665,7 +711,8 @@ function ReplayPlayer({
       localReplayer.on?.("fullsnapshot-rebuilded", () => {
         applyReplayFrameDimensions(
           localReplayer,
-          replayViewportDimensions(events) ?? initialDims,
+          replayViewportAt(eventsRef.current, currentTimeRef.current) ??
+            frameDims,
         );
         revealReplayFrame(localReplayer);
       });
@@ -686,7 +733,8 @@ function ReplayPlayer({
       window.requestAnimationFrame(() => {
         applyReplayFrameDimensions(
           localReplayer,
-          replayViewportDimensions(events) ?? initialDims,
+          replayViewportAt(eventsRef.current, currentTimeRef.current) ??
+            frameDims,
         );
         revealReplayFrame(localReplayer);
       });
@@ -713,10 +761,14 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
+    // Intentionally keyed on isComplete + a stable events identity rather than
+    // the events array reference, so mid-load chunk publishes only update the
+    // loading bar until the recording is fully available.
   }, [
     currentTimeRef,
     events,
-    initialDims,
+    eventsIdentity,
+    eventsRef,
     response.isComplete,
     speedRef,
     t,
@@ -732,7 +784,7 @@ function ReplayPlayer({
 
     const tick = () => {
       const replayer = replayerRef.current;
-      if (replayer) {
+      if (replayer && !scrubbingRef.current) {
         let nextTime = Number(
           replayer.getCurrentTime?.() ?? currentTimeRef.current,
         );
@@ -918,7 +970,8 @@ function ReplayPlayer({
               skipRanges={skipRanges}
               skipInactive={skipInactive}
               disabled={disabled}
-              onSeek={(ms) => seek(ms)}
+              onScrub={beginScrub}
+              onScrubEnd={endScrub}
             />
             <span className="w-12 text-center font-mono text-xs text-muted-foreground">
               {formatClock(totalTime)}
@@ -1027,7 +1080,8 @@ function ReplayScrubber({
   skipRanges,
   skipInactive,
   disabled,
-  onSeek,
+  onScrub,
+  onScrubEnd,
 }: {
   currentTime: number;
   totalTime: number;
@@ -1035,13 +1089,19 @@ function ReplayScrubber({
   skipRanges: SkipRange[];
   skipInactive: boolean;
   disabled: boolean;
-  onSeek: (ms: number) => void;
+  onScrub: (ms: number) => void;
+  onScrubEnd: (ms: number) => void;
 }) {
   const t = useT();
   const scrubberMarkers = useMemo(
     () => visibleScrubberMarkers(markers, totalTime),
     [markers, totalTime],
   );
+
+  function handleScrub(event: ChangeEvent<HTMLInputElement>) {
+    onScrub(Number(event.target.value));
+  }
+
   return (
     <div className="relative min-h-8 min-w-[180px] flex-1">
       <input
@@ -1050,9 +1110,16 @@ function ReplayScrubber({
         min={0}
         max={Math.max(0, totalTime)}
         step={50}
-        value={Math.min(currentTime, totalTime)}
+        value={Math.min(currentTime, Math.max(totalTime, 0))}
         disabled={disabled}
-        onChange={(event) => onSeek(Number(event.target.value))}
+        onInput={handleScrub}
+        onChange={handleScrub}
+        onPointerUp={(event) =>
+          onScrubEnd(Number((event.target as HTMLInputElement).value))
+        }
+        onKeyUp={(event) =>
+          onScrubEnd(Number((event.target as HTMLInputElement).value))
+        }
         aria-label={t("sessions.replayTimeline")}
       />
       <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-2 -translate-y-1/2 overflow-hidden rounded-full">
@@ -1147,38 +1214,97 @@ function ReplayTimeline({
 }) {
   const t = useT();
   const [expandedMarkerId, setExpandedMarkerId] = useState<string | null>(null);
-  const visibleMarkers = markers.slice(0, 300);
+  const [query, setQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+  const lastManualScrollAtRef = useRef(0);
+  const activeRowRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredMarkers = useMemo(
+    () => filterReplayMarkers(markers, query).slice(0, TIMELINE_MARKER_LIMIT),
+    [markers, query],
+  );
+
+  useEffect(() => {
+    if (!activeMarkerId) return;
+    if (
+      Date.now() - lastManualScrollAtRef.current <
+      TIMELINE_FOLLOW_PAUSE_MS
+    ) {
+      return;
+    }
+    const row = activeRowRef.current;
+    const list = listRef.current;
+    if (!row || !list) return;
+    const rowTop = row.offsetTop;
+    const rowBottom = rowTop + row.offsetHeight;
+    if (
+      rowTop >= list.scrollTop &&
+      rowBottom <= list.scrollTop + list.clientHeight
+    ) {
+      return;
+    }
+    list.scrollTo({
+      top: Math.max(0, rowTop - list.clientHeight / 3),
+      behavior: "smooth",
+    });
+  }, [activeMarkerId, filteredMarkers]);
+
   return (
     <Card className="analytics-session-detail-timeline min-h-0 overflow-hidden">
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-        <div className="shrink-0 border-b px-3 py-2">
+        <div className="shrink-0 space-y-2 border-b px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <IconTimelineEvent className="h-4 w-4" />
             {t("sessions.timeline")}
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {visibleMarkers.length
+          <p className="text-xs text-muted-foreground">
+            {filteredMarkers.length
               ? t("sessions.timelineDescription", {
-                  count: String(visibleMarkers.length),
+                  count: String(filteredMarkers.length),
                   total: String(markers.length),
                 })
               : t("sessions.noTimelineEvents")}
           </p>
+          <div className="relative">
+            <IconSearch className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              className="h-7 ps-7 text-xs"
+              value={query}
+              placeholder={t("sessions.timelineSearch")}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          {visibleMarkers.length ? (
+        <div
+          ref={listRef}
+          className="min-h-0 flex-1 overflow-auto"
+          onWheel={() => {
+            lastManualScrollAtRef.current = Date.now();
+          }}
+          onPointerDown={() => {
+            lastManualScrollAtRef.current = Date.now();
+          }}
+        >
+          {filteredMarkers.length ? (
             <div className="divide-y">
-              {visibleMarkers.map((marker) => {
+              {filteredMarkers.map((marker) => {
                 const expanded = marker.id === expandedMarkerId;
+                const active = marker.id === activeMarkerId;
                 return (
                   <div
                     key={marker.id}
-                    className={cn(marker.id === activeMarkerId && "bg-muted")}
+                    ref={active ? activeRowRef : undefined}
+                    className={cn(
+                      "transition-colors duration-300",
+                      active && "bg-primary/[0.06] dark:bg-primary/[0.09]",
+                    )}
                   >
                     <button
                       type="button"
                       className="flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
                       aria-expanded={expanded}
+                      aria-current={active ? "true" : undefined}
                       onClick={() => {
                         onSeek(marker.offsetMs);
                         setExpandedMarkerId((current) =>
@@ -1236,7 +1362,9 @@ function ReplayTimeline({
             </div>
           ) : (
             <div className="p-4 text-sm text-muted-foreground">
-              {t("sessions.noTimelineEvents")}
+              {query.trim()
+                ? t("sessions.timelineNoMatches")
+                : t("sessions.noTimelineEvents")}
             </div>
           )}
         </div>
@@ -1330,11 +1458,10 @@ function useSessionReplayPlayback(recordingId: string) {
           const chunks = loadedChunks.filter(
             (chunk): chunk is ReplayChunkEvents => Boolean(chunk),
           );
-          const shouldPublishEvents =
-            force ||
-            complete ||
-            (!firstPlayablePublished &&
-              hasPlayableReplayEvents(chunks.flatMap((chunk) => chunk.events)));
+          // Only hand events to the player once every chunk is in. Partial
+          // publishes used to rebuild the Replayer mid-playback and break the
+          // scrubber; the loading bar still updates while chunks stream in.
+          const shouldPublishEvents = force || complete;
 
           if (shouldPublishEvents) {
             firstPlayablePublished = true;
@@ -1365,6 +1492,8 @@ function useSessionReplayPlayback(recordingId: string) {
                   loadedBytes,
                   unavailableChunks,
                 }),
+            // Keep the page shell mounted so the player loading bar can show
+            // chunk progress; the Replayer itself still waits for isComplete.
             isLoading: false,
             error: null,
           }));

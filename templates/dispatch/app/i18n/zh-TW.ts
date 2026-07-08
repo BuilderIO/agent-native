@@ -22,9 +22,12 @@ const messages = {
     workspaceDescription: "管理 Dispatch 的團隊存取權限和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
+    automationsTitle: "自動化",
+    automationsDescription: "檢視、暫停並建立排程或事件觸發的工作。",
+    openAutomations: "開啟自動化",
     agentTitle: "代理設定",
     agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
+      "開啟代理側邊欄設定，管理模型、API 金鑰、語音和其他代理控制項。排程與事件觸發的工作請使用自動化頁面。",
     openAgentSettings: "開啟代理設定",
   },
   integrations: {
