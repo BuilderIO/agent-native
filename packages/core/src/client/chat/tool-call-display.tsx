@@ -609,6 +609,7 @@ function ToolCallDisplayGeneric({
 
   const isAgentCall = toolName.startsWith("agent:");
   const [expanded, setExpanded] = useState(isAgentCall);
+  const [outputOpen, setOutputOpen] = useState(false);
   const agentName = isAgentCall ? toolName.slice(6) : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
   const agentStreamText = isAgentCall ? (argsText ?? "") : "";
@@ -707,7 +708,6 @@ function ToolCallDisplayGeneric({
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
-  const [outputOpen, setOutputOpen] = useState(false);
 
   const displayName = isAgentCall
     ? isRunning
