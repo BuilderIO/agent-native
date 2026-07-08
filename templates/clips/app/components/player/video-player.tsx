@@ -465,10 +465,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setPlayError(null);
 
       if (
-        initialVisibleFrameSeekedRef.current &&
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) &&
-        v.currentTime > 0.05
+        ((initialVisibleFrameSeekedRef.current && v.currentTime > 0.05) ||
+          // The WebM duration probe seeks to 1e10. If Chrome never resolves the
+          // durationchange, first play must rewind instead of starting there.
+          v.currentTime > 1e7)
       ) {
         try {
           v.currentTime = 0;
