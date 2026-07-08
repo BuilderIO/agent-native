@@ -83,6 +83,7 @@ const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
+const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
 const ASK_APP_TERMINAL_STATES = new Set<string>([
   "completed",
   "failed",
@@ -321,8 +322,34 @@ async function fetchAskAppA2ATask(
   taskId: string,
 ): Promise<AskAppTaskResult> {
   const { client } = await createA2AClientForAskApp(route.origin);
-  const task = await client.getTask(taskId);
-  return askAppTaskResult(route, task);
+  let lastError: unknown;
+  for (
+    let attempt = 0;
+    attempt <= ASK_APP_STATUS_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    try {
+      const task = await client.getTask(taskId);
+      return askAppTaskResult(route, task);
+    } catch (err) {
+      lastError = err;
+      const delayMs = ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
+      if (delayMs == null || !isTransientAskAppStatusError(err)) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
+}
+
+function isTransientAskAppStatusError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return (
+    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset|etimedout|timeout|aborted/i.test(
+      message,
+    ) || /A2A request failed \((?:429|500|502|503|504)\)/i.test(message)
+  );
 }
 
 /**

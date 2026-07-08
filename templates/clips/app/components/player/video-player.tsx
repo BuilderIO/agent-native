@@ -8,7 +8,11 @@ import {
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
 } from "@shared/loom";
-import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconPlayerPlay,
+  IconPlayerSkipForward,
+} from "@tabler/icons-react";
 import {
   forwardRef,
   useCallback,
@@ -47,7 +51,11 @@ import { cn } from "@/lib/utils";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
-import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
+import {
+  PLAYER_SEEK_STEP_MS,
+  PlayerControls,
+  SPEED_OPTIONS,
+} from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -124,6 +132,14 @@ function applyLoomStartToVideoSrc(src: string, ms: number): string {
   const directEmbedUrl = loomEmbedUrlWithTimestamp(src, ms);
   if (directEmbedUrl) return directEmbedUrl;
   return setUrlSearchParam(src, LOOM_START_MS_QUERY_PARAM, String(ms));
+}
+
+function isPlayerUiTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("[data-player-ui]"))
+  );
 }
 
 export interface VideoPlayerHandle {
@@ -242,6 +258,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const touchTapCandidateRef = useRef<{
+      pointerId: number;
+      x: number;
+      y: number;
+    } | null>(null);
+    const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
     // Position to restore after `v.load()` resets `currentTime` to 0 while
@@ -465,10 +487,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setPlayError(null);
 
       if (
-        initialVisibleFrameSeekedRef.current &&
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) &&
-        v.currentTime > 0.05
+        ((initialVisibleFrameSeekedRef.current && v.currentTime > 0.05) ||
+          // The WebM duration probe seeks to 1e10. If Chrome never resolves the
+          // durationchange, first play must rewind instead of starting there.
+          v.currentTime > 1e7)
       ) {
         try {
           v.currentTime = 0;
@@ -547,6 +571,57 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
+    const handlePlayerPointerDown = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (
+          e.pointerType === "mouse" ||
+          e.button !== 0 ||
+          isLoomEmbed ||
+          isPlayerUiTarget(e.target)
+        ) {
+          return;
+        }
+
+        touchTapCandidateRef.current = {
+          pointerId: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+        };
+      },
+      [isLoomEmbed],
+    );
+
+    const handlePlayerPointerUp = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        const candidate = touchTapCandidateRef.current;
+        if (!candidate || candidate.pointerId !== e.pointerId) return;
+        touchTapCandidateRef.current = null;
+
+        if (isLoomEmbed || isPlayerUiTarget(e.target)) return;
+
+        const moved = Math.max(
+          Math.abs(e.clientX - candidate.x),
+          Math.abs(e.clientY - candidate.y),
+        );
+        if (moved > 12) return;
+
+        e.preventDefault();
+        suppressNextClickRef.current = true;
+        togglePlayback();
+        bumpControls();
+      },
+      [bumpControls, isLoomEmbed, togglePlayback],
+    );
+
+    const handlePlayerPointerCancel = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (touchTapCandidateRef.current?.pointerId === e.pointerId) {
+          touchTapCandidateRef.current = null;
+        }
+      },
+      [],
+    );
+
     const applySpeed = useCallback(
       (rate: number) => {
         const nextSpeed = parsePlaybackSpeed(rate) ?? defaultSpeed;
@@ -610,6 +685,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onTimeUpdate,
         resolvedDurationMs,
       ],
+    );
+
+    const seekByMs = useCallback(
+      (deltaMs: number) => {
+        const v = videoRef.current;
+        const liveMs =
+          v &&
+          Number.isFinite(v.currentTime) &&
+          v.currentTime >= 0 &&
+          v.currentTime < 1e7
+            ? Math.floor(v.currentTime * 1000)
+            : currentMs;
+        seekToVisibleMs(liveMs + deltaMs);
+      },
+      [currentMs, seekToVisibleMs],
     );
 
     // Imperative handle for parent
@@ -1011,10 +1101,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
         onMouseMove={bumpControls}
         onMouseLeave={() => !alwaysShowControls && setShowControls(false)}
+        onPointerDown={handlePlayerPointerDown}
+        onPointerUp={handlePlayerPointerUp}
+        onPointerCancel={handlePlayerPointerCancel}
         onClick={(e) => {
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
           // Clicking the video toggles play — but not when clicking controls.
-          const target = e.target as HTMLElement;
-          if (target.closest("[data-player-ui]")) return;
+          if (isPlayerUiTarget(e.target)) return;
           if (isLoomEmbed) return;
           togglePlayback();
         }}
@@ -1301,6 +1397,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               requestPlay();
             }}
             onSpeedChange={applySpeed}
+            onSeekRelative={seekByMs}
             menuPortalContainer={fullscreenMenuContainer}
           />
         ) : null}
@@ -1373,6 +1470,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onSeek={(ms) => {
                 seekToVisibleMs(ms);
               }}
+              onSeekRelative={seekByMs}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
                 if (v) {
@@ -1413,6 +1511,7 @@ function CenterPlaybackOverlay({
   playError,
   onPlay,
   onSpeedChange,
+  onSeekRelative,
   menuPortalContainer,
 }: {
   mode: "loading" | "ready";
@@ -1422,6 +1521,7 @@ function CenterPlaybackOverlay({
   playError: string | null;
   onPlay: () => void;
   onSpeedChange: (rate: number) => void;
+  onSeekRelative: (deltaMs: number) => void;
   menuPortalContainer?: HTMLElement | null;
 }) {
   const t = useT();
@@ -1446,18 +1546,30 @@ function CenterPlaybackOverlay({
           </div>
         ) : (
           <>
-            <button
-              data-player-ui
-              type="button"
-              aria-label={t("videoPlayer.playClip")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlay();
-              }}
-              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-            >
-              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
-            </button>
+            <div className="flex items-center gap-[clamp(0.75rem,4cqw,1.5rem)]">
+              <CenterSeekButton
+                direction="back"
+                ariaLabel="Back 15 seconds"
+                onClick={() => onSeekRelative(-PLAYER_SEEK_STEP_MS)}
+              />
+              <button
+                data-player-ui
+                type="button"
+                aria-label={t("videoPlayer.playClip")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlay();
+                }}
+                className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              >
+                <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+              </button>
+              <CenterSeekButton
+                direction="forward"
+                ariaLabel="Forward 15 seconds"
+                onClick={() => onSeekRelative(PLAYER_SEEK_STEP_MS)}
+              />
+            </div>
 
             <div
               data-player-ui
@@ -1519,6 +1631,38 @@ function CenterPlaybackOverlay({
         )}
       </div>
     </div>
+  );
+}
+
+function CenterSeekButton({
+  direction,
+  ariaLabel,
+  onClick,
+}: {
+  direction: "back" | "forward";
+  ariaLabel: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      data-player-ui
+      type="button"
+      aria-label={ariaLabel}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="pointer-events-auto flex h-[clamp(2.5rem,9cqw,4rem)] w-[clamp(2.5rem,9cqw,4rem)] items-center justify-center rounded-full bg-black/70 text-white shadow-xl ring-1 ring-white/20 backdrop-blur-md transition-transform duration-150 hover:scale-105 hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+    >
+      <span className="relative flex h-[clamp(1.25rem,4.5cqw,2rem)] w-[clamp(1.25rem,4.5cqw,2rem)] items-center justify-center">
+        <IconPlayerSkipForward
+          className={cn("h-full w-full", direction === "back" && "rotate-180")}
+        />
+        <span className="absolute text-[clamp(0.45rem,1.8cqw,0.7rem)] font-bold leading-none">
+          15
+        </span>
+      </span>
+    </button>
   );
 }
 

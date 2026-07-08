@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client";
 import {
+  IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
   IconPlayerPlay,
@@ -14,11 +15,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { Link } from "react-router";
 
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { useErrorsT } from "../monitoring/errors/i18n";
 import {
   type ConsoleLevelFilter,
   consoleLevelBucket,
@@ -34,6 +37,18 @@ import {
   type ReplayNetworkEntry,
 } from "./session-replay-devtools";
 
+/**
+ * A session console error line resolved to its captured, Sentry-style issue.
+ * Keyed by `ReplayConsoleEntry.id`, computed server-side by `match-error-issues`
+ * so the resolution shares one fingerprint implementation with ingest.
+ */
+export type SessionIssueMatch = { issueId: string; status: string };
+
+/** Deep-link from a session error to the Monitoring → Errors issue detail. */
+function issueDetailPath(issueId: string): string {
+  return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
+}
+
 /** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
 const DEVTOOLS_ROW_HEIGHT = 34;
@@ -47,12 +62,15 @@ export function SessionDevToolsPanel({
   height,
   onHeightChange,
   onSeek,
+  issueMatches,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
   height: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
+  /** Resolved error issues by console entry id, for cross-linking to Errors. */
+  issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
 }) {
   const t = useT();
   const [tab, setTab] = useState<"console" | "network">("console");
@@ -222,6 +240,7 @@ export function SessionDevToolsPanel({
                 entry={entry}
                 active={entry.id === activeConsoleId}
                 selected={entry.id === selectedConsoleId}
+                issueMatch={issueMatches?.get(entry.id) ?? null}
                 onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
@@ -232,7 +251,11 @@ export function SessionDevToolsPanel({
             )}
           />
           {selectedConsole ? (
-            <ConsoleDetailPane entry={selectedConsole} onSeek={onSeek} />
+            <ConsoleDetailPane
+              entry={selectedConsole}
+              issueMatch={issueMatches?.get(selectedConsole.id) ?? null}
+              onSeek={onSeek}
+            />
           ) : null}
         </TabsContent>
 
@@ -550,16 +573,47 @@ function JumpToButton({
   );
 }
 
+/**
+ * Compact link from a captured session error to its Errors issue detail. Kept
+ * outside the row's toggle `<button>` (an anchor nested in a button is invalid)
+ * and stops click propagation so following the link never also toggles/seeks.
+ */
+function ViewIssueLink({
+  issueId,
+  className,
+}: {
+  issueId: string;
+  className?: string;
+}) {
+  const et = useErrorsT();
+  return (
+    <Link
+      to={issueDetailPath(issueId)}
+      title={et.viewIssueTooltip}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <IconArrowUpRight className="h-3 w-3" />
+      {et.viewIssue}
+    </Link>
+  );
+}
+
 function ConsoleRow({
   entry,
   active,
   selected,
+  issueMatch,
   onSelect,
   onSeek,
 }: {
   entry: ReplayConsoleEntry;
   active: boolean;
   selected: boolean;
+  issueMatch: SessionIssueMatch | null;
   onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
@@ -621,6 +675,7 @@ function ConsoleRow({
           )}
         />
       </button>
+      {issueMatch ? <ViewIssueLink issueId={issueMatch.issueId} /> : null}
       <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
     </div>
   );
@@ -709,15 +764,20 @@ function NetworkRow({
 
 function ConsoleDetailPane({
   entry,
+  issueMatch,
   onSeek,
 }: {
   entry: ReplayConsoleEntry;
+  issueMatch: SessionIssueMatch | null;
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
   return (
     <DevToolsDetailPane
       title={`${entry.level} at ${formatOffsetClock(entry.offsetMs)}`}
+      action={
+        issueMatch ? <ViewIssueLink issueId={issueMatch.issueId} /> : null
+      }
       onSeek={() => onSeek(entry.offsetMs)}
     >
       <DetailField label={t("sessions.devtoolsMessage")}>
@@ -813,10 +873,12 @@ function NetworkDetailPane({
 function DevToolsDetailPane({
   title,
   onSeek,
+  action,
   children,
 }: {
   title: string;
   onSeek: () => void;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -826,14 +888,17 @@ function DevToolsDetailPane({
         <p className="truncate text-xs font-semibold text-foreground">
           {title}
         </p>
-        <button
-          type="button"
-          className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onSeek}
-        >
-          <IconPlayerPlay className="h-3 w-3" />
-          {t("sessions.devtoolsJumpTo")}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {action}
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={onSeek}
+          >
+            <IconPlayerPlay className="h-3 w-3" />
+            {t("sessions.devtoolsJumpTo")}
+          </button>
+        </div>
       </div>
       <div className="space-y-2">{children}</div>
     </div>

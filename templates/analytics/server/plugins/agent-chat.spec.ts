@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnalyticsPlanModePolicy,
   PLAN_MODE_ACT_ONLY_TOOLS,
+  INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
@@ -28,6 +29,8 @@ describe("Analytics agent Plan mode policy", () => {
       "provider-api-request": action(),
       "query-staged-dataset": action(),
       "hubspot-deals": action(),
+      "hubspot-pipelines": action(),
+      "github-repo-files": action(),
     });
 
     expect(
@@ -49,14 +52,22 @@ describe("Analytics agent Plan mode policy", () => {
     expect(
       (actions["hubspot-deals"] as PlanModePolicyEntry).allowInPlanMode,
     ).toBe(false);
+    expect(
+      (actions["hubspot-pipelines"] as PlanModePolicyEntry).allowInPlanMode,
+    ).toBe(false);
+    expect(
+      (actions["github-repo-files"] as PlanModePolicyEntry).allowInPlanMode,
+    ).toBe(false);
   });
 
   it("documents the complete Analytics Act-only Plan mode tool set", () => {
     expect([...PLAN_MODE_ACT_ONLY_TOOLS].sort()).toEqual([
       "account-deep-dive",
       "bigquery",
+      "github-repo-files",
       "gong-calls",
       "hubspot-deals",
+      "hubspot-pipelines",
       "hubspot-records",
       "jira-search",
       "provider-api-request",
@@ -66,5 +77,21 @@ describe("Analytics agent Plan mode policy", () => {
       "sentry",
       "slack-messages",
     ]);
+  });
+
+  it("keeps corpus and provider reduction tools in the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining([
+        "provider-api-catalog",
+        "provider-api-docs",
+        "provider-api-request",
+        "provider-corpus-job",
+        "query-staged-dataset",
+        "run-code",
+        "get-code-execution",
+        "hubspot-pipelines",
+        "github-repo-files",
+      ]),
+    );
   });
 });

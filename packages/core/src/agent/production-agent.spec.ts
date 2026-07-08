@@ -11,7 +11,11 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineStreamOptions,
+} from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -4958,11 +4962,66 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("surfaces a fallback message when the engine ends with no text or tool calls", async () => {
+  it("continues once when the engine ends with no text or tool calls", async () => {
     // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
     // zero `output_text` items: the engine still emits a clean `end_turn`
-    // stop, but parts contains only thinking. Without the fallback the run
-    // would render as a silent empty assistant bubble.
+    // stop, but parts contains only thinking. Retry once so a transient
+    // reasoning-budget miss does not surface as a manual retry prompt.
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(JSON.stringify(opts.messages));
+        if (streamCalls > 1) {
+          yield { type: "text-delta", text: "Recovered answer." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "Recovered answer." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "thinking-delta", text: "thinking out loud..." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "thinking out loud..." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(seenMessages.at(-1)).toContain("output-token cap");
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toBe("Recovered answer.");
+  });
+
+  it("surfaces a fallback message after an empty-response retry also ends empty", async () => {
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -5001,6 +5060,70 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
+  });
+
+  it("adapts each empty-response retry: raises maxOutputTokens and steps reasoning effort down a tier", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "thinking-delta", text: "thinking out loud..." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "thinking out loud..." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxOutputTokens: 8_000,
+      reasoningEffort: "high",
+    });
+
+    // Initial attempt + 2 retries: EMPTY_FINAL_RESPONSE_RETRY_LIMIT is 2 now
+    // that each retry actually adapts instead of repeating the same request.
+    expect(seenOpts).toHaveLength(3);
+
+    // First attempt uses exactly what the caller asked for.
+    expect(seenOpts[0].maxOutputTokens).toBe(8_000);
+    expect(seenOpts[0].reasoningEffort).toBe("high");
+
+    // First retry: tokens raised well above the first attempt, effort down
+    // one tier (high -> medium).
+    expect(seenOpts[1].maxOutputTokens).toBeGreaterThan(
+      seenOpts[0].maxOutputTokens!,
+    );
+    expect(seenOpts[1].reasoningEffort).toBe("medium");
+
+    // Second retry: effort steps down again (medium -> low); tokens stay at
+    // the raised ceiling rather than climbing indefinitely.
+    expect(seenOpts[2].reasoningEffort).toBe("low");
+    expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
+
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toMatch(/empty response/i);
   });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {

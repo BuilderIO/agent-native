@@ -57,6 +57,10 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = saved;
+  Reflect.deleteProperty(
+    globalThis as Record<string, unknown>,
+    "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+  );
 });
 
 /** Mark the runtime as hosted (Netlify, not local). */
@@ -253,7 +257,7 @@ describe("isInBackgroundFunctionRuntime (real -background function guard)", () =
   });
 });
 
-describe("background runtime marker fallback", () => {
+describe("background runtime marker diagnostics", () => {
   it("derives marker expectation from the concrete dispatch path", () => {
     expect(
       dispatchPathTargetsNetlifyBackgroundFunction(
@@ -267,17 +271,32 @@ describe("background runtime marker fallback", () => {
     ).toBe(false);
   });
 
-  it("uses the long background timeout when the authenticated dispatch marker proves the Netlify background function URL was targeted", () => {
+  it("does not use the long background timeout from the dispatch marker alone", () => {
     const marker = { backgroundFunctionRuntimeExpected: true };
 
     expect(isInBackgroundFunctionRuntime()).toBe(false);
     expect(backgroundRunMarkerExpectsBackgroundRuntime(marker)).toBe(true);
-    expect(shouldUseBackgroundFunctionTimeoutForWorker(marker)).toBe(true);
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(marker)).toBe(false);
     expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
       "markerExpected=true",
     );
     expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
       "runtimeDetected=false",
+    );
+  });
+
+  it("uses the long background timeout when the background function entry marked the runtime", () => {
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+
+    expect(isInBackgroundFunctionRuntime()).toBe(true);
+    expect(shouldUseBackgroundFunctionTimeoutForWorker(null)).toBe(true);
+    expect(backgroundRuntimeDiagnosticDetail(null)).toContain(
+      "runtimeDetected=true",
+    );
+    expect(backgroundRuntimeDiagnosticDetail(null)).toContain(
+      "globalMarker=true",
     );
   });
 
@@ -316,8 +335,8 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
   it("dispatches to the function's DEFAULT url in deployed Netlify Lambda runtime even when NETLIFY is absent", () => {
     // Production Functions do not always preserve the build-time NETLIFY env
     // flag, but they do expose AWS_LAMBDA_FUNCTION_NAME. The durable dispatcher
-    // must still target the emitted Netlify background function so the marker
-    // unlocks the 15-minute worker budget.
+    // must still target the emitted Netlify background function; the worker
+    // entry's runtime marker unlocks the 15-minute budget after dispatch lands.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,

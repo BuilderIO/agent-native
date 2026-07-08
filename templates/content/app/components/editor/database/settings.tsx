@@ -1942,6 +1942,25 @@ function shouldPreselectDetailField(
   return DETAIL_FIELD_NAME_HINTS.some((hint) => key.includes(hint));
 }
 
+function sourceFieldIconType(
+  sourceFieldType: string,
+): DocumentPropertyType | "name" {
+  const normalized = sourceFieldType.trim().toLowerCase();
+  if (normalized === "number") return "number";
+  if (normalized === "datetime" || normalized === "date") return "date";
+  if (normalized === "url") return "url";
+  if (normalized === "boolean" || normalized === "checkbox") return "checkbox";
+  if (
+    normalized === "list" ||
+    normalized === "array" ||
+    normalized === "tags" ||
+    normalized === "multi_select"
+  ) {
+    return "multi_select";
+  }
+  return "text";
+}
+
 function SourceDetailsFieldPicker({
   documentId,
   source,
@@ -2039,31 +2058,37 @@ function SourceDetailsFieldPicker({
         </div>
       ) : (
         <div className="grid min-w-0 gap-1">
-          {fields.map((field) => (
-            <button
-              key={field.id}
-              type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => toggleField(field.id)}
-            >
-              <span
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded border",
-                  selected.has(field.id)
-                    ? "border-[#2383e2] bg-[#2383e2] text-white"
-                    : "border-muted-foreground/40 text-transparent",
-                )}
+          {fields.map((field) => {
+            const iconType = sourceFieldIconType(field.sourceFieldType);
+            const Icon =
+              iconType === "name" ? IconFileText : TYPE_ICONS[iconType];
+            return (
+              <button
+                key={field.id}
+                type="button"
+                className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => toggleField(field.id)}
               >
-                <IconCheck className="size-3" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">
-                {field.sourceFieldLabel}
-              </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {field.sourceFieldType}
-              </span>
-            </button>
-          ))}
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    selected.has(field.id)
+                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      : "border-muted-foreground/40 text-transparent",
+                  )}
+                >
+                  <IconCheck className="size-3" />
+                </span>
+                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">
+                  {field.sourceFieldLabel}
+                </span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {field.sourceFieldType}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="flex justify-end gap-2">

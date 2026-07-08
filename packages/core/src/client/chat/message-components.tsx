@@ -82,6 +82,22 @@ export function displayableUserMessageText(text: string): string {
     .trim();
 }
 
+export function isHiddenUserMessage(message: unknown): boolean {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: {
+          agentNativeHiddenUserMessage?: unknown;
+          agentNativeRecoveryAction?: unknown;
+        };
+      }
+    | undefined;
+  return (
+    meta?.custom?.agentNativeHiddenUserMessage === true ||
+    meta?.custom?.agentNativeRecoveryAction === "continue" ||
+    meta?.custom?.agentNativeRecoveryAction === "retry"
+  );
+}
+
 // ─── Message timestamp helpers ────────────────────────────────────────────────
 
 interface FormattedMessageTimestamp {
@@ -634,13 +650,15 @@ export function UserMessage() {
   const timestamp = formatMessageTimestamp(message.createdAt);
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
+  const hidden = isHiddenUserMessage(message);
   const hasDisplayableText =
-    message.content
+    !hidden &&
+    (message.content
       ?.filter((part): part is { type: "text"; text: string } => {
         return part.type === "text" && typeof part.text === "string";
       })
       .some((part) => displayableUserMessageText(part.text).length > 0) ??
-    false;
+      false);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -655,6 +673,8 @@ export function UserMessage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasDisplayableText]);
+
+  if (hidden) return null;
 
   // When in edit mode, show the inline edit composer instead of the message bubble.
   if (isEditing) {

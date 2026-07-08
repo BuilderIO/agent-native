@@ -617,6 +617,9 @@ export interface BuilderCmsModelFieldSummary {
   name: string;
   label?: string;
   type: string;
+  inputType?: string;
+  enum?: string[];
+  options?: string[];
   required: boolean;
 }
 

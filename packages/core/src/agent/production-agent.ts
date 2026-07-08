@@ -45,6 +45,7 @@ import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForModel,
+  stepDownReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
@@ -77,7 +78,11 @@ import {
   normalizeModelForEngine,
   isResolvedEngineUsableForRequest,
 } from "./engine/index.js";
-import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
+import {
+  resolveEmptyResponseRetryMaxOutputTokens,
+  resolveMainChatMaxOutputTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import {
   backfillEngineMessagesToolResults,
@@ -1015,6 +1020,10 @@ const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+// Raised from 1 -> 2 now that each retry actually adapts (raises the token
+// ceiling and steps reasoning effort down a tier) instead of re-issuing the
+// exact same doomed request twice.
+const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -2733,7 +2742,14 @@ export async function runAgentLoop(opts: {
   }
 
   let finalGuardRetries = 0;
+  let emptyFinalResponseRetries = 0;
   let iterations = 0;
+  // Overridden (raised tokens, lowered effort) only after an empty-final-
+  // response retry below — kept separate from `opts.maxOutputTokens`/
+  // `opts.reasoningEffort` so the very first attempt is unaffected and later
+  // tool-loop turns revert to the caller's original request after a success.
+  let effectiveMaxOutputTokens = opts.maxOutputTokens;
+  let effectiveReasoningEffort = opts.reasoningEffort;
 
   // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
   // The loop emits the `tripwire` event, surfaces the reason as a final
@@ -2843,10 +2859,10 @@ export async function runAgentLoop(opts: {
           abortSignal: signal,
           maxOutputTokens: resolveMaxOutputTokensForEngine(
             engine.name,
-            opts.maxOutputTokens,
+            effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: opts.reasoningEffort,
+          reasoningEffort: effectiveReasoningEffort,
           providerOptions: opts.providerOptions,
         };
 
@@ -3349,16 +3365,33 @@ export async function runAgentLoop(opts: {
       // text — typically when reasoning consumes the entire output-token
       // budget. Without a final text part the SSE stream still ends with a
       // clean `done`, which renders as a totally empty assistant bubble.
-      // Surface a plain-language error so the user knows what happened.
-      if (
+      // Retry so a reasoning-budget miss can still finish; each retry raises
+      // the token ceiling and steps reasoning effort down a tier so it's not
+      // just re-issuing the identical doomed request. If retries also come
+      // back empty, surface a plain-language error.
+      const hasEmptyFinalResponse =
         !guardEmittedFallback &&
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
-        streamedAssistantText.trim().length === 0
-      ) {
+        streamedAssistantText.trim().length === 0;
+      if (hasEmptyFinalResponse) {
+        if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
+          emptyFinalResponseRetries += 1;
+          effectiveMaxOutputTokens =
+            resolveEmptyResponseRetryMaxOutputTokens(model);
+          effectiveReasoningEffort = stepDownReasoningEffort(
+            effectiveReasoningEffort,
+          );
+          appendAgentLoopContinuation(messages, "max_tokens");
+          continue;
+        }
         send({
           type: "text",
           text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
         });
+      } else {
+        emptyFinalResponseRetries = 0;
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
+        effectiveReasoningEffort = opts.reasoningEffort;
       }
       break;
     }
@@ -3369,6 +3402,7 @@ export async function runAgentLoop(opts: {
     // finalGuardRetries stays at 1 from a prior cycle and the guard is
     // permanently disabled for the rest of a long multi-step run.
     finalGuardRetries = 0;
+    emptyFinalResponseRetries = 0;
 
     flushUnstreamedAssistantText();
 
@@ -6784,6 +6818,11 @@ export function createProductionAgentHandler(
           orgId: getRequestOrgId() ?? null,
           attachments: requestAttachments,
           reasoningEffort,
+          // The interactive chat turn needs real completion headroom — the
+          // flat per-engine defaults (4096-8192) exist for internal/eval
+          // callers and are far below what a hard, long-context turn needs
+          // once extended thinking is in play. See output-tokens.ts.
+          maxOutputTokens: resolveMainChatMaxOutputTokens(effectiveModel),
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,

@@ -2934,18 +2934,27 @@ ${signupLocalModeNoteHtml}
     function __anRedirectToSignedInApp(ret) {
       window.location.replace(__anWithAuthCacheBypass(ret || __anGetSignedInReturnPath()));
     }
-${identitySsoScript}
-	    (function __anRedirectIfAlreadySignedIn() {
-	      fetch(__anPath('/_agent-native/auth/session'), {
-	        headers: { 'Accept': 'application/json' },
-	        credentials: 'include',
-	        cache: 'no-store',
+    function __anMaybeRedirectSignedIn(ret) {
+      return fetch(__anPath('/_agent-native/auth/session'), {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
       }).then(function(res) {
         if (!res.ok) return null;
         return res.json().catch(function() { return null; });
       }).then(function(data) {
-	        if (data && data.email && !data.error) __anRedirectToSignedInApp();
-	      }).catch(function() {});
+        if (data && data.email && !data.error) {
+          __anRedirectToSignedInApp(ret);
+          return true;
+        }
+        return false;
+      }).catch(function() {
+        return false;
+      });
+    }
+${identitySsoScript}
+	    (function __anRedirectIfAlreadySignedIn() {
+	      __anMaybeRedirectSignedIn();
 	    })();
 	    function __anSafeAttributionValue(value) {
 	      return typeof value === 'string' ? value.trim().slice(0, 120) : '';
@@ -3130,14 +3139,17 @@ ${identitySsoScript}
       // in-flight exchange can still finish and navigate without a flicker.
       if (!__anGoogleSignInInFlight) return;
       setTimeout(function() {
-        if (!__anGoogleSignInInFlight) return;
-        var btn = document.getElementById('google-btn');
-        if (!btn || !btn.disabled) return;
-        // Keep the desktop-exchange poll alive. Agent Native Desktop opens
-        // Google in the system browser, so focus can return before the
-        // callback has stored the session token.
-        btn.disabled = false;
-        __anGoogleSignInInFlight = false;
+        __anMaybeRedirectSignedIn(__anGetSignedInReturnPath()).then(function(redirected) {
+          if (redirected) return;
+          if (!__anGoogleSignInInFlight) return;
+          var btn = document.getElementById('google-btn');
+          if (!btn || !btn.disabled) return;
+          // Keep the desktop-exchange poll alive. Agent Native Desktop opens
+          // Google in the system browser, so focus can return before the
+          // callback has stored the session token.
+          btn.disabled = false;
+          __anGoogleSignInInFlight = false;
+        });
       }, 1200);
     }
     function __anBindGoogleRecover() {

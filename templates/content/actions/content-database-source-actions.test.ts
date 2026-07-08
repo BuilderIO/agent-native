@@ -360,6 +360,40 @@ describe("content database source actions", () => {
     expect(result[0]?.value).not.toBeNull();
   });
 
+  it("maps constrained source option labels to option ids when backfilling values", () => {
+    const result = sourceFieldPropertyValuesFromRows(
+      [
+        {
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceValuesJson: JSON.stringify({
+            "data.topics": ["Headless CMS", "Governance &amp; Security"],
+          }),
+        },
+      ],
+      "data.topics",
+      "multi_select",
+      {
+        options: [
+          { id: "headless-cms", name: "Headless CMS", color: "blue" },
+          {
+            id: "governance-security",
+            name: "Governance &amp; Security",
+            color: "green",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual([
+      {
+        itemId: "item-1",
+        documentId: "doc-1",
+        value: ["headless-cms", "governance-security"],
+      },
+    ]);
+  });
+
   it("accepts no-argument Builder model discovery requests", () => {
     expect(listBuilderModels.schema.parse({})).toEqual({});
   });

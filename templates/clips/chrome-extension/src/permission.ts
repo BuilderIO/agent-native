@@ -23,6 +23,13 @@ const checkCam = document.getElementById("check-cam") as HTMLSpanElement;
 
 const CHECK = "✓";
 const DOT = "●";
+const params = new URLSearchParams(location.search);
+const startAfterGrant = params.get("startAfterGrant") === "1";
+const shouldRequestCamera = params.get("needsCamera") !== "false";
+const shouldRequestMicrophone = params.get("needsMicrophone") !== "false";
+
+if (!shouldRequestMicrophone) rowMic.hidden = true;
+if (!shouldRequestCamera) rowCam.hidden = true;
 
 function setStatus(text: string, isError = false): void {
   statusEl.textContent = text;
@@ -40,8 +47,9 @@ function showSuccess(title: string): void {
   enableBtn.hidden = true;
   enableBtn.disabled = true;
   successTitle.textContent = title;
-  successCopy.textContent =
-    "You can close this tab and start recording from the Clips icon.";
+  successCopy.textContent = startAfterGrant
+    ? "Opening Chrome's screen picker now."
+    : "You can close this tab and start recording from the Clips icon.";
   successEl.hidden = false;
   setStatus(
     "Chrome still asks you what to share before each recording starts.",
@@ -83,14 +91,53 @@ async function requestOne(kind: "mic" | "cam"): Promise<boolean> {
   }
 }
 
-function finish(camOk: boolean, micOk: boolean): void {
-  void chrome.storage.local.set({
-    clipsMediaPermission: { camera: camOk, microphone: micOk },
+function requiredPermissionsReady(camOk: boolean, micOk: boolean): boolean {
+  return (!shouldRequestCamera || camOk) && (!shouldRequestMicrophone || micOk);
+}
+
+function writePermissionCache(camOk: boolean, micOk: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get("clipsMediaPermission", (value) => {
+      const current =
+        value.clipsMediaPermission &&
+        typeof value.clipsMediaPermission === "object"
+          ? (value.clipsMediaPermission as {
+              camera?: boolean;
+              microphone?: boolean;
+            })
+          : {};
+      const next = {
+        ...current,
+        ...(shouldRequestCamera ? { camera: camOk } : {}),
+        ...(shouldRequestMicrophone ? { microphone: micOk } : {}),
+      };
+      chrome.storage.local.set({ clipsMediaPermission: next }, () => resolve());
+    });
   });
+}
+
+async function startPendingRecording(): Promise<void> {
+  const response = (await chrome.runtime.sendMessage({
+    type: "CLIPS_PERMISSION_START_AFTER_GRANT",
+  })) as { ok?: boolean; error?: string } | undefined;
+  if (response?.ok) {
+    window.close();
+    return;
+  }
+  showEnableButton("Try again", false);
+  setStatus(
+    response?.error || "Start the recording again from the Clips icon.",
+    true,
+  );
+}
+
+async function finish(camOk: boolean, micOk: boolean): Promise<void> {
+  await writePermissionCache(camOk, micOk);
   markRow("mic", micOk);
   markRow("cam", camOk);
-  if (camOk || micOk) {
-    showSuccess(camOk && micOk ? "You're all done" : "Saved");
+  if (requiredPermissionsReady(camOk, micOk)) {
+    showSuccess(startAfterGrant ? "Starting recording..." : "You're all done");
+    if (startAfterGrant) await startPendingRecording();
   } else {
     showEnableButton("Try again", false);
     setStatus(
@@ -104,9 +151,9 @@ async function enable(): Promise<void> {
   showEnableButton(enableBtn.textContent ?? "Enable camera & microphone", true);
   setStatus("Waiting for Chrome's permission prompt…");
   // Request separately so a camera denial doesn't also block the microphone.
-  const micOk = await requestOne("mic");
-  const camOk = await requestOne("cam");
-  finish(camOk, micOk);
+  const micOk = shouldRequestMicrophone ? await requestOne("mic") : true;
+  const camOk = shouldRequestCamera ? await requestOne("cam") : true;
+  await finish(camOk, micOk);
 }
 
 enableBtn.addEventListener("click", () => void enable());
@@ -117,9 +164,11 @@ void (async () => {
     permissionState("camera"),
     permissionState("microphone"),
   ]);
-  markRow("mic", mic === "granted");
-  markRow("cam", cam === "granted");
-  if (cam === "granted" && mic === "granted") {
-    showSuccess("You're all done");
+  const micOk = !shouldRequestMicrophone || mic === "granted";
+  const camOk = !shouldRequestCamera || cam === "granted";
+  markRow("mic", micOk);
+  markRow("cam", camOk);
+  if (requiredPermissionsReady(camOk, micOk)) {
+    await finish(camOk, micOk);
   }
 })();

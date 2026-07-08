@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
+import { withConfiguredAppBasePath } from "@agent-native/core/server";
 import type {
   IncomingMessage,
   PlatformAdapter,
@@ -75,6 +76,40 @@ function configuredDefaultOwnerForIncoming(
   const email = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
   if (!email) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+function platformRequiresExplicitLink(incoming: IncomingMessage): boolean {
+  // Telegram does not provide a verified email address. Require an explicit
+  // identity link before it can act as a Builder/Agent-Native user.
+  return incoming.platform === "telegram";
+}
+
+function configuredDispatchIdentitiesUrl(): string | null {
+  const raw =
+    process.env.WORKSPACE_GATEWAY_URL ||
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL ||
+    "";
+  if (!raw.trim()) return null;
+  const base = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(
+      "identities",
+      `${withConfiguredAppBasePath(base).replace(/\/+$/, "")}/`,
+    ).toString();
+  } catch {
+    return null;
+  }
+}
+
+function formatTelegramLinkRequiredMessage(): string {
+  const identitiesUrl = configuredDispatchIdentitiesUrl();
+  const linkStep = identitiesUrl
+    ? `Tap ${identitiesUrl}, create a Telegram link token, then send \`/link <token>\` here.`
+    : "Open Dispatch while signed in, create a Telegram link token, then send `/link <token>` here.";
+  return `Telegram is connected, but this Telegram account is not linked to an Agent-Native user yet. ${linkStep} After that I can use your Builder.io org and connected apps.`;
 }
 
 async function resolveSlackSenderProfile(
@@ -228,6 +263,19 @@ export async function beforeDispatchProcess(
     contextString(incoming.platformContext.rawText) || trimmed;
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
   if (!match) {
+    if (platformRequiresExplicitLink(incoming)) {
+      const owner = await resolveLinkedOwner(
+        incoming.platform,
+        identityKeyForIncoming(incoming),
+        { allowAnyOrgFallback: true },
+      );
+      if (!owner) {
+        return {
+          handled: true,
+          responseText: formatTelegramLinkRequiredMessage(),
+        };
+      }
+    }
     return handleRemoteCodeCommand(incoming, adapter, {
       resolveOwner: () => resolveDispatchOwner(incoming),
     });

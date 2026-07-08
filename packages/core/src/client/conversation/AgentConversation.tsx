@@ -18,6 +18,14 @@ import {
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "../chat/widgets/builtin-tool-renderers.js";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "../components/ui/message-scroller.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { humanizeToolName } from "../tool-display.js";
@@ -30,7 +38,6 @@ import type {
   AgentConversationNotice,
   AgentConversationToolCall,
 } from "./types.js";
-import { useNearBottomAutoscroll } from "./use-near-bottom-autoscroll.js";
 
 export interface AgentConversationProps {
   messages: AgentConversationMessage[];
@@ -48,22 +55,12 @@ export function AgentConversation({
   messages,
   loading = false,
   error,
-  streaming = false,
   className,
   timelineClassName,
   emptyTitle = "No messages yet",
   emptyDescription,
   composer,
 }: AgentConversationProps) {
-  const followKey = `${messages.length}:${
-    messages[messages.length - 1]?.text?.length ?? 0
-  }`;
-  const { scrollRef, showScrollToBottom, scrollToBottom } =
-    useNearBottomAutoscroll<HTMLDivElement>({
-      followKey,
-      streaming,
-    });
-
   return (
     <section className={cn("agent-conversation", className)}>
       {error && (
@@ -72,37 +69,62 @@ export function AgentConversation({
           <span>{error}</span>
         </div>
       )}
-      <div
-        ref={scrollRef}
-        className={cn("agent-conversation__timeline", timelineClassName)}
-      >
-        {loading && messages.length === 0 ? (
-          <ConversationEmpty
-            icon={<IconLoader2 size={17} className="agent-conversation-spin" />}
-            title="Loading session..."
+      <MessageScrollerProvider autoScroll>
+        <MessageScroller className="agent-conversation__scroller">
+          <MessageScrollerViewport
+            className={cn("agent-conversation__timeline", timelineClassName)}
+          >
+            <MessageScrollerContent>
+              {loading && messages.length === 0 ? (
+                <MessageScrollerItem>
+                  <ConversationEmpty
+                    icon={
+                      <IconLoader2
+                        size={17}
+                        className="agent-conversation-spin"
+                      />
+                    }
+                    title="Loading session..."
+                  />
+                </MessageScrollerItem>
+              ) : messages.length === 0 ? (
+                <MessageScrollerItem>
+                  <ConversationEmpty
+                    icon={<IconClock size={18} />}
+                    title={emptyTitle}
+                    description={emptyDescription}
+                  />
+                </MessageScrollerItem>
+              ) : (
+                messages.map((message) => (
+                  <MessageScrollerItem
+                    key={message.id}
+                    messageId={message.id}
+                    scrollAnchor={message.role === "user"}
+                  >
+                    <AgentConversationMessageView message={message} />
+                  </MessageScrollerItem>
+                ))
+              )}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton
+            render={(buttonProps) => (
+              <button
+                {...buttonProps}
+                className={cn(
+                  "agent-conversation__scroll-bottom",
+                  "data-[active=false]:hidden",
+                  buttonProps.className as string | undefined,
+                )}
+                aria-label="Scroll to bottom"
+              >
+                <IconArrowDown size={15} strokeWidth={1.9} />
+              </button>
+            )}
           />
-        ) : messages.length === 0 ? (
-          <ConversationEmpty
-            icon={<IconClock size={18} />}
-            title={emptyTitle}
-            description={emptyDescription}
-          />
-        ) : (
-          messages.map((message) => (
-            <AgentConversationMessageView key={message.id} message={message} />
-          ))
-        )}
-      </div>
-      {showScrollToBottom && (
-        <button
-          type="button"
-          className="agent-conversation__scroll-bottom"
-          onClick={scrollToBottom}
-          aria-label="Scroll to bottom"
-        >
-          <IconArrowDown size={15} strokeWidth={1.9} />
-        </button>
-      )}
+        </MessageScroller>
+      </MessageScrollerProvider>
       {composer}
     </section>
   );

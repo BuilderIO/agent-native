@@ -284,6 +284,7 @@ export default defineAction({
           fetchedAt: builderRead.fetchedAt,
           now,
           message: builderRead.message,
+          builderModelFields: modelFields,
           ...builderCmsAttachReadMetadata(builderRead),
         });
       }
@@ -417,6 +418,7 @@ export default defineAction({
         fetchedAt: additionalRead.fetchedAt,
         now,
         message: additionalRead.message,
+        builderModelFields: additionalModelFields,
         ...builderCmsAttachReadMetadata(additionalRead),
       });
       await ensureDatabaseSourceProperty({ database, now });
@@ -520,6 +522,7 @@ export default defineAction({
         fetchedAt: builderRead.fetchedAt,
         now,
         message: builderRead.message,
+        builderModelFields,
         ...builderCmsAttachReadMetadata(builderRead),
       });
     }

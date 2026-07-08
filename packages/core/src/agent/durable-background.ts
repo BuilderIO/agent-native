@@ -260,12 +260,12 @@ export function backgroundRunMarkerExpectsBackgroundRuntime(
 }
 
 export function shouldUseBackgroundFunctionTimeoutForWorker(
-  marker: unknown,
+  _marker: unknown,
 ): boolean {
-  return (
-    isInBackgroundFunctionRuntime() ||
-    backgroundRunMarkerExpectsBackgroundRuntime(marker)
-  );
+  // The dispatch marker says which URL the foreground targeted, not where the
+  // request actually landed. Only the worker runtime proof can safely lift the
+  // hosted 40s clamp to the 15-minute background-function budget.
+  return isInBackgroundFunctionRuntime();
 }
 
 export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {

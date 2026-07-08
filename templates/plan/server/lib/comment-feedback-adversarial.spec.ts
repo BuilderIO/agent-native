@@ -52,6 +52,7 @@ vi.mock("drizzle-orm", () => ({
   asc: vi.fn((col: unknown) => ({ asc: col })),
   inArray: vi.fn((col: unknown, values: unknown) => ({ col, values })),
   and: vi.fn((...args: unknown[]) => ({ and: args })),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core/server", () => ({

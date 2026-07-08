@@ -147,6 +147,12 @@ export function Layout({ children }: LayoutProps) {
     location.pathname.startsWith("/extensions/");
   const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
   const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  // Monitoring renders its own header row (section tabs / "Back to monitors"
+  // + the relocated agent toggle), so skip the framework Header to avoid a
+  // redundant second title bar.
+  const isMonitoringRoute =
+    location.pathname === "/monitoring" ||
+    location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
@@ -222,7 +228,10 @@ export function Layout({ children }: LayoutProps) {
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
       <MobileNav showNewChat={isAskRoute} />
-      {!isExtensionsRoute && !isAskRoute && !isSessionDetailRoute && <Header />}
+      {!isExtensionsRoute &&
+        !isAskRoute &&
+        !isSessionDetailRoute &&
+        !isMonitoringRoute && <Header />}
       <InvitationBanner />
       <main
         className={

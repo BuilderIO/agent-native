@@ -1,5 +1,45 @@
 # @agent-native/core
 
+## 0.91.0
+
+### Minor Changes
+
+- e310ac1: Add first-party, Sentry-style error capture to the analytics client SDK. `configureTracking({ errorCapture })` now auto-captures uncaught exceptions (`window.onerror`) and unhandled promise rejections, exposes a manual `captureException(error, context?)` / `captureMessage(message, level?)` API plus `addErrorBreadcrumb`, and ties each captured exception to the active session replay id so errors link straight to the recording they happened in. Captured exceptions are sent through the existing first-party analytics ingest as a dedicated `$exception` event and are redacted + deduped client-side. Additive and backward-compatible; error capture only installs when a public key is configured (or explicitly enabled).
+- e310ac1: Revamp the shared settings shell (`SettingsTabsPage`): an edge-aligned,
+  independently scrolling left nav with consistent theming, a built-in settings
+  search that deep-links into tabs and sections via `searchEntries` /
+  `generalSearchEntries`, and a new controlled `value` / `onValueChange` mode so
+  apps can drive the active tab from their own routing and application state.
+- e310ac1: Make agent-native chat threads shareable through the framework share dialog so collaborators can view or edit shared chats.
+
+### Patch Changes
+
+- e310ac1: Populate in-app "What's new" surfaces from pending app changelog entries during dev and build.
+- e310ac1: Use shadcn's message scroller primitives for core chat transcripts so streaming replies, turn anchoring, and scroll-to-bottom behavior stay smoother in long or dynamically resizing chats.
+- e310ac1: Auto-continue recoverable chat run timeouts during reconnect without showing the internal resume prompt in chat history, and retry transient `ask_app_status` bridge fetch failures before surfacing an error.
+- e310ac1: Recover Google popup sign-in pages when the session cookie is present but the parent page misses the automatic OAuth exchange redirect.
+- e310ac1: Hide internal share principal ids in share dialogs by resolving organization names and using safe fallback labels.
+- e310ac1: Fix Vite dev server resolution for Agent Native templates that load local or transitive `@agent-native/toolkit` subpath exports.
+- e310ac1: Avoid repeated Sentry reports when workspace dev app discovery hits local filesystem permission errors.
+
+## 0.90.11
+
+### Patch Changes
+
+- bba7332: Keep agent-chat workers on the hosted foreground timeout unless they are actually running inside a background function, preventing misrouted workers from being killed as stale runs.
+- bba7332: Fix "The model returned an empty response" on hard/long-context chat turns: interactive chat now resolves max_output_tokens to min(model ceiling, 32K) instead of the flat 4096-8192 per-engine defaults, Anthropic/Gemini numeric thinking budgets are clamped to always leave real output headroom under max_tokens, and the empty-final-response retry now raises the token ceiling and steps reasoning effort down a tier (with the retry budget raised from 1 to 2 attempts) instead of re-issuing the identical doomed request.
+- bba7332: Stop misrouted agent-chat workers from taking the large background Neon connection pool. `isBackgroundFunctionPoolContext()` no longer trusts the dispatch marker (`__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__`) — a worker dispatched toward a `-background` URL but routed onto the ~60s synchronous function would otherwise open the 8-connection worker pool while running as one of many warm sync-function instances, exhausting the Neon pooled endpoint (connection terminated / statement timeouts / failed heartbeat writes surfacing as stale runs). Only the genuine `-background` runtime marker (set at cold start) unlocks the larger pool now, mirroring the same proof-of-landing tightening applied to the worker soft-timeout.
+
+## 0.90.10
+
+### Patch Changes
+
+- d6153fd: Remove extra root padding from borderless wireframe blocks and tighten the Toolkit docs hero wireframe header.
+- d6153fd: Retry reasoning-only empty agent responses once before surfacing the manual retry message.
+- d6153fd: Fix Netlify single-template deploy previews by keeping Nitro's `preferStatic` true (so `/assets/*` is served from `dist`) and stripping the harmful default-function URL rewrite that is incompatible with `config.path: "/*"`.
+- d6153fd: Enable first-party session replay by default for signed-in hosted users when Agent Native Analytics is configured, while preserving explicit replay opt-outs.
+- d6153fd: Let Builder video uploads request stable URLs while allowing asynchronous compression, so Clips can keep a single media URL without disabling compression.
+
 ## 0.90.9
 
 ### Patch Changes
