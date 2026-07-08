@@ -230,33 +230,28 @@ export function SessionDevToolsPanel({
           <VirtualizedDevToolsList
             entries={filteredConsole}
             activeEntryId={activeConsoleId}
+            expandedEntryId={selectedConsoleId}
             emptyMessage={
               diagnostics.console.length
                 ? t("sessions.devtoolsNoConsoleMatches")
                 : t("sessions.devtoolsNoConsole")
             }
-            renderRow={(entry) => (
+            renderRow={(entry, expanded) => (
               <ConsoleRow
                 entry={entry}
                 active={entry.id === activeConsoleId}
-                selected={entry.id === selectedConsoleId}
+                selected={expanded}
                 issueMatch={issueMatches?.get(entry.id) ?? null}
-                onSelect={() =>
+                onSelect={() => {
+                  onSeek(entry.offsetMs);
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
-                  )
-                }
+                  );
+                }}
                 onSeek={onSeek}
               />
             )}
           />
-          {selectedConsole ? (
-            <ConsoleDetailPane
-              entry={selectedConsole}
-              issueMatch={issueMatches?.get(selectedConsole.id) ?? null}
-              onSeek={onSeek}
-            />
-          ) : null}
         </TabsContent>
 
         <TabsContent
@@ -302,28 +297,27 @@ export function SessionDevToolsPanel({
           <VirtualizedDevToolsList
             entries={filteredNetwork}
             activeEntryId={activeNetworkId}
+            expandedEntryId={selectedNetworkId}
             emptyMessage={
               diagnostics.network.length
                 ? t("sessions.devtoolsNoNetworkMatches")
                 : t("sessions.devtoolsNoNetwork")
             }
-            renderRow={(entry) => (
+            renderRow={(entry, expanded) => (
               <NetworkRow
                 entry={entry}
                 active={entry.id === activeNetworkId}
-                selected={entry.id === selectedNetworkId}
-                onSelect={() =>
+                selected={expanded}
+                onSelect={() => {
+                  onSeek(entry.offsetMs);
                   setSelectedNetworkId((current) =>
                     current === entry.id ? null : entry.id,
-                  )
-                }
+                  );
+                }}
                 onSeek={onSeek}
               />
             )}
           />
-          {selectedNetwork ? (
-            <NetworkDetailPane entry={selectedNetwork} onSeek={onSeek} />
-          ) : null}
         </TabsContent>
       </Tabs>
     </div>

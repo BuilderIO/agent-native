@@ -499,7 +499,6 @@ function ReplayPlayer({
       )}`,
     [events],
   );
-  const eventsIdentityRef = useLiveRef(eventsIdentity);
   const scrubbingRef = useRef(false);
 
   const playerWidth =
@@ -1226,10 +1225,7 @@ function ReplayTimeline({
 
   useEffect(() => {
     if (!activeMarkerId) return;
-    if (
-      Date.now() - lastManualScrollAtRef.current <
-      TIMELINE_FOLLOW_PAUSE_MS
-    ) {
+    if (Date.now() - lastManualScrollAtRef.current < TIMELINE_FOLLOW_PAUSE_MS) {
       return;
     }
     const row = activeRowRef.current;
@@ -1451,7 +1447,6 @@ function useSessionReplayPlayback(recordingId: string) {
         let loadedBytes = 0;
         let unavailableChunks = 0;
         let nextIndex = 0;
-        let firstPlayablePublished = false;
 
         const publish = (force = false) => {
           const complete = loadedCount >= manifest.chunks.length;
@@ -1464,7 +1459,6 @@ function useSessionReplayPlayback(recordingId: string) {
           const shouldPublishEvents = force || complete;
 
           if (shouldPublishEvents) {
-            firstPlayablePublished = true;
             setState({
               data: playbackResponseFromChunks(manifest, chunks, {
                 isComplete: complete,
@@ -2137,13 +2131,44 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
 export function replayViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
+  // Prefer the most recent sane Meta/ViewportResize frame. Early Meta events
+  // (or corrupt resize payloads) can report absurd aspect ratios that collapse
+  // the stage into an ultra-wide ribbon after fit-to-stage scaling.
+  let best: ReplayViewportDimensions | null = null;
   for (const event of events) {
-    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
-    const dims = normalizeReplayDimensions(
-      event.data?.width,
-      event.data?.height,
-    );
-    if (dims) return dims;
+    const dims = dimensionsFromReplayEvent(event);
+    if (dims) best = dims;
+  }
+  return best;
+}
+
+export function replayViewportAt(
+  events: AnyReplayEvent[],
+  currentTime: number,
+): ReplayViewportDimensions | null {
+  const startedAt = replayStartedAt(events);
+  let current: ReplayViewportDimensions | null = null;
+  for (const event of events) {
+    const dims = dimensionsFromReplayEvent(event);
+    if (!dims) continue;
+    const offset = Number(event.timestamp ?? 0) - startedAt;
+    if (offset <= currentTime + 50) current = dims;
+    else break;
+  }
+  return current ?? replayViewportDimensions(events);
+}
+
+function dimensionsFromReplayEvent(
+  event: AnyReplayEvent,
+): ReplayViewportDimensions | null {
+  if (event.type === RRWEB_EVENT_TYPE.Meta) {
+    return normalizeReplayDimensions(event.data?.width, event.data?.height);
+  }
+  if (
+    event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
+    event.data?.source === INCREMENTAL_SOURCE.ViewportResize
+  ) {
+    return normalizeReplayDimensions(event.data?.width, event.data?.height);
   }
   return null;
 }
@@ -2157,15 +2182,40 @@ function normalizeReplayDimensions(
     typeof height !== "number" ||
     !Number.isFinite(width) ||
     !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
+    width < MIN_REPLAY_VIEWPORT_WIDTH ||
+    height < MIN_REPLAY_VIEWPORT_HEIGHT
   ) {
+    return null;
+  }
+  const aspect = width / height;
+  if (aspect > MAX_REPLAY_ASPECT_RATIO || aspect < MIN_REPLAY_ASPECT_RATIO) {
     return null;
   }
   return {
     width: Math.round(width),
     height: Math.round(height),
   };
+}
+
+export function filterReplayMarkers(
+  markers: ReplayMarker[],
+  query: string,
+): ReplayMarker[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return markers;
+  return markers.filter((marker) => {
+    const haystack = [
+      marker.label,
+      marker.detail,
+      marker.kind,
+      marker.severity,
+      ...(marker.fields?.flatMap((field) => [field.label, field.value]) ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  });
 }
 
 function applyReplayFrameDimensions(
