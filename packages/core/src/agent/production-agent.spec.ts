@@ -617,8 +617,11 @@ describe("buildUserContentWithAttachments", () => {
         "provider-api-request": actionEntry({ readOnly: true }),
         "provider-api-docs": actionEntry({ readOnly: true }),
         "run-code": actionEntry({ readOnly: true }),
+        "account-deep-dive": actionEntry({ readOnly: true }),
         "hubspot-deals": actionEntry({ readOnly: true }),
+        "hubspot-metrics": actionEntry({ readOnly: true }),
         "gong-calls": actionEntry({ readOnly: true }),
+        gcloud: actionEntry({ readOnly: true }),
         "ordinary-rare-tool": actionEntry({ readOnly: true }),
       }),
     );
@@ -632,8 +635,11 @@ describe("buildUserContentWithAttachments", () => {
     expect(initialTools).toContain("provider-api-request");
     expect(initialTools).toContain("provider-api-docs");
     expect(initialTools).toContain("run-code");
+    expect(initialTools).toContain("account-deep-dive");
     expect(initialTools).toContain("hubspot-deals");
+    expect(initialTools).toContain("hubspot-metrics");
     expect(initialTools).toContain("gong-calls");
+    expect(initialTools).toContain("gcloud");
     expect(initialTools).not.toContain("ordinary-rare-tool");
   });
 
