@@ -2158,7 +2158,10 @@ function AgentLimitsSectionInner({
                 className={pillButtonClass(isPage, "solid")}
               >
                 {saving ? (
-                  <IconLoader2 size={isPage ? 14 : 10} className="animate-spin" />
+                  <IconLoader2
+                    size={isPage ? 14 : 10}
+                    className="animate-spin"
+                  />
                 ) : saved ? (
                   <IconCheck size={isPage ? 14 : 10} />
                 ) : (
@@ -2189,9 +2192,7 @@ function AgentLimitsSectionInner({
               </p>
             )}
             {error && (
-              <p
-                className={cn("mt-2 text-destructive", noteTextClass(isPage))}
-              >
+              <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
                 {error}
               </p>
             )}
@@ -2643,9 +2644,7 @@ function AccountSectionInner({
             </p>
           )}
           {status === "error" && (
-            <p
-              className={cn("mt-1 text-destructive", subTextClass(isPage))}
-            >
+            <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
               Could not update photo
             </p>
           )}
