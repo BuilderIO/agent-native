@@ -60,6 +60,10 @@ export interface DesignConnectArgs {
    *  are present) the CLI POSTs to `/_agent-native/actions/connect-localhost`
    *  with the real bridge token so the server can store it for grant minting. */
   appUrl?: string;
+  /** Server-minted bridge token to adopt instead of minting one, so the bridge
+   *  matches the token already stored on the user's connection row (no
+   *  self-registration). Also read from AGENT_NATIVE_BRIDGE_TOKEN. */
+  bridgeToken?: string;
   json: boolean;
   once: boolean;
   dryRun: boolean;
@@ -174,6 +178,11 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
       index += 1;
     } else if (arg.startsWith("--app-url=")) {
       parsed.appUrl = arg.slice("--app-url=".length);
+    } else if (arg === "--bridge-token") {
+      parsed.bridgeToken = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--bridge-token=")) {
+      parsed.bridgeToken = arg.slice("--bridge-token=".length);
     } else if (arg === "--json") {
       parsed.json = true;
       parsed.once = true;
@@ -1215,12 +1224,16 @@ async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
 
 export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
+  seedToken?: string,
 ): Promise<DesignConnectBridge> {
-  // Mint a cryptographically random per-rootPath bridge token.  This token is
-  // kept in-process only and is never emitted via the public GET routes so that
-  // an unauthenticated caller cannot read it.  The server-side grant action
-  // obtains it out-of-band (via the exported bridge reference).
-  const bridgeToken = crypto.randomBytes(32).toString("hex");
+  // Shared secret the browser sends (x-bridge-token) to unlock live-edit/read/
+  // write. Bridge and the user's connection row must agree on it. Adopt a
+  // server-minted seed when given (MCP flow); otherwise mint one and rely on
+  // --app-url self-registration to push it up. Kept in-process, never served.
+  const bridgeToken =
+    seedToken ||
+    process.env["AGENT_NATIVE_BRIDGE_TOKEN"] ||
+    crypto.randomBytes(32).toString("hex");
   let liveEditBridgeScript = "";
 
   const server = http.createServer(
@@ -1795,6 +1808,12 @@ Options:
   --route-manifest <path> Non-destructive route manifest output path
   --app-url <url>         Deployed design app URL for self-registration
                           (also reads AGENT_NATIVE_URL / DESIGN_APP_URL env)
+  --bridge-token <token>  Adopt a bridge token minted server-side by the
+                          authenticated connect-localhost / open-visual-edit
+                          action instead of minting one. Used by the remote-MCP
+                          /visual-edit flow so the bridge and the user's stored
+                          connection token match with no self-registration.
+                          (also reads AGENT_NATIVE_BRIDGE_TOKEN env)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -1931,25 +1950,33 @@ export async function runDesign(argv: string[]) {
     return 0;
   }
 
-  const bridge = await startDesignConnectBridge(manifest);
+  const seedToken =
+    parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
+  const bridge = await startDesignConnectBridge(manifest, seedToken);
   console.error("Design localhost bridge running");
   console.error(`Bridge:   ${manifest.bridgeUrl}`);
   console.error(`Manifest: ${manifest.bridgeUrl}/manifest.json`);
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
-  // Self-register with the design app server (best-effort): POST the bridge
-  // token to connect-localhost so the server row stores the real token. Without
-  // it, the bridge and server tokens diverge and every write returns 401.
-  const appUrl = resolveAppUrl(parsed.appUrl);
-  if (appUrl) {
-    void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
-  } else {
-    // No app URL means the token never reaches the DB — surface it instead of
-    // silently skipping, since live-edit will then 401.
+  if (seedToken) {
+    // Server already stored this token on the row; bridge matches it, so no
+    // self-registration needed. Zero-config path for the remote-MCP flow.
     console.error(
-      "[design connect] No app URL resolved (pass --app-url or set AGENT_NATIVE_URL); skipping self-registration — live-edit will fail to authorize.",
+      "[design connect] Using server-provided bridge token; skipping self-registration.",
     );
+  } else {
+    // No seed: fall back to self-registration — POST the minted token to
+    // connect-localhost. Needs an auth token in env or it 401s (the old gap).
+    const appUrl = resolveAppUrl(parsed.appUrl);
+    if (appUrl) {
+      void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
+    } else {
+      // No token source at all — warn rather than 401 silently at edit time.
+      console.error(
+        "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — live-edit will fail to authorize.",
+      );
+    }
   }
 
   return await new Promise<number>((resolve) => {

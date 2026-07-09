@@ -162,7 +162,10 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Real bridge token from the running bridge. Stored server-side only; never returned.",
+        "Optional bridge token to store on the connection (e.g. one a CLI " +
+          "self-registered). Omit it and the server mints one, stores it, and " +
+          "returns it as `bridgeToken` so the caller can start the local bridge " +
+          "with `design connect --bridge-token <token>`.",
       ),
     routes: jsonArray(z.array(screenRouteSchema))
       .optional()
@@ -315,6 +318,9 @@ export default defineAction({
       overview: true,
       urlPath,
       openUrl: designOverviewDeepLink(designId),
+      // Minted/stored by connect-localhost; the skill starts the bridge with
+      // `design connect --bridge-token <this>` so bridge and row agree.
+      bridgeToken: connection.bridgeToken,
     };
   },
   link: ({ result }) => {

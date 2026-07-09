@@ -60,31 +60,43 @@ iframe-backed screens on the infinite canvas.
 
 ## Required Local Bridge
 
-From the target app repo, make sure its dev server is running, then run the
-Design bridge with `npx`:
+The live-edit bridge is unlocked by a shared secret (the "bridge token") that
+must match on two sides: the local bridge process and the user's connection row
+(which the browser reads to authorize `/live-edit-bridge`, `/read-file`,
+`/write-file`). Let the authenticated `connect-localhost` / `open-visual-edit`
+action mint the token, then start the bridge adopting it — the bridge cannot
+push its own token to the server without a CLI auth token, so the server mints.
+
+From the target app repo, make sure its dev server is running, then:
+
+**1. Discover routes without a durable bridge** (one-shot, exits):
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
 ```
 
-Use the app's real port. The command starts a local bridge on
-`http://127.0.0.1:7331` by default and exposes:
+Prints the manifest (routes + capabilities). Use it to build `routeManifest` for
+the action call. Skip if the user already gave explicit paths/URLs.
 
-- `GET /manifest.json` — dev server URL, bridge URL, discovered routes, root.
-- `GET /routes.json` — route manifest only.
-- `GET /health` — bridge liveness.
+**2. Register the connection** via `connect-localhost` / `open-visual-edit`
+(Action Flow below) with NO `bridgeToken`. The server mints one, stores it on the
+connection row, and returns it as `bridgeToken`. Capture it.
 
-For one-shot agent setup, ask for JSON and keep the long-running bridge open in
-a second terminal if the user needs live updates:
+**3. Start the persistent bridge adopting that token:**
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
-curl http://127.0.0.1:7331/manifest.json
+AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" \
+  npx @agent-native/core@latest design connect \
+  --url http://localhost:5173 --root . --daemon
 ```
 
-Do not use `--json` for an editable session. `--json`, `--once`, and
-`--dry-run` print the manifest and exit, so Design will fall back to a
-non-editable live iframe as soon as it tries to refresh the snapshot.
+(Or pass `--bridge-token <token>`; prefer the env var to keep the secret out of
+`ps`.) The bridge exposes `GET /manifest.json`, `GET /routes.json`,
+`GET /health`, and now authorizes live-edit because its token matches the row.
+
+Only use `--json` for the step-1 route probe. Never use `--json`, `--once`, or
+`--dry-run` for the durable step-3 bridge: they print the manifest and exit, so
+Design falls back to a non-editable live iframe.
 
 ## Action Flow
 
