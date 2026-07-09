@@ -1349,6 +1349,8 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "强调选项、密度、半径、深色模式...",
       designExport: "设计导出",
       toasts: {
+        tweakConflict: "调整已在其他位置更改。请刷新设计后再试。",
+        tweakSaveNotDurable: "调整尚未保存。请保持此标签页打开并重试。",
         codingHandoffError: "无法创建编码切换",
         codingHandoffCopied: "复制编码交接",
         clipboardBlocked: "剪贴板被阻止",
@@ -1710,6 +1712,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "Opciones de acento, densidad, radio, modo oscuro...",
       designExport: "Exportación de diseño",
       toasts: {
+        tweakConflict:
+          "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de volver a intentarlo.",
+        tweakSaveNotDurable:
+          "Los ajustes aún no se han guardado. Mantén esta pestaña abierta y vuelve a intentarlo.",
         codingHandoffError: "No se pudo crear la transferencia de codificación",
         codingHandoffCopied: "Transferencia de codificación copiada",
         clipboardBlocked: "Portapapeles bloqueado",
@@ -2091,6 +2097,10 @@ const designLocaleOverrides = {
         "Options d'accentuation, densité, rayon, mode sombre...",
       designExport: "Exportation de conception",
       toasts: {
+        tweakConflict:
+          "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+        tweakSaveNotDurable:
+          "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
         codingHandoffError: "Impossible de créer un transfert de codage",
         codingHandoffCopied: "Transfert de codage copié",
         clipboardBlocked: "Presse-papiers bloqué",
@@ -2473,6 +2483,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "Akzentoptionen, Dichte, Radius, Dunkelmodus...",
       designExport: "Design-Export",
       toasts: {
+        tweakConflict:
+          "Die Anpassungen wurden an anderer Stelle geändert. Aktualisieren Sie das Design, bevor Sie es erneut versuchen.",
+        tweakSaveNotDurable:
+          "Die Anpassungen sind noch nicht gespeichert. Lassen Sie diesen Tab geöffnet und versuchen Sie es erneut.",
         codingHandoffError:
           "Die Codierungsübergabe konnte nicht erstellt werden",
         codingHandoffCopied: "Codierungsübergabe kopiert",
@@ -2857,6 +2871,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "アクセントのオプション、密度、半径、ダークモード...",
       designExport: "デザインのエクスポート",
       toasts: {
+        tweakConflict:
+          "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+        tweakSaveNotDurable:
+          "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
         codingHandoffError: "コーディングハンドオフを作成できませんでした",
         codingHandoffCopied: "コーディングの引き継ぎがコピーされました",
         clipboardBlocked: "クリップボードがブロックされました",
@@ -3235,6 +3253,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "악센트 옵션, 밀도, 반경, 다크 모드...",
       designExport: "디자인 수출",
       toasts: {
+        tweakConflict:
+          "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
+        tweakSaveNotDurable:
+          "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
         codingHandoffError: "코딩 핸드오프를 생성할 수 없습니다.",
         codingHandoffCopied: "코딩 핸드오프가 복사되었습니다.",
         clipboardBlocked: "클립보드가 차단되었습니다.",
@@ -3607,6 +3629,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "Opções de destaque, densidade, raio, modo escuro...",
       designExport: "Exportação de projetos",
       toasts: {
+        tweakConflict:
+          "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+        tweakSaveNotDurable:
+          "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
         codingHandoffError:
           "Não foi possível criar a transferência de codificação",
         codingHandoffCopied: "Transferência de codificação copiada",
@@ -3985,6 +4011,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "एक्सेंट विकल्प, घनत्व, त्रिज्या, डार्क मोड...",
       designExport: "डिज़ाइन निर्यात",
       toasts: {
+        tweakConflict:
+          "बदलाव कहीं और बदल दिए गए हैं। फिर से कोशिश करने से पहले डिज़ाइन रीफ़्रेश करें।",
+        tweakSaveNotDurable:
+          "बदलाव अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से कोशिश करें।",
         codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
         codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी किया गया",
         clipboardBlocked: "क्लिपबोर्ड अवरुद्ध",
@@ -4355,6 +4385,10 @@ const designLocaleOverrides = {
       tweaksPlaceholder: "خيارات اللكنة والكثافة ونصف القطر والوضع المظلم...",
       designExport: "تصدير التصميم",
       toasts: {
+        tweakConflict:
+          "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+        tweakSaveNotDurable:
+          "لم يتم حفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
         codingHandoffError: "تعذر إنشاء عملية تسليم الترميز",
         codingHandoffCopied: "تم نسخ عملية تسليم الترميز",
         clipboardBlocked: "تم حظر الحافظة",
@@ -12186,6 +12220,105 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+const designTweakSaveOverrides = {
+  "zh-TW": {
+    designEditor: {
+      toasts: {
+        tweakConflict: "微調設定已在其他地方變更。請重新整理設計後再試一次。",
+        tweakSaveNotDurable: "微調設定尚未儲存。請保持此分頁開啟並再試一次。",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      toasts: {
+        tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
+        tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+        tweakSaveNotDurable:
+          "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+        tweakSaveNotDurable:
+          "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+        tweakSaveNotDurable:
+          "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+        tweakSaveNotDurable:
+          "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
+        tweakSaveNotDurable:
+          "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+        tweakSaveNotDurable:
+          "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+        tweakSaveNotDurable:
+          "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      toasts: {
+        tweakConflict:
+          "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+        tweakSaveNotDurable:
+          "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
@@ -12203,6 +12336,7 @@ export const messagesByLocale = {
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
       motionDockOverrides["zh-TW"],
+      designTweakSaveOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -12227,6 +12361,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["zh-CN"],
       breakpointBarOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
+      designTweakSaveOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12290,6 +12425,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["es-ES"],
       breakpointBarOverrides["es-ES"],
       motionDockOverrides["es-ES"],
+      designTweakSaveOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12353,6 +12489,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["fr-FR"],
       breakpointBarOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
+      designTweakSaveOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12416,6 +12553,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["de-DE"],
       breakpointBarOverrides["de-DE"],
       motionDockOverrides["de-DE"],
+      designTweakSaveOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12479,6 +12617,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ja-JP"],
       breakpointBarOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
+      designTweakSaveOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12543,6 +12682,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ko-KR"],
       breakpointBarOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
+      designTweakSaveOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12605,6 +12745,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["pt-BR"],
       breakpointBarOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
+      designTweakSaveOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12668,6 +12809,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["hi-IN"],
       breakpointBarOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
+      designTweakSaveOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -12731,6 +12873,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ar-SA"],
       breakpointBarOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
+      designTweakSaveOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",
