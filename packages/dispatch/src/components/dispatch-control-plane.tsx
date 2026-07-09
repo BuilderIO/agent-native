@@ -211,11 +211,7 @@ function AppsPanel({
 export function DispatchControlPlane() {
   const { data: workspaceApps = [], isLoading: appsLoading } = useActionQuery<
     WorkspaceAppSummary[]
-  >(
-    "list-workspace-apps",
-    { includeAgentCards: false, includeArchived: true },
-    { refetchInterval: 2_000 },
-  );
+  >("list-workspace-apps", { includeAgentCards: false, includeArchived: true });
 
   return (
     <DispatchShell

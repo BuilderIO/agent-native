@@ -148,4 +148,34 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("Workspace controls");
     expect(container.textContent).not.toContain("Team members");
   });
+
+  it("opens an organization tab from organization and legacy team hashes", () => {
+    window.history.replaceState(null, "", "/settings#organization");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "organization",
+              label: "Organization",
+              content: <div>Organization members</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Organization members");
+    expect(container.textContent).not.toContain("General content");
+
+    act(() => {
+      window.history.replaceState(null, "", "/settings#team");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+
+    expect(container.textContent).toContain("Organization members");
+    expect(container.textContent).not.toContain("General content");
+  });
 });

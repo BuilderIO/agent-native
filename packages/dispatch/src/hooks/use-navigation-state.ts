@@ -62,7 +62,6 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       }
       return null;
     },
-    refetchInterval: 2_000,
     structuralSharing: false,
   });
 
@@ -275,7 +274,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

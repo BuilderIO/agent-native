@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
+import { readAppState } from "@agent-native/core/application-state";
 import {
   deletePrivateBlob,
   putPrivateBlob,
@@ -237,6 +238,7 @@ const DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE = 120;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
+const SESSION_DEMO_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 let inlineReplayFallbackWarned = false;
 
 function replayError(message: string, statusCode: number): Error {
@@ -272,6 +274,92 @@ function replayString(value: unknown): string | null {
 function replayEmail(value: unknown): string | null {
   const raw = replayString(value);
   return raw && raw.includes("@") ? raw : null;
+}
+
+function normalizedEmail(value: unknown): string | null {
+  return replayEmail(value)?.toLowerCase() ?? null;
+}
+
+function isBuilderEmail(value: unknown): boolean {
+  return normalizedEmail(value)?.endsWith("@builder.io") === true;
+}
+
+async function isSessionDemoModeEnabled(): Promise<boolean> {
+  if (process.env.DEMO_MODE === "true") return true;
+  try {
+    const state = await readAppState("demo-mode");
+    return state?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function demoBuilderSessionCondition() {
+  return or(
+    sql`lower(${schema.sessionRecordings.userId}) like ${"%@builder.io"}`,
+    sql`lower(${schema.sessionRecordings.userKey}) like ${"%@builder.io"}`,
+  );
+}
+
+class SessionDemoAnonymizer {
+  private readonly aliases = new Map<string, string>();
+
+  aliasFor(value: unknown): string | null {
+    const raw = replayString(value);
+    if (!raw || raw.match(SESSION_DEMO_EMAIL_PATTERN)?.[0] !== raw) {
+      return null;
+    }
+    const email = raw.toLowerCase();
+    let alias = this.aliases.get(email);
+    if (!alias) {
+      alias = `anonymized-${this.aliases.size + 1}@builder.io`;
+      this.aliases.set(email, alias);
+    }
+    return alias;
+  }
+
+  summarize(row: any, role?: SessionReplayAccessRole): SessionRecordingSummary {
+    const summary = rowToSessionRecordingSummary(row, role);
+    return {
+      ...summary,
+      userId: this.aliasFor(row.userId) ?? summary.userId,
+      userKey: this.aliasFor(row.userKey) ?? summary.userKey,
+      ownerEmail: this.aliasFor(summary.ownerEmail) ?? summary.ownerEmail,
+      metadata: anonymizeEmailValue(summary.metadata, this) as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+}
+
+function anonymizeEmailValue(
+  value: unknown,
+  anonymizer: SessionDemoAnonymizer,
+): unknown {
+  const alias = anonymizer.aliasFor(value);
+  if (alias) return alias;
+  if (Array.isArray(value)) {
+    return value.map((item) => anonymizeEmailValue(item, anonymizer));
+  }
+  if (typeof value === "string") {
+    return value.replace(SESSION_DEMO_EMAIL_PATTERN, (email) => {
+      return anonymizer.aliasFor(email) ?? email;
+    });
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = anonymizeEmailValue(item, anonymizer);
+    }
+    return out;
+  }
+  return value;
+}
+
+function assertDemoVisibleSession(row: any): void {
+  if (isBuilderEmail(row.userId) || isBuilderEmail(row.userKey)) return;
+  throw replayError("Session recording not found", 404);
 }
 
 function replayInteger(value: unknown): number | null {
@@ -580,16 +668,16 @@ function abandonedReplayMinutes(): number {
   );
 }
 
-function productionInlineFallbackAllowed(): boolean {
+function inlineReplayFallbackAllowed(): boolean {
   if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK === "1";
+  return false;
 }
 
 function warnInlineReplayFallback(): void {
   if (inlineReplayFallbackWarned) return;
   inlineReplayFallbackWarned = true;
   console.warn(
-    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is intended only for local/dev use.",
+    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is for local/dev use only.",
   );
 }
 
@@ -619,9 +707,9 @@ async function storeReplayChunkBlob(
     },
   });
   if (!handle) {
-    if (!productionInlineFallbackAllowed()) {
+    if (!inlineReplayFallbackAllowed()) {
       throw replayError(
-        "Session replay blob storage is required in production. Configure a private blob provider or set ANALYTICS_SESSION_REPLAY_SQL_FALLBACK=1 for a capped temporary fallback.",
+        "Session replay blob storage is required in production. Configure a private blob provider before enabling full snapshot playback.",
         503,
       );
     }
@@ -1580,6 +1668,7 @@ export async function listSessionRecordings(
   filters: SessionReplayListFilters = {},
 ): Promise<SessionRecordingSummary[]> {
   const db = getDb() as any;
+  const demoMode = await isSessionDemoModeEnabled();
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
     Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
@@ -1592,6 +1681,7 @@ export async function listSessionRecordings(
     replayVisibleIdentityCondition(),
     replayPlayableEventsCondition(),
   ];
+  if (demoMode) conditions.push(demoBuilderSessionCondition());
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
   if (filters.template) {
@@ -1645,13 +1735,22 @@ export async function listSessionRecordings(
     .where(and(...conditions))
     .orderBy(desc(schema.sessionRecordings.startedAt))
     .limit(limit);
-  return rows.map((row: any) => rowToSessionRecordingSummary(row));
+  if (!demoMode) {
+    return rows.map((row: any) => rowToSessionRecordingSummary(row));
+  }
+  const anonymizer = new SessionDemoAnonymizer();
+  return rows
+    .filter(
+      (row: any) => isBuilderEmail(row.userId) || isBuilderEmail(row.userKey),
+    )
+    .map((row: any) => anonymizer.summarize(row));
 }
 
 export async function getSessionReplaySummary(
   recordingId: string,
   scope: SessionReplayScope,
 ): Promise<SessionRecordingSummary> {
+  const demoMode = await isSessionDemoModeEnabled();
   const access = await resolveAccess("session-recording", recordingId, {
     userEmail: scope.userEmail,
     orgId: scope.orgId ?? undefined,
@@ -1660,12 +1759,17 @@ export async function getSessionReplaySummary(
   if (!isVisibleSessionRecording(access.resource)) {
     throw replayError("Session recording not found", 404);
   }
-  return rowToSessionRecordingSummary(access.resource, access.role);
+  if (!demoMode) {
+    return rowToSessionRecordingSummary(access.resource, access.role);
+  }
+  assertDemoVisibleSession(access.resource);
+  return new SessionDemoAnonymizer().summarize(access.resource, access.role);
 }
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
 ): Promise<SessionRecordingSummary> {
+  const demoMode = await isSessionDemoModeEnabled();
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db
@@ -1676,7 +1780,9 @@ export async function getSessionReplayTokenizedSummary(
   if (!row || !isVisibleSessionRecording(row)) {
     throw replayError("Session recording not found", 404);
   }
-  return rowToSessionRecordingSummary(row, "viewer");
+  if (!demoMode) return rowToSessionRecordingSummary(row, "viewer");
+  assertDemoVisibleSession(row);
+  return new SessionDemoAnonymizer().summarize(row, "viewer");
 }
 
 function parseInlineReplayEvents(inlineData: string): unknown[] {

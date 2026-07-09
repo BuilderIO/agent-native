@@ -1,9 +1,18 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const settingsMocks = vi.hoisted(() => ({
+  getUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/settings", () => settingsMocks);
 
 import {
   evaluateAnalyticsAlertRuleRows,
+  getAnalyticsAlertRuleDefaults,
+  rememberAnalyticsAlertRuleDefaults,
   type AnalyticsAlertEventRow,
 } from "./analytics-alerts";
 
@@ -26,6 +35,11 @@ function event(
 }
 
 describe("analytics alert evaluation", () => {
+  beforeEach(() => {
+    settingsMocks.getUserSetting.mockReset();
+    settingsMocks.putUserSetting.mockReset();
+  });
+
   it("matches generic columns and nested properties", () => {
     const result = evaluateAnalyticsAlertRuleRows(
       {
@@ -258,5 +272,63 @@ describe("analytics alert evaluation", () => {
     expect(seedCallIndex).toBeGreaterThan(-1);
     expect(listRulesIndex).toBeGreaterThan(-1);
     expect(seedCallIndex).toBeLessThan(listRulesIndex);
+  });
+
+  it("reads user-scoped alert recipient defaults for the active org", async () => {
+    settingsMocks.getUserSetting.mockResolvedValue({
+      emailRecipients: [
+        "Ops@Example.test",
+        "alerts@example.test",
+        "ops@example.test",
+        "",
+        42,
+      ],
+    });
+
+    await expect(
+      getAnalyticsAlertRuleDefaults({
+        email: "owner@example.test",
+        orgId: "org_123",
+      }),
+    ).resolves.toEqual({
+      emailRecipients: ["ops@example.test", "alerts@example.test"],
+    });
+    expect(settingsMocks.getUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "analytics-alert-rule-defaults:org_123",
+    );
+  });
+
+  it("stores non-empty alert recipient defaults per user and personal scope", async () => {
+    settingsMocks.putUserSetting.mockResolvedValue(undefined);
+
+    await rememberAnalyticsAlertRuleDefaults(
+      {
+        emailRecipients: [
+          "Ops@Example.test",
+          "alerts@example.test",
+          "ops@example.test",
+        ],
+      },
+      { email: "owner@example.test", orgId: null },
+    );
+
+    expect(settingsMocks.putUserSetting).toHaveBeenCalledTimes(1);
+    expect(settingsMocks.putUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "analytics-alert-rule-defaults:personal",
+      expect.objectContaining({
+        emailRecipients: ["ops@example.test", "alerts@example.test"],
+      }),
+    );
+  });
+
+  it("keeps existing alert recipient defaults when a save has no recipients", async () => {
+    await rememberAnalyticsAlertRuleDefaults(
+      { emailRecipients: [] },
+      { email: "owner@example.test", orgId: null },
+    );
+
+    expect(settingsMocks.putUserSetting).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,20 @@
-import { IconExternalLink, IconTable } from "@tabler/icons-react";
+import {
+  IconDots,
+  IconDownload,
+  IconExternalLink,
+  IconTable,
+} from "@tabler/icons-react";
 
 import { requestAgentSidebarOpen } from "../../agent-sidebar-state.js";
 import { appPath } from "../../api-path.js";
 import { startAgentChatViewTransition } from "../../chat-view-transition.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu.js";
+import { downloadFile, toCSVTable } from "../../db-admin/export-utils.js";
 import { cn } from "../../utils.js";
 import type { DataTableWidget as DataTableWidgetData } from "./data-widget-types.js";
 
@@ -82,6 +94,15 @@ function navigateSameAppHref(href: string): void {
   });
 }
 
+function slugifyFilenamePart(value: string | undefined): string {
+  const slug = (value ?? "data-table")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "data-table";
+}
+
 export function DataTableWidget({
   table,
   action,
@@ -91,6 +112,19 @@ export function DataTableWidget({
 }) {
   const rows = table.rows ?? [];
   const actionHref = action ? normalizeActionHref(action.href) : null;
+  const canExportCsv = table.columns.length > 0;
+  const exportCsv = () => {
+    if (!canExportCsv) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadFile(
+      `${slugifyFilenamePart(table.title)}-${stamp}.csv`,
+      "text/csv;charset=utf-8",
+      toCSVTable(
+        table.columns.map((column) => column.label),
+        rows.map((row) => table.columns.map((column) => row[column.key])),
+      ),
+    );
+  };
 
   return (
     <div className="my-1.5 overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-sm">
@@ -131,6 +165,23 @@ export function DataTableWidget({
             <IconExternalLink className="h-3 w-3" />
           </a>
         ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Data table options"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <IconDots className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onSelect={exportCsv} disabled={!canExportCsv}>
+              <IconDownload className="mr-2 h-3.5 w-3.5" />
+              Download CSV
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="max-h-[360px] overflow-auto">
         <table className="w-full min-w-[420px] border-collapse text-xs">

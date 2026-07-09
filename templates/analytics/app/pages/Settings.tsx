@@ -199,7 +199,7 @@ export default function Settings() {
         icon: IconBell,
         keywords: "alerts rules notifications thresholds triggers monitoring",
         content: (
-          <div className="mx-auto w-full max-w-3xl">
+          <div className="mx-auto w-full max-w-5xl">
             <AlertRulesSettingsCard />
           </div>
         ),
@@ -515,10 +515,11 @@ export default function Settings() {
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-5xl">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share dashboards and data sources with your colleagues."
+            className="max-w-5xl"
           />
         </div>
       }

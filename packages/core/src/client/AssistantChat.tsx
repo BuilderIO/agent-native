@@ -1894,7 +1894,9 @@ const AssistantChatInner = forwardRef<
             repo,
           );
         } catch {
-          shouldImport = true;
+          // If the runtime/export comparison itself fails, do not fail open by
+          // importing a server snapshot that may be stale relative to local UI.
+          shouldImport = false;
         }
         if (shouldImport) {
           if (options?.markTitleGenerated) {
@@ -1907,7 +1909,7 @@ const AssistantChatInner = forwardRef<
           settled = false;
         }
       }
-      if (Array.isArray(repo?.queuedMessages)) {
+      if (settled && Array.isArray(repo?.queuedMessages)) {
         const incomingQueue = repo.queuedMessages as QueuedMessage[];
         const incomingSerialized = JSON.stringify(incomingQueue);
         const currentSerialized = JSON.stringify(queuedMessagesRef.current);
@@ -2521,18 +2523,29 @@ const AssistantChatInner = forwardRef<
                 markTitleGenerated: true,
               });
               if (repo) {
-                const { title, preview } = extractThreadMeta(repo);
-                writeCachedThreadSnapshot(apiUrl, threadId, {
-                  threadData:
-                    typeof data.threadData === "string"
-                      ? data.threadData
-                      : JSON.stringify(data.threadData),
-                  title: data.title || title,
-                  preview,
-                  messageCount: Array.isArray(repo.messages)
-                    ? repo.messages.length
-                    : 0,
-                });
+                let shouldCacheServerSnapshot = true;
+                try {
+                  shouldCacheServerSnapshot = shouldImportServerThreadData(
+                    normalizeThreadRepository(threadRuntime.export()),
+                    repo,
+                  );
+                } catch {
+                  shouldCacheServerSnapshot = false;
+                }
+                if (shouldCacheServerSnapshot) {
+                  const { title, preview } = extractThreadMeta(repo);
+                  writeCachedThreadSnapshot(apiUrl, threadId, {
+                    threadData:
+                      typeof data.threadData === "string"
+                        ? data.threadData
+                        : JSON.stringify(data.threadData),
+                    title: data.title || title,
+                    preview,
+                    messageCount: Array.isArray(repo.messages)
+                      ? repo.messages.length
+                      : 0,
+                  });
+                }
               }
             }
             // Also skip title generation if thread already has a title

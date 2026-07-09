@@ -127,9 +127,14 @@ export function useNavigationState() {
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";
-      if (cmd.view === "agents" && cmd.agentsView === "database") {
-        const params = new URLSearchParams({ view: "database" });
-        if (cmd.dbAdminConnectionId) params.set("db", cmd.dbAdminConnectionId);
+      if (
+        cmd.view === "agents" &&
+        (cmd.agentsView === "database" || cmd.agentsView === "dashboards")
+      ) {
+        const params = new URLSearchParams({ view: cmd.agentsView });
+        if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
+          params.set("db", cmd.dbAdminConnectionId);
+        }
         return `/agents?${params.toString()}`;
       }
       if (cmd.view === "agents") return "/agents";

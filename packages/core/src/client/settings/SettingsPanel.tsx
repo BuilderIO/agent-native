@@ -23,6 +23,7 @@ import {
   IconGauge,
   IconUserCircle,
   IconApps,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -43,6 +44,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { TeamPage } from "../org/TeamPage.js";
 import { callAction } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
@@ -117,6 +119,16 @@ const CONTROL_STYLE_PAGE = {
 // staying dense in the sidebar.
 function fieldLabelClass(isPage: boolean): string {
   return cn("font-medium text-foreground", isPage ? "text-sm" : "text-[12px]");
+}
+
+// Secondary label / row-title size (e.g. "This app", provider names).
+function subTextClass(isPage: boolean): string {
+  return isPage ? "text-sm" : "text-[11px]";
+}
+
+// Helper / hint / status note size.
+function noteTextClass(isPage: boolean): string {
+  return isPage ? "text-xs" : "text-[10px]";
 }
 
 function textInputClass(isPage: boolean): string {
@@ -1317,6 +1329,7 @@ function AppModelDefaultsSectionInner({
   open?: boolean;
   onToggle?: () => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
   const [settings, setSettings] = useState<AppModelDefaultsResponse | null>(
     null,
   );
@@ -1471,19 +1484,39 @@ function AppModelDefaultsSectionInner({
         <SettingsSkeleton lines={2} />
       ) : settings ? (
         <div className="space-y-2">
-          <div className="rounded-md border border-border bg-accent/20 px-2.5 py-2">
+          <div
+            className={cn(
+              "rounded-md border border-border bg-accent/20",
+              isPage ? "px-3.5 py-3" : "px-2.5 py-2",
+            )}
+          >
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-[11px] font-medium text-foreground">
+                <p
+                  className={cn(
+                    "truncate font-medium text-foreground",
+                    subTextClass(isPage),
+                  )}
+                >
                   {friendlyAppName(settings.appId) || "This app"}
                 </p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                <p
+                  className={cn(
+                    "mt-0.5 text-muted-foreground",
+                    noteTextClass(isPage),
+                  )}
+                >
                   {hasAppDefault
                     ? `Applies to ${scopeLabel}.`
                     : "Using the global LLM default."}
                 </p>
               </div>
-              <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span
+                className={cn(
+                  "shrink-0 rounded-full bg-background px-2 py-0.5 font-medium text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 {settings.source}
               </span>
             </div>
@@ -1504,7 +1537,7 @@ function AppModelDefaultsSectionInner({
               />
 
               <div className="space-y-1.5">
-                <p className="text-[12px] font-medium text-foreground">Model</p>
+                <p className={fieldLabelClass(isPage)}>Model</p>
                 <input
                   type="text"
                   list={`app-model-suggestions-${selectedEngine}`}
@@ -1520,8 +1553,8 @@ function AppModelDefaultsSectionInner({
                   placeholder={selectedEngineInfo?.defaultModel ?? "model-id"}
                   spellCheck={false}
                   autoComplete="off"
-                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50 disabled:opacity-60"
-                  style={CONTROL_STYLE}
+                  className={cn(textInputClass(isPage), "disabled:opacity-60")}
+                  style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
                 />
                 {modelOptions.length > 0 && (
                   <datalist id={`app-model-suggestions-${selectedEngine}`}>
@@ -1541,12 +1574,15 @@ function AppModelDefaultsSectionInner({
                   type="button"
                   onClick={save}
                   disabled={!hasPendingChange || saving}
-                  className="inline-flex h-8 items-center gap-1 rounded bg-accent px-2.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                  className={pillButtonClass(isPage, "solid")}
                 >
                   {saving ? (
-                    <IconLoader2 size={10} className="animate-spin" />
+                    <IconLoader2
+                      size={isPage ? 14 : 10}
+                      className="animate-spin"
+                    />
                   ) : saved ? (
-                    <IconCheck size={10} />
+                    <IconCheck size={isPage ? 14 : 10} />
                   ) : (
                     "Save"
                   )}
@@ -1555,7 +1591,7 @@ function AppModelDefaultsSectionInner({
                   type="button"
                   onClick={reset}
                   disabled={!settings.canUpdate || !hasAppDefault || saving}
-                  className="h-8 rounded border border-border px-2.5 text-[10px] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+                  className={pillButtonClass(isPage, "outline")}
                 >
                   Reset
                 </button>
@@ -1563,29 +1599,46 @@ function AppModelDefaultsSectionInner({
             </div>
 
             {!settings.canUpdate && (
-              <p className="mt-2 text-[10px] text-muted-foreground">
+              <p
+                className={cn(
+                  "mt-2 text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 Only organization owners and admins can change app model
                 defaults.
               </p>
             )}
             {selectedEngineInfo?.packageInstalled === false ? (
-              <p className="mt-2 text-[10px] text-muted-foreground">
+              <p
+                className={cn(
+                  "mt-2 text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 This app does not include the optional runtime packages for this
                 provider.
               </p>
             ) : selectedEngineInfo && !selectedEngineInfo.configured ? (
-              <p className="mt-2 text-[10px] text-muted-foreground">
+              <p
+                className={cn(
+                  "mt-2 text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 Credentials for this provider were not detected; runtime will
                 fall back if the model cannot be used.
               </p>
             ) : null}
             {error && (
-              <p className="mt-2 text-[10px] text-destructive">{error}</p>
+              <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
+                {error}
+              </p>
             )}
           </div>
         </div>
       ) : (
-        <p className="text-[10px] text-muted-foreground">
+        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
           App model defaults are unavailable.
         </p>
       )}
@@ -1602,6 +1655,10 @@ function EmailSectionInner({
   open?: boolean;
   onToggle?: () => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
+  const emailInputCls = cn(textInputClass(isPage), "flex-1");
+  const emailBtnCls = pillButtonClass(isPage, "solid");
+  const emailIconSize = isPage ? 14 : 10;
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -1690,7 +1747,12 @@ function EmailSectionInner({
       ) : (
         <div className="space-y-2">
           <label className="block space-y-1">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span
+              className={cn(
+                "uppercase tracking-wide text-muted-foreground",
+                noteTextClass(isPage),
+              )}
+            >
               Provider
             </span>
             <select
@@ -1698,7 +1760,8 @@ function EmailSectionInner({
               onChange={(e) =>
                 setEmailProvider(e.target.value as "resend" | "sendgrid")
               }
-              className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+              className={cn(textInputClass(isPage), "w-full")}
+              style={isPage ? CONTROL_STYLE_PAGE : undefined}
             >
               <option value="resend">Resend</option>
               <option value="sendgrid">SendGrid</option>
@@ -1712,8 +1775,13 @@ function EmailSectionInner({
               docsLabel="Get a Resend key"
             >
               {resendConfigured ? (
-                <div className="mb-1 flex items-center gap-1.5 text-[10px] text-green-500">
-                  <IconCheck size={10} />
+                <div
+                  className={cn(
+                    "mb-1 flex items-center gap-1.5 text-green-500",
+                    noteTextClass(isPage),
+                  )}
+                >
+                  <IconCheck size={emailIconSize} />
                   RESEND_API_KEY configured
                 </div>
               ) : (
@@ -1726,12 +1794,12 @@ function EmailSectionInner({
                       if (e.key === "Enter") saveResend();
                     }}
                     placeholder="re_..."
-                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    className={emailInputCls}
                   />
                   <button
                     onClick={saveResend}
                     disabled={!resendKey.trim() || saving}
-                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    className={emailBtnCls}
                   >
                     {saving ? (
                       <IconLoader2 size={10} className="animate-spin" />
@@ -1744,8 +1812,13 @@ function EmailSectionInner({
                 </div>
               )}
               {fromConfigured ? (
-                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                  <IconCheck size={10} />
+                <div
+                  className={cn(
+                    "flex items-center gap-1.5 text-green-500",
+                    noteTextClass(isPage),
+                  )}
+                >
+                  <IconCheck size={emailIconSize} />
                   EMAIL_FROM configured
                 </div>
               ) : (
@@ -1758,13 +1831,13 @@ function EmailSectionInner({
                       if (e.key === "Enter") saveResend();
                     }}
                     placeholder="From address - e.g. Acme <hi@acme.com>"
-                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    className={emailInputCls}
                   />
                   {!resendConfigured ? null : (
                     <button
                       onClick={saveResend}
                       disabled={!fromAddr.trim() || saving}
-                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                      className={emailBtnCls}
                     >
                       {saving ? (
                         <IconLoader2 size={10} className="animate-spin" />
@@ -1785,8 +1858,13 @@ function EmailSectionInner({
               docsLabel="Get a SendGrid key"
             >
               {sendgridConfigured ? (
-                <div className="mb-1 flex items-center gap-1.5 text-[10px] text-green-500">
-                  <IconCheck size={10} />
+                <div
+                  className={cn(
+                    "mb-1 flex items-center gap-1.5 text-green-500",
+                    noteTextClass(isPage),
+                  )}
+                >
+                  <IconCheck size={emailIconSize} />
                   SENDGRID_API_KEY configured
                 </div>
               ) : (
@@ -1799,12 +1877,12 @@ function EmailSectionInner({
                       if (e.key === "Enter") saveSendgrid();
                     }}
                     placeholder="SG...."
-                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    className={emailInputCls}
                   />
                   <button
                     onClick={saveSendgrid}
                     disabled={!sendgridKey.trim() || saving}
-                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    className={emailBtnCls}
                   >
                     {saving ? (
                       <IconLoader2 size={10} className="animate-spin" />
@@ -1817,8 +1895,13 @@ function EmailSectionInner({
                 </div>
               )}
               {fromConfigured ? (
-                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                  <IconCheck size={10} />
+                <div
+                  className={cn(
+                    "flex items-center gap-1.5 text-green-500",
+                    noteTextClass(isPage),
+                  )}
+                >
+                  <IconCheck size={emailIconSize} />
                   EMAIL_FROM configured
                 </div>
               ) : (
@@ -1831,13 +1914,13 @@ function EmailSectionInner({
                       if (e.key === "Enter") saveSendgrid();
                     }}
                     placeholder="From address - e.g. Acme <hi@acme.com>"
-                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    className={emailInputCls}
                   />
                   {!sendgridConfigured ? null : (
                     <button
                       onClick={saveSendgrid}
                       disabled={!fromAddr.trim() || saving}
-                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                      className={emailBtnCls}
                     >
                       {saving ? (
                         <IconLoader2 size={10} className="animate-spin" />
@@ -1879,6 +1962,7 @@ function AgentLimitsSectionInner({
   open?: boolean;
   onToggle?: () => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );
@@ -2014,18 +2098,38 @@ function AgentLimitsSectionInner({
         <SettingsSkeleton lines={2} />
       ) : settings ? (
         <div className="space-y-2">
-          <div className="rounded-md border border-border px-2.5 py-2 bg-accent/20">
+          <div
+            className={cn(
+              "rounded-md border border-border bg-accent/20",
+              isPage ? "px-3.5 py-3" : "px-2.5 py-2",
+            )}
+          >
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-[11px] font-medium text-foreground">
+                <p
+                  className={cn(
+                    "font-medium text-foreground",
+                    subTextClass(isPage),
+                  )}
+                >
                   Max iterations
                 </p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                <p
+                  className={cn(
+                    "mt-0.5 text-muted-foreground",
+                    noteTextClass(isPage),
+                  )}
+                >
                   Applies to {scopeLabel}. Default is{" "}
                   {settings.defaultMaxIterations.toLocaleString()}.
                 </p>
               </div>
-              <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span
+                className={cn(
+                  "rounded-full bg-background px-2 py-0.5 font-medium text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 {settings.source}
               </span>
             </div>
@@ -2043,18 +2147,25 @@ function AgentLimitsSectionInner({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && hasPendingChange) void save();
                 }}
-                className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
+                className={cn(
+                  textInputClass(isPage),
+                  "min-w-0 flex-1 disabled:opacity-60",
+                )}
+                style={isPage ? CONTROL_STYLE_PAGE : undefined}
               />
               <button
                 type="button"
                 onClick={save}
                 disabled={!hasPendingChange || saving}
-                className="inline-flex h-8 items-center gap-1 rounded bg-accent px-2.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                className={pillButtonClass(isPage, "solid")}
               >
                 {saving ? (
-                  <IconLoader2 size={10} className="animate-spin" />
+                  <IconLoader2
+                    size={isPage ? 14 : 10}
+                    className="animate-spin"
+                  />
                 ) : saved ? (
-                  <IconCheck size={10} />
+                  <IconCheck size={isPage ? 14 : 10} />
                 ) : (
                   "Save"
                 )}
@@ -2067,23 +2178,30 @@ function AgentLimitsSectionInner({
                   saving ||
                   settings.maxIterations === settings.defaultMaxIterations
                 }
-                className="h-8 rounded border border-border px-2.5 text-[10px] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+                className={pillButtonClass(isPage, "outline")}
               >
                 Reset
               </button>
             </div>
             {!settings.canUpdate && (
-              <p className="mt-2 text-[10px] text-muted-foreground">
+              <p
+                className={cn(
+                  "mt-2 text-muted-foreground",
+                  noteTextClass(isPage),
+                )}
+              >
                 Only organization owners and admins can change this limit.
               </p>
             )}
             {error && (
-              <p className="mt-2 text-[10px] text-destructive">{error}</p>
+              <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
+                {error}
+              </p>
             )}
           </div>
         </div>
       ) : (
-        <p className="text-[10px] text-muted-foreground">
+        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
           Agent limit settings are unavailable.
         </p>
       )}
@@ -2438,6 +2556,7 @@ function AccountSectionInner({
   open: boolean;
   onToggle: () => void;
 }) {
+  const isPage = useSettingsSurface() === "page";
   const { session, isLoading } = useSession();
   const email = session?.email;
   const avatarUrl = useAvatarUrl(email);
@@ -2481,7 +2600,12 @@ function AccountSectionInner({
       onToggle={onToggle}
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent text-[13px] font-semibold text-muted-foreground">
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent font-semibold text-muted-foreground",
+            isPage ? "h-14 w-14 text-[15px]" : "h-12 w-12 text-[13px]",
+          )}
+        >
           {avatarUrl ? (
             <img
               src={avatarUrl}
@@ -2493,21 +2617,36 @@ function AccountSectionInner({
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[12px] font-medium text-foreground">
+          <p
+            className={cn(
+              "truncate font-medium text-foreground",
+              isPage ? "text-sm" : "text-[12px]",
+            )}
+          >
             {isLoading ? "Loading..." : displayName}
           </p>
           {email && (
-            <p className="truncate text-[11px] text-muted-foreground">
+            <p
+              className={cn(
+                "truncate text-muted-foreground",
+                subTextClass(isPage),
+              )}
+            >
               {email}
             </p>
           )}
           {status === "saved" && (
-            <p className="mt-1 text-[11px] text-green-600 dark:text-green-400">
+            <p
+              className={cn(
+                "mt-1 text-green-600 dark:text-green-400",
+                subTextClass(isPage),
+              )}
+            >
               Photo updated
             </p>
           )}
           {status === "error" && (
-            <p className="mt-1 text-[11px] text-destructive">
+            <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
               Could not update photo
             </p>
           )}
@@ -2523,7 +2662,10 @@ function AccountSectionInner({
           type="button"
           disabled={!email || uploading}
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+          className={cn(
+            pillButtonClass(isPage, "outline"),
+            "shrink-0 justify-center",
+          )}
         >
           {uploading ? "Uploading..." : "Change photo"}
         </button>
@@ -3061,6 +3203,17 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
             showCapabilityStrip={false}
             className="mx-auto w-full max-w-2xl"
           />
+        ),
+      },
+      {
+        id: "organization",
+        label: "Organization",
+        icon: IconUsersGroup,
+        keywords: "organization org team members invites collaborators",
+        content: (
+          <div className="mx-auto w-full max-w-2xl">
+            <TeamPage showTitle={false} />
+          </div>
         ),
       },
       {

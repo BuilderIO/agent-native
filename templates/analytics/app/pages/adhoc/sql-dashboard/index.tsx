@@ -32,6 +32,7 @@ import {
   IconEye,
   IconEyeOff,
   IconGripVertical,
+  IconHistory,
   IconInfoCircle,
   IconLock,
   IconMail,
@@ -56,6 +57,7 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -90,6 +92,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -460,6 +463,7 @@ export default function SqlDashboardPage() {
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [emailReportOpen, setEmailReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -472,6 +476,13 @@ export default function SqlDashboardPage() {
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
+  useDashboardChatContext({
+    id: reportScreenshot ? null : dashboardId,
+    kind: "sql",
+    title: dashboard?.name,
+    panelCount: dashboard?.panels.length,
+    canEdit,
+  });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -1463,6 +1474,15 @@ export default function SqlDashboardPage() {
                   <IconMail className="mr-2 h-3.5 w-3.5" />
                   {t("sqlDashboard.emailReports")}
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setHistoryOpen(true);
+                  }}
+                >
+                  <IconHistory className="mr-2 h-3.5 w-3.5" />
+                  {t("dashboard.historyTitle")}
+                </DropdownMenuItem>
               </>
             ) : null}
             {canEdit && !archivedAt ? (
@@ -1500,6 +1520,14 @@ export default function SqlDashboardPage() {
             dashboardId={dashboardId}
             dashboardName={dashboard.name}
             filters={currentReportFilters}
+          />
+        ) : null}
+        {dashboardId ? (
+          <DashboardHistoryPanel
+            dashboardId={dashboardId}
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            canRestore={canEdit && !archivedAt}
           />
         ) : null}
         {canManage ? (

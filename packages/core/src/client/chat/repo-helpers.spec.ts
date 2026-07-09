@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   dedupeRepoMessagesById,
   dropEmptyAssistantMessages,
+  shouldImportServerThreadData,
   type NormalizedRepo,
 } from "./repo-helpers.js";
 
@@ -142,5 +143,41 @@ describe("dropEmptyAssistantMessages", () => {
     };
 
     expect(dropEmptyAssistantMessages(repo)).toBe(repo);
+  });
+});
+
+describe("shouldImportServerThreadData", () => {
+  it("rejects a stale server snapshot that would remove a completed response", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: { type: "complete", reason: "stop" },
+            content: [{ type: "text", text: "finished answer" }],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "user-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
   });
 });

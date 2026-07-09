@@ -37,7 +37,11 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { sumRecordingChunkBytes } from "../../../../lib/recording-upload-state.js";
+import {
+  deleteRecordingChunks,
+  pruneStaleRecordingChunks,
+  sumRecordingChunkBytes,
+} from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -49,6 +53,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../../../../lib/video-storage.js";
@@ -175,6 +180,13 @@ export default defineEventHandler(async (event: H3Event) => {
   debugLog("[chunk] resolved owner:", ownerEmail);
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+    await pruneStaleRecordingChunks(ownerEmail).catch((err) => {
+      console.warn("[chunk] stale recording chunk prune failed:", {
+        ownerEmail,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     const db = getDb();
 
     // Verify the recording belongs to the current user.
@@ -271,6 +283,15 @@ export default defineEventHandler(async (event: H3Event) => {
         storageSetupRequired: true,
       };
     }
+    if (!allowsSqlRecordingChunkScratch()) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error:
+          "Recording upload storage is configured, but this upload did not start a resumable storage session. Refresh and start the recording again.",
+        storageSetupRequired: false,
+      };
+    }
 
     const raw = await readRawBody(event, false);
     const bodySize = raw ? raw.byteLength : 0;
@@ -320,6 +341,12 @@ export default defineEventHandler(async (event: H3Event) => {
           ? latestState.failureReason
           : "Recording upload has already failed.";
       if (latestState?.status === "failed") {
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed upload chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         return failedUploadResponse(latestReason);
       }
 
@@ -333,6 +360,12 @@ export default defineEventHandler(async (event: H3Event) => {
       if (current?.status === "failed") {
         const reason =
           current.failureReason ?? "Recording upload has already failed.";
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed recording chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         await writeAppState(`recording-upload-${recordingId}`, {
           recordingId,
           status: "failed",
@@ -363,6 +396,12 @@ export default defineEventHandler(async (event: H3Event) => {
         bytesReceived: nextBytes,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
+      });
+      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+        console.warn("[chunk] oversized upload chunk cleanup failed:", {
+          recordingId,
+          err: err instanceof Error ? err.message : String(err),
+        });
       });
       setResponseStatus(event, 413);
       return {

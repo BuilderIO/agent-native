@@ -50,7 +50,9 @@ describe("InlineExtensionFrame", () => {
     });
 
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(iframe?.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
     expect(iframe?.getAttribute("srcdoc")).toContain("Send choice");
 
     await act(async () => {

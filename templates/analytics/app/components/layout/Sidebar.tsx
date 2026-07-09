@@ -14,7 +14,6 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconActivity,
   IconHeartbeat,
   IconPin,
   IconPlus,
@@ -27,6 +26,7 @@ import {
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconShieldCheck,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -83,7 +83,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { OrgSwitcher, useOrgRole } from "@agent-native/core/client/org";
 
 import {
   AlertDialog,
@@ -1585,6 +1585,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const navigate = useNavigate();
   const t = useT();
   const queryClient = useQueryClient();
+  const { canManageOrg } = useOrgRole();
   const { setTheme } = useTheme();
 
   const isAskRoute = location.pathname === "/ask";
@@ -2397,12 +2398,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       href: "/monitoring",
       active: location.pathname.startsWith("/monitoring"),
     },
-    {
-      icon: IconActivity,
-      label: t("navigation.agents"),
-      href: "/agents",
-      active: location.pathname.startsWith("/agents"),
-    },
+    ...(canManageOrg
+      ? [
+          {
+            icon: IconShieldCheck,
+            label: t("navigation.admin"),
+            href: "/agents?view=dashboards",
+            active: location.pathname.startsWith("/agents"),
+          },
+        ]
+      : []),
     {
       icon: IconDatabase,
       label: t("navigation.dataSources"),
@@ -2618,19 +2623,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 {t("navigation.monitoring")}
               </Link>
 
-              {/* Agents link */}
-              <Link
-                to="/agents"
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                  location.pathname.startsWith("/agents")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
-                )}
-              >
-                <IconActivity className="h-4 w-4" />
-                {t("navigation.agents")}
-              </Link>
+              {canManageOrg ? (
+                <Link
+                  to="/agents?view=dashboards"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                    location.pathname.startsWith("/agents")
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <IconShieldCheck className="h-4 w-4" />
+                  {t("navigation.admin")}
+                </Link>
+              ) : null}
 
               {/* Data Sources link */}
               <Link

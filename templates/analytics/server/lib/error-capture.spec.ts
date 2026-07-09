@@ -36,7 +36,9 @@ import {
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
+  sourceContextFromText,
   titleFromException,
+  trustedSourceRelativePath,
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
@@ -88,6 +90,54 @@ describe("parseStack", () => {
     expect(parseStack(null)).toEqual([]);
     expect(parseStack(undefined)).toEqual([]);
     expect(parseStack("")).toEqual([]);
+  });
+});
+
+describe("sourceContextFromText", () => {
+  it("returns bounded source lines with the crashing line highlighted", () => {
+    const context = sourceContextFromText(
+      [
+        "const a = 1;",
+        "const b = 2;",
+        "throw new Error('boom');",
+        "done();",
+      ].join("\n"),
+      3,
+      { before: 1, after: 1 },
+    );
+
+    expect(context).toEqual([
+      { line: 2, text: "const b = 2;", highlight: false },
+      { line: 3, text: "throw new Error('boom');", highlight: true },
+      { line: 4, text: "done();", highlight: false },
+    ]);
+  });
+
+  it("returns null when the requested line is outside the file", () => {
+    expect(sourceContextFromText("one\ntwo", 3)).toBeNull();
+    expect(sourceContextFromText("one\ntwo", 0)).toBeNull();
+  });
+});
+
+describe("trustedSourceRelativePath", () => {
+  it("allows Analytics app source paths from relative or URL path frames", () => {
+    expect(trustedSourceRelativePath("app/pages/Dashboard.tsx")).toBe(
+      "app/pages/Dashboard.tsx",
+    );
+    expect(trustedSourceRelativePath("/app/pages/Dashboard.tsx")).toBe(
+      "app/pages/Dashboard.tsx",
+    );
+  });
+
+  it("rejects client-controlled absolute, traversal, and non-app paths", () => {
+    expect(
+      trustedSourceRelativePath(
+        "/Users/steve/Projects/builder/agent-native/framework/AGENTS.md",
+      ),
+    ).toBeNull();
+    expect(trustedSourceRelativePath("../server/db/schema.ts")).toBeNull();
+    expect(trustedSourceRelativePath("server/db/schema.ts")).toBeNull();
+    expect(trustedSourceRelativePath("app/../server/db/schema.ts")).toBeNull();
   });
 });
 

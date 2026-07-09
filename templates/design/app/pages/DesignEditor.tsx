@@ -18549,13 +18549,32 @@ export default function DesignEditor() {
     });
   }, []);
 
+  const uploadImageFileForHtml = useCallback(
+    async (file: File) => {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (!dataUrl) return "";
+      const result = (await callAction("upload-image", {
+        data: dataUrl,
+        filename: file.name,
+      })) as { url?: string; error?: string };
+      if (result.url) return result.url;
+      toast.error(t("common.genericError"), {
+        description:
+          result.error ||
+          "File storage is not configured. Connect an upload provider before inserting local images.",
+      });
+      return "";
+    },
+    [readFileAsDataUrl],
+  );
+
   // U8: OS image paste (screenshot copied to clipboard, image copied from the
   // Finder/Files app, etc.) previously did nothing — clipboardData.items only
   // carries a text/html/plain payload for our own layer/screen copies, so
   // getFigmaClipboardContent and the marker parse both miss and the paste
-  // event fell through with no handler. Reads each pasted image as a data URL
-  // (same client-side approach as ImageFillControls' file picker — no server
-  // upload round-trip needed) and inserts it as a new <img> layer.
+  // event fell through with no handler. Uploads each pasted image through the
+  // framework image upload action and inserts the hosted URL as a new <img>
+  // layer, avoiding base64 data URLs in persisted design HTML.
   //
   // Multi-file paste: pasting several image files (e.g. multi-select in the
   // Finder, copy-all from a folder) previously only inserted the FIRST one —
@@ -18584,8 +18603,8 @@ export default function DesignEditor() {
         if (!targetFileId) return false;
         void (async () => {
           for (const file of files) {
-            const dataUrl = await readFileAsDataUrl(file);
-            if (!dataUrl) continue;
+            const imageUrl = await uploadImageFileForHtml(file);
+            if (!imageUrl) continue;
             const baseContent = getFreshActiveContent();
             const center = (() => {
               const iframe =
@@ -18611,7 +18630,7 @@ export default function DesignEditor() {
             const cascadeOffset = pasteCascadeRef.current * 16;
             pasteCascadeRef.current += 1;
             const nodeId = uniqueLayerId("pasted-image");
-            const html = `<img src="${dataUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
+            const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
             const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
               x: center.x + cascadeOffset,
               y: center.y + cascadeOffset,
@@ -18673,8 +18692,8 @@ export default function DesignEditor() {
 
       void (async () => {
         for (const file of files) {
-          const dataUrl = await readFileAsDataUrl(file);
-          if (!dataUrl) continue;
+          const imageUrl = await uploadImageFileForHtml(file);
+          if (!imageUrl) continue;
           const baseContent =
             targetFileId === activeFile?.id
               ? getFreshActiveContent()
@@ -18682,7 +18701,7 @@ export default function DesignEditor() {
           const cascadeOffset = pasteCascadeRef.current * 16;
           pasteCascadeRef.current += 1;
           const nodeId = uniqueLayerId("pasted-image");
-          const html = `<img src="${dataUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
+          const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
           const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
             x: localAnchor.x + cascadeOffset,
             y: localAnchor.y + cascadeOffset,
@@ -18717,9 +18736,9 @@ export default function DesignEditor() {
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
-      readFileAsDataUrl,
       selectInsertedLayers,
       t,
+      uploadImageFileForHtml,
       zoom,
     ],
   );
@@ -18728,8 +18747,8 @@ export default function DesignEditor() {
   // canvas-space drop point plus the screen frame id under it (if any);
   // DesignCanvas's `onDropFiles` reports a point already in screen-content
   // space for the active single screen. Both reuse the exact same image
-  // insertion primitives handlePastedImageFiles already established (data-URL
-  // read, cloneHtmlLayerAtPosition, pasteCascadeRef stagger, one
+  // insertion primitives handlePastedImageFiles already established (upload,
+  // cloneHtmlLayerAtPosition, pasteCascadeRef stagger, one
   // applyLocalContentUpdate/applyFileContentUpdate + selectInsertedLayers per
   // file) — only the target resolution differs (an explicit drop point
   // instead of a best-effort viewport-center guess), so this is written as
@@ -18744,8 +18763,8 @@ export default function DesignEditor() {
       if (files.length === 0 || !canEditDesign) return;
       void (async () => {
         for (const file of files) {
-          const dataUrl = await readFileAsDataUrl(file);
-          if (!dataUrl) continue;
+          const imageUrl = await uploadImageFileForHtml(file);
+          if (!imageUrl) continue;
           const baseContent =
             targetFileId === activeFile?.id
               ? getFreshActiveContent()
@@ -18753,7 +18772,7 @@ export default function DesignEditor() {
           const cascadeOffset = pasteCascadeRef.current * 16;
           pasteCascadeRef.current += 1;
           const nodeId = uniqueLayerId("pasted-image");
-          const html = `<img src="${dataUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
+          const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
           const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
             x: localPoint.x + cascadeOffset,
             y: localPoint.y + cascadeOffset,
@@ -18782,9 +18801,9 @@ export default function DesignEditor() {
       canEditDesign,
       getFreshActiveContent,
       getScreenContent,
-      readFileAsDataUrl,
       selectInsertedLayers,
       t,
+      uploadImageFileForHtml,
     ],
   );
 

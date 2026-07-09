@@ -42,10 +42,12 @@ export default defineAction({
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
+    const selectedObject = await readAppState("selected-object");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (url?.pathname) screen.pathname = url.pathname;
+    if (selectedObject) screen.selectedObject = selectedObject;
 
     // Surface the active URL filter params (f_*) so the agent doesn't have
     // to reason about the URL string or go hunting in settings for them.
@@ -219,6 +221,7 @@ export default defineAction({
                 lastSeenAt: issue.lastSeenAt,
                 eventCount: issue.eventCount,
                 usersAffected: issue.usersAffected,
+                recentFrequency: issue.sparkline,
                 assignee: issue.assignee,
                 app: issue.app,
                 template: issue.template,
@@ -231,6 +234,10 @@ export default defineAction({
                       url: sample.url,
                       occurredAt: sample.occurredAt,
                       sessionRecordingPath: sample.sessionRecordingPath,
+                      stack: sample.stack.slice(0, 8),
+                      rawStackPreview: sample.rawStack
+                        ? sample.rawStack.split("\n").slice(0, 8).join("\n")
+                        : null,
                     }
                   : null,
                 linkedSessions: detail.sessions.slice(0, 5),
@@ -426,6 +433,20 @@ export default defineAction({
           ],
         },
         {
+          id: "dashboards",
+          label: "Dashboard Usage",
+          path: "/agents?view=dashboards",
+          adminOnly: true,
+          action: "list-dashboard-usage-stats",
+          includes: [
+            "dashboard created and modified dates",
+            "last tracked modifier",
+            "view and engagement counts",
+            "saved view counts",
+            "hidden and archived state",
+          ],
+        },
+        {
           id: "database",
           label: "App Databases",
           path: "/agents?view=database",
@@ -439,6 +460,9 @@ export default defineAction({
           ],
         },
       ];
+      if (screen.agentsView === "dashboards") {
+        screen.dashboardUsageStatsAction = "list-dashboard-usage-stats";
+      }
       const email = getRequestUserEmail();
       if (email) {
         const orgId = getRequestOrgId() || null;

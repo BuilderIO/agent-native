@@ -450,6 +450,7 @@ function ReplayWorkbench({
       />
       <ReplayTimeline
         markers={markers}
+        isLoading={!response.isComplete}
         activeMarkerId={activeMarkerId}
         onSeek={(ms) => seekRef.current(ms, true)}
       />
@@ -1226,10 +1227,12 @@ function ReplayIconButton({
 
 function ReplayTimeline({
   markers,
+  isLoading,
   activeMarkerId,
   onSeek,
 }: {
   markers: ReplayMarker[];
+  isLoading: boolean;
   activeMarkerId: string | null;
   onSeek: (ms: number) => void;
 }) {
@@ -1268,35 +1271,28 @@ function ReplayTimeline({
   }, [activeMarkerId, filteredMarkers]);
 
   return (
-    <Card className="analytics-session-detail-timeline min-h-0 overflow-hidden">
-      <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-        <div className="shrink-0 space-y-2 border-b px-3 py-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <IconTimelineEvent className="h-4 w-4" />
+    <Card className="analytics-session-detail-timeline min-h-0 min-w-0 overflow-hidden">
+      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
+        <div className="min-w-0 shrink-0 space-y-2 border-b px-3 py-2">
+          <div className="truncate text-sm font-semibold">
             {t("sessions.timeline")}
           </div>
-          <p className="text-xs text-muted-foreground">
-            {filteredMarkers.length
-              ? t("sessions.timelineDescription", {
-                  count: String(filteredMarkers.length),
-                  total: String(markers.length),
-                })
-              : t("sessions.noTimelineEvents")}
-          </p>
-          <div className="relative">
-            <IconSearch className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              className="h-7 ps-7 text-xs"
-              value={query}
-              placeholder={t("sessions.timelineSearch")}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+          {!isLoading || markers.length ? (
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                className="h-7 ps-7 text-xs"
+                value={query}
+                placeholder={t("sessions.timelineSearch")}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+          ) : null}
         </div>
         <div
           ref={listRef}
-          className="min-h-0 flex-1 overflow-auto"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
           onWheel={() => {
             lastManualScrollAtRef.current = Date.now();
           }}
@@ -1305,7 +1301,7 @@ function ReplayTimeline({
           }}
         >
           {filteredMarkers.length ? (
-            <div className="divide-y">
+            <div className="min-w-0 divide-y">
               {filteredMarkers.map((marker) => {
                 const expanded = marker.id === expandedMarkerId;
                 const active = marker.id === activeMarkerId;
@@ -1320,7 +1316,7 @@ function ReplayTimeline({
                   >
                     <button
                       type="button"
-                      className="flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                      className="flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
                       aria-expanded={expanded}
                       aria-current={active ? "true" : undefined}
                       onClick={() => {
@@ -1351,12 +1347,12 @@ function ReplayTimeline({
                       >
                         <MarkerIcon kind={marker.kind} />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 flex-1 overflow-hidden">
+                        <span className="flex min-w-0 items-center justify-between gap-3">
                           <span className="truncate text-sm font-medium">
                             {marker.label}
                           </span>
-                          <span className="font-mono text-xs text-muted-foreground">
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
                             {formatClock(marker.offsetMs)}
                           </span>
                         </span>
@@ -1378,7 +1374,7 @@ function ReplayTimeline({
                 );
               })}
             </div>
-          ) : (
+          ) : isLoading ? null : (
             <div className="p-4 text-sm text-muted-foreground">
               {query.trim()
                 ? t("sessions.timelineNoMatches")

@@ -170,7 +170,7 @@ describe("evaluateCheck classification", () => {
       headers: {},
       matcher,
       assertions: [],
-      fetchError: "Timed out after 15000ms",
+      fetchError: "Timed out after 10000ms",
       errorKind: "network",
     });
     expect(result.status).toBe("down");

@@ -11,6 +11,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -42,6 +43,9 @@ const THEME_CSS_VARS = [
   "--sidebar-border",
   "--sidebar-ring",
 ];
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 interface InlineExtensionSource {
   mode?: "database" | "local-files";
@@ -642,7 +646,7 @@ export function InlineExtensionFrame({
         src={iframeSrc}
         srcDoc={srcDoc}
         title={extension.name}
-        sandbox="allow-scripts allow-forms"
+        sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
           sendThemeToIframe();

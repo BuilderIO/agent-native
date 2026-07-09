@@ -115,10 +115,25 @@ function normalizeTabId(value?: string | null): string | null {
   if (normalized === "workspace" || normalized === "workspace-settings") {
     return "workspace";
   }
-  if (normalized === "organization" || normalized === "org") {
-    return "team";
-  }
   return normalized;
+}
+
+function resolveTabId(
+  tabs: SettingsTabItem[],
+  value?: string | null,
+): string | null {
+  const normalized = normalizeTabId(value);
+  if (!normalized) return null;
+  if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  if (
+    normalized === "organization" ||
+    normalized === "org" ||
+    normalized === "team"
+  ) {
+    if (tabs.some((tab) => tab.id === "organization")) return "organization";
+    if (tabs.some((tab) => tab.id === "team")) return "team";
+  }
+  return null;
 }
 
 function activeTabFromHash(
@@ -126,9 +141,7 @@ function activeTabFromHash(
   defaultTab: string,
 ): string {
   if (typeof window === "undefined") return defaultTab;
-  const fromHash = normalizeTabId(window.location.hash);
-  if (fromHash && tabs.some((tab) => tab.id === fromHash)) return fromHash;
-  return defaultTab;
+  return resolveTabId(tabs, window.location.hash) ?? defaultTab;
 }
 
 function updateHashForTab(tabId: string) {
@@ -159,6 +172,9 @@ export function SettingsTabsPage({
   onValueChange,
 }: SettingsTabsPageProps) {
   const tabs = useMemo<SettingsTabItem[]>(() => {
+    const hasOrganizationTab = extraTabs.some(
+      (tab) => tab.id === "organization",
+    );
     const next: SettingsTabItem[] = [
       {
         id: "general",
@@ -169,7 +185,7 @@ export function SettingsTabsPage({
       },
     ];
     next.push(...extraTabs);
-    if (team) {
+    if (team && !hasOrganizationTab) {
       next.push({
         id: "team",
         label: teamLabel,
@@ -229,8 +245,8 @@ export function SettingsTabsPage({
     // the active tab untouched to avoid bouncing back to General.
     if (isControlled) return;
     const handleHashChange = () => {
-      const fromHash = normalizeTabId(window.location.hash);
-      if (fromHash && tabs.some((tab) => tab.id === fromHash)) {
+      const fromHash = resolveTabId(tabs, window.location.hash);
+      if (fromHash) {
         setInternalTab(fromHash);
       }
     };

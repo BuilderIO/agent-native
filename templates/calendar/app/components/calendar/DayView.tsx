@@ -29,7 +29,10 @@ import {
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import {
+  shouldSuppressAfterPopoverClose,
+  shouldSuppressCreatePointerDown,
+} from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
 
@@ -814,11 +817,17 @@ export const DayView = memo(function DayView({
 
         {/* Positioned events overlay */}
         <div
+          data-calendar-create-surface="true"
           className="absolute inset-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
           onPointerDown={(e) => {
             // Only start a create-drag from empty space, not on an event or its resize handles
             if ((e.target as HTMLElement).closest("button")) return;
-            if (!onClickTimeSlot || e.button !== 0) return;
+            if (
+              !onClickTimeSlot ||
+              e.button !== 0 ||
+              shouldSuppressCreatePointerDown()
+            )
+              return;
             startCreateDrag(e, 0);
           }}
           onClick={(e) => {

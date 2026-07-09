@@ -2276,7 +2276,11 @@ export function createAgentChatAdapter(
         // ends the turn from the client side.
         const followBackgroundTurn = async function* (
           initialSignal: AgentAutoContinueSignal,
-        ): AsyncGenerator<ChatModelRunResult, void, unknown> {
+        ): AsyncGenerator<
+          ChatModelRunResult,
+          "completed" | "client_continue",
+          unknown
+        > {
           lastAutoContinueReason = initialSignal.reason;
           if (initialSignal.activityTrail.length > 0) {
             lastActivityTrail = [...initialSignal.activityTrail];
@@ -2310,7 +2314,7 @@ export function createAgentChatAdapter(
           while (true) {
             if (abortSignal.aborted) {
               clearActiveRun();
-              return;
+              return "completed";
             }
             let active: Record<string, unknown> | null = null;
             try {
@@ -2324,7 +2328,7 @@ export function createAgentChatAdapter(
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
                 clearActiveRun();
-                return;
+                return "completed";
               }
               // Transient poll failure — counts as "no active run" this tick.
             }
@@ -2351,8 +2355,25 @@ export function createAgentChatAdapter(
               const isTerminal =
                 activeStatus === "completed" || activeStatus === "errored";
               if (isTerminal && replayedTerminalRunIds.has(activeRunId)) {
+                if (
+                  lastAutoContinueReason === "stale_run" &&
+                  lastRecoverableRunError?.errorCode === "stale_run"
+                ) {
+                  const continuation = prepareAutoContinuation(
+                    new AgentAutoContinueSignal({
+                      reason: "stale_run",
+                      errorInfo: lastRecoverableRunError,
+                      activityTrail: lastActivityTrail,
+                    }),
+                  );
+                  if (continuation.ok) {
+                    dispatchResumingUiEvent();
+                    await delay(250, abortSignal);
+                    return "client_continue";
+                  }
+                }
                 yield* emitBackgroundTerminalOutcome(active);
-                return;
+                return "completed";
               }
               const previousRunId = runId;
               runId = activeRunId;
@@ -2365,7 +2386,7 @@ export function createAgentChatAdapter(
               }
               const attach = yield* followAttachOnce();
               if (attach === "completed" || attach === "aborted") {
-                return;
+                return "completed";
               }
               if (isTerminal) {
                 replayedTerminalRunIds.add(activeRunId);
@@ -2387,7 +2408,7 @@ export function createAgentChatAdapter(
                   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                 ) {
                   yield* emitBackgroundTerminalOutcome(lastSeenActive);
-                  return;
+                  return "completed";
                 }
               }
               dispatchResumingUiEvent();
@@ -2407,13 +2428,13 @@ export function createAgentChatAdapter(
                   },
                 );
                 yield* emitBackgroundTerminalOutcome(lastSeenActive);
-                return;
+                return "completed";
               }
             }
             await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
             if (abortSignal.aborted) {
               clearActiveRun();
-              return;
+              return "completed";
             }
           }
         };
@@ -3003,7 +3024,10 @@ export function createAgentChatAdapter(
               // client/server recovery race: client watchdog signals here are
               // just "reattach", not "recover".
               if (shouldFollowServerContinuation(err) && threadId) {
-                yield* followBackgroundTurn(err);
+                const followOutcome = yield* followBackgroundTurn(err);
+                if (followOutcome === "client_continue") {
+                  continue;
+                }
                 return;
               }
               if (err.reason === "no_progress") {
@@ -3182,9 +3206,12 @@ export function createAgentChatAdapter(
             // before any response headers arrived has no dispatch mode yet
             // and keeps the foreground startup-retry path.)
             if (shouldFollowServerContinuation() && threadId) {
-              yield* followBackgroundTurn(
+              const followOutcome = yield* followBackgroundTurn(
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
               );
+              if (followOutcome === "client_continue") {
+                continue;
+              }
               return;
             }
 

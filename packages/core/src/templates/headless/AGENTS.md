@@ -8,6 +8,10 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
 
 - Prefer actions in `actions/` for every app operation. Do not create REST wrappers around actions.
 - Keep action inputs validated with Zod and return structured data, not JSON strings.
+- SQL is for structured records, metadata, references, and searchable text. Store
+  large files/blob payloads (base64, `data:` URLs, images, video/audio, PDFs,
+  ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
+  storage and persist only URLs, ids, or handles.
 - Do not hardcode API keys, tokens, webhook URLs, private data, or credential-looking literals.
 - `actions/run.ts` is the CLI dispatcher for `pnpm action ...`, not an app
   action. Leave it in place and add callable primitives as separate

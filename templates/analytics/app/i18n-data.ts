@@ -17,6 +17,7 @@ const enUS = {
     monitoring: "Monitoring",
     monitoringUptime: "Uptime",
     monitoringErrors: "Errors",
+    admin: "Admin",
     agents: "Agents",
     templateCatalog: "Catalog",
     dashboards: "Dashboards",
@@ -33,6 +34,17 @@ const enUS = {
     created: "Created {{date}}",
   },
   dashboard: {
+    historyTitle: "Dashboard history",
+    historyDescription:
+      "Restore a previous dashboard state. Restoring snapshots the current state first.",
+    historyEmpty:
+      "No history yet. Changes are saved here automatically after the next edit.",
+    historyRestore: "Restore",
+    historyRestored: "Dashboard restored",
+    historyRestoreFailed: "Couldn't restore dashboard",
+    historyRestoreQuestion: "Restore this dashboard version?",
+    historyRestoreWarning:
+      "This replaces the current dashboard layout and saves the current state in history.",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -263,6 +275,14 @@ const enUS = {
     alertChannels: "Channels",
     alertCustomChannels: "Additional channels",
     alertCustomChannelsPlaceholder: "pagerduty, opsgenie",
+    alertSlackWebhookUrl: "Slack webhook URL",
+    alertSlackWebhookUrlPlaceholder: "https://hooks.slack.com/services/...",
+    alertSlackWebhookUrlHint:
+      "Leave blank to use the workspace default, if configured.",
+    alertWebhookUrl: "Webhook URL",
+    alertWebhookUrlPlaceholder: "https://example.com/webhook",
+    alertWebhookUrlHint:
+      "Leave blank to use the workspace default, if configured.",
     alertEmailRecipients: "Email recipients",
     alertEmailRecipientsPlaceholder: "analytics@example.com, ops@example.com",
     alertEnabled: "Enabled",
@@ -272,6 +292,8 @@ const enUS = {
     alertFiltersInvalid: "Invalid filters JSON: {{message}}",
     alertNameRequired: "Add an alert name.",
     alertChannelRequired: "Select at least one notification channel.",
+    alertSlackWebhookUrlInvalid: "Enter a valid Slack webhook http(s) URL.",
+    alertWebhookUrlInvalid: "Enter a valid webhook http(s) URL.",
     alertSaved: "Alert rule saved.",
     alertSaveFailed: "Couldn't save alert rule: {{message}}",
     alertEnabledToast: "Alert enabled.",
@@ -322,6 +344,7 @@ const enUS = {
     newAnalysisPlaceholder: "Describe the question you want to investigate...",
   },
   common: {
+    cancel: "Cancel",
     docs: "Docs",
     noData: "No data",
     noDataAvailable: "No data available",
@@ -342,6 +365,8 @@ const enUS = {
     editSqlQuery: "Edit SQL Query",
     chartUnavailable: "Chart unavailable",
     failedToDecodePanel: "Failed to decode panel",
+    untitledAnalysis: "Untitled analysis",
+    untitledDashboard: "Untitled dashboard",
   },
   routeTitles: {
     notFound: "Not Found - Analytics",
@@ -353,7 +378,7 @@ const enUS = {
     dataSources: "Data Sources - Analytics",
     sessions: "Sessions - Analytics",
     monitoring: "Monitoring - Analytics",
-    agents: "Agents - Analytics",
+    agents: "Admin - Analytics",
     session: "Session Replay - Analytics",
     tool: "Tool - Analytics",
     extensions: "Extensions - Analytics",
@@ -367,12 +392,44 @@ const enUS = {
     embeddedContent: "Embedded content",
   },
   agents: {
-    title: "Agents",
+    title: "Admin",
     description:
-      "Monitor agent runs, evals, experiments, feedback, and connected app databases that admins can inspect behind the scenes.",
+      "Monitor agent runs, dashboard usage, evals, experiments, feedback, and connected app databases that admins can inspect behind the scenes.",
     monitoring: "Monitoring",
     monitoringDescription:
       "Core observability stays here: runs, traces, evals, experiments, and feedback. Install the LLM observability dashboard from the catalog when you want first-party token, latency, and cost charts.",
+    dashboardUsage: "Dashboard Usage",
+    dashboardUsageTitle: "Dashboard usage",
+    dashboardUsageDescription:
+      "Audit dashboard lifecycle, traffic, engagement, and ownership across the active organization. Existing dashboards only show a modifier after they are changed with updated attribution.",
+    dashboardUsageTotal: "Dashboards",
+    dashboardUsageActive: "{{count}} active",
+    dashboardUsageViews: "Views",
+    dashboardUsageTop: "Top: {{name}}",
+    dashboardUsageEngagements: "Engagements",
+    dashboardUsageEngagementsHint: "Non-pageview events plus saved views",
+    dashboardUsageStale: "No views",
+    dashboardUsageStaleHint: "Active dashboards without tracked views",
+    dashboardUsageDashboard: "Dashboard",
+    dashboardUsageOwner: "Owner",
+    dashboardUsageUsers: "Users",
+    dashboardUsageModified: "Modified",
+    dashboardUsageCreated: "Created",
+    dashboardUsageState: "State",
+    dashboardUsagePanels: "{{count}} panels",
+    dashboardUsageSavedViews: "{{count}} saved views",
+    dashboardUsageHidden: "Hidden",
+    dashboardUsageArchived: "Archived",
+    dashboardUsageEmpty: "No dashboards yet",
+    dashboardUsageEmptyDescription:
+      "Dashboards created in this organization will appear here with usage and cleanup signals.",
+    adminOnlyTitle: "Admin access required",
+    adminOnlyDescription:
+      "Only organization owners and admins can open Analytics admin tools.",
+    notTracked: "Not tracked",
+    visibilityprivate: "Private",
+    visibilityorg: "Shared with org",
+    visibilitypublic: "Public",
     advanced: "Advanced",
     database: "App Databases",
     openCatalog: "Open catalog",
@@ -636,6 +693,17 @@ const enUS = {
     allAnalyses: "All analyses",
     updated: "Updated {{date}}",
     created: "Created {{date}}",
+    historyTitle: "Analysis history",
+    historyDescription:
+      "Restore a previous saved analysis state. Restoring snapshots the current state first.",
+    historyEmpty:
+      "No history yet. Changes are saved here automatically after the next re-run.",
+    historyRestore: "Restore",
+    historyRestored: "Analysis restored",
+    historyRestoreFailed: "Couldn't restore analysis",
+    historyRestoreQuestion: "Restore this analysis version?",
+    historyRestoreWarning:
+      "This replaces the current saved findings and keeps the current state in history.",
     public: "Public",
     sharedWithOrg: "Shared with org",
     private: "Private",
@@ -959,6 +1027,7 @@ const enUS = {
     allTime: "All time",
     showing: "{{count}} sessions",
     eventCountCompact: "{{count}} events",
+    pageCountCompactSingular: "{{count}} page",
     pageCountCompact: "{{count}} pages",
     truncated: "Showing the first replay events only.",
     session: "Session",
@@ -10659,6 +10728,717 @@ const translatedSessionDevToolsTranslations = {
 
 for (const [locale, overrides] of Object.entries(
   translatedSessionDevToolsTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
+
+const translatedDashboardAdminTranslations = {
+  "zh-CN": {
+    navigation: {
+      admin: "管理",
+    },
+    agents: {
+      dashboardUsage: "仪表板使用情况",
+      dashboardUsageTitle: "仪表板使用情况",
+      dashboardUsageDescription:
+        "审计当前组织中的仪表板生命周期、流量、互动和所有权。现有仪表板只有在启用更新归因后再次修改，才会显示修改人。",
+      dashboardUsageTotal: "仪表板",
+      dashboardUsageActive: "{{count}} 个活跃",
+      dashboardUsageViews: "浏览量",
+      dashboardUsageTop: "最高：{{name}}",
+      dashboardUsageEngagements: "互动",
+      dashboardUsageEngagementsHint: "非页面浏览事件加已保存视图",
+      dashboardUsageStale: "无浏览",
+      dashboardUsageStaleHint: "没有已跟踪浏览量的活跃仪表板",
+      dashboardUsageDashboard: "仪表板",
+      dashboardUsageOwner: "所有者",
+      dashboardUsageUsers: "用户",
+      dashboardUsageModified: "修改时间",
+      dashboardUsageCreated: "创建时间",
+      dashboardUsageState: "状态",
+      dashboardUsagePanels: "{{count}} 个面板",
+      dashboardUsageSavedViews: "{{count}} 个已保存视图",
+      dashboardUsageHidden: "已隐藏",
+      dashboardUsageArchived: "已归档",
+      dashboardUsageEmpty: "还没有仪表板",
+      dashboardUsageEmptyDescription:
+        "此组织中创建的仪表板会在这里显示使用情况和清理信号。",
+      adminOnlyTitle: "需要管理员权限",
+      adminOnlyDescription:
+        "只有组织所有者和管理员可以打开 Analytics 管理工具。",
+      notTracked: "未跟踪",
+      visibilityprivate: "私有",
+      visibilityorg: "与组织共享",
+      visibilitypublic: "公开",
+    },
+  },
+  "es-ES": {
+    navigation: {
+      admin: "Administración",
+    },
+    agents: {
+      dashboardUsage: "Uso de paneles",
+      dashboardUsageTitle: "Uso de paneles",
+      dashboardUsageDescription:
+        "Audita el ciclo de vida, el tráfico, la interacción y la propiedad de los paneles en la organización activa. Los paneles existentes solo mostrarán quién los modificó después de cambiarse con atribución actualizada.",
+      dashboardUsageTotal: "Paneles",
+      dashboardUsageActive: "{{count}} activos",
+      dashboardUsageViews: "Vistas",
+      dashboardUsageTop: "Principal: {{name}}",
+      dashboardUsageEngagements: "Interacciones",
+      dashboardUsageEngagementsHint:
+        "Eventos que no son pageview más vistas guardadas",
+      dashboardUsageStale: "Sin vistas",
+      dashboardUsageStaleHint: "Paneles activos sin vistas registradas",
+      dashboardUsageDashboard: "Panel",
+      dashboardUsageOwner: "Propietario",
+      dashboardUsageUsers: "Usuarios",
+      dashboardUsageModified: "Modificado",
+      dashboardUsageCreated: "Creado",
+      dashboardUsageState: "Estado",
+      dashboardUsagePanels: "{{count}} paneles",
+      dashboardUsageSavedViews: "{{count}} vistas guardadas",
+      dashboardUsageHidden: "Oculto",
+      dashboardUsageArchived: "Archivado",
+      dashboardUsageEmpty: "Aún no hay paneles",
+      dashboardUsageEmptyDescription:
+        "Los paneles creados en esta organización aparecerán aquí con señales de uso y limpieza.",
+      adminOnlyTitle: "Se requiere acceso de administrador",
+      adminOnlyDescription:
+        "Solo los propietarios y administradores de la organización pueden abrir las herramientas de administración de Analytics.",
+      notTracked: "No registrado",
+      visibilityprivate: "Privado",
+      visibilityorg: "Compartido con la organización",
+      visibilitypublic: "Público",
+    },
+  },
+  "fr-FR": {
+    navigation: {
+      admin: "Admin",
+    },
+    agents: {
+      dashboardUsage: "Utilisation des tableaux de bord",
+      dashboardUsageTitle: "Utilisation des tableaux de bord",
+      dashboardUsageDescription:
+        "Auditez le cycle de vie, le trafic, l'engagement et la propriété des tableaux de bord dans l'organisation active. Les tableaux de bord existants n'affichent un modificateur qu'après une modification avec attribution mise à jour.",
+      dashboardUsageTotal: "Tableaux de bord",
+      dashboardUsageActive: "{{count}} actifs",
+      dashboardUsageViews: "Vues",
+      dashboardUsageTop: "Meilleur : {{name}}",
+      dashboardUsageEngagements: "Engagements",
+      dashboardUsageEngagementsHint:
+        "Événements hors pageview plus vues enregistrées",
+      dashboardUsageStale: "Aucune vue",
+      dashboardUsageStaleHint: "Tableaux de bord actifs sans vues suivies",
+      dashboardUsageDashboard: "Tableau de bord",
+      dashboardUsageOwner: "Propriétaire",
+      dashboardUsageUsers: "Utilisateurs",
+      dashboardUsageModified: "Modifié",
+      dashboardUsageCreated: "Créé",
+      dashboardUsageState: "État",
+      dashboardUsagePanels: "{{count}} panneaux",
+      dashboardUsageSavedViews: "{{count}} vues enregistrées",
+      dashboardUsageHidden: "Masqué",
+      dashboardUsageArchived: "Archivé",
+      dashboardUsageEmpty: "Aucun tableau de bord pour l'instant",
+      dashboardUsageEmptyDescription:
+        "Les tableaux de bord créés dans cette organisation apparaîtront ici avec les signaux d'utilisation et de nettoyage.",
+      adminOnlyTitle: "Accès administrateur requis",
+      adminOnlyDescription:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent ouvrir les outils d'administration Analytics.",
+      notTracked: "Non suivi",
+      visibilityprivate: "Privé",
+      visibilityorg: "Partagé avec l'organisation",
+      visibilitypublic: "Public",
+    },
+  },
+  "de-DE": {
+    navigation: {
+      admin: "Admin",
+    },
+    agents: {
+      dashboardUsage: "Dashboard-Nutzung",
+      dashboardUsageTitle: "Dashboard-Nutzung",
+      dashboardUsageDescription:
+        "Prüfe Lebenszyklus, Traffic, Engagement und Besitz von Dashboards in der aktiven Organisation. Bestehende Dashboards zeigen einen Bearbeiter erst nach einer Änderung mit aktualisierter Zuordnung.",
+      dashboardUsageTotal: "Dashboards",
+      dashboardUsageActive: "{{count}} aktiv",
+      dashboardUsageViews: "Aufrufe",
+      dashboardUsageTop: "Top: {{name}}",
+      dashboardUsageEngagements: "Interaktionen",
+      dashboardUsageEngagementsHint:
+        "Nicht-Pageview-Ereignisse plus gespeicherte Ansichten",
+      dashboardUsageStale: "Keine Aufrufe",
+      dashboardUsageStaleHint: "Aktive Dashboards ohne erfasste Aufrufe",
+      dashboardUsageDashboard: "Dashboard",
+      dashboardUsageOwner: "Besitzer",
+      dashboardUsageUsers: "Benutzer",
+      dashboardUsageModified: "Geändert",
+      dashboardUsageCreated: "Erstellt",
+      dashboardUsageState: "Status",
+      dashboardUsagePanels: "{{count}} Panels",
+      dashboardUsageSavedViews: "{{count}} gespeicherte Ansichten",
+      dashboardUsageHidden: "Ausgeblendet",
+      dashboardUsageArchived: "Archiviert",
+      dashboardUsageEmpty: "Noch keine Dashboards",
+      dashboardUsageEmptyDescription:
+        "In dieser Organisation erstellte Dashboards erscheinen hier mit Nutzungs- und Aufräumsignalen.",
+      adminOnlyTitle: "Adminzugriff erforderlich",
+      adminOnlyDescription:
+        "Nur Organisationsinhaber und Administratoren können Analytics-Admin-Tools öffnen.",
+      notTracked: "Nicht erfasst",
+      visibilityprivate: "Privat",
+      visibilityorg: "Mit Organisation geteilt",
+      visibilitypublic: "Öffentlich",
+    },
+  },
+  "ja-JP": {
+    navigation: {
+      admin: "管理",
+    },
+    agents: {
+      dashboardUsage: "ダッシュボード使用状況",
+      dashboardUsageTitle: "ダッシュボード使用状況",
+      dashboardUsageDescription:
+        "アクティブな組織全体で、ダッシュボードのライフサイクル、トラフィック、エンゲージメント、所有者を監査します。既存のダッシュボードは、更新の帰属が記録された後に変更されると編集者が表示されます。",
+      dashboardUsageTotal: "ダッシュボード",
+      dashboardUsageActive: "{{count}} 件がアクティブ",
+      dashboardUsageViews: "閲覧数",
+      dashboardUsageTop: "トップ：{{name}}",
+      dashboardUsageEngagements: "エンゲージメント",
+      dashboardUsageEngagementsHint:
+        "ページビュー以外のイベントと保存済みビュー",
+      dashboardUsageStale: "閲覧なし",
+      dashboardUsageStaleHint: "追跡された閲覧がないアクティブなダッシュボード",
+      dashboardUsageDashboard: "ダッシュボード",
+      dashboardUsageOwner: "所有者",
+      dashboardUsageUsers: "ユーザー",
+      dashboardUsageModified: "更新日",
+      dashboardUsageCreated: "作成日",
+      dashboardUsageState: "状態",
+      dashboardUsagePanels: "{{count}} パネル",
+      dashboardUsageSavedViews: "{{count}} 件の保存済みビュー",
+      dashboardUsageHidden: "非表示",
+      dashboardUsageArchived: "アーカイブ済み",
+      dashboardUsageEmpty: "まだダッシュボードがありません",
+      dashboardUsageEmptyDescription:
+        "この組織で作成されたダッシュボードは、使用状況と整理のシグナルとともにここに表示されます。",
+      adminOnlyTitle: "管理者アクセスが必要です",
+      adminOnlyDescription:
+        "組織の所有者と管理者のみが Analytics 管理ツールを開けます。",
+      notTracked: "未追跡",
+      visibilityprivate: "非公開",
+      visibilityorg: "組織と共有",
+      visibilitypublic: "公開",
+    },
+  },
+  "ko-KR": {
+    navigation: {
+      admin: "관리",
+    },
+    agents: {
+      dashboardUsage: "대시보드 사용량",
+      dashboardUsageTitle: "대시보드 사용량",
+      dashboardUsageDescription:
+        "활성 조직 전체의 대시보드 수명 주기, 트래픽, 참여도, 소유권을 감사합니다. 기존 대시보드는 업데이트 귀속이 적용된 뒤 변경되어야 수정자가 표시됩니다.",
+      dashboardUsageTotal: "대시보드",
+      dashboardUsageActive: "{{count}}개 활성",
+      dashboardUsageViews: "조회수",
+      dashboardUsageTop: "상위: {{name}}",
+      dashboardUsageEngagements: "참여",
+      dashboardUsageEngagementsHint: "페이지뷰 외 이벤트와 저장된 보기",
+      dashboardUsageStale: "조회 없음",
+      dashboardUsageStaleHint: "추적된 조회가 없는 활성 대시보드",
+      dashboardUsageDashboard: "대시보드",
+      dashboardUsageOwner: "소유자",
+      dashboardUsageUsers: "사용자",
+      dashboardUsageModified: "수정됨",
+      dashboardUsageCreated: "생성됨",
+      dashboardUsageState: "상태",
+      dashboardUsagePanels: "{{count}}개 패널",
+      dashboardUsageSavedViews: "{{count}}개 저장된 보기",
+      dashboardUsageHidden: "숨김",
+      dashboardUsageArchived: "보관됨",
+      dashboardUsageEmpty: "아직 대시보드가 없습니다",
+      dashboardUsageEmptyDescription:
+        "이 조직에서 생성된 대시보드는 사용량 및 정리 신호와 함께 여기에 표시됩니다.",
+      adminOnlyTitle: "관리자 권한 필요",
+      adminOnlyDescription:
+        "조직 소유자와 관리자만 Analytics 관리 도구를 열 수 있습니다.",
+      notTracked: "추적 안 됨",
+      visibilityprivate: "비공개",
+      visibilityorg: "조직과 공유됨",
+      visibilitypublic: "공개",
+    },
+  },
+  "pt-BR": {
+    navigation: {
+      admin: "Administração",
+    },
+    agents: {
+      dashboardUsage: "Uso dos painéis",
+      dashboardUsageTitle: "Uso dos painéis",
+      dashboardUsageDescription:
+        "Audite ciclo de vida, tráfego, engajamento e propriedade dos painéis na organização ativa. Painéis existentes só mostram quem modificou depois de uma alteração com atribuição atualizada.",
+      dashboardUsageTotal: "Painéis",
+      dashboardUsageActive: "{{count}} ativos",
+      dashboardUsageViews: "Visualizações",
+      dashboardUsageTop: "Principal: {{name}}",
+      dashboardUsageEngagements: "Engajamentos",
+      dashboardUsageEngagementsHint:
+        "Eventos que não são pageview mais visualizações salvas",
+      dashboardUsageStale: "Sem visualizações",
+      dashboardUsageStaleHint: "Painéis ativos sem visualizações rastreadas",
+      dashboardUsageDashboard: "Painel",
+      dashboardUsageOwner: "Proprietário",
+      dashboardUsageUsers: "Usuários",
+      dashboardUsageModified: "Modificado",
+      dashboardUsageCreated: "Criado",
+      dashboardUsageState: "Estado",
+      dashboardUsagePanels: "{{count}} painéis",
+      dashboardUsageSavedViews: "{{count}} visualizações salvas",
+      dashboardUsageHidden: "Oculto",
+      dashboardUsageArchived: "Arquivado",
+      dashboardUsageEmpty: "Ainda não há painéis",
+      dashboardUsageEmptyDescription:
+        "Painéis criados nesta organização aparecerão aqui com sinais de uso e limpeza.",
+      adminOnlyTitle: "Acesso de administrador necessário",
+      adminOnlyDescription:
+        "Somente proprietários e administradores da organização podem abrir as ferramentas administrativas do Analytics.",
+      notTracked: "Não rastreado",
+      visibilityprivate: "Privado",
+      visibilityorg: "Compartilhado com a organização",
+      visibilitypublic: "Público",
+    },
+  },
+  "hi-IN": {
+    navigation: {
+      admin: "एडमिन",
+    },
+    agents: {
+      dashboardUsage: "डैशबोर्ड उपयोग",
+      dashboardUsageTitle: "डैशबोर्ड उपयोग",
+      dashboardUsageDescription:
+        "सक्रिय संगठन में डैशबोर्ड lifecycle, traffic, engagement, और ownership का audit करें। मौजूदा dashboards में modifier तभी दिखेगा जब वे updated attribution के साथ बदले जाएँगे।",
+      dashboardUsageTotal: "डैशबोर्ड",
+      dashboardUsageActive: "{{count}} सक्रिय",
+      dashboardUsageViews: "व्यू",
+      dashboardUsageTop: "शीर्ष: {{name}}",
+      dashboardUsageEngagements: "एंगेजमेंट",
+      dashboardUsageEngagementsHint: "Non-pageview events और saved views",
+      dashboardUsageStale: "कोई व्यू नहीं",
+      dashboardUsageStaleHint: "Tracked views के बिना सक्रिय dashboards",
+      dashboardUsageDashboard: "डैशबोर्ड",
+      dashboardUsageOwner: "स्वामी",
+      dashboardUsageUsers: "यूज़र",
+      dashboardUsageModified: "संशोधित",
+      dashboardUsageCreated: "बनाया गया",
+      dashboardUsageState: "स्थिति",
+      dashboardUsagePanels: "{{count}} पैनल",
+      dashboardUsageSavedViews: "{{count}} saved views",
+      dashboardUsageHidden: "छिपा हुआ",
+      dashboardUsageArchived: "आर्काइव किया गया",
+      dashboardUsageEmpty: "अभी कोई डैशबोर्ड नहीं",
+      dashboardUsageEmptyDescription:
+        "इस संगठन में बनाए गए dashboards usage और cleanup signals के साथ यहाँ दिखेंगे।",
+      adminOnlyTitle: "एडमिन access आवश्यक है",
+      adminOnlyDescription:
+        "केवल organization owners और admins Analytics admin tools खोल सकते हैं।",
+      notTracked: "ट्रैक नहीं किया गया",
+      visibilityprivate: "निजी",
+      visibilityorg: "संगठन के साथ साझा",
+      visibilitypublic: "सार्वजनिक",
+    },
+  },
+  "ar-SA": {
+    navigation: {
+      admin: "الإدارة",
+    },
+    agents: {
+      dashboardUsage: "استخدام لوحات المعلومات",
+      dashboardUsageTitle: "استخدام لوحات المعلومات",
+      dashboardUsageDescription:
+        "راجع دورة حياة لوحات المعلومات وحركة المرور والتفاعل والملكية عبر المؤسسة النشطة. لا تعرض اللوحات الحالية آخر معدّل إلا بعد تغييرها مع تفعيل الإسناد المحدّث.",
+      dashboardUsageTotal: "لوحات المعلومات",
+      dashboardUsageActive: "{{count}} نشطة",
+      dashboardUsageViews: "المشاهدات",
+      dashboardUsageTop: "الأعلى: {{name}}",
+      dashboardUsageEngagements: "التفاعلات",
+      dashboardUsageEngagementsHint:
+        "أحداث غير pageview بالإضافة إلى طرق العرض المحفوظة",
+      dashboardUsageStale: "بلا مشاهدات",
+      dashboardUsageStaleHint: "لوحات نشطة بلا مشاهدات متتبعة",
+      dashboardUsageDashboard: "لوحة المعلومات",
+      dashboardUsageOwner: "المالك",
+      dashboardUsageUsers: "المستخدمون",
+      dashboardUsageModified: "عُدّلت",
+      dashboardUsageCreated: "أُنشئت",
+      dashboardUsageState: "الحالة",
+      dashboardUsagePanels: "{{count}} لوحات",
+      dashboardUsageSavedViews: "{{count}} طرق عرض محفوظة",
+      dashboardUsageHidden: "مخفية",
+      dashboardUsageArchived: "مؤرشفة",
+      dashboardUsageEmpty: "لا توجد لوحات معلومات بعد",
+      dashboardUsageEmptyDescription:
+        "ستظهر لوحات المعلومات التي تُنشأ في هذه المؤسسة هنا مع إشارات الاستخدام والتنظيف.",
+      adminOnlyTitle: "مطلوب وصول مسؤول",
+      adminOnlyDescription:
+        "يمكن لمالكي المؤسسة والمسؤولين فقط فتح أدوات إدارة Analytics.",
+      notTracked: "غير متتبع",
+      visibilityprivate: "خاص",
+      visibilityorg: "مشترك مع المؤسسة",
+      visibilitypublic: "عام",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedDashboardAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
+
+const translatedHistoryTranslations = {
+  "zh-TW": {
+    common: {
+      cancel: "取消",
+      untitledAnalysis: "未命名分析",
+      untitledDashboard: "未命名儀表板",
+    },
+    dashboard: {
+      historyTitle: "儀表板歷史記錄",
+      historyDescription: "還原先前的儀表板狀態。還原前會先保存目前狀態。",
+      historyEmpty: "尚無歷史記錄。下一次編輯後，變更會自動保存在這裡。",
+      historyRestore: "還原",
+      historyRestored: "儀表板已還原",
+      historyRestoreFailed: "無法還原儀表板",
+      historyRestoreQuestion: "要還原此儀表板版本嗎？",
+      historyRestoreWarning:
+        "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+    },
+    analyses: {
+      historyTitle: "分析歷史記錄",
+      historyDescription: "還原先前保存的分析狀態。還原前會先保存目前狀態。",
+      historyEmpty: "尚無歷史記錄。下一次重新執行後，變更會自動保存在這裡。",
+      historyRestore: "還原",
+      historyRestored: "分析已還原",
+      historyRestoreFailed: "無法還原分析",
+      historyRestoreQuestion: "要還原此分析版本嗎？",
+      historyRestoreWarning:
+        "這會取代目前保存的發現，並將目前狀態保留在歷史記錄。",
+    },
+  },
+  "zh-CN": {
+    common: {
+      cancel: "取消",
+      untitledAnalysis: "未命名分析",
+      untitledDashboard: "未命名仪表板",
+    },
+    dashboard: {
+      historyTitle: "仪表板历史记录",
+      historyDescription: "还原之前的仪表板状态。还原前会先保存当前状态。",
+      historyEmpty: "还没有历史记录。下一次编辑后，变更会自动保存到这里。",
+      historyRestore: "还原",
+      historyRestored: "仪表板已还原",
+      historyRestoreFailed: "无法还原仪表板",
+      historyRestoreQuestion: "要还原此仪表板版本吗？",
+      historyRestoreWarning:
+        "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+    },
+    analyses: {
+      historyTitle: "分析历史记录",
+      historyDescription: "还原之前保存的分析状态。还原前会先保存当前状态。",
+      historyEmpty: "还没有历史记录。下一次重新运行后，变更会自动保存到这里。",
+      historyRestore: "还原",
+      historyRestored: "分析已还原",
+      historyRestoreFailed: "无法还原分析",
+      historyRestoreQuestion: "要还原此分析版本吗？",
+      historyRestoreWarning:
+        "这会替换当前保存的发现，并把当前状态保留在历史记录中。",
+    },
+  },
+  "es-ES": {
+    common: {
+      cancel: "Cancelar",
+      untitledAnalysis: "Análisis sin título",
+      untitledDashboard: "Panel sin título",
+    },
+    dashboard: {
+      historyTitle: "Historial del panel",
+      historyDescription:
+        "Restaura un estado anterior del panel. Al restaurar, primero se guarda una instantánea del estado actual.",
+      historyEmpty:
+        "Aún no hay historial. Los cambios se guardarán aquí automáticamente tras la próxima edición.",
+      historyRestore: "Restaurar",
+      historyRestored: "Panel restaurado",
+      historyRestoreFailed: "No se pudo restaurar el panel",
+      historyRestoreQuestion: "¿Restaurar esta versión del panel?",
+      historyRestoreWarning:
+        "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+    },
+    analyses: {
+      historyTitle: "Historial del análisis",
+      historyDescription:
+        "Restaura un estado anterior del análisis guardado. Al restaurar, primero se guarda una instantánea del estado actual.",
+      historyEmpty:
+        "Aún no hay historial. Los cambios se guardarán aquí automáticamente tras la próxima nueva ejecución.",
+      historyRestore: "Restaurar",
+      historyRestored: "Análisis restaurado",
+      historyRestoreFailed: "No se pudo restaurar el análisis",
+      historyRestoreQuestion: "¿Restaurar esta versión del análisis?",
+      historyRestoreWarning:
+        "Esto reemplaza los hallazgos guardados actuales y conserva el estado actual en el historial.",
+    },
+  },
+  "fr-FR": {
+    common: {
+      cancel: "Annuler",
+      untitledAnalysis: "Analyse sans titre",
+      untitledDashboard: "Tableau de bord sans titre",
+    },
+    dashboard: {
+      historyTitle: "Historique du tableau de bord",
+      historyDescription:
+        "Restaurez un état précédent du tableau de bord. La restauration enregistre d'abord l'état actuel.",
+      historyEmpty:
+        "Aucun historique pour l'instant. Les changements seront enregistrés ici automatiquement après la prochaine modification.",
+      historyRestore: "Restaurer",
+      historyRestored: "Tableau de bord restauré",
+      historyRestoreFailed: "Impossible de restaurer le tableau de bord",
+      historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
+      historyRestoreWarning:
+        "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+    },
+    analyses: {
+      historyTitle: "Historique de l'analyse",
+      historyDescription:
+        "Restaurez un état précédent de l'analyse enregistrée. La restauration enregistre d'abord l'état actuel.",
+      historyEmpty:
+        "Aucun historique pour l'instant. Les changements seront enregistrés ici automatiquement après la prochaine réexécution.",
+      historyRestore: "Restaurer",
+      historyRestored: "Analyse restaurée",
+      historyRestoreFailed: "Impossible de restaurer l'analyse",
+      historyRestoreQuestion: "Restaurer cette version de l'analyse ?",
+      historyRestoreWarning:
+        "Cela remplace les résultats enregistrés actuels et conserve l'état actuel dans l'historique.",
+    },
+  },
+  "de-DE": {
+    common: {
+      cancel: "Abbrechen",
+      untitledAnalysis: "Unbenannte Analyse",
+      untitledDashboard: "Unbenanntes Dashboard",
+    },
+    dashboard: {
+      historyTitle: "Dashboard-Verlauf",
+      historyDescription:
+        "Stelle einen früheren Dashboard-Stand wieder her. Vor der Wiederherstellung wird der aktuelle Stand gespeichert.",
+      historyEmpty:
+        "Noch kein Verlauf. Änderungen werden nach der nächsten Bearbeitung automatisch hier gespeichert.",
+      historyRestore: "Wiederherstellen",
+      historyRestored: "Dashboard wiederhergestellt",
+      historyRestoreFailed: "Dashboard konnte nicht wiederhergestellt werden",
+      historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
+      historyRestoreWarning:
+        "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+    },
+    analyses: {
+      historyTitle: "Analyseverlauf",
+      historyDescription:
+        "Stelle einen früheren Stand der gespeicherten Analyse wieder her. Vor der Wiederherstellung wird der aktuelle Stand gespeichert.",
+      historyEmpty:
+        "Noch kein Verlauf. Änderungen werden nach der nächsten erneuten Ausführung automatisch hier gespeichert.",
+      historyRestore: "Wiederherstellen",
+      historyRestored: "Analyse wiederhergestellt",
+      historyRestoreFailed: "Analyse konnte nicht wiederhergestellt werden",
+      historyRestoreQuestion: "Diese Analyseversion wiederherstellen?",
+      historyRestoreWarning:
+        "Dies ersetzt die aktuell gespeicherten Erkenntnisse und behält den aktuellen Stand im Verlauf.",
+    },
+  },
+  "ja-JP": {
+    common: {
+      cancel: "キャンセル",
+      untitledAnalysis: "無題の分析",
+      untitledDashboard: "無題のダッシュボード",
+    },
+    dashboard: {
+      historyTitle: "ダッシュボード履歴",
+      historyDescription:
+        "以前のダッシュボード状態を復元します。復元前に現在の状態を履歴に保存します。",
+      historyEmpty:
+        "まだ履歴はありません。次回の編集後、変更はここに自動保存されます。",
+      historyRestore: "復元",
+      historyRestored: "ダッシュボードを復元しました",
+      historyRestoreFailed: "ダッシュボードを復元できませんでした",
+      historyRestoreQuestion: "このダッシュボード版を復元しますか？",
+      historyRestoreWarning:
+        "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+    },
+    analyses: {
+      historyTitle: "分析履歴",
+      historyDescription:
+        "以前の保存済み分析状態を復元します。復元前に現在の状態を履歴に保存します。",
+      historyEmpty:
+        "まだ履歴はありません。次回の再実行後、変更はここに自動保存されます。",
+      historyRestore: "復元",
+      historyRestored: "分析を復元しました",
+      historyRestoreFailed: "分析を復元できませんでした",
+      historyRestoreQuestion: "この分析版を復元しますか？",
+      historyRestoreWarning:
+        "現在保存されている結果を置き換え、現在の状態を履歴に保持します。",
+    },
+  },
+  "ko-KR": {
+    common: {
+      cancel: "취소",
+      untitledAnalysis: "제목 없는 분석",
+      untitledDashboard: "제목 없는 대시보드",
+    },
+    dashboard: {
+      historyTitle: "대시보드 기록",
+      historyDescription:
+        "이전 대시보드 상태를 복원합니다. 복원하기 전에 현재 상태를 먼저 기록에 저장합니다.",
+      historyEmpty:
+        "아직 기록이 없습니다. 다음 편집 후 변경 사항이 여기에 자동으로 저장됩니다.",
+      historyRestore: "복원",
+      historyRestored: "대시보드가 복원되었습니다",
+      historyRestoreFailed: "대시보드를 복원할 수 없습니다",
+      historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
+      historyRestoreWarning:
+        "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+    },
+    analyses: {
+      historyTitle: "분석 기록",
+      historyDescription:
+        "이전 저장된 분석 상태를 복원합니다. 복원하기 전에 현재 상태를 먼저 기록에 저장합니다.",
+      historyEmpty:
+        "아직 기록이 없습니다. 다음 재실행 후 변경 사항이 여기에 자동으로 저장됩니다.",
+      historyRestore: "복원",
+      historyRestored: "분석이 복원되었습니다",
+      historyRestoreFailed: "분석을 복원할 수 없습니다",
+      historyRestoreQuestion: "이 분석 버전을 복원할까요?",
+      historyRestoreWarning:
+        "현재 저장된 결과를 대체하고 현재 상태를 기록에 보관합니다.",
+    },
+  },
+  "pt-BR": {
+    common: {
+      cancel: "Cancelar",
+      untitledAnalysis: "Análise sem título",
+      untitledDashboard: "Painel sem título",
+    },
+    dashboard: {
+      historyTitle: "Histórico do painel",
+      historyDescription:
+        "Restaure um estado anterior do painel. A restauração salva primeiro um snapshot do estado atual.",
+      historyEmpty:
+        "Ainda não há histórico. As alterações serão salvas aqui automaticamente após a próxima edição.",
+      historyRestore: "Restaurar",
+      historyRestored: "Painel restaurado",
+      historyRestoreFailed: "Não foi possível restaurar o painel",
+      historyRestoreQuestion: "Restaurar esta versão do painel?",
+      historyRestoreWarning:
+        "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+    },
+    analyses: {
+      historyTitle: "Histórico da análise",
+      historyDescription:
+        "Restaure um estado anterior da análise salva. A restauração salva primeiro um snapshot do estado atual.",
+      historyEmpty:
+        "Ainda não há histórico. As alterações serão salvas aqui automaticamente após a próxima nova execução.",
+      historyRestore: "Restaurar",
+      historyRestored: "Análise restaurada",
+      historyRestoreFailed: "Não foi possível restaurar a análise",
+      historyRestoreQuestion: "Restaurar esta versão da análise?",
+      historyRestoreWarning:
+        "Isso substitui as descobertas salvas atuais e mantém o estado atual no histórico.",
+    },
+  },
+  "hi-IN": {
+    common: {
+      cancel: "रद्द करें",
+      untitledAnalysis: "बिना शीर्षक वाला विश्लेषण",
+      untitledDashboard: "बिना शीर्षक वाला डैशबोर्ड",
+    },
+    dashboard: {
+      historyTitle: "डैशबोर्ड इतिहास",
+      historyDescription:
+        "पिछली डैशबोर्ड स्थिति को पुनर्स्थापित करें। पुनर्स्थापना से पहले वर्तमान स्थिति का snapshot सहेजा जाता है।",
+      historyEmpty:
+        "अभी कोई इतिहास नहीं है। अगले edit के बाद बदलाव यहाँ अपने-आप सहेजे जाएँगे।",
+      historyRestore: "पुनर्स्थापित करें",
+      historyRestored: "डैशबोर्ड पुनर्स्थापित हुआ",
+      historyRestoreFailed: "डैशबोर्ड पुनर्स्थापित नहीं किया जा सका",
+      historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
+      historyRestoreWarning:
+        "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+    },
+    analyses: {
+      historyTitle: "विश्लेषण इतिहास",
+      historyDescription:
+        "पिछली सहेजी गई विश्लेषण स्थिति को पुनर्स्थापित करें। पुनर्स्थापना से पहले वर्तमान स्थिति का snapshot सहेजा जाता है।",
+      historyEmpty:
+        "अभी कोई इतिहास नहीं है। अगली re-run के बाद बदलाव यहाँ अपने-आप सहेजे जाएँगे।",
+      historyRestore: "पुनर्स्थापित करें",
+      historyRestored: "विश्लेषण पुनर्स्थापित हुआ",
+      historyRestoreFailed: "विश्लेषण पुनर्स्थापित नहीं किया जा सका",
+      historyRestoreQuestion: "इस विश्लेषण संस्करण को पुनर्स्थापित करें?",
+      historyRestoreWarning:
+        "यह वर्तमान सहेजे गए findings को बदल देगा और वर्तमान स्थिति को इतिहास में रखेगा।",
+    },
+  },
+  "ar-SA": {
+    common: {
+      cancel: "إلغاء",
+      untitledAnalysis: "تحليل بلا عنوان",
+      untitledDashboard: "لوحة معلومات بلا عنوان",
+    },
+    dashboard: {
+      historyTitle: "سجل لوحة المعلومات",
+      historyDescription:
+        "استعد حالة سابقة للوحة المعلومات. تحفظ الاستعادة لقطة من الحالة الحالية أولاً.",
+      historyEmpty:
+        "لا يوجد سجل بعد. ستُحفظ التغييرات هنا تلقائياً بعد التعديل التالي.",
+      historyRestore: "استعادة",
+      historyRestored: "تمت استعادة لوحة المعلومات",
+      historyRestoreFailed: "تعذرت استعادة لوحة المعلومات",
+      historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
+      historyRestoreWarning:
+        "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+    },
+    analyses: {
+      historyTitle: "سجل التحليل",
+      historyDescription:
+        "استعد حالة سابقة للتحليل المحفوظ. تحفظ الاستعادة لقطة من الحالة الحالية أولاً.",
+      historyEmpty:
+        "لا يوجد سجل بعد. ستُحفظ التغييرات هنا تلقائياً بعد إعادة التشغيل التالية.",
+      historyRestore: "استعادة",
+      historyRestored: "تمت استعادة التحليل",
+      historyRestoreFailed: "تعذرت استعادة التحليل",
+      historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من التحليل؟",
+      historyRestoreWarning:
+        "سيستبدل هذا النتائج المحفوظة الحالية ويحتفظ بالحالة الحالية في السجل.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedHistoryTranslations,
 ) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
   const messages = messagesByLocale[locale];
   if (!messages) continue;

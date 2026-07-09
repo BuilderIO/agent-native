@@ -43,7 +43,7 @@ export default function SettingsRoute() {
         extraTabs={agentSettingsTabs}
         generalSearchEntries={generalSearchEntries}
         general={
-          <main className="mx-auto w-full max-w-3xl space-y-6">
+          <main className="mx-auto w-full max-w-2xl space-y-6">
             <p className="text-sm leading-6 text-muted-foreground">
               {t("settings.description")}
             </p>
@@ -77,7 +77,7 @@ export default function SettingsRoute() {
           </div>
         }
         whatsNew={
-          <div className="mx-auto w-full max-w-3xl">
+          <div className="mx-auto w-full max-w-2xl">
             <ChangelogSettingsCard markdown={changelog} />
           </div>
         }

@@ -30,20 +30,38 @@ describe("video player mobile controls", () => {
     expect(videoPlayerSource).toContain("onPointerUp={handlePlayerPointerUp}");
   });
 
-  it("exposes 15 second skip controls beside play controls", () => {
+  it("exposes Loom-style 5 second skip controls after the play control", () => {
     const playerControlsSource = readSource("./player-controls.tsx");
     const videoPlayerSource = readSource("./video-player.tsx");
-
-    expect(playerControlsSource).toContain(
-      "export const PLAYER_SEEK_STEP_MS = 15_000;",
+    const playButton = playerControlsSource.indexOf(
+      'tooltip={isPlaying ? "Pause (K)" : "Play (K)"}',
     );
-    expect(playerControlsSource).toContain(
+    const backButton = playerControlsSource.indexOf(
       "onSeekRelative(-PLAYER_SEEK_STEP_MS)",
     );
-    expect(playerControlsSource).toContain(
+    const forwardButton = playerControlsSource.indexOf(
       "onSeekRelative(PLAYER_SEEK_STEP_MS)",
     );
-    expect(videoPlayerSource).toContain("function CenterSeekButton");
+
+    expect(playerControlsSource).toContain(
+      "export const PLAYER_SEEK_STEP_MS = 5_000;",
+    );
+    expect(playButton).toBeGreaterThan(-1);
+    expect(backButton).toBeGreaterThan(playButton);
+    expect(forwardButton).toBeGreaterThan(backButton);
+    expect(videoPlayerSource).not.toContain("function CenterSeekButton");
+    expect(videoPlayerSource).not.toContain("<CenterSeekButton");
     expect(videoPlayerSource).toContain("onSeekRelative={seekByMs}");
+  });
+
+  it("routes video surface clicks and taps through the same playback activation", () => {
+    const videoPlayerSource = readSource("./video-player.tsx");
+    const activation = videoPlayerSource.indexOf("const activateVideoSurface");
+    const touchTap = videoPlayerSource.indexOf("activateVideoSurface();");
+    const clickTap = videoPlayerSource.lastIndexOf("activateVideoSurface();");
+
+    expect(activation).toBeGreaterThan(-1);
+    expect(touchTap).toBeGreaterThan(activation);
+    expect(clickTap).toBeGreaterThan(touchTap);
   });
 });

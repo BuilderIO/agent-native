@@ -486,7 +486,7 @@ export default function Settings() {
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-3xl">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share calendars and booking links with your colleagues."

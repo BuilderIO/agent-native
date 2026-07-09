@@ -157,7 +157,14 @@ function PageSettingsSection({
         />
       </button>
       {open && (
-        <div className="border-t border-border/60 px-5 pb-5 pt-5 sm:px-6 sm:pb-6">
+        <div
+          // `data-agent-native-settings-page` lets the shared stylesheet nudge
+          // the smallest fixed type (authored dense for the compact sidebar) up
+          // to a comfortable, consistent size on the full settings page so every
+          // framework section body reads like the shadcn cards around it.
+          data-agent-native-settings-page=""
+          className="border-t border-border/60 px-5 pb-5 pt-5 sm:px-6 sm:pb-6"
+        >
           {children}
         </div>
       )}

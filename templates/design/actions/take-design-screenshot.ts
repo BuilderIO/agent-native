@@ -12,10 +12,9 @@
  * returns:
  *
  *   - `screenshots[]` — a PNG per viewport, persisted through the shared
- *     `uploadFile` provider (falls back to an inline base64 data URL when no
- *     upload provider is configured, matching `set-thumbnail`'s fallback
- *     pattern). The result carries a plain `url` per screenshot so a human can
- *     view it by opening the link, or the agent can embed it as
+ *     `uploadFile` provider. The result carries a plain `url` per screenshot
+ *     when storage is configured so a human can view it by opening the link,
+ *     or the agent can embed it as
  *     `![...](url)` in its own chat reply today. NOTE: tool results are
  *     currently text-only end-to-end — this action does not attach the PNG as
  *     a model-visible image content block. The moment the engine supports
@@ -97,8 +96,9 @@ export interface ScreenshotDiagnostics {
 export interface ScreenshotResult {
   viewport: ScreenshotViewport;
   url: string;
-  /** True when persisted via a durable upload provider; false for the inline data-URL fallback. */
+  /** True when persisted via a durable upload provider. */
   persisted: boolean;
+  uploadError?: string;
   bytes: number;
   diagnostics: ScreenshotDiagnostics;
 }
@@ -620,13 +620,16 @@ export default defineAction({
             ownerEmail,
           }).catch(() => null);
 
-          const url =
-            uploaded?.url ?? `data:image/png;base64,${png.toString("base64")}`;
-
           screenshots.push({
             viewport,
-            url,
+            url: uploaded?.url ?? "",
             persisted: !!uploaded,
+            ...(uploaded?.url
+              ? {}
+              : {
+                  uploadError:
+                    "Screenshot was rendered but not returned because file storage is not configured.",
+                }),
             bytes: png.byteLength,
             diagnostics: {
               viewport,

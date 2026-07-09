@@ -8,6 +8,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { extensionPath } from "@agent-native/core/client/extensions";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconFlask,
   IconTool,
@@ -64,8 +65,8 @@ interface ExtensionSearchItem {
 const defaultTools = [
   {
     id: "agents",
-    nameKey: "navigation.agents",
-    href: "/agents",
+    nameKey: "navigation.admin",
+    href: "/agents?view=dashboards",
     keywords: [
       "agent monitoring",
       "observability",
@@ -74,6 +75,8 @@ const defaultTools = [
       "feedback",
       "database",
       "db admin",
+      "dashboard usage",
+      "dashboard audit",
       "ab testing",
       "llm",
     ],
@@ -218,6 +221,7 @@ function persistThemePreference(theme: "light" | "dark") {
 
 export function CommandPalette() {
   const t = useT();
+  const { canManageOrg } = useOrgRole();
   const [open, setOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -428,20 +432,22 @@ export function CommandPalette() {
           </CommandGroup>
 
           <CommandGroup heading={t("commandPalette.groupTools")}>
-            {defaultTools.map((tool) => (
-              <CommandItem
-                key={`tool-${tool.id}`}
-                onSelect={() => go(tool.href)}
-                keywords={commandPaletteKeywords(
-                  t(tool.nameKey),
-                  "tool",
-                  ...tool.keywords,
-                )}
-              >
-                <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
-                {t(tool.nameKey)}
-              </CommandItem>
-            ))}
+            {defaultTools
+              .filter((tool) => tool.id !== "agents" || canManageOrg)
+              .map((tool) => (
+                <CommandItem
+                  key={`tool-${tool.id}`}
+                  onSelect={() => go(tool.href)}
+                  keywords={commandPaletteKeywords(
+                    t(tool.nameKey),
+                    "tool",
+                    ...tool.keywords,
+                  )}
+                >
+                  <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
+                  {t(tool.nameKey)}
+                </CommandItem>
+              ))}
           </CommandGroup>
 
           <CommandGroup heading={t("commandPalette.groupAppearance")}>

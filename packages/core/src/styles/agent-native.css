@@ -515,6 +515,33 @@
   --ring: 215 12% 60%;
 }
 
+/* Full settings page section bodies.
+   The framework's shared settings sections (LLM, App model defaults, Agent
+   limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting
+   cards, etc.) are authored dense for the compact agent sidebar. On the
+   full-width settings page they render inside polished shadcn-style cards
+   (PageSettingsSection), so bump the smallest fixed type up to a comfortable,
+   consistent reading size that matches the app-owned General/Team cards.
+   Scoped to `[data-agent-native-settings-page]` (only PageSettingsSection's
+   body) so app-owned tab content is never affected. The `.text-[…px]` classes
+   are Tailwind arbitrary values; the double-class specificity here wins. */
+[data-agent-native-settings-page] .text-\[10px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+[data-agent-native-settings-page] .text-\[11px\] {
+  font-size: 0.8125rem;
+  line-height: 1.15rem;
+}
+[data-agent-native-settings-page] .text-\[12px\] {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+[data-agent-native-settings-page] .text-\[13px\] {
+  font-size: 0.9375rem;
+  line-height: 1.4rem;
+}
+
 /* Composer toolbar: keep the model name + version readable on narrow
    chatfields. The bordered composer box is a size container; below 370px
    wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix

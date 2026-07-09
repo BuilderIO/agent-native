@@ -145,15 +145,6 @@ export function IssueList({
               className={cn("size-3.5", isFetching && "animate-spin")}
             />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onSendTestError}
-            disabled={sendingTest}
-          >
-            <IconBug className="size-3.5" />
-            {sendingTest ? t.sending : t.sendTestError}
-          </Button>
         </div>
       </div>
 

@@ -53,6 +53,7 @@ iframe / MCP App
 isAvailable · execute
 JWT
 libSQL / Turso
+Leave blank to use the workspace default, if configured.
 list-emails · get-thread · manage-draft · send
 list-events · check-availability · create-event
 Linear
@@ -94,6 +95,7 @@ session.orgId
 Shell & Hooks
 Signed app route
 Signed processor
+Slack webhook URL
 Slack · Granola · GitHub · Clips · webhooks
 Slack · Stripe · email
 Slack · Telegram
@@ -114,6 +116,7 @@ Tool-call journal
 UI
 Universal CLI
 useActionQuery/Mutation
+Webhook URL
 WWW-Authenticate
 X-Request-Source: TAB_ID
 Y.Doc

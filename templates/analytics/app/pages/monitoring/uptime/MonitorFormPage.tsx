@@ -71,6 +71,7 @@ const INTERVAL_OPTIONS = [
 
 const STATUS_CLASSES = ["2xx", "3xx", "4xx", "5xx"] as const;
 const KNOWN_CHANNELS = ["inbox", "email", "slack", "webhook"] as const;
+const DEFAULT_TIMEOUT_SECONDS = 10;
 const ASSERTION_TYPES: AssertionType[] = [
   "body_contains",
   "body_absent",
@@ -142,7 +143,9 @@ function defaultValues(monitor: MonitorSummary | null): MonitorFormValues {
     url: monitor?.url ?? "",
     method: monitor?.method ?? "GET",
     intervalSeconds: monitor?.intervalSeconds ?? 300,
-    timeoutSeconds: Math.round((monitor?.timeoutMs ?? 15000) / 1000),
+    timeoutSeconds: Math.round(
+      (monitor?.timeoutMs ?? DEFAULT_TIMEOUT_SECONDS * 1000) / 1000,
+    ),
     matcherMode: matcher.mode,
     classes: classFlags,
     codes: matcher.mode === "list" ? matcher.codes.join(", ") : "200",
@@ -215,7 +218,7 @@ function initialSections(monitor: MonitorSummary | null): SectionState {
       monitor.severity !== "critical",
     advanced:
       monitor.method !== "GET" ||
-      monitor.timeoutMs !== 15000 ||
+      monitor.timeoutMs !== DEFAULT_TIMEOUT_SECONDS * 1000 ||
       monitor.cooldownMinutes !== 15 ||
       !monitor.followRedirects ||
       !monitor.enabled,
@@ -336,7 +339,7 @@ export function MonitorFormPage({
   const advancedSummary = useMemo(() => {
     const parts = [
       values.method,
-      `${values.timeoutSeconds || 15}s`,
+      `${values.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS}s`,
       `${values.cooldownMinutes ?? 15}m`,
     ];
     if (!values.enabled) parts.push(t.pausedBadge);

@@ -91,7 +91,11 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
-import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
+import {
+  createEventDetailPopoverToken,
+  markPopoverInteractOutside,
+  setEventDetailPopoverOpen,
+} from "@/lib/popover-click-guard";
 import { shortcutModifierLabel } from "@/lib/utils";
 
 const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
@@ -431,6 +435,10 @@ export function EventDetailPopover({
   const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
   const isNewEventRef = useRef(defaultOpen);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const popoverTokenRef = useRef<symbol | null>(null);
+  if (!popoverTokenRef.current) {
+    popoverTokenRef.current = createEventDetailPopoverToken();
+  }
   const {
     eventDetailSidebar,
     setEventDetailSidebar,
@@ -1218,13 +1226,18 @@ export function EventDetailPopover({
     ],
   );
 
+  const popoverOpen =
+    eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
+
+  useEffect(() => {
+    const token = popoverTokenRef.current;
+    if (!token) return;
+    setEventDetailPopoverOpen(token, popoverOpen);
+    return () => setEventDetailPopoverOpen(token, false);
+  }, [popoverOpen]);
+
   return (
-    <Popover
-      open={
-        eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open
-      }
-      onOpenChange={handleOpenChange}
-    >
+    <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild onClick={handleTriggerClick}>
         {children}
       </PopoverTrigger>
@@ -1256,7 +1269,7 @@ export function EventDetailPopover({
             return;
           }
           // Mark that a popover was dismissed so the grid suppresses time-slot creation
-          markPopoverInteractOutside();
+          markPopoverInteractOutside(e.target);
         }}
       >
         <TooltipProvider>

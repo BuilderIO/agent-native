@@ -78,9 +78,6 @@ export default function AppsRoute() {
   const { data: apps = [], isLoading: appsLoading } = useActionQuery(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
-    {
-      refetchInterval: 2_000,
-    },
   );
   const { data: workspace } = useActionQuery(
     "get-workspace-info",

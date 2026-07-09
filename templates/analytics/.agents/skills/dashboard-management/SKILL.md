@@ -18,7 +18,9 @@ Current storage:
 | `dashboards`       | Explorer and SQL dashboard records           |
 | `dashboard_views`  | Saved filter presets per dashboard           |
 | `dashboard_shares` | Standard framework share grants              |
+| `dashboard_revisions` | Bounded dashboard history snapshots       |
 | `analyses`         | Saved ad-hoc analysis records                |
+| `analysis_revisions` | Bounded analysis history snapshots        |
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
@@ -28,6 +30,14 @@ user/org context, validates the resulting config, writes the SQL-backed record,
 syncs collab, and returns compact proof. Use `update-dashboard` for new
 full-config saves, UI full-config saves, or explicitly requested low-level
 JSON-pointer edits.
+
+Every meaningful dashboard save snapshots the previous state into
+`dashboard_revisions`. Use `list-dashboard-revisions` to inspect available undo
+points and `restore-dashboard-revision` to restore one; restore snapshots the
+current state first, then syncs open dashboard editors.
+
+Saved analyses follow the same undo model with `analysis_revisions`,
+`list-analysis-revisions`, and `restore-analysis-revision`.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL

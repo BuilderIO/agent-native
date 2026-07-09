@@ -350,81 +350,87 @@ function MembersCard() {
         )}
       </div>
 
-      <div className="border-t border-border pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          {t("org.members")}
-        </div>
-        {isLoadingMembers && members.length === 0 && (
-          <>
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between py-1.5 px-2"
-              >
-                <div className="flex items-center gap-2">
+      <div className="grid gap-5 border-t border-border pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+        <div className="min-w-0 space-y-4">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+              {t("org.members")}
+            </div>
+            {isLoadingMembers && members.length === 0 && (
+              <>
+                {[0, 1, 2].map((i) => (
                   <div
-                    className="h-3.5 rounded bg-muted animate-pulse"
-                    style={{ width: `${140 + i * 30}px` }}
-                  />
-                  <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+                    key={i}
+                    className="flex items-center justify-between py-1.5 px-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-3.5 rounded bg-muted animate-pulse"
+                        style={{ width: `${140 + i * 30}px` }}
+                      />
+                      <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            {members.map((m) => (
+              <MemberRow
+                key={m.email}
+                email={m.email}
+                role={m.role}
+                isCurrentUser={m.email === org.email}
+                currentUserRole={org.role ?? null}
+              />
+            ))}
+            {pendingInvites.map((inv) => (
+              <div
+                key={inv.id}
+                className="flex items-center justify-between gap-2 py-1.5 px-2 opacity-60"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm">{inv.email}</span>
+                  <RoleIcon role={inv.role} />
+                  <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    Invited{inv.role === "admin" ? " · admin" : ""}
+                  </span>
                 </div>
               </div>
             ))}
-          </>
-        )}
-        {members.map((m) => (
-          <MemberRow
-            key={m.email}
-            email={m.email}
-            role={m.role}
-            isCurrentUser={m.email === org.email}
-            currentUserRole={org.role ?? null}
-          />
-        ))}
-        {pendingInvites.map((inv) => (
-          <div
-            key={inv.id}
-            className="flex items-center justify-between py-1.5 px-2 opacity-60"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-sm">{inv.email}</span>
-              <RoleIcon role={inv.role} />
-              <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                Invited{inv.role === "admin" ? " · admin" : ""}
-              </span>
-            </div>
           </div>
-        ))}
-      </div>
 
-      {isOwnerOrAdmin && (
-        <div className="border-t border-border pt-3">
-          {!showInviteForm ? (
-            <button
-              type="button"
-              onClick={() => setShowInviteForm(true)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-            >
-              <IconUserPlus className="h-3.5 w-3.5" />
-              Invite members
-            </button>
-          ) : (
-            <BulkInviteForm
-              currentUserRole={org.role}
-              onClose={() => setShowInviteForm(false)}
-            />
+          {isOwnerOrAdmin && (
+            <div className="border-t border-border pt-3">
+              {!showInviteForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowInviteForm(true)}
+                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+                >
+                  <IconUserPlus className="h-3.5 w-3.5" />
+                  Invite members
+                </button>
+              ) : (
+                <BulkInviteForm
+                  currentUserRole={org.role}
+                  onClose={() => setShowInviteForm(false)}
+                />
+              )}
+            </div>
           )}
         </div>
-      )}
 
-      {isOwnerOrAdmin && (
-        <DomainSettingsSection
-          domain={org.allowedDomain}
-          ownerEmail={org.email}
-        />
-      )}
+        {isOwnerOrAdmin && (
+          <div className="min-w-0 space-y-3 border-t border-border pt-3 lg:border-s lg:border-t-0 lg:ps-5 lg:pt-0">
+            <DomainSettingsSection
+              domain={org.allowedDomain}
+              ownerEmail={org.email}
+            />
 
-      {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
+            {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
+          </div>
+        )}
+      </div>
 
       <ErrorText error={removeMember.error} />
       <ErrorText error={switchOrg.error} />
@@ -459,9 +465,9 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <div className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-accent/30">
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{email}</span>
+    <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-accent/30">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm">{email}</span>
         <RoleIcon role={role} />
         {isCurrentUser && (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -475,7 +481,7 @@ function MemberRow({
         )}
       </div>
       {canManage && (
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {editing ? (
             <select
               autoFocus
@@ -917,7 +923,7 @@ function DomainSettingsSection({
   }
 
   return (
-    <div className="border-t border-border pt-3 space-y-2">
+    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Email domain auto-join
       </div>
@@ -1078,7 +1084,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   const masked = secret ? "****" + secret.slice(-8) : "Not set";
 
   return (
-    <div className="border-t border-border pt-3 space-y-2">
+    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Cross-app authentication
       </div>
@@ -1273,7 +1279,7 @@ export function TeamPage({
   const { data: org, isLoading } = useOrg();
 
   const content = (
-    <div className={`space-y-6 max-w-2xl ${className ?? ""}`}>
+    <div className={`space-y-6 ${className ?? "max-w-2xl"}`}>
       {showTitle ? (
         <h2 className="text-2xl font-bold tracking-tight">
           {title ?? t("org.team")}

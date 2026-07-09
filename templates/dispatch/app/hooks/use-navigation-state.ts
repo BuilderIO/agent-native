@@ -216,7 +216,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

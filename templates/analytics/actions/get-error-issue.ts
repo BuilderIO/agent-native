@@ -15,7 +15,7 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "Get one captured error issue with its recent occurrences (parsed stack frames, breadcrumbs, tags/extra) and links to the session replays where the error happened. Use this to triage a specific issue and jump to the replay.",
+    "Get one captured error issue with its recent occurrence frequency, parsed/raw stack traces, source code snippets when available, breadcrumbs, tags/extra, and links to the session replays where the error happened. Use this to triage a specific issue and jump to the replay.",
   schema: z.object({
     id: z.string().describe("Error issue id (erriss_...)."),
     eventsLimit: z.coerce
