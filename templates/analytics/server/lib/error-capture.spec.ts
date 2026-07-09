@@ -36,6 +36,7 @@ import {
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
+  sourceContextFromText,
   titleFromException,
   type DerivedExceptionFields,
   type RawExceptionInput,
@@ -88,6 +89,32 @@ describe("parseStack", () => {
     expect(parseStack(null)).toEqual([]);
     expect(parseStack(undefined)).toEqual([]);
     expect(parseStack("")).toEqual([]);
+  });
+});
+
+describe("sourceContextFromText", () => {
+  it("returns bounded source lines with the crashing line highlighted", () => {
+    const context = sourceContextFromText(
+      [
+        "const a = 1;",
+        "const b = 2;",
+        "throw new Error('boom');",
+        "done();",
+      ].join("\n"),
+      3,
+      { before: 1, after: 1 },
+    );
+
+    expect(context).toEqual([
+      { line: 2, text: "const b = 2;", highlight: false },
+      { line: 3, text: "throw new Error('boom');", highlight: true },
+      { line: 4, text: "done();", highlight: false },
+    ]);
+  });
+
+  it("returns null when the requested line is outside the file", () => {
+    expect(sourceContextFromText("one\ntwo", 3)).toBeNull();
+    expect(sourceContextFromText("one\ntwo", 0)).toBeNull();
   });
 });
 
