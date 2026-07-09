@@ -5,14 +5,14 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { IMAGE_CATEGORIES } from "../shared/api.js";
-import type { ImageCategory } from "../shared/api.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
 import {
   hasAllowedSignature,
   IMAGE_MIME_TYPES,
   MAX_IMAGE_UPLOAD_BYTES,
 } from "../server/lib/upload-validation.js";
+import { IMAGE_CATEGORIES } from "../shared/api.js";
+import type { ImageCategory } from "../shared/api.js";
 import { serializeAsset } from "./_helpers.js";
 
 const IMPORTABLE_REFERENCE_ROLES = [
