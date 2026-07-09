@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/data-programs", () => ({
   runDataProgram: mocks.runDataProgram,
+  registerDataProgramsShareable: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
