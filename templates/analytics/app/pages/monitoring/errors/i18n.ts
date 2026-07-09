@@ -68,6 +68,7 @@ const MESSAGES = {
     occurrenceTime: "Occurred",
     stackTrace: "Stack trace",
     stackFrameCount: "{count} frames",
+    sourceContext: "Code snippet",
     rawStack: "Raw stack",
     noStack: "No stack trace was captured for this error.",
     inApp: "In app",
