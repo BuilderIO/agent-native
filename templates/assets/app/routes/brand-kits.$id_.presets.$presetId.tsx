@@ -490,6 +490,12 @@ export default function GenerationPresetEditorRoute() {
   );
   const presets = Array.isArray(presetData?.presets) ? presetData.presets : [];
   const preset = presets.find((item: any) => item.id === presetId);
+  // Saved entry ids are durable keys referenced by presetReferenceFills and
+  // past runs' boardAssignments; renaming a label must never change them.
+  const persistedReferenceIds = useMemo(
+    () => new Set(presetReferencesFromPreset(preset).map((entry) => entry.id)),
+    [preset],
+  );
   const loading = libraryLoading || presetsLoading;
   const accessRole = library?.accessRole;
   const readOnly = Boolean(accessRole && !isEditableRole(accessRole));
@@ -771,7 +777,7 @@ export default function GenerationPresetEditorRoute() {
       const entries = current.presetReferences.map((entry, entryIndex) => {
         if (entryIndex !== index) return entry;
         const next = { ...entry, ...patch };
-        if (patch.label !== undefined) {
+        if (patch.label !== undefined && !persistedReferenceIds.has(entry.id)) {
           next.id = kebabIdFromLabel(
             patch.label,
             current.presetReferences
