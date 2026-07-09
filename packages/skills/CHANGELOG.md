@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.276
+
+### Patch Changes
+
+- Updated dependencies [eed1710]
+  - @agent-native/core@0.92.5
+
 ## 0.2.275
 
 ### Patch Changes
