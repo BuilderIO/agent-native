@@ -23,6 +23,7 @@ import {
   IconGauge,
   IconUserCircle,
   IconApps,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -48,6 +49,7 @@ import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import { TeamPage } from "../org/TeamPage.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
@@ -3201,6 +3203,17 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
             showCapabilityStrip={false}
             className="mx-auto w-full max-w-2xl"
           />
+        ),
+      },
+      {
+        id: "organization",
+        label: "Organization",
+        icon: IconUsersGroup,
+        keywords: "organization org team members invites collaborators",
+        content: (
+          <div className="mx-auto w-full max-w-2xl">
+            <TeamPage showTitle={false} />
+          </div>
         ),
       },
       {
