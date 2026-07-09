@@ -18,6 +18,7 @@ import type {
   CreateDatabaseRequest,
   DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
+  DocumentPropertiesResponse,
   ExecuteBuilderSourceBatchRequest,
   ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
@@ -129,6 +130,57 @@ export function applyDocumentPropertyValueToDatabaseResponse(
   });
 
   return changed ? { ...current, items } : current;
+}
+
+export function applyDocumentPropertiesToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  response: Pick<DocumentPropertiesResponse, "databaseId" | "properties">,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (response.databaseId && current.database.id !== response.databaseId) {
+    return current;
+  }
+
+  const sortedProperties = [...response.properties].sort(
+    (a, b) => a.definition.position - b.definition.position,
+  );
+  const propertyById = new Map(
+    sortedProperties.map((property) => [property.definition.id, property]),
+  );
+
+  return {
+    ...current,
+    properties: sortedProperties,
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties
+        .filter((property) => propertyById.has(property.definition.id))
+        .map((property) => ({
+          ...propertyById.get(property.definition.id)!,
+          value: property.value,
+        })),
+    })),
+  };
+}
+
+export function removeDocumentPropertyFromDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  propertyId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+
+  return {
+    ...current,
+    properties: current.properties.filter(
+      (property) => property.definition.id !== propertyId,
+    ),
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties.filter(
+        (property) => property.definition.id !== propertyId,
+      ),
+    })),
+  };
 }
 
 // `get-content-database` returns a union at runtime: the full response, or an
