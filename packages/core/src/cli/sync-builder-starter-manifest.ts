@@ -25,6 +25,20 @@ export const STARTER_TOOLCHAIN_SYNC_PATHS = [
   "netlify.toml",
 ] as const;
 
+const STANDALONE_SNAPSHOT_EXCLUDED_TOP_LEVEL = new Set([
+  ".deploy-tmp",
+  ".env",
+  ".env.local",
+  ".generated",
+  ".netlify",
+  ".output",
+  ".react-router",
+  "build",
+  "data",
+  "dist",
+  "node_modules",
+]);
+
 export type StarterToolchainSyncPath =
   (typeof STARTER_TOOLCHAIN_SYNC_PATHS)[number];
 
@@ -89,7 +103,11 @@ export function createStandaloneChatSnapshot(
     path.join(os.tmpdir(), "an-builder-starter-sync-"),
   );
 
-  fs.cpSync(chatTemplateDir, tempDir, { recursive: true });
+  fs.cpSync(chatTemplateDir, tempDir, {
+    recursive: true,
+    filter: (source) =>
+      shouldCopyStandaloneSnapshotPath(source, chatTemplateDir),
+  });
   _postProcessStandalone(STARTER_APP_NAME, tempDir, CHAT_TEMPLATE);
 
   const packageJson = JSON.parse(
@@ -110,6 +128,16 @@ export function createStandaloneChatSnapshot(
     pnpmWorkspaceYaml,
     toolchainFiles: collectStarterToolchainFiles(tempDir),
   };
+}
+
+function shouldCopyStandaloneSnapshotPath(
+  source: string,
+  root: string,
+): boolean {
+  const relative = path.relative(root, source);
+  if (!relative) return true;
+  const topLevel = relative.split(path.sep)[0];
+  return !STANDALONE_SNAPSHOT_EXCLUDED_TOP_LEVEL.has(topLevel);
 }
 
 export function generateStandaloneChatManifest(repoRoot?: string): {

@@ -1,4 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const createSsrfSafeDispatcher = vi.fn();
+const isBlockedExtensionUrlWithDns = vi.fn();
+
+vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/extensions/url-safety")
+    >();
+  return {
+    ...actual,
+    createSsrfSafeDispatcher: (...args: unknown[]) =>
+      createSsrfSafeDispatcher(...args),
+    isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
+      isBlockedExtensionUrlWithDns(...args),
+  };
+});
 
 import {
   evaluateAssertions,
@@ -7,9 +24,25 @@ import {
   normalizeAssertions,
   normalizeStatusMatcher,
   runMonitorCheck,
+  shouldOpenMonitorIncident,
   type Assertion,
+  type CheckOutcome,
   type StatusMatcher,
 } from "./uptime-monitors";
+
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  createSsrfSafeDispatcher.mockReset();
+  isBlockedExtensionUrlWithDns.mockReset();
+  createSsrfSafeDispatcher.mockResolvedValue(null);
+  isBlockedExtensionUrlWithDns.mockResolvedValue(false);
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
 
 describe("matchesStatus", () => {
   it("matches by status class", () => {
@@ -286,5 +319,176 @@ describe("runMonitorCheck SSRF guard", () => {
       { allowPrivateHosts: false },
     );
     expect(outcome.status).toBe("error");
+  });
+});
+
+describe("runMonitorCheck response body reads", () => {
+  const base = {
+    url: "https://example.com/health",
+    method: "GET" as const,
+    requestHeaders: {},
+    requestBody: null,
+    timeoutMs: 5000,
+    expectedStatus: { mode: "class", classes: ["2xx"] } as StatusMatcher,
+    assertions: [] as Assertion[],
+    followRedirects: true,
+  };
+
+  it("skips response body reads when no body assertion needs them", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            throw new Error("body should not be read");
+          },
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(base, { allowPrivateHosts: true });
+
+    expect(outcome.status).toBe("up");
+    expect(outcome.ok).toBe(true);
+    expect(outcome.statusCode).toBe(200);
+  });
+
+  it("reads response bodies when body assertions are configured", async () => {
+    const encoder = new TextEncoder();
+    globalThis.fetch = vi.fn(async () => {
+      let done = false;
+      return {
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              async read() {
+                if (done) return { done: true, value: undefined };
+                done = true;
+                return {
+                  done: false,
+                  value: encoder.encode("maintenance"),
+                };
+              },
+              async cancel() {},
+            };
+          },
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      {
+        ...base,
+        assertions: [{ type: "body_contains", value: "ok" }],
+      },
+      { allowPrivateHosts: true },
+    );
+
+    expect(outcome.status).toBe("down");
+    expect(outcome.error).toContain("Body is missing expected text");
+  });
+});
+
+describe("runMonitorCheck timeout budget", () => {
+  // MIN_TIMEOUT_MS is 1000 — keep tests at/above that floor.
+  const base = {
+    url: "https://example.com/health",
+    method: "GET" as const,
+    requestHeaders: {},
+    requestBody: null,
+    timeoutMs: 1000,
+    expectedStatus: { mode: "class", classes: ["2xx"] } as StatusMatcher,
+    assertions: [] as Assertion[],
+    followRedirects: false,
+  };
+
+  it("does not bill SSRF dispatcher/DNS setup against the request timeout", async () => {
+    createSsrfSafeDispatcher.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return null;
+    });
+    isBlockedExtensionUrlWithDns.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return false;
+    });
+
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 200,
+        headers: new Headers(),
+        body: null,
+        async text() {
+          return "ok";
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(base, { allowPrivateHosts: false });
+
+    expect(outcome.status).toBe("up");
+    expect(outcome.ok).toBe(true);
+    expect(outcome.statusCode).toBe(200);
+    expect(outcome.error).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reports a real fetch timeout after headers never arrive", async () => {
+    globalThis.fetch = vi.fn((_url, init) => {
+      return new Promise((_resolve, reject) => {
+        const signal = (init as RequestInit | undefined)?.signal;
+        if (!signal) return;
+        if (signal.aborted) {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+          return;
+        }
+        signal.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(base, { allowPrivateHosts: true });
+
+    expect(outcome.status).toBe("down");
+    expect(outcome.ok).toBe(false);
+    expect(outcome.statusCode).toBeNull();
+    expect(outcome.error).toBe("Timed out after 1000ms");
+    expect(outcome.latencyMs).toBe(1000);
+  });
+});
+
+describe("shouldOpenMonitorIncident", () => {
+  const timeoutOutcome: CheckOutcome = {
+    checkedAt: "2026-07-08T00:00:00.000Z",
+    status: "down",
+    ok: false,
+    statusCode: null,
+    latencyMs: null,
+    error: "Timed out after 10000ms",
+    failedAssertions: ["Timed out after 10000ms"],
+  };
+
+  it("requires confirmation for transient no-response failures", () => {
+    expect(shouldOpenMonitorIncident(timeoutOutcome, 0, 2)).toBe(false);
+    expect(shouldOpenMonitorIncident(timeoutOutcome, 1, 2)).toBe(true);
+  });
+
+  it("opens immediately for HTTP failures that returned a response", () => {
+    expect(
+      shouldOpenMonitorIncident(
+        {
+          ...timeoutOutcome,
+          statusCode: 503,
+          latencyMs: 120,
+          error: "Unexpected status 503",
+          failedAssertions: ["Unexpected status 503"],
+        },
+        0,
+        2,
+      ),
+    ).toBe(true);
   });
 });
