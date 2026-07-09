@@ -161,7 +161,6 @@ export function IssueDetail({
 
       {issue ? <OverviewGrid issue={issue} latest={latest} /> : null}
       {issue ? <FrequencyCard issue={issue} /> : null}
-      {latest ? <LatestOccurrenceCard event={latest} /> : null}
 
       {isLoading && !latest ? (
         <Card>
@@ -173,6 +172,7 @@ export function IssueDetail({
       ) : (
         <>
           <StackTraceCard event={latest} />
+          {latest ? <LatestOccurrenceCard event={latest} /> : null}
           <BreadcrumbsCard event={latest} />
           <OccurrencesCard events={events} />
         </>
@@ -301,6 +301,7 @@ function FrequencyCard({ issue }: { issue: ErrorIssueSummary }) {
   const max = Math.max(1, ...values);
   const total = values.reduce((sum, value) => sum + value, 0);
   const dayLabels = buildFrequencyDayLabels(values.length);
+  const barClass = frequencyBarClass(issue.level);
 
   return (
     <Card>
@@ -339,9 +340,7 @@ function FrequencyCard({ issue }: { issue: ErrorIssueSummary }) {
                 <div
                   className={cn(
                     "w-full rounded-t-sm transition-colors",
-                    count > 0
-                      ? "bg-primary/75 hover:bg-primary"
-                      : "bg-muted-foreground/15",
+                    count > 0 ? barClass : "bg-muted-foreground/15",
                   )}
                   style={{ height: `${height}%` }}
                 />
@@ -358,6 +357,22 @@ function FrequencyCard({ issue }: { issue: ErrorIssueSummary }) {
       </CardContent>
     </Card>
   );
+}
+
+function frequencyBarClass(level: ErrorIssueSummary["level"]): string {
+  switch (level) {
+    case "fatal":
+      return "bg-red-500/85 shadow-[0_0_14px_rgba(239,68,68,0.24)] hover:bg-red-400";
+    case "error":
+      return "bg-rose-500/85 shadow-[0_0_14px_rgba(244,63,94,0.22)] hover:bg-rose-400";
+    case "warning":
+      return "bg-amber-400/85 shadow-[0_0_14px_rgba(251,191,36,0.22)] hover:bg-amber-300";
+    case "info":
+      return "bg-sky-400/85 shadow-[0_0_14px_rgba(56,189,248,0.2)] hover:bg-sky-300";
+    case "debug":
+    default:
+      return "bg-violet-400/75 shadow-[0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-300";
+  }
 }
 
 function buildFrequencyDayLabels(days: number): Array<{
@@ -522,13 +537,174 @@ function SourceContextBlock({
               {line.line}
             </span>
             <code className="whitespace-pre px-3 py-0.5">
-              {line.text || " "}
+              <HighlightedSourceLine text={line.text || " "} />
             </code>
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+type SourceTokenKind =
+  | "keyword"
+  | "string"
+  | "number"
+  | "comment"
+  | "literal"
+  | "function"
+  | "operator"
+  | "plain";
+
+const JS_KEYWORDS = new Set([
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "do",
+  "else",
+  "export",
+  "extends",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "if",
+  "import",
+  "in",
+  "interface",
+  "let",
+  "new",
+  "of",
+  "return",
+  "switch",
+  "throw",
+  "try",
+  "type",
+  "typeof",
+  "var",
+  "while",
+]);
+
+const JS_LITERALS = new Set(["false", "null", "true", "undefined"]);
+
+function HighlightedSourceLine({ text }: { text: string }) {
+  return (
+    <>
+      {tokenizeSourceLine(text).map((token, index) => (
+        <span
+          key={`${index}-${token.text}`}
+          className={sourceTokenClass(token.kind)}
+        >
+          {token.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function tokenizeSourceLine(
+  text: string,
+): Array<{ text: string; kind: SourceTokenKind }> {
+  const tokens: Array<{ text: string; kind: SourceTokenKind }> = [];
+  let index = 0;
+
+  const push = (value: string, kind: SourceTokenKind) => {
+    if (value) tokens.push({ text: value, kind });
+  };
+
+  while (index < text.length) {
+    const rest = text.slice(index);
+
+    if (rest.startsWith("//")) {
+      push(rest, "comment");
+      break;
+    }
+
+    const quote = text[index];
+    if (quote === '"' || quote === "'" || quote === "`") {
+      let end = index + 1;
+      let escaped = false;
+      while (end < text.length) {
+        const char = text[end];
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      push(text.slice(index, end), "string");
+      index = end;
+      continue;
+    }
+
+    const number = rest.match(/^\b\d+(?:\.\d+)?\b/);
+    if (number) {
+      push(number[0], "number");
+      index += number[0].length;
+      continue;
+    }
+
+    const word = rest.match(/^[A-Za-z_$][\w$]*/);
+    if (word) {
+      const value = word[0];
+      const after = text.slice(index + value.length);
+      const kind: SourceTokenKind = JS_KEYWORDS.has(value)
+        ? "keyword"
+        : JS_LITERALS.has(value)
+          ? "literal"
+          : /^\s*\(/.test(after)
+            ? "function"
+            : "plain";
+      push(value, kind);
+      index += value.length;
+      continue;
+    }
+
+    const operator = rest.match(/^[{}()[\].,;:?=+\-*/!<>|&%]+/);
+    if (operator) {
+      push(operator[0], "operator");
+      index += operator[0].length;
+      continue;
+    }
+
+    push(text[index], "plain");
+    index += 1;
+  }
+
+  return tokens.length ? tokens : [{ text: " ", kind: "plain" }];
+}
+
+function sourceTokenClass(kind: SourceTokenKind): string {
+  switch (kind) {
+    case "keyword":
+      return "text-fuchsia-300";
+    case "string":
+      return "text-emerald-300";
+    case "number":
+      return "text-amber-300";
+    case "comment":
+      return "text-muted-foreground/65 italic";
+    case "literal":
+      return "text-orange-300";
+    case "function":
+      return "text-sky-300";
+    case "operator":
+      return "text-muted-foreground";
+    case "plain":
+    default:
+      return "";
+  }
 }
 
 function stackFrameLocation(frame: ParsedStackFrame): string {

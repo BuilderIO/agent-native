@@ -44,12 +44,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { TeamPage } from "../org/TeamPage.js";
 import { callAction } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
-import { TeamPage } from "../org/TeamPage.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
