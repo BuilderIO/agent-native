@@ -74,7 +74,7 @@ function dashboardPanelCount(row: {
 
 export function dashboardIdFromPath(path: string | null): string | null {
   const pathname = path ?? "";
-  const match = pathname.match(/^\/(?:dashboards|adhoc)\/([^/?#]+)/);
+  const match = pathname.match(/(?:^|\/)(?:dashboards|adhoc)\/([^/?#]+)/);
   if (!match) return null;
   if (match[1] === "explorer-dashboard") {
     return null;
@@ -97,8 +97,7 @@ export function dashboardIdFromEventLocation(
   try {
     const parsed = new URL(raw, "https://analytics.local");
     if (
-      parsed.pathname === "/dashboards/explorer-dashboard" ||
-      parsed.pathname === "/adhoc/explorer-dashboard"
+      /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard$/.test(parsed.pathname)
     ) {
       const id = parsed.searchParams.get("id");
       return id && id.trim() ? id : null;
@@ -107,7 +106,7 @@ export function dashboardIdFromEventLocation(
     // Fall through to regex below for malformed relative strings.
   }
   const match = raw.match(
-    /^\/(?:dashboards|adhoc)\/explorer-dashboard(?:\?[^#]*)?\bid=([^&#]+)/,
+    /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard(?:\?[^#]*)?[?&]id=([^&#]+)/,
   );
   if (!match) return null;
   try {
@@ -196,8 +195,10 @@ export default defineAction({
         and(
           eq(schema.analyticsEvents.orgId, admin.orgId),
           or(
-            like(schema.analyticsEvents.path, "/dashboards/%"),
-            like(schema.analyticsEvents.path, "/adhoc/%"),
+            like(schema.analyticsEvents.path, "%/dashboards/%"),
+            like(schema.analyticsEvents.path, "%/adhoc/%"),
+            like(schema.analyticsEvents.url, "%/dashboards/%"),
+            like(schema.analyticsEvents.url, "%/adhoc/%"),
           ),
         ),
       )

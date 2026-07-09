@@ -807,11 +807,23 @@ async function getCombinedChangesSinceForUser(
   if (!useDurableEvents) return memory;
 
   const durable = await getDurableChangesSinceForUser(since, userEmail, orgId);
-  const byVersion = new Map<number, ChangeEvent>();
+  const byIdentity = new Map<string, ChangeEvent>();
   for (const event of [...durable.events, ...memory.events]) {
-    byVersion.set(event.version, event);
+    byIdentity.set(
+      JSON.stringify([
+        event.version,
+        event.source,
+        event.type,
+        event.key,
+        event.owner,
+        event.orgId,
+        event.resourceType,
+        event.resourceId,
+      ]),
+      event,
+    );
   }
-  const events = Array.from(byVersion.values()).sort(
+  const events = Array.from(byIdentity.values()).sort(
     (a, b) => a.version - b.version,
   );
   const limitedVersions = [memory, durable]

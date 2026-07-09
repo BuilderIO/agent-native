@@ -21,6 +21,7 @@ import {
 import { agentNativePath } from "../api-path.js";
 import {
   deleteClientAppState,
+  readClientAppState,
   setClientAppState,
 } from "../application-state.js";
 
@@ -34,6 +35,7 @@ const NAVIGATE_PATH = agentNativePath(
 const POLL_INTERVAL_MS = 1500;
 const TABLE_CONTEXT_KEY = "database-selected-table";
 const SELECTED_OBJECT_STATE_KEY = "selected-object";
+const SELECTED_OBJECT_SOURCE_FIELD = "__agentNativeSelectedObjectSource";
 
 let cachedSource: string | null = null;
 
@@ -63,6 +65,23 @@ function headers(extra?: Record<string, string>): Record<string, string> {
   const source = requestSource();
   if (source) h["X-Request-Source"] = source;
   return h;
+}
+
+async function deleteSelectedObjectIfOwned(source: string | undefined) {
+  if (!source) return;
+  try {
+    const current = await readClientAppState<Record<string, unknown>>(
+      SELECTED_OBJECT_STATE_KEY,
+    );
+    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== source) return;
+    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
+      keepalive: true,
+      requestSource: source,
+    });
+  } catch {
+    // Best effort only; stale selected-object context is less harmful than
+    // clearing a selection owned by another tab.
+  }
 }
 
 export interface DbAdminNavigationState {
@@ -101,19 +120,22 @@ export function useDbAdminAgentSync({
 
   useEffect(() => {
     if (!enabled) return;
+    const source = requestSource();
     if (!table) {
       removeAgentChatContextItem({
         key: TABLE_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
-        keepalive: true,
-        requestSource: requestSource(),
-      }).catch(() => {});
+      deleteSelectedObjectIfOwned(source);
       return;
     }
 
-    const selection = { type: "database-table", table, mode };
+    const selection = {
+      type: "database-table",
+      table,
+      mode,
+      [SELECTED_OBJECT_SOURCE_FIELD]: source,
+    };
     setAgentChatContextItem({
       key: TABLE_CONTEXT_KEY,
       title: `Table: ${table}`,
@@ -127,7 +149,7 @@ export function useDbAdminAgentSync({
     });
     setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
       keepalive: true,
-      requestSource: requestSource(),
+      requestSource: source,
     }).catch(() => {});
 
     return () => {
@@ -135,10 +157,7 @@ export function useDbAdminAgentSync({
         key: TABLE_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
-        keepalive: true,
-        requestSource: requestSource(),
-      }).catch(() => {});
+      deleteSelectedObjectIfOwned(source);
     };
   }, [enabled, table, mode]);
 }

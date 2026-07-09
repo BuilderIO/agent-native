@@ -1,6 +1,5 @@
 import { CodeSurface } from "@agent-native/core/blocks";
 import {
-  agentNativePath,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -80,13 +79,7 @@ type SessionRecordingIdentity = Pick<
 
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
-type DemoStatus = {
-  enabled?: boolean;
-  forced?: boolean;
-};
-
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
-const DEMO_STATUS_URL = agentNativePath("/_agent-native/demo/status");
 
 export default function SessionsPage() {
   const t = useT();
@@ -111,7 +104,6 @@ export default function SessionsPage() {
     { staleTime: 30_000 },
   );
 
-  const demoModeEnabled = useDemoModeEnabled();
   const recordings = data ?? [];
 
   function updateFilter(key: string, value: string) {
@@ -256,7 +248,7 @@ export default function SessionsPage() {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-foreground">
-                          {visitorLabel(recording, t, demoModeEnabled)}
+                          {visitorLabel(recording, t)}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {formatDateTime(lastSeen)} ·{" "}
@@ -310,22 +302,6 @@ export default function SessionsPage() {
       </Card>
     </div>
   );
-}
-
-function useDemoModeEnabled(): boolean {
-  const { data } = useQuery({
-    queryKey: ["agent-native", "demo-mode"],
-    queryFn: async () => {
-      const res = await fetch(DEMO_STATUS_URL, {
-        credentials: "same-origin",
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as DemoStatus | null;
-    },
-    refetchInterval: 4_000,
-    staleTime: 2_000,
-  });
-  return data?.enabled === true || data?.forced === true;
 }
 
 function EmptySessionsState() {
@@ -500,9 +476,7 @@ function rangeLabel(value: ReplayRange, t: ReturnType<typeof useT>): string {
 function visitorLabel(
   recording: SessionRecordingIdentity,
   t: ReturnType<typeof useT>,
-  demoModeEnabled: boolean,
 ): string {
-  if (demoModeEnabled) return demoVisitorLabel(recording);
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
   return (
@@ -511,29 +485,6 @@ function visitorLabel(
     recording.anonymousId ||
     t("sessions.anonymous")
   );
-}
-
-export function demoVisitorLabel(recording: SessionRecordingIdentity): string {
-  const source =
-    emailLike(recording.userId) ||
-    emailLike(recording.userKey) ||
-    recording.userId ||
-    recording.userKey ||
-    recording.anonymousId ||
-    recording.sessionId ||
-    recording.id;
-  const hash = stableHash(source);
-  const first = DEMO_FIRST_NAMES[hash % DEMO_FIRST_NAMES.length];
-  const last =
-    DEMO_LAST_NAMES[
-      Math.floor(hash / DEMO_FIRST_NAMES.length) % DEMO_LAST_NAMES.length
-    ];
-  const domain =
-    DEMO_DOMAINS[
-      Math.floor(hash / (DEMO_FIRST_NAMES.length * DEMO_LAST_NAMES.length)) %
-        DEMO_DOMAINS.length
-    ];
-  return `${first}.${last}@${domain}`.toLowerCase();
 }
 
 function emailLike(value: string | null): string | null {
@@ -672,53 +623,6 @@ function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
   }
   return t("sessions.pageCountCompact", { count: formatNumber(count) });
 }
-
-function stableHash(value: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-const DEMO_FIRST_NAMES = [
-  "Avery",
-  "Blake",
-  "Cameron",
-  "Devon",
-  "Emerson",
-  "Finley",
-  "Harper",
-  "Jordan",
-  "Morgan",
-  "Quinn",
-  "Riley",
-  "Taylor",
-];
-
-const DEMO_LAST_NAMES = [
-  "Bennett",
-  "Carter",
-  "Ellis",
-  "Hayes",
-  "Keller",
-  "Monroe",
-  "Parker",
-  "Reed",
-  "Sullivan",
-  "Walker",
-  "Young",
-  "Zimmer",
-];
-
-const DEMO_DOMAINS = [
-  "acme.test",
-  "northstar.test",
-  "orbit.test",
-  "riverbank.test",
-  "summit.test",
-];
 
 const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client";

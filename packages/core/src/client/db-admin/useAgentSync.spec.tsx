@@ -11,6 +11,7 @@ const chatMocks = vi.hoisted(() => ({
 
 const appStateMocks = vi.hoisted(() => ({
   deleteClientAppState: vi.fn(async () => {}),
+  readClientAppState: vi.fn(async () => null),
   setClientAppState: vi.fn(async () => {}),
 }));
 
@@ -59,5 +60,21 @@ describe("useDbAdminAgentSync", () => {
     expect(chatMocks.removeAgentChatContextItem).not.toHaveBeenCalled();
     expect(appStateMocks.deleteClientAppState).not.toHaveBeenCalled();
     expect(appStateMocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("only deletes selected-object state when this tab owns it", async () => {
+    appStateMocks.readClientAppState.mockResolvedValueOnce({
+      type: "dashboard",
+      __agentNativeSelectedObjectSource: "other-tab",
+    });
+
+    await act(async () => {
+      root.render(<Harness enabled table={null} />);
+    });
+
+    expect(appStateMocks.readClientAppState).toHaveBeenCalledWith(
+      "selected-object",
+    );
+    expect(appStateMocks.deleteClientAppState).not.toHaveBeenCalled();
   });
 });

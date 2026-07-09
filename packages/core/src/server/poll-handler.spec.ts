@@ -227,6 +227,72 @@ describe("poll handler", () => {
     expect(result).toEqual({ version: 1_999, events: [] });
   });
 
+  it("preserves distinct durable events that share the same version", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const firstEvent = {
+      version: 2_000,
+      source: "settings",
+      type: "change",
+      key: "theme",
+    };
+    const secondEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "update-dashboard",
+      owner: "test@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              { version: 2_000, event_json: JSON.stringify(firstEvent) },
+              { version: 2_000, event_json: JSON.stringify(secondEvent) },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(2_000);
+    expect(result.events).toEqual([
+      expect.objectContaining(firstEvent),
+      expect.objectContaining(secondEvent),
+    ]);
+  });
+
   it("emits screen-refresh events when the refresh marker changes", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
