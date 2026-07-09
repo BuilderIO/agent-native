@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.92.6
+
+### Patch Changes
+
+- 5f187db: Highlight run-code source snippets in chat and keep raw tool output popovers within the available viewport.
+- 5f187db: Fix duplicate in-progress chat output during reconnect handoff so streaming text and tool calls render once while the live assistant message catches up. Also stop a reconnect tool spinner from rendering a second card beside its live pending tool card when their reader-local and server-scoped ids don't match, in every reconnect/handoff window.
+- 5f187db: Focus the settings search field automatically when desktop users open settings.
+- 5f187db: Improve organization settings so invites stay above the fold and members appear in a separate table card.
+- 6a29ba0: `ssrfSafeFetch` hardening: a new `httpsOnly` option validates the URL scheme on the initial request and on every redirect hop, so HTTPS-only callers cannot be downgraded to plain HTTP by a redirect from the untrusted origin. Followed redirect responses now also have their bodies cancelled so each hop's connection is released immediately instead of being held until GC.
+- 5f187db: Remove the divider between settings tabs and their tab content.
+- 5f187db: Preserve dashboard, chart, and label names in demo mode while continuing to anonymize free-text/contact names, emails, and numbers.
+- c32c174: add preset-driven-flow to asset template docs
+
 ## 0.92.5
 
 ### Patch Changes
