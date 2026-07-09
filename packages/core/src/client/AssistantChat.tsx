@@ -366,6 +366,44 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
   );
 }
 
+export function settleInterruptedAssistantToolCallsInRepo<
+  T extends { messages?: unknown[] },
+>(repo: T): { repo: T; changed: boolean } {
+  if (!Array.isArray(repo.messages)) return { repo, changed: false };
+  let changed = false;
+  const nextMessages = repo.messages.map((entry) => {
+    const wrapper =
+      entry && typeof entry === "object" && "message" in entry
+        ? (entry as { message?: unknown })
+        : null;
+    const message = (wrapper?.message ?? entry) as
+      | { role?: unknown; content?: unknown; status?: unknown }
+      | null
+      | undefined;
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      return entry;
+    }
+    const content = cloneContentParts(message.content as ContentPart[]);
+    if (
+      !settleInterruptedToolCalls(content, undefined, { includeActivity: true })
+    ) {
+      return entry;
+    }
+    changed = true;
+    const nextMessage = {
+      ...message,
+      content,
+      status: { type: "incomplete", reason: "error" },
+    };
+    return wrapper
+      ? { ...(entry as Record<string, unknown>), message: nextMessage }
+      : nextMessage;
+  });
+  return changed
+    ? { repo: { ...repo, messages: nextMessages }, changed }
+    : { repo, changed };
+}
+
 function clearPendingSelection() {
   fetch(
     agentNativePath(

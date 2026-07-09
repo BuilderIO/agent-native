@@ -63,6 +63,37 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("rebuilds streamed thinking as persisted reasoning parts", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "thinking", text: "First, " } },
+      { seq: 1, event: { type: "thinking", text: "inspect state." } },
+      { seq: 2, event: { type: "text", text: "Done." } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-thinking");
+
+    expect(message?.content).toEqual([
+      { type: "reasoning", text: "First, inspect state." },
+      { type: "text", text: "Done." },
+    ]);
+  });
+
+  it("clears rejected draft reasoning on retry", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "thinking", text: "bad reasoning" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "thinking", text: "correct reasoning" } },
+      { seq: 3, event: { type: "text", text: "Corrected answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-clear-thinking");
+
+    expect(message?.content).toEqual([
+      { type: "reasoning", text: "correct reasoning" },
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
   it("persists partial output from internal continuation boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
@@ -1099,6 +1130,14 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
         metadata: { role: "assistant" },
       },
       {
+        id: "evt-thinking",
+        runId: "run-code",
+        kind: "status",
+        message: "I should run the focused test.",
+        createdAt: "2026-05-17T12:00:01.500Z",
+        metadata: { type: "thinking" },
+      },
+      {
         id: "evt-tool-start",
         runId: "run-code",
         kind: "status",
@@ -1122,6 +1161,7 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
     expect(repo.messages[1]?.message.role).toBe("assistant");
     expect(repo.messages[1]?.message.content).toEqual([
       { type: "text", text: "I found the issue." },
+      { type: "reasoning", text: "I should run the focused test." },
       {
         type: "tool-call",
         toolCallId: "code-tool-evt-tool-start",
