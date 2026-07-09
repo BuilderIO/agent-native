@@ -618,6 +618,7 @@ export interface ContentDatabaseSource {
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;
+    lastReadSuspiciousEmpty?: boolean;
     sourceFetchState?: "idle" | "fetching" | "error";
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
