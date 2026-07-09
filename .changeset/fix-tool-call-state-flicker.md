@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Prevent stale chat thread snapshots from regressing in-flight tool call display state.
+Prevent in-flight tool call cards from flickering between newer and older states during reconnect, thread import, and retry clears.

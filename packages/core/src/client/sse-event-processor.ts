@@ -1433,7 +1433,14 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      content.splice(index, 1);
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
+      const isEphemeral =
+        part.activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
     }
   }
 }

@@ -275,7 +275,13 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      content.splice(index, 1);
+      // Keep materialized in-flight tool cards across retry clears so persisted
+      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      const isEphemeral =
+        part.activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
     }
   }
 }

@@ -327,7 +327,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([activityPlaceholder, completedRepeat]);
   });
 
-  it("drops reconnect completions when the rendered tool call is still pending", () => {
+  it("keeps reconnect completions when the rendered tool call is still pending", () => {
     const persistedMessages = [
       {
         role: "assistant",
@@ -353,6 +353,38 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 
     expect(
       dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
+    ).toEqual([completedCall]);
+  });
+
+  it("drops a pending reconnect duplicate when the rendered call already completed", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_9",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
     ).toEqual([]);
   });
 
@@ -889,7 +921,7 @@ describe("waitForThreadRunToClear", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("{(isReconnecting || reconnectFrozen) &&");
+    const start = source.indexOf("visibleReconnectContent.length > 0");
     const end = source.indexOf("{showRunningInUI &&", start);
     const renderSource = source.slice(start, end);
 
@@ -898,6 +930,7 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).toContain("adapterHandoffPending");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -1077,7 +1110,26 @@ describe("server thread snapshot caching", () => {
     expect(end).toBeGreaterThan(start);
     expect(importSource).toContain("shouldImport = false");
     expect(importSource).toContain(
+      "isRuntimeRunningRef.current || isAutoResumingRef.current",
+    );
+    expect(importSource).toContain(
       "if (settled && Array.isArray(repo?.queuedMessages))",
+    );
+  });
+});
+
+describe("adapter reconnect handoff", () => {
+  it("defers wiping reconnect content until the adapter message catches up", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("adapterHandoffPending");
+    expect(source).toContain("setAdapterHandoffPending(true)");
+    expect(source).toContain(
+      "dedupeReconnectContentAgainstMessages(reconnectContent, messages)",
+    );
+    expect(source).toMatch(
+      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
     );
   });
 });

@@ -625,6 +625,28 @@ function toolCallPartHasResult(part: unknown): boolean {
 }
 
 /**
+ * Monotonic progress rank for a tool-call part. Higher means the UI should
+ * prefer this copy over a lower-ranked duplicate of the same logical call.
+ * Used so reconnect overlays that are ahead of lagging thread messages stay
+ * visible instead of flickering back to an older pending spinner.
+ */
+function toolCallProgressRank(part: unknown): number {
+  if (!part || typeof part !== "object") return 0;
+  const candidate = part as {
+    type?: unknown;
+    result?: unknown;
+    activity?: unknown;
+    argsText?: unknown;
+  };
+  if (candidate.type !== "tool-call") return 0;
+  if ("result" in candidate) return 4;
+  if (candidate.activity === true) return 1;
+  return typeof candidate.argsText === "string" && candidate.argsText.length > 0
+    ? 2
+    : 1;
+}
+
+/**
  * Identity fingerprint for a tool-call part that survives across readers: two
  * readers of the same run assign unrelated synthetic toolCallIds until both
  * have seen the server id, but the tool name + serialized args are identical
@@ -653,10 +675,10 @@ function toolCallFingerprintFromContentPart(part: unknown): string | null {
 }
 
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
-  byId: Map<string, { hasResult: boolean }>;
-  latestAssistantByFingerprint: Map<string, { hasResult: boolean }>;
+  byId: Map<string, { rank: number }>;
+  latestAssistantByFingerprint: Map<string, { rank: number }>;
 } {
-  const byId = new Map<string, { hasResult: boolean }>();
+  const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
@@ -664,18 +686,15 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
     for (const part of content) {
       const id = toolCallIdFromContentPart(part);
       if (!id) continue;
-      const hasResult = toolCallPartHasResult(part);
+      const rank = toolCallProgressRank(part);
       const existing = byId.get(id);
       byId.set(id, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
+        rank: Math.max(existing?.rank ?? 0, rank),
       });
     }
   }
 
-  const latestAssistantByFingerprint = new Map<
-    string,
-    { hasResult: boolean }
-  >();
+  const latestAssistantByFingerprint = new Map<string, { rank: number }>();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
   const latestContent = latestMessage?.content;
@@ -683,10 +702,10 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
     for (const part of latestContent) {
       const fingerprint = toolCallFingerprintFromContentPart(part);
       if (!fingerprint) continue;
-      const hasResult = toolCallPartHasResult(part);
+      const rank = toolCallProgressRank(part);
       const existing = latestAssistantByFingerprint.get(fingerprint);
       latestAssistantByFingerprint.set(fingerprint, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
+        rank: Math.max(existing?.rank ?? 0, rank),
       });
     }
   }
@@ -798,25 +817,35 @@ export function dedupeReconnectContentAgainstMessages(
   const filtered =
     byId.size > 0 || latestAssistantByFingerprint.size > 0
       ? snapshotDeduped.filter((part) => {
+          const reconnectRank = toolCallProgressRank(part);
           const id = toolCallIdFromContentPart(part);
           const existing = id ? byId.get(id) : undefined;
           if (existing) {
-            changed = true;
-            return false;
+            // Keep reconnect copies that are strictly ahead of the rendered
+            // message (e.g. completed overlay vs lagging pending thread data).
+            // Same-or-behind ranks are duplicates and should stay hidden.
+            if (reconnectRank <= existing.rank) {
+              changed = true;
+              return false;
+            }
+            return true;
           }
           // Fingerprint fallback for the id-convergence window: two readers of
           // the same active run can assign unrelated ids to the same logical tool
           // call before the server id converges. Suppress the reconnect overlay
-          // whenever it matches the latest rendered assistant tool call and either
-          // side is still pending; completed-vs-completed remains visible so a
-          // legitimately repeated identical call is not hidden.
+          // only when the rendered message is at least as far along; completed
+          // reconnect copies stay visible over pending message copies so the UI
+          // does not pop back to an older spinner.
           const fingerprint = toolCallFingerprintFromContentPart(part);
           const latestByFingerprint = fingerprint
             ? latestAssistantByFingerprint.get(fingerprint)
             : undefined;
+          const isCompletedRepeat =
+            reconnectRank >= 4 && latestByFingerprint?.rank === 4;
           if (
             latestByFingerprint &&
-            (!toolCallPartHasResult(part) || !latestByFingerprint.hasResult)
+            !isCompletedRepeat &&
+            reconnectRank <= latestByFingerprint.rank
           ) {
             changed = true;
             return false;
@@ -1767,6 +1796,9 @@ const AssistantChatInner = forwardRef<
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
+  // Adapter took over while reconnect still had visible tool cards — keep the
+  // overlay until the adapter message catches up so we don't flash an empty gap.
+  const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
@@ -1823,10 +1855,15 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      isReconnecting || reconnectFrozen
+      isReconnecting || reconnectFrozen || adapterHandoffPending
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [isReconnecting, reconnectFrozen, runningActivityTool],
+    [
+      adapterHandoffPending,
+      isReconnecting,
+      reconnectFrozen,
+      runningActivityTool,
+    ],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -1929,15 +1966,21 @@ const AssistantChatInner = forwardRef<
       let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
-        try {
-          shouldImport = shouldImportServerThreadData(
-            normalizeThreadRepository(threadRuntime.export()),
-            repo,
-          );
-        } catch {
-          // If the runtime/export comparison itself fails, do not fail open by
-          // importing a server snapshot that may be stale relative to local UI.
+        // Adapter owns the live turn (including auto-continuation gaps). Do not
+        // let a lagging server thread snapshot clobber in-flight tool cards.
+        if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
           shouldImport = false;
+        } else {
+          try {
+            shouldImport = shouldImportServerThreadData(
+              normalizeThreadRepository(threadRuntime.export()),
+              repo,
+            );
+          } catch {
+            // If the runtime/export comparison itself fails, do not fail open by
+            // importing a server snapshot that may be stale relative to local UI.
+            shouldImport = false;
+          }
         }
         if (shouldImport) {
           if (options?.markTitleGenerated) {
@@ -2113,6 +2156,7 @@ const AssistantChatInner = forwardRef<
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
+      setAdapterHandoffPending(false);
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
@@ -2217,6 +2261,11 @@ const AssistantChatInner = forwardRef<
           afterSeq > 0
             ? window.setInterval(() => {
                 if (reconnectRunIdRef.current !== runId) return;
+                // Adapter took over mid-poll — skip imports that would race the
+                // live stream and flicker tool cards back to older snapshots.
+                if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+                  return;
+                }
                 void refreshThreadFromServer();
               }, 2000)
             : undefined;
@@ -2645,7 +2694,8 @@ const AssistantChatInner = forwardRef<
       !loadHistoryRepository ||
       !hasRestoredRef.current ||
       isRestoring ||
-      isRunning
+      isRunning ||
+      isAutoResuming
     ) {
       return;
     }
@@ -2662,6 +2712,7 @@ const AssistantChatInner = forwardRef<
   }, [
     historyReloadKey,
     importThreadData,
+    isAutoResuming,
     isRestoring,
     isRunning,
     loadHistoryRepository,
@@ -3200,29 +3251,65 @@ const AssistantChatInner = forwardRef<
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
       // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed). Any live reconnect reader is now a
-      // duplicate accumulator — abort it and DISCARD its content; the adapter's
-      // stream renders the canonical message. Null the run ref first so the
-      // reader's own cleanup paths (which all check reconnectRunIdRef) no-op.
+      // started or an adopted run resumed). Abort the reconnect reader, but keep
+      // its visible content until the adapter message has tool/text parts so the
+      // UI does not flash an empty gap between readers.
       if (reconnectRunIdRef.current !== null) {
+        const keepOverlay = reconnectContent.length > 0;
         reconnectRunIdRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
         setIsReconnecting(false);
-        setReconnectContent([]);
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
+        if (keepOverlay) {
+          setAdapterHandoffPending(true);
+        } else {
+          setReconnectContent([]);
+          setAdapterHandoffPending(false);
+        }
       } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        setAdapterHandoffPending(false);
         reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
       }
     }
-  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
+  }, [
+    isRuntimeRunning,
+    reconnectFrozen,
+    forceStopped,
+    reconnectContent.length,
+  ]);
+
+  // Release the deferred reconnect overlay once thread messages have caught
+  // up enough that dedupe would hide the overlay, or after a short timeout so
+  // a stuck handoff cannot leave duplicate tool cards forever.
+  useEffect(() => {
+    if (!adapterHandoffPending) return;
+    if (!isRuntimeRunning) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const stillNeeded =
+      dedupeReconnectContentAgainstMessages(reconnectContent, messages).length >
+      0;
+    if (!stillNeeded) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [adapterHandoffPending, isRuntimeRunning, messages, reconnectContent]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -3240,6 +3327,7 @@ const AssistantChatInner = forwardRef<
     if (!reconnectCanMaterializeRef.current) {
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       return;
     }
     try {
@@ -3282,6 +3370,7 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
     } catch (err) {
       captureError(err, {
@@ -3366,6 +3455,7 @@ const AssistantChatInner = forwardRef<
         reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
         setIsReconnecting(false);
+        setAdapterHandoffPending(false);
         const shouldFreezeReconnectContent =
           !reconnectTailOnlyRef.current &&
           reconnectCanMaterializeRef.current &&
@@ -4232,7 +4322,9 @@ const AssistantChatInner = forwardRef<
                               />
                             </MessageScrollerItem>
                           )}
-                          {(isReconnecting || reconnectFrozen) &&
+                          {(isReconnecting ||
+                            reconnectFrozen ||
+                            adapterHandoffPending) &&
                             visibleReconnectContent.length > 0 && (
                               <MessageScrollerItem>
                                 <ReconnectStreamMessage
@@ -4240,7 +4332,9 @@ const AssistantChatInner = forwardRef<
                                 />
                               </MessageScrollerItem>
                             )}
-                          {(isReconnecting || reconnectFrozen) &&
+                          {(isReconnecting ||
+                            reconnectFrozen ||
+                            adapterHandoffPending) &&
                             visibleReconnectContent.length === 0 &&
                             reconnectContent.length === 0 &&
                             reconnectActivityContent.length > 0 && (
@@ -4476,7 +4570,7 @@ const AssistantChatInner = forwardRef<
                                 <TooltipTrigger asChild>
                                   <button
                                     type="button"
-                                    onClick={stopActiveRun}
+                                    onClick={() => stopActiveRun()}
                                     className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
                                   >
                                     <IconPlayerStop className="h-3.5 w-3.5" />
