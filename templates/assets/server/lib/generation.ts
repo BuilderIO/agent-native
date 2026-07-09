@@ -948,6 +948,18 @@ async function generateWithManualImageProvider(
         "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
     });
   }
+  // Board-reference runs on gpt-* models must not reroute into the Gemini
+  // fallback: Gemini rejects GPT model ids, which would surface a cryptic
+  // provider error instead of this setup guidance.
+  if (input.hasBoardReferences && input.model.startsWith("gpt-")) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
+  }
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
   }

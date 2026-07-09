@@ -91,8 +91,13 @@ export const generationPresetSettingsSchema = z
         });
       }
     }
+    // Budget with the minimum images each entry consumes at run time: a
+    // required entry with no pinned images still needs at least one fill
+    // image, so reserve it here or the saved preset can never generate.
+    const minimumImages = (entry: { required: boolean; assetIds: string[] }) =>
+      Math.max(entry.assetIds.length, entry.required ? 1 : 0);
     const total = references.reduce(
-      (sum, entry) => sum + entry.assetIds.length,
+      (sum, entry) => sum + minimumImages(entry),
       0,
     );
     if (total > 8) {
@@ -104,7 +109,7 @@ export const generationPresetSettingsSchema = z
     }
     const subjectTotal = references
       .filter((entry) => entry.role === "subject")
-      .reduce((sum, entry) => sum + entry.assetIds.length, 0);
+      .reduce((sum, entry) => sum + minimumImages(entry), 0);
     if (subjectTotal > 4) {
       ctx.addIssue({
         code: "custom",

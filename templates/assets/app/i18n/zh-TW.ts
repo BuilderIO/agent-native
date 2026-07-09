@@ -445,7 +445,7 @@ const messages = {
     referenceMode: "Reference mode",
     fixedReference: "Fixed",
     swappableReference: "Swappable",
-    requiredPerRun: "Required per run",
+    requiredPerRun: "Required",
     required: "Required",
     filledPerGeneration: "Filled per generation",
     noReferenceImages: "No reference images",

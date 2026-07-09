@@ -16,7 +16,7 @@ templates/assets/app/i18n/ar-SA|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/ar-SA|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/ar-SA|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/ar-SA|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/ar-SA|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/ar-SA|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/ar-SA|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/ar-SA|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/ar-SA|brandKitDetail.uploadReferenceImage|Upload image
@@ -36,7 +36,7 @@ templates/assets/app/i18n/de-DE|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/de-DE|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/de-DE|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/de-DE|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/de-DE|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/de-DE|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/de-DE|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/de-DE|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/de-DE|brandKitDetail.uploadReferenceImage|Upload image
@@ -56,7 +56,7 @@ templates/assets/app/i18n/es-ES|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/es-ES|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/es-ES|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/es-ES|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/es-ES|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/es-ES|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/es-ES|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/es-ES|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/es-ES|brandKitDetail.uploadReferenceImage|Upload image
@@ -76,7 +76,7 @@ templates/assets/app/i18n/fr-FR|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/fr-FR|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/fr-FR|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/fr-FR|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/fr-FR|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/fr-FR|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/fr-FR|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/fr-FR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/fr-FR|brandKitDetail.uploadReferenceImage|Upload image
@@ -96,7 +96,7 @@ templates/assets/app/i18n/hi-IN|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/hi-IN|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/hi-IN|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/hi-IN|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/hi-IN|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/hi-IN|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/hi-IN|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/hi-IN|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/hi-IN|brandKitDetail.uploadReferenceImage|Upload image
@@ -116,7 +116,7 @@ templates/assets/app/i18n/ja-JP|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/ja-JP|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/ja-JP|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/ja-JP|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/ja-JP|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/ja-JP|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/ja-JP|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/ja-JP|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/ja-JP|brandKitDetail.uploadReferenceImage|Upload image
@@ -136,7 +136,7 @@ templates/assets/app/i18n/ko-KR|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/ko-KR|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/ko-KR|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/ko-KR|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/ko-KR|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/ko-KR|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/ko-KR|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/ko-KR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/ko-KR|brandKitDetail.uploadReferenceImage|Upload image
@@ -156,7 +156,7 @@ templates/assets/app/i18n/pt-BR|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/pt-BR|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/pt-BR|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/pt-BR|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/pt-BR|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/pt-BR|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/pt-BR|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/pt-BR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/pt-BR|brandKitDetail.uploadReferenceImage|Upload image
@@ -176,7 +176,7 @@ templates/assets/app/i18n/zh-CN|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/zh-CN|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/zh-CN|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/zh-CN|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/zh-CN|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/zh-CN|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/zh-CN|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/zh-CN|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/zh-CN|brandKitDetail.uploadReferenceImage|Upload image
@@ -196,7 +196,7 @@ templates/assets/app/i18n/zh-TW|brandKitDetail.referenceImageUploaded|Reference 
 templates/assets/app/i18n/zh-TW|brandKitDetail.referenceMode|Reference mode
 templates/assets/app/i18n/zh-TW|brandKitDetail.removeReferenceImage|Remove reference image
 templates/assets/app/i18n/zh-TW|brandKitDetail.removeReference|Remove reference
-templates/assets/app/i18n/zh-TW|brandKitDetail.requiredPerRun|Required per run
+templates/assets/app/i18n/zh-TW|brandKitDetail.requiredPerRun|Required
 templates/assets/app/i18n/zh-TW|brandKitDetail.searchLibraryImages|Search library images
 templates/assets/app/i18n/zh-TW|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
 templates/assets/app/i18n/zh-TW|brandKitDetail.uploadReferenceImage|Upload image

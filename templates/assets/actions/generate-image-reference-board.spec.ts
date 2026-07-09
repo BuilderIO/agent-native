@@ -274,6 +274,40 @@ describe("generate-image preset reference board", () => {
     );
   });
 
+  it("rejects per-run model overrides without character consistency for subject entries", async () => {
+    getDbMock.mockReturnValue(
+      createDb([
+        [library],
+        [
+          preset({
+            presetReferences: [
+              {
+                id: "steve",
+                label: "Steve",
+                role: "subject",
+                assetIds: ["ref-steve"],
+                variable: false,
+                required: false,
+              },
+            ],
+          }),
+        ],
+      ]),
+    );
+
+    await expect(
+      generateImage.run({
+        libraryId: "lib-1",
+        presetId: "preset-1",
+        prompt: "Post",
+        model: "gemini-2.5-flash-image",
+      }),
+    ).rejects.toThrow(
+      "Subject reference entries need a model with character consistency.",
+    );
+    expect(generateProviderMock).not.toHaveBeenCalled();
+  });
+
   it("attaches fixed board refs and records board assignments", async () => {
     const db = createDb([
       [library],

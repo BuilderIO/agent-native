@@ -368,6 +368,17 @@ export default defineAction({
         model: resolvedModel,
       });
     }
+    // Mirror the create/update-generation-preset guard for per-run model
+    // overrides: subject board photos on a model without character
+    // consistency would silently ignore the people they exist to preserve.
+    if (
+      resolvedModel === "gemini-2.5-flash-image" &&
+      resolvedPresetReferences.some((item) => item.entry.role === "subject")
+    ) {
+      throw new Error(
+        "Subject reference entries need a model with character consistency. Use gemini-3.1-flash-image, gemini-3-pro-image, gpt-image-1, or gpt-image-2.",
+      );
+    }
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);

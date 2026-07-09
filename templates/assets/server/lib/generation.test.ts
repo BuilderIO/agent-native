@@ -281,6 +281,43 @@ describe("generateWithManagedImageProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
+    vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "GEMINI_API_KEY" ? "gemini-test" : null,
+    );
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        hasBoardReferences: true,
+        references: [
+          {
+            id: "steve-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from("steve").toString("base64"),
+            selectionReason: "preset-ref:steve",
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        message: expect.stringContaining("manual OpenAI fallback cannot pass"),
+      }),
+    );
+    expect(googleGenerateContentMock).not.toHaveBeenCalled();
+  });
+
   it("passes board references through the manual Gemini fallback", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,

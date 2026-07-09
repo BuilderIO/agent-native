@@ -216,7 +216,9 @@ function normalizeReferenceEntries(entries: PresetReference[]) {
     entries.map((entry) => ({
       ...entry,
       id: entry.id.trim(),
-      label: entry.label.trim(),
+      // A cleared label must not delete the entry (normalize drops
+      // label-less entries); fall back to the durable id as the label.
+      label: entry.label.trim() || entry.id.trim(),
       description: entry.description?.trim() || undefined,
       assetIds: entry.assetIds.filter(Boolean).slice(0, 4),
       variable: Boolean(entry.variable),

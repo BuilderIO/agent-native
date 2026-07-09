@@ -245,6 +245,48 @@ describe("generation preset includeLogo option", () => {
     ).toThrow("Subject reference entries may attach at most 4 images total.");
   });
 
+  it("reserves image budget for required entries with no pinned images", async () => {
+    const pinned = (id: string, role: string, assetIds: string[]) => ({
+      id,
+      label: id,
+      role,
+      assetIds,
+      variable: false,
+      required: false,
+    });
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          pinned("one", "style", ["a", "b", "c", "d"]),
+          pinned("two", "product", ["e", "f", "g", "h"]),
+          {
+            id: "guest",
+            label: "Guest",
+            role: "background",
+            assetIds: [],
+            variable: true,
+            required: true,
+          },
+        ],
+      }),
+    ).toThrow("The reference board may attach at most 8 images total.");
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          pinned("host", "subject", ["a", "b", "c", "d"]),
+          {
+            id: "guest",
+            label: "Guest",
+            role: "subject",
+            assetIds: [],
+            variable: true,
+            required: true,
+          },
+        ],
+      }),
+    ).toThrow("Subject reference entries may attach at most 4 images total.");
+  });
+
   it("rejects preset reference images outside this asset library on create", async () => {
     const insertValues = vi.fn(async () => undefined);
     getDbMock.mockReturnValue({
