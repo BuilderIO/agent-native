@@ -47,9 +47,9 @@ const tweaks: TweakDefinition[] = [
 
 describe("resolveTweaksToCssVars", () => {
   it("hashes persisted selections independently of object insertion order", () => {
-    expect(
-      tweakSelectionsHash({ density: "compact", radius: 12 }),
-    ).toBe(tweakSelectionsHash({ radius: 12, density: "compact" }));
+    expect(tweakSelectionsHash({ density: "compact", radius: 12 })).toBe(
+      tweakSelectionsHash({ radius: 12, density: "compact" }),
+    );
     expect(tweakSelectionsHash({ density: "compact" })).not.toBe(
       tweakSelectionsHash({ density: "comfortable" }),
     );

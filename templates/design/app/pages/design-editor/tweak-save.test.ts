@@ -33,9 +33,12 @@ describe("tweak save ordering", () => {
       null,
     );
 
-    expect(rebaseTweakSaveForSend(queued, "verified-predecessor")).toMatchObject(
-      { expectedSelectionsHash: "verified-predecessor", revision: 2 },
-    );
+    expect(
+      rebaseTweakSaveForSend(queued, "verified-predecessor"),
+    ).toMatchObject({
+      expectedSelectionsHash: "verified-predecessor",
+      revision: 2,
+    });
   });
 
   it("retains a failed latest edit but never replaces a newer queued snapshot", () => {

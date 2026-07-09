@@ -186,10 +186,10 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 import applyDesignTokenEdit from "./apply-design-token-edit.js";
 import applyTweaks from "./apply-tweaks.js";
 import importDesignTokens from "./import-design-tokens.js";
-import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
 function readData(): Record<string, unknown> {
   return JSON.parse(state.design.data) as Record<string, unknown>;
@@ -367,8 +367,12 @@ describe("design data mutation interleaving", () => {
       }),
     ]);
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
     expect(["compact", "comfortable"]).toContain(
       (readData().tweakSelections as Record<string, unknown>).density,
     );

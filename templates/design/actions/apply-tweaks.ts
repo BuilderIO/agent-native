@@ -4,11 +4,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {

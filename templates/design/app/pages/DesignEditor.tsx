@@ -5648,16 +5648,28 @@ function DesignEditor() {
   // designs.data.tweakSelections (additive JSON merge, server-side). This is
   // what makes the visual-tune survive reload and feeds the snapshot/handoff
   // round-trip so external agents continue from the *tuned* design.
-  const pendingTweakSaveRef = useRef<{
-    selections: TweakSelections;
-    revision: number;
-  } | null>(null);
+  const pendingTweakSaveRef = useRef<PendingTweakSave | null>(null);
   const tweakSaveTimerRef = useRef<number | null>(null);
   const tweakSaveRevisionRef = useRef(0);
   const tweakSaveChainRef = useRef<Promise<void>>(Promise.resolve());
   const tweakSaveInFlightRef = useRef(false);
+  const confirmedTweakSelectionsHashRef = useRef(tweakSelectionsHash({}));
+  const journalTweakOutboxEntry = useCallback(
+    async (entry: DesignSaveOutboxEntry) => {
+      try {
+        await journalDesignSaveOutboxEntry(entry);
+        return true;
+      } catch {
+        // Do not claim an offline retry exists when IndexedDB itself failed.
+        // The mutation path below distinguishes durable retries from edits
+        // that must stay in this tab's memory.
+        return false;
+      }
+    },
+    [],
+  );
   const createTweakSaveOutboxEntry = useCallback(
-    (pending: { selections: TweakSelections; revision: number }) => {
+    (pending: PendingTweakSave) => {
       if (!id) return null;
       return createDesignSaveOutboxEntry({
         designId: id,
@@ -5669,31 +5681,109 @@ function DesignEditor() {
         payload: {
           designId: id,
           selections: pending.selections,
+          expectedSelectionsHash: pending.expectedSelectionsHash,
         },
       });
     },
     [designSaveActorScope, id],
   );
   const persistTweakSave = useCallback(
-    (pending: { selections: TweakSelections; revision: number }) => {
+    (pending: PendingTweakSave) => {
       if (!id || !canEditDesignRef.current) return;
-      const entry = createTweakSaveOutboxEntry(pending);
-      if (!entry) return;
       const previous = tweakSaveChainRef.current;
       const current = previous
         .catch(() => {})
         .then(async () => {
           tweakSaveInFlightRef.current = true;
-          await journalOutboxEntry(entry);
+          const sendPending = rebaseTweakSaveForSend(
+            pending,
+            confirmedTweakSelectionsHashRef.current,
+          );
+          const entry = createTweakSaveOutboxEntry(sendPending);
+          if (!entry) return;
+          const journaled = await journalTweakOutboxEntry(entry);
           try {
-            await applyTweaksAsync(entry.payload as any);
-            await acknowledgeOutboxEntry(entry);
-          } catch {
-            warnChangesWillRetry();
-          } finally {
+            const result = (await applyTweaksAsync(entry.payload as any)) as {
+              appliedTweaks?: Record<string, unknown>;
+              selectionsHash?: string;
+            };
+            const confirmedHash =
+              typeof result?.selectionsHash === "string"
+                ? result.selectionsHash
+                : tweakSelectionsHash(
+                    result?.appliedTweaks ?? sendPending.selections,
+                  );
+            confirmedTweakSelectionsHashRef.current = confirmedHash;
+            if (result?.appliedTweaks) {
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (!old || typeof old !== "object") return old;
+                  let data: Record<string, unknown>;
+                  try {
+                    const parsed = JSON.parse(old.data ?? "{}");
+                    data =
+                      parsed &&
+                      typeof parsed === "object" &&
+                      !Array.isArray(parsed)
+                        ? parsed
+                        : {};
+                  } catch {
+                    return old;
+                  }
+                  return {
+                    ...old,
+                    data: JSON.stringify({
+                      ...data,
+                      tweakSelections: result.appliedTweaks,
+                    }),
+                  };
+                },
+              );
+            }
+            if (journaled) await acknowledgeOutboxEntry(entry);
+
+            const queuedAfterSuccess = clearCompletedTweakSave(
+              pendingTweakSaveRef.current,
+              pending.revision,
+            );
+            if (
+              queuedAfterSuccess &&
+              queuedAfterSuccess.revision > pending.revision
+            ) {
+              const rebasedQueued = rebaseTweakSaveForSend(
+                queuedAfterSuccess,
+                confirmedHash,
+              );
+              pendingTweakSaveRef.current = rebasedQueued;
+              const rebasedEntry = createTweakSaveOutboxEntry(rebasedQueued);
+              if (rebasedEntry) void journalTweakOutboxEntry(rebasedEntry);
+            } else {
+              pendingTweakSaveRef.current = queuedAfterSuccess;
+            }
             if (tweakSaveRevisionRef.current === pending.revision) {
               setTweakSaveActive(false);
             }
+          } catch (error) {
+            pendingTweakSaveRef.current = retainLatestFailedTweakSave(
+              pendingTweakSaveRef.current,
+              sendPending,
+            );
+            if (tweakSaveRevisionRef.current === pending.revision) {
+              setTweakSaveActive(true);
+            }
+            const status =
+              error && typeof error === "object" && "status" in error
+                ? (error as { status?: unknown }).status
+                : undefined;
+            if (status === 409) {
+              toast.error(t("designEditor.toasts.tweakConflict"));
+            } else if (journaled) {
+              warnChangesWillRetry();
+            } else {
+              toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
+            }
+          } finally {
             tweakSaveInFlightRef.current = false;
           }
         });
@@ -5709,7 +5799,9 @@ function DesignEditor() {
       applyTweaksAsync,
       createTweakSaveOutboxEntry,
       id,
-      journalOutboxEntry,
+      journalTweakOutboxEntry,
+      queryClient,
+      t,
       warnChangesWillRetry,
     ],
   );
@@ -5728,16 +5820,26 @@ function DesignEditor() {
       const revision = tweakSaveRevisionRef.current + 1;
       tweakSaveRevisionRef.current = revision;
       setTweakSaveActive(true);
-      const pending = { selections, revision };
+      const pending = createQueuedTweakSave(
+        selections,
+        revision,
+        confirmedTweakSelectionsHashRef.current,
+        pendingTweakSaveRef.current,
+      );
       pendingTweakSaveRef.current = pending;
       const entry = createTweakSaveOutboxEntry(pending);
-      if (entry) void journalOutboxEntry(entry);
+      if (entry) void journalTweakOutboxEntry(entry);
       if (tweakSaveTimerRef.current !== null) {
         window.clearTimeout(tweakSaveTimerRef.current);
       }
       tweakSaveTimerRef.current = window.setTimeout(flushPendingTweakSave, 600);
     },
-    [createTweakSaveOutboxEntry, flushPendingTweakSave, id, journalOutboxEntry],
+    [
+      createTweakSaveOutboxEntry,
+      flushPendingTweakSave,
+      id,
+      journalTweakOutboxEntry,
+    ],
   );
 
   useEffect(() => {
@@ -5750,7 +5852,7 @@ function DesignEditor() {
       // mutation still settles state and confirms persistence.
       const entry = createTweakSaveOutboxEntry(pending);
       if (!entry) return;
-      void journalOutboxEntry(entry);
+      void journalTweakOutboxEntry(entry);
       const attempt = tryCallActionKeepalive(
         "apply-tweaks",
         entry.payload as any,
@@ -5758,11 +5860,18 @@ function DesignEditor() {
       if (!attempt.accepted) return;
       void attempt.completion
         .then(() => acknowledgeOutboxEntry(entry))
-        .catch(warnChangesWillRetry);
+        .catch(() => {});
+    };
+    const handleOnline = () => {
+      if (pendingTweakSaveRef.current && !tweakSaveInFlightRef.current) {
+        flushPendingTweakSave();
+      }
     };
     window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("online", handleOnline);
       // Client-side navigation used to cancel the 600 ms debounce and drop
       // the user's final knob position. Flush it synchronously into the
       // mutation pipeline before this keyed editor instance unmounts.
@@ -5773,8 +5882,7 @@ function DesignEditor() {
     createTweakSaveOutboxEntry,
     flushPendingTweakSave,
     id,
-    journalOutboxEntry,
-    warnChangesWillRetry,
+    journalTweakOutboxEntry,
   ]);
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
@@ -11529,6 +11637,16 @@ function DesignEditor() {
       return {};
     }
   }, [design?.data]);
+  useLayoutEffect(() => {
+    if (
+      !tweakSaveActive &&
+      !tweakSaveInFlightRef.current &&
+      pendingTweakSaveRef.current === null
+    ) {
+      confirmedTweakSelectionsHashRef.current =
+        tweakSelectionsHash(persistedSelections);
+    }
+  }, [persistedSelections, tweakSaveActive]);
 
   // Tweak values are keyed by tweak id while in the panel, then mapped to
   // CSS-var -> value for the iframe so the design's :root block picks them up.

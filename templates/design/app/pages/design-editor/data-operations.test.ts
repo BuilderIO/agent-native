@@ -226,6 +226,7 @@ describe("Design editor data operations", () => {
     expect(source).toContain(
       "operationSource: designSaveOperationSourceRef.current",
     );
+    expect(source).not.toContain("operationSource: TAB_ID");
     expect(source).toContain("operationRevision: revision");
   });
 });

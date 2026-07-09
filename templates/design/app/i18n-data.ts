@@ -684,6 +684,10 @@ const enUS = {
       auditRunFailed: "Unable to run design audit",
       componentCreated: "Component created",
       componentCreateFailed: "Could not create component",
+      tweakConflict:
+        "Tweaks changed elsewhere. Refresh the design before trying again.",
+      tweakSaveNotDurable:
+        "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",

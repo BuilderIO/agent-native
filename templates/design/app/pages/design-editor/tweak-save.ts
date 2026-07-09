@@ -18,8 +18,7 @@ export function createQueuedTweakSave(
     // Multiple knob ticks inside one debounce window are one full-snapshot
     // edit and must retain the base observed by the first tick.
     expectedSelectionsHash:
-      existingDebouncedSave?.expectedSelectionsHash ??
-      confirmedSelectionsHash,
+      existingDebouncedSave?.expectedSelectionsHash ?? confirmedSelectionsHash,
   };
 }
 
