@@ -12220,105 +12220,6 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
-const designTweakSaveOverrides = {
-  "zh-TW": {
-    designEditor: {
-      toasts: {
-        tweakConflict: "微調設定已在其他地方變更。請重新整理設計後再試一次。",
-        tweakSaveNotDurable: "微調設定尚未儲存。請保持此分頁開啟並再試一次。",
-      },
-    },
-  },
-  "zh-CN": {
-    designEditor: {
-      toasts: {
-        tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
-        tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
-      },
-    },
-  },
-  "es-ES": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
-        tweakSaveNotDurable:
-          "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
-      },
-    },
-  },
-  "fr-FR": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
-        tweakSaveNotDurable:
-          "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
-      },
-    },
-  },
-  "de-DE": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
-        tweakSaveNotDurable:
-          "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
-      },
-    },
-  },
-  "ja-JP": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
-        tweakSaveNotDurable:
-          "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
-      },
-    },
-  },
-  "ko-KR": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
-        tweakSaveNotDurable:
-          "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
-      },
-    },
-  },
-  "pt-BR": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
-        tweakSaveNotDurable:
-          "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
-      },
-    },
-  },
-  "hi-IN": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
-        tweakSaveNotDurable:
-          "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
-      },
-    },
-  },
-  "ar-SA": {
-    designEditor: {
-      toasts: {
-        tweakConflict:
-          "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
-        tweakSaveNotDurable:
-          "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
-      },
-    },
-  },
-} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
-
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
@@ -12336,7 +12237,6 @@ export const messagesByLocale = {
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
       motionDockOverrides["zh-TW"],
-      designTweakSaveOverrides["zh-TW"],
     ),
   ),
   "zh-CN": mergeMessages(
@@ -12361,7 +12261,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["zh-CN"],
       breakpointBarOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
-      designTweakSaveOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12425,7 +12324,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["es-ES"],
       breakpointBarOverrides["es-ES"],
       motionDockOverrides["es-ES"],
-      designTweakSaveOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12489,7 +12387,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["fr-FR"],
       breakpointBarOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
-      designTweakSaveOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12553,7 +12450,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["de-DE"],
       breakpointBarOverrides["de-DE"],
       motionDockOverrides["de-DE"],
-      designTweakSaveOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12617,7 +12513,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ja-JP"],
       breakpointBarOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
-      designTweakSaveOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12682,7 +12577,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ko-KR"],
       breakpointBarOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
-      designTweakSaveOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12745,7 +12639,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["pt-BR"],
       breakpointBarOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
-      designTweakSaveOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12809,7 +12702,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["hi-IN"],
       breakpointBarOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
-      designTweakSaveOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -12873,7 +12765,6 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ar-SA"],
       breakpointBarOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
-      designTweakSaveOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",
