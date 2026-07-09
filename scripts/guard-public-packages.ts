@@ -124,13 +124,20 @@ function localWorkspaceDependencyFailures(
 ): string[] {
   if (!dependencies) return [];
   return Object.entries(dependencies)
-    .filter(
-      ([dep, version]) =>
-        workspacePackageNames.has(dep) && version !== "workspace:*",
-    )
+    .filter(([dep, version]) => {
+      if (!workspacePackageNames.has(dep)) return false;
+      if (version === "workspace:*") return false;
+      // Published deps may use workspace:^ so pnpm pack rewrites it to a
+      // caret range (e.g. ^0.4.3), letting consumers dedupe against a
+      // compatible version instead of an exact pin.
+      if (version === "workspace:^" && npmPublishAllowlist.has(dep)) {
+        return false;
+      }
+      return true;
+    })
     .map(
       ([dep, version]) =>
-        `${pkgName} ${field}.${dep} must stay workspace:* in source, not ${version}; pnpm pack rewrites it for npm publishing`,
+        `${pkgName} ${field}.${dep} must stay workspace:* (or workspace:^ for published deps) in source, not ${version}; pnpm pack rewrites it for npm publishing`,
     );
 }
 

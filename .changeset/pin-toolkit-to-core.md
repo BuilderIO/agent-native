@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/scheduling": patch
 ---
 
-Scaffold new apps with `@agent-native/toolkit` pinned to whatever `@agent-native/core@latest` depends on instead of an independent `latest` dist-tag. This prevents pnpm from installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`). The lookup is memoized per scaffold and falls back to `latest` when the registry is unreachable.
+Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).

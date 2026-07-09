@@ -1336,10 +1336,6 @@ export {
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
-  resolveToolkitVersionFromCore as _resolveToolkitVersionFromCore,
-  normalizeNpmViewVersion as _normalizeNpmViewVersion,
-  lookupToolkitVersionFromNpmRegistry as _lookupToolkitVersionFromNpmRegistry,
-  resetToolkitDependencyVersionCache as _resetToolkitDependencyVersionCache,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
@@ -1649,106 +1645,13 @@ function getDispatchDependencyVersion(): string {
   return "latest";
 }
 
-// Memoize the registry lookup for the whole scaffold. A single `agent-native
-// create` run rewrites toolkit deps once per app (plus standalone/rewrite
-// paths), so resolving it repeatedly would spawn a synchronous `npm view` per
-// call. Beyond being slow, if the `latest` dist-tag moved mid-scaffold, two
-// apps in the same workspace could pin different toolkit versions — the exact
-// drift this fix exists to prevent. `undefined` means "not resolved yet".
-let cachedToolkitDependencyVersion: string | undefined;
-
-const TOOLKIT_VERSION_LOOKUP_TIMEOUT_MS = 5_000;
-
-// Test-only: clear the memoized value so specs can exercise both the pinned
-// and offline-fallback branches deterministically without process isolation.
-function resetToolkitDependencyVersionCache(): void {
-  cachedToolkitDependencyVersion = undefined;
-}
-
-/** Normalize `npm view` stdout into a package.json-safe version string. */
-function normalizeNpmViewVersion(output: string): string | null {
-  const trimmed = output.trim();
-  if (!trimmed) return null;
-
-  let candidate = trimmed;
-  if (candidate.startsWith('"') && candidate.endsWith('"')) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (typeof parsed !== "string" || !parsed.trim()) return null;
-      candidate = parsed.trim();
-    } catch {
-      return null;
-    }
-  }
-
-  // Only trust concrete semver-like specs for direct package.json deps.
-  if (/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(candidate)) {
-    return candidate;
-  }
-
-  return null;
-}
-
-function lookupToolkitVersionFromNpmRegistry(
-  execFile: typeof execFileSync = execFileSync,
-): string | null {
-  const pinned = execFile(
-    "npm",
-    [
-      "view",
-      "@agent-native/core@latest",
-      "dependencies.@agent-native/toolkit",
-      "--json=false",
-    ],
-    {
-      encoding: "utf-8",
-      timeout: TOOLKIT_VERSION_LOOKUP_TIMEOUT_MS,
-      env: {
-        ...process.env,
-        // User-level npm config can set json=true, which prints `"0.4.3"` and
-        // breaks package.json if written verbatim (EINVALIDTAGNAME on install).
-        npm_config_json: "false",
-      },
-    },
-  );
-  return normalizeNpmViewVersion(pinned);
-}
-
-function resolveToolkitVersionFromCore(
-  execFile: typeof execFileSync = execFileSync,
-): string {
-  // Core hard-pins an exact @agent-native/toolkit version internally at
-  // publish time (e.g. core@0.91.2 -> toolkit@0.4.3). Because the scaffold
-  // writes `"latest"` for core, resolving toolkit independently via its own
-  // `"latest"` dist-tag lets the two drift out of sync between publishes,
-  // leaving pnpm unable to dedupe and installing two toolkit copies side by
-  // side. Older builds are missing newer subpath exports (e.g. `./collab-ui`),
-  // so whichever copy the bundler picks up first can crash. Pin to whatever
-  // the `latest` core release actually depends on instead so both resolve
-  // from the same core manifest.
-  try {
-    const pinned = lookupToolkitVersionFromNpmRegistry(execFile);
-    if (pinned) return pinned;
-  } catch {
-    // Registry lookup failed (offline, npm outage, subprocess timeout, etc.) —
-    // fall back below. The `try/catch` keeps scaffolding working: worst case
-    // we revert to today's independent `"latest"` behaviour rather than
-    // failing outright.
-  }
-
-  return "latest";
-}
-
 function getToolkitDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localToolkit = findLocalPackage("toolkit");
     if (localToolkit) return pathToFileURL(localToolkit).href;
   }
 
-  if (cachedToolkitDependencyVersion === undefined) {
-    cachedToolkitDependencyVersion = resolveToolkitVersionFromCore();
-  }
-  return cachedToolkitDependencyVersion;
+  return "latest";
 }
 
 function localToolkitOverride(): string | null {
