@@ -194,9 +194,7 @@ async function mergeStoredAwareness(
   const now = Date.now();
   const rows = await loadAwarenessRows(docId, now);
   for (const row of rows) {
-    if (
-      isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)
-    ) {
+    if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
       void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
       continue;
     }

@@ -124,9 +124,19 @@ describe("streaming tool-call visibility (flicker regression)", () => {
   it("keeps a materialized in-flight tool card mounted across a retry clear", async () => {
     const snapshots = await captureSnapshots([
       { type: "activity", tool: "search", label: "Searching" },
-      { type: "tool_start", tool: "search", id: "call_1", input: { q: "docs" } },
+      {
+        type: "tool_start",
+        tool: "search",
+        id: "call_1",
+        input: { q: "docs" },
+      },
       { type: "clear" },
-      { type: "tool_start", tool: "search", id: "call_1", input: { q: "docs" } },
+      {
+        type: "tool_start",
+        tool: "search",
+        id: "call_1",
+        input: { q: "docs" },
+      },
       { type: "tool_done", tool: "search", id: "call_1", result: "found" },
       { type: "text", text: "Done." },
     ]);
@@ -173,7 +183,7 @@ describe("streaming tool-call visibility (flicker regression)", () => {
     const finalCompleted = completedToolSignatures(
       snapshots[snapshots.length - 1],
     );
-    expect(finalCompleted).toContain("search#{}".replace("{}", '{"q":"one"}'));
+    expect(finalCompleted).toContain('search#{"q":"one"}');
     expect(finalCompleted).toContain('fetch#{"url":"u"}');
   });
 });
