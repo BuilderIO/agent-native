@@ -319,7 +319,6 @@ function safeResponseHeaders(
     "cache-status",
     "cdn-cache-control",
     "content-type",
-    "location",
   ]) {
     const value = headers[key];
     if (value) picked[key] = value.slice(0, 300);
@@ -335,12 +334,63 @@ function finalUrlDiagnostics(url: string | undefined): {
   try {
     const parsed = new URL(url);
     return {
-      finalUrl: parsed.href.slice(0, 500),
       finalHost: parsed.host,
     };
   } catch {
-    return { finalUrl: url.slice(0, 500) };
+    return {};
   }
+}
+
+function defaultMonitorCheckDiagnostics(): MonitorCheckDiagnostics {
+  return {
+    source: "unknown",
+    runtime: {},
+    request: {
+      method: "GET",
+      timeoutMs: DEFAULT_MONITOR_TIMEOUT_MS,
+      followRedirects: true,
+      assertionTypes: [],
+      bodyReadRequired: false,
+      allowPrivateHosts: false,
+    },
+    timings: {},
+  };
+}
+
+function normalizeMonitorCheckDiagnostics(
+  raw: unknown,
+): MonitorCheckDiagnostics {
+  const fallback = defaultMonitorCheckDiagnostics();
+  if (!raw || typeof raw !== "object") return fallback;
+  const parsed = raw as Partial<MonitorCheckDiagnostics>;
+  return {
+    ...fallback,
+    ...parsed,
+    runtime:
+      parsed.runtime && typeof parsed.runtime === "object"
+        ? parsed.runtime
+        : fallback.runtime,
+    request:
+      parsed.request && typeof parsed.request === "object"
+        ? { ...fallback.request, ...parsed.request }
+        : fallback.request,
+    timings:
+      parsed.timings && typeof parsed.timings === "object"
+        ? parsed.timings
+        : fallback.timings,
+    response:
+      parsed.response && typeof parsed.response === "object"
+        ? {
+            finalHost: parsed.response.finalHost,
+            statusCode: parsed.response.statusCode,
+            headers: parsed.response.headers,
+          }
+        : undefined,
+    error:
+      parsed.error && typeof parsed.error === "object"
+        ? parsed.error
+        : undefined,
+  };
 }
 
 function compactDiagnostics(
@@ -1319,19 +1369,9 @@ function rowToResult(row: any): MonitorCheckResult {
     latencyMs: row.latencyMs ?? null,
     error: row.error ?? null,
     failedAssertions: safeJsonParse<string[]>(row.failedAssertions, []),
-    diagnostics: safeJsonParse<MonitorCheckDiagnostics>(row.diagnostics, {
-      source: "unknown",
-      runtime: {},
-      request: {
-        method: "GET",
-        timeoutMs: DEFAULT_MONITOR_TIMEOUT_MS,
-        followRedirects: true,
-        assertionTypes: [],
-        bodyReadRequired: false,
-        allowPrivateHosts: false,
-      },
-      timings: {},
-    }),
+    diagnostics: normalizeMonitorCheckDiagnostics(
+      safeJsonParse<unknown>(row.diagnostics, {}),
+    ),
   };
 }
 

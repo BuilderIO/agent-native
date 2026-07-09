@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { createError, defineEventHandler, getHeader } from "h3";
 
 import { runDueMonitorsOnce } from "../../../jobs/uptime-monitors";
@@ -23,8 +25,14 @@ function cronSecret(): string | null {
   return secret ? secret : null;
 }
 
-function headerMatchesSecret(header: string | undefined, secret: string) {
-  return header === `Bearer ${secret}`;
+function headerMatchesSecret(
+  header: string | undefined,
+  secret: string,
+): boolean {
+  const expected = `Bearer ${secret}`;
+  const value = header?.trim() ?? "";
+  if (value.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(value), Buffer.from(expected));
 }
 
 export default defineEventHandler(async (event) => {

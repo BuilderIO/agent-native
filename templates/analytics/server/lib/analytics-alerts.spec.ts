@@ -253,6 +253,17 @@ describe("analytics alert evaluation", () => {
     );
   });
 
+  it("compares the uptime monitor cron bearer secret safely", () => {
+    const source = readFileSync(
+      new URL("../routes/api/uptime-monitors/run.post.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('import { timingSafeEqual } from "node:crypto";');
+    expect(source).toContain("timingSafeEqual(Buffer.from(value)");
+    expect(source).not.toContain("return header ===");
+  });
+
   it("does not let a failed rule listing crash the whole sweep", () => {
     const jobSource = readFileSync(
       new URL("../jobs/analytics-alerts.ts", import.meta.url),

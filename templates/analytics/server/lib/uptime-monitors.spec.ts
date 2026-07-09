@@ -489,6 +489,35 @@ describe("runMonitorCheck timeout budget", () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("stores only safe response metadata in diagnostics", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        url: "https://example.com/callback?code=secret-example",
+        headers: new Headers({
+          location: "https://example.com/callback?code=secret-example",
+          server: "example",
+        }),
+        body: null,
+        async text() {
+          return "";
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, expectedStatus: { mode: "class", classes: ["3xx"] } },
+      { allowPrivateHosts: true },
+    );
+
+    expect(outcome.status).toBe("up");
+    expect(outcome.diagnostics.response?.finalHost).toBe("example.com");
+    expect(outcome.diagnostics.response?.finalUrl).toBeUndefined();
+    expect(outcome.diagnostics.response?.headers).toEqual({
+      server: "example",
+    });
+  });
+
   it("still reports a real fetch timeout after headers never arrive", async () => {
     globalThis.fetch = vi.fn((_url, init) => {
       return new Promise((_resolve, reject) => {
