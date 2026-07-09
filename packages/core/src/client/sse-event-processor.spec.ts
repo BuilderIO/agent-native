@@ -2488,6 +2488,63 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps materialized pending tool calls across clear events", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "clear" },
+          { type: "text", text: "Retrying" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    const clearSnapshot = results.find(
+      (result) =>
+        Array.isArray(result.content) &&
+        result.content.some(
+          (part) =>
+            part?.type === "tool-call" &&
+            part.toolName === "query" &&
+            !("result" in part),
+        ) &&
+        !result.content.some((part) => part?.type === "text"),
+    );
+    expect(clearSnapshot?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        args: { sql: "select 1" },
+      }),
+    ]);
+  });
+
+  it("still clears ephemeral activity placeholders on clear events", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing query",
+            tool: "query",
+          },
+          { type: "clear" },
+          { type: "text", text: "Retrying" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [{ type: "text", text: "Retrying" }],
+    });
+  });
+
   it("dispatches visible activity for tool starts", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3044,7 +3101,7 @@ describe("SSE thinking / reasoning events", () => {
     await readSSEStreamRaw(
       eventsStream([
         { type: "thinking", text: "First, " },
-        { type: "thinking", text: "check the schema." },
+        { type: "reasoning", text: "check the schema." },
         { type: "text", text: "Here is the answer." },
         { type: "done" },
       ]),

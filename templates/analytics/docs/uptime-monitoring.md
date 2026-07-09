@@ -38,6 +38,10 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
    - `down` — the status does not match, a content/header assertion fails, or
      the request errored/timed out. Alerts at the monitor's configured severity.
    - `error` — a configuration/SSRF problem prevented the check from running.
+6. Persist a compact diagnostics payload on the check row with safe runtime
+   context, phase timings, response headers such as `x-nf-request-id`, and the
+   error kind. Diagnostics intentionally exclude request headers, request bodies,
+   response bodies, secrets, and large payloads.
 
 ### Status matcher
 
@@ -73,15 +77,19 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
   `emailRecipients`; `slack` / `webhook` use the monitor's optional
   delivery-only `slackWebhookUrl` / `webhookUrl` (falling back to workspace
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL` when unset).
-- Transient no-response failures, such as network errors or timeouts, must fail
-  twice in a row before opening an incident or alerting. Set
+- Transient no-response failures, such as network errors or timeouts, and
+  transient latency degradations must fail twice in a row before opening an
+  incident or alerting. Set
   `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS=1` to alert on the first
   transient failure, or a higher value (max 10) for stricter confirmation.
 - While an incident is open it will not re-alert. After an incident resolves,
   `cooldownMinutes` suppresses a fresh "down" alert for that window to prevent
-  flapping.
+  flapping. Incidents opened during that quiet window do not send recovery
+  emails either, so one flaky target cannot produce "recovered" noise for an
+  alert that was intentionally suppressed.
 - On **recovery**, it resolves the open incident and sends an informational
-  "recovered" notification (with downtime duration).
+  "recovered" notification (with downtime duration) only when the incident sent
+  an initial down/degraded notification.
 
 A `lastStatus === "running"` claim guard (with a staleness timeout) ensures that
 concurrent sweeps never double-run the same monitor.
@@ -105,23 +113,28 @@ set `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS=1` (off by default).
 
 ## Background job
 
-The sweep is registered by `server/plugins/uptime-monitor-jobs.ts` and runs
+The sweep is registered by `server/plugins/uptime-monitor-jobs.ts` for
+long-lived runtimes. Netlify builds emit a scheduled trigger plus background
+worker from `scripts/emit-netlify-dashboard-report-cron.ts`; the route
+`/api/uptime-monitors/run` is callable by that generated worker or by an
+external cron with `UPTIME_MONITORS_CRON_SECRET`. Both paths run
 `runDueMonitorsOnce()` (`server/jobs/uptime-monitors.ts`), which selects enabled
 monitors whose interval has elapsed, checks them, records results, opens/resolves
 incidents, and prunes old check results.
 
 Environment flags (mirrors the analytics alert job):
 
-| flag                                                   | effect                                                                             |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `UPTIME_MONITOR_JOBS`                                  | `1` enables the in-process cron; `0` disables it.                                  |
-| `RUN_BACKGROUND_JOBS`                                  | fallback flag when `UPTIME_MONITOR_JOBS` is unset.                                 |
-| (production)                                           | on by default unless a flag is `0` or a platform scheduler owns it.                |
-| `UPTIME_MONITOR_INTERVAL_MS`                           | wake interval for the sweep (default 30s, min 10s).                                |
-| `UPTIME_MONITOR_SWEEP_LIMIT`                           | max monitors processed per sweep (default 100).                                    |
-| `UPTIME_MONITOR_RESULT_RETENTION_DAYS`                 | how long check results are kept (default 30).                                      |
-| `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS`                   | allow probing private/internal hosts.                                              |
-| `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS` | consecutive timeout/network failures required before alerting (default 2, max 10). |
+| flag                                                   | effect                                                                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `UPTIME_MONITOR_JOBS`                                  | `1` enables the in-process cron; `0` disables it.                                                |
+| `RUN_BACKGROUND_JOBS`                                  | fallback flag when `UPTIME_MONITOR_JOBS` is unset.                                               |
+| (production)                                           | on by default unless a flag is `0` or a platform scheduler owns it.                              |
+| `UPTIME_MONITOR_INTERVAL_MS`                           | wake interval for the sweep (default 30s, min 10s).                                              |
+| `UPTIME_MONITOR_SWEEP_LIMIT`                           | max monitors processed per sweep (default 100).                                                  |
+| `UPTIME_MONITOR_RESULT_RETENTION_DAYS`                 | how long check results are kept (default 30).                                                    |
+| `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS`                   | allow probing private/internal hosts.                                                            |
+| `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS` | consecutive timeout/network/slow-response failures required before alerting (default 2, max 10). |
+| `UPTIME_MONITORS_CRON_SECRET`                          | bearer token for external cron callers of `/api/uptime-monitors/run`.                            |
 
 The monitor tables (`monitors`, `monitor_check_results`, `monitor_incidents`)
 are created by the app migration list in `server/plugins/db.ts`, which runs at
@@ -157,7 +170,7 @@ All three tables carry `ownableColumns()` (`owner_email` / `org_id` /
   `last_checked_at`, `last_success_at`, `last_error`, `last_latency_ms`,
   `last_status_code`, `consecutive_failures`).
 - **`monitor_check_results`** — one row per probe (`ok`, `status`, `status_code`,
-  `latency_ms`, `error`, `failed_assertions`), indexed on
+  `latency_ms`, `error`, `failed_assertions`, `diagnostics`), indexed on
   `(monitor_id, checked_at)`; pruned by the sweep so it stays bounded.
 - **`monitor_incidents`** — one row per failure streak (`started_at`,
   `resolved_at` null = ongoing, `cause`, `severity`, `notification_id`,

@@ -199,6 +199,7 @@ export default function ExplorerDashboardPage() {
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
     null,
   );
@@ -620,7 +621,10 @@ export default function ExplorerDashboardPage() {
             </Button>
           ) : null}
           {dashboardId || canEdit || canManage ? (
-            <DropdownMenu>
+            <DropdownMenu
+              open={dashboardActionsOpen}
+              onOpenChange={setDashboardActionsOpen}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
@@ -643,6 +647,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       setHistoryOpen(true);
                     }}
                   >
@@ -657,6 +662,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       void handleArchive();
                     }}
                   >
@@ -671,6 +677,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       setConfirmDeleteOpen(true);
                     }}
                     className="text-destructive focus:text-destructive"

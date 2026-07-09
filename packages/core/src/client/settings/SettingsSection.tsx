@@ -1,5 +1,13 @@
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+  type TransitionEvent,
+} from "react";
 
 import { cn } from "../utils.js";
 
@@ -100,6 +108,58 @@ function StatusBadge({
   );
 }
 
+function SettingsSectionBody({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: ReactNode;
+}) {
+  const [present, setPresent] = useState(open);
+
+  useEffect(() => {
+    if (open) {
+      setPresent(true);
+      return;
+    }
+    if (!present) return;
+
+    // Fallback for reduced-motion and older transition engines that may not
+    // emit a height transitionend event.
+    const timeout = window.setTimeout(() => setPresent(false), 260);
+    return () => window.clearTimeout(timeout);
+  }, [open, present]);
+
+  const handleTransitionEnd = useCallback(
+    (event: TransitionEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (open) return;
+      if (
+        event.propertyName !== "height" &&
+        event.propertyName !== "max-height"
+      ) {
+        return;
+      }
+      setPresent(false);
+    },
+    [open],
+  );
+
+  if (!present) return null;
+
+  return (
+    <div
+      data-state={open ? "open" : "closed"}
+      aria-hidden={open ? undefined : true}
+      inert={open ? undefined : true}
+      className="agent-native-settings-section-body"
+      onTransitionEnd={handleTransitionEnd}
+    >
+      {children}
+    </div>
+  );
+}
+
 function PageSettingsSection({
   id,
   icon,
@@ -156,7 +216,7 @@ function PageSettingsSection({
           )}
         />
       </button>
-      {open && (
+      <SettingsSectionBody open={open}>
         <div
           // `data-agent-native-settings-page` lets the shared stylesheet nudge
           // the smallest fixed type (authored dense for the compact sidebar) up
@@ -167,7 +227,7 @@ function PageSettingsSection({
         >
           {children}
         </div>
-      )}
+      </SettingsSectionBody>
     </div>
   );
 }
@@ -189,6 +249,7 @@ function SidebarSettingsSection({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={open}
         className="flex w-full cursor-pointer items-center justify-between px-3 py-2.5 text-start rounded-lg hover:bg-accent/40 transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -207,7 +268,7 @@ function SidebarSettingsSection({
           className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {open && (
+      <SettingsSectionBody open={open}>
         <div className="border-t border-border px-3 pb-3 pt-2.5">
           {subtitle && (
             <p className="text-[10px] text-muted-foreground mb-2.5">
@@ -216,7 +277,7 @@ function SidebarSettingsSection({
           )}
           {children}
         </div>
-      )}
+      </SettingsSectionBody>
     </div>
   );
 }

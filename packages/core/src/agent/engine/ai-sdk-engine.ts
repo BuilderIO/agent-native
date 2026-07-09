@@ -401,21 +401,29 @@ class AISDKEngine implements AgentEngine {
       // rather than keyword-matching the message string.
       const statusCode: number | undefined =
         typeof err?.statusCode === "number" ? err.statusCode : undefined;
+      const errorMessage = err?.message ?? String(err);
+      const isConnectionError =
+        statusCode === undefined &&
+        String(errorMessage).trim().toLowerCase() === "connection error.";
       const providerRetryable: boolean | undefined =
-        typeof err?.isRetryable === "boolean" ? err.isRetryable : undefined;
+        typeof err?.isRetryable === "boolean"
+          ? err.isRetryable
+          : isConnectionError
+            ? true
+            : undefined;
       if (statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
           status: statusCode,
           code: "http_401",
-          message: err?.message ?? String(err),
+          message: errorMessage,
         });
       }
       yield {
         type: "stop",
         reason: "error",
-        error: err?.message ?? String(err),
+        error: errorMessage,
         // Tag every known status with `http_<status>` (not just 401) so a
         // rate limit surfaces as `http_429`. The structured statusCode
         // already drives turn-level retries, but the run-level continuation
@@ -423,7 +431,9 @@ class AISDKEngine implements AgentEngine {
         // auto-resume too — matching the Builder gateway path.
         ...(statusCode !== undefined
           ? { errorCode: `http_${statusCode}`, statusCode }
-          : {}),
+          : isConnectionError
+            ? { errorCode: "provider_network_error" }
+            : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;

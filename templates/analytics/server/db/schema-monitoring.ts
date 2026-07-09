@@ -109,6 +109,8 @@ export const monitorCheckResults = table("monitor_check_results", {
   error: text("error"),
   /** JSON array of human-readable assertion failures. */
   failedAssertions: text("failed_assertions").notNull().default("[]"),
+  /** Compact JSON with phase timings and safe runtime/response metadata. */
+  diagnostics: text("diagnostics").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),
 });
@@ -129,6 +131,9 @@ export const monitorIncidents = table("monitor_incidents", {
   cause: text("cause").notNull().default(""),
   lastError: text("last_error"),
   notificationId: text("notification_id"),
+  notificationDelivered: integer("notification_delivered", { mode: "boolean" })
+    .notNull()
+    .default(false),
   checksFailed: integer("checks_failed").notNull().default(1),
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),

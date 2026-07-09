@@ -777,16 +777,38 @@ export function useDbSync(
         // Suppressed-action-only batches skip this whole list (their
         // mutations perform their own narrow invalidation) — but events must
         // STILL reach the onEvent forwarding below, so guard, don't return.
+        //
+        // Invalidation is scoped by source. Data-query prefixes (action,
+        // extension, tool) refetch only when the batch carries an event that
+        // can actually change action/extension-backed data — action
+        // mutations, settings, extension, collab, screen-refresh, etc.
+        // `app-state` events (agent/UI navigation, selection, and the
+        // set-url/questions command channel) drive their OWN keys below and
+        // must NEVER fan out into "refetch every action query": an active
+        // agent session mirrors navigation + selection into application_state
+        // continuously, and the serverless poll path replays those writes
+        // back to the originating tab (the DB-scan fallback cannot preserve
+        // `requestSource`, so `ignoreSource` can't filter them). Fanning each
+        // one into a full `["action"]` refetch turned a normal session into a
+        // client fetch storm that exhausted the DB connection pool — which in
+        // turn starved run heartbeat writes and surfaced as `stale_run`.
         if (!suppressesWholeBatch) {
-          queryClient.invalidateQueries({ queryKey: ["action"] });
-          queryClient.invalidateQueries({ queryKey: ["extension"] });
-          queryClient.invalidateQueries({ queryKey: ["extensions"] });
-          queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-          queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-          queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-          queryClient.invalidateQueries({ queryKey: ["tool"] });
-          queryClient.invalidateQueries({ queryKey: ["tools"] });
-          queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          const hasDataChangingEvent = invalidating.some(
+            (evt) => evt.source !== "app-state",
+          );
+          if (hasDataChangingEvent) {
+            queryClient.invalidateQueries({ queryKey: ["action"] });
+            queryClient.invalidateQueries({ queryKey: ["extension"] });
+            queryClient.invalidateQueries({ queryKey: ["extensions"] });
+            queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+            queryClient.invalidateQueries({ queryKey: ["tool"] });
+            queryClient.invalidateQueries({ queryKey: ["tools"] });
+          }
+          if (invalidating.some((evt) => evt.source === "app-state")) {
+            queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          }
           if (hasAppStateEvent(invalidating, "navigate")) {
             queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
           }

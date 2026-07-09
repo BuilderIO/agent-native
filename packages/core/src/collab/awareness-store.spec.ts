@@ -28,8 +28,16 @@ vi.mock("../db/client.js", () => ({
           });
           return { rows: [], rowsAffected: 1 };
         }
+        if (/last_seen <= \?/i.test(sql)) {
+          const key = rowKey(String(args[0]), Number(args[1]));
+          const row = dbRows.get(key);
+          if (row && row.last_seen <= Number(args[2])) {
+            dbRows.delete(key);
+          }
+          return { rows: [], rowsAffected: 1 };
+        }
         if (
-          /^\s*DELETE FROM _collab_awareness WHERE doc_id = \? AND client_id = \?/i.test(
+          /^\s*DELETE FROM _collab_awareness WHERE doc_id = \? AND client_id = \?\s*$/i.test(
             sql,
           )
         ) {
@@ -133,6 +141,16 @@ describe("awareness-store", () => {
     // Rewrite after delete is not throttled away.
     await upsertAwarenessRow("doc-4", 9, "{}", 1100);
     expect(dbRows.size).toBe(1);
+  });
+
+  it("bounds deletes so stale clears cannot remove newer rows", async () => {
+    await upsertAwarenessRow("doc-4b", 9, "{}", 2000);
+
+    await deleteAwarenessRow("doc-4b", 9, 1000);
+    expect(dbRows.has(rowKey("doc-4b", 9))).toBe(true);
+
+    await deleteAwarenessRow("doc-4b", 9, 2000);
+    expect(dbRows.has(rowKey("doc-4b", 9))).toBe(false);
   });
 
   it("supports Yjs client ids above int32 range", async () => {

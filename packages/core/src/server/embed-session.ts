@@ -44,10 +44,22 @@ const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
   // should survive that first-hop redirect instead of falling back to the
   // private deployment token gate.
   "/": ["/overview"],
-  "/dashboard": ["/adhoc/agent-native-templates-first-party"],
-  "/dashboards": ["/adhoc/agent-native-templates-first-party"],
-  "/traffic": ["/adhoc/agent-native-templates-first-party"],
-  "/traffic-dashboard": ["/adhoc/agent-native-templates-first-party"],
+  "/dashboard": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/dashboards": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/traffic": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/traffic-dashboard": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
 };
 
 let _initPromise: Promise<void> | undefined;
@@ -262,6 +274,10 @@ function openRouteTargetPathnames(targetPath: string): Set<string> {
     addResolvedOpenRoutePath(
       targets,
       `/adhoc/${encodeURIComponent(dashboardId)}`,
+    );
+    addResolvedOpenRoutePath(
+      targets,
+      `/dashboards/${encodeURIComponent(dashboardId)}`,
     );
   }
   const analysisId = safePathSegment(url.searchParams.get("analysisId"));

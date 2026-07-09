@@ -515,6 +515,57 @@
   --ring: 215 12% 60%;
 }
 
+/* Settings sections: animate between closed and intrinsic open height. */
+.agent-native-settings-section-body {
+  display: flow-root;
+  height: auto;
+  overflow: hidden;
+  overflow: clip;
+  opacity: 1;
+  clip-path: inset(0);
+  interpolate-size: allow-keywords;
+  transition:
+    height 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms ease,
+    clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.agent-native-settings-section-body[data-state="closed"] {
+  height: 0;
+  opacity: 0;
+  clip-path: inset(0 0 100% 0);
+  pointer-events: none;
+}
+
+@starting-style {
+  .agent-native-settings-section-body[data-state="open"] {
+    height: 0;
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+@supports not (interpolate-size: allow-keywords) {
+  .agent-native-settings-section-body {
+    height: auto;
+    max-height: 64rem;
+    transition:
+      max-height 200ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 150ms ease,
+      clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .agent-native-settings-section-body[data-state="closed"] {
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-native-settings-section-body {
+    transition: none;
+  }
+}
+
 /* Full settings page section bodies.
    The framework's shared settings sections (LLM, App model defaults, Agent
    limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting

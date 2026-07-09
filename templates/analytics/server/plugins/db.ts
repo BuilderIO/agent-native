@@ -999,6 +999,7 @@ const runAnalyticsMigrations = runMigrations(
       cause TEXT NOT NULL DEFAULT '',
       last_error TEXT,
       notification_id TEXT,
+      notification_delivered BOOLEAN NOT NULL DEFAULT false,
       checks_failed INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (now()::text),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -1015,6 +1016,7 @@ const runAnalyticsMigrations = runMigrations(
       cause TEXT NOT NULL DEFAULT '',
       last_error TEXT,
       notification_id TEXT,
+      notification_delivered INTEGER NOT NULL DEFAULT 0,
       checks_failed INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -1232,6 +1234,19 @@ const runAnalyticsMigrations = runMigrations(
         SET timeout_ms = 10000, updated_at = COALESCE(NULLIF(updated_at, ''), datetime('now'))
         WHERE timeout_ms IS NULL OR timeout_ms < 10000 OR timeout_ms = 15000
       `,
+      },
+    },
+    {
+      version: 116,
+      name: "uptime-monitor-check-diagnostics",
+      sql: `ALTER TABLE monitor_check_results ADD COLUMN IF NOT EXISTS diagnostics TEXT NOT NULL DEFAULT '{}'`,
+    },
+    {
+      version: 117,
+      name: "uptime-monitor-incident-notification-delivered",
+      sql: {
+        postgres: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered BOOLEAN NOT NULL DEFAULT false`,
+        sqlite: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered INTEGER NOT NULL DEFAULT 0`,
       },
     },
   ],

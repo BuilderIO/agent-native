@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createSsrfSafeDispatcher = vi.fn();
@@ -480,7 +482,40 @@ describe("runMonitorCheck timeout budget", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.statusCode).toBe(200);
     expect(outcome.error).toBeNull();
+    expect(outcome.diagnostics.source).toBe("unknown");
+    expect(outcome.diagnostics.timings.ssrfSetupMs).toBeGreaterThanOrEqual(600);
+    expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(0);
+    expect(outcome.diagnostics.response?.statusCode).toBe(200);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores only safe response metadata in diagnostics", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 302,
+        url: "https://example.com/callback?code=secret-example",
+        headers: new Headers({
+          location: "https://example.com/callback?code=secret-example",
+          server: "example",
+        }),
+        body: null,
+        async text() {
+          return "";
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      { ...base, expectedStatus: { mode: "class", classes: ["3xx"] } },
+      { allowPrivateHosts: true },
+    );
+
+    expect(outcome.status).toBe("up");
+    expect(outcome.diagnostics.response?.finalHost).toBe("example.com");
+    expect(outcome.diagnostics.response?.finalUrl).toBeUndefined();
+    expect(outcome.diagnostics.response?.headers).toEqual({
+      server: "example",
+    });
   });
 
   it("still reports a real fetch timeout after headers never arrive", async () => {
@@ -505,6 +540,11 @@ describe("runMonitorCheck timeout budget", () => {
     expect(outcome.statusCode).toBeNull();
     expect(outcome.error).toBe("Timed out after 1000ms");
     expect(outcome.latencyMs).toBe(1000);
+    expect(outcome.diagnostics.error).toMatchObject({
+      kind: "timeout",
+      message: "Timed out after 1000ms",
+    });
+    expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(1000);
   });
 });
 
@@ -517,11 +557,38 @@ describe("shouldOpenMonitorIncident", () => {
     latencyMs: null,
     error: "Timed out after 10000ms",
     failedAssertions: ["Timed out after 10000ms"],
+    diagnostics: {
+      source: "unknown",
+      runtime: {},
+      request: {
+        method: "GET",
+        timeoutMs: 10000,
+        followRedirects: true,
+        assertionTypes: [],
+        bodyReadRequired: false,
+        allowPrivateHosts: false,
+      },
+      timings: {},
+    },
   };
 
   it("requires confirmation for transient no-response failures", () => {
     expect(shouldOpenMonitorIncident(timeoutOutcome, 0, 2)).toBe(false);
     expect(shouldOpenMonitorIncident(timeoutOutcome, 1, 2)).toBe(true);
+  });
+
+  it("requires confirmation for transient latency degradations", () => {
+    const degradedOutcome: CheckOutcome = {
+      ...timeoutOutcome,
+      status: "degraded",
+      statusCode: 200,
+      latencyMs: 4500,
+      error: "Response took 4500ms (max 1000ms)",
+      failedAssertions: ["Response took 4500ms (max 1000ms)"],
+    };
+
+    expect(shouldOpenMonitorIncident(degradedOutcome, 0, 2)).toBe(false);
+    expect(shouldOpenMonitorIncident(degradedOutcome, 1, 2)).toBe(true);
   });
 
   it("opens immediately for HTTP failures that returned a response", () => {
@@ -538,5 +605,27 @@ describe("shouldOpenMonitorIncident", () => {
         2,
       ),
     ).toBe(true);
+  });
+
+  it("does not send recovery notifications for suppressed flap incidents", () => {
+    const source = readFileSync(
+      new URL("./uptime-monitors.ts", import.meta.url),
+      "utf8",
+    );
+    const recoveryIndex = source.indexOf("if (open.notificationDelivered)");
+    const notifyIndex = source.indexOf("await notifyMonitorRecovered");
+
+    expect(recoveryIndex).toBeGreaterThan(-1);
+    expect(notifyIndex).toBeGreaterThan(recoveryIndex);
+  });
+
+  it("tracks actual down-notification delivery for recovery alerts", () => {
+    const source = readFileSync(
+      new URL("./uptime-monitors.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("delivery.deliveredChannels.length > 0");
+    expect(source).toContain("notificationDelivered,");
   });
 });

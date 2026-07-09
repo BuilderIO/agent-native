@@ -56,6 +56,35 @@ describe("tracking providers", () => {
     });
   });
 
+  it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
+    const { listTrackingProviders, registerBuiltinProviders } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+
+    expect(listTrackingProviders()).toContain("agent-native-analytics");
+  });
+
+  it("flushes Agent Native Analytics events immediately in serverless runtimes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    vi.stubEnv("NETLIFY", "true");
+    const { registerBuiltinProviders, track } = await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("http.response", { status_code: 200 });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("sends PostHog AI observability events to the AI event endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

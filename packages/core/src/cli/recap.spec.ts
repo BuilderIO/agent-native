@@ -3133,6 +3133,12 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain("const trustedAssociations = [");
     expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");
     expect(content).toContain("github.rest.pulls.get");
+    expect(content).toContain("github.rest.orgs.getMembershipForUser");
+    expect(content).toContain(
+      "github.rest.repos.getCollaboratorPermissionLevel",
+    );
+    expect(content).toContain("orgMember=${isOrgMember}");
+    expect(content).toContain("repoPermission=${repoPermission || 'unknown'}");
     expect(content).toContain(
       "pull_request_target webhook author_association is unreliable",
     );

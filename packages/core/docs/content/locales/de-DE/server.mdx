@@ -127,6 +127,41 @@ Wenn UI und Agent beide etwas tun müssen, definieren Sie eine Aktion anstelle e
 
 Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder Binär-/Streaming-Verhalten benötigen. Siehe [Actions](/docs/actions).
 
+### API-only Apps {#api-only-apps}
+
+Sie benötigen keinen Express-Server, nur weil die App nur eine API bereitstellt. Eine Agent Native-App bringt bereits einen Nitro/H3-Server mit, und `defineAction()` ist die standardmäßige API-Oberfläche. Definieren Sie Operationen in `actions/`; das Framework stellt jede action unter `/_agent-native/actions/<name>` mit Schemavalidierung und Anforderungskontext bereit.
+
+Verwenden Sie die `http`-Option der action, um direkten HTTP-Zugriff zu formen: actions sind standardmäßig `POST`, `http: { method: "GET" | "PUT" | "DELETE" }` ändert das Verb, und `http: false` nimmt eine action aus HTTP heraus. Greifen Sie nur für routenförmige oder protokollbezogene Anliegen zu `server/routes/api/*`: Datei-Uploads, Streaming/SSE, webhooks, OAuth-Rückrufe, öffentliche Seiten oder eine externe REST-Form, die sich nicht sauber als action darstellen lässt. Erstellen Sie keine `/api/*`-Routen, die hauptsächlich actions umhüllen oder re-exportieren.
+
+Für einen schreibgeschützten Status-endpoint behalten Sie ihn als action bei:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Rufen Sie ihn direkt über HTTP auf:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+Für `POST` und andere schreibende actions senden Sie einen JSON-body an denselben action-path.
+
 ## One-Shot-Textvervollständigung {#complete-text}
 
 Der Großteil der KI-Arbeit sollte über den Agenten-Chat erfolgen, damit Benutzer sehen, steuern und prüfen können

@@ -32,6 +32,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
+  settleInterruptedAssistantToolCallsInRepo,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -326,7 +327,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([activityPlaceholder, completedRepeat]);
   });
 
-  it("drops reconnect completions when the rendered tool call is still pending", () => {
+  it("keeps reconnect completions when the rendered tool call is still pending", () => {
     const persistedMessages = [
       {
         role: "assistant",
@@ -352,6 +353,38 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 
     expect(
       dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
+    ).toEqual([completedCall]);
+  });
+
+  it("drops a pending reconnect duplicate when the rendered call already completed", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_9",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
     ).toEqual([]);
   });
 
@@ -581,6 +614,46 @@ describe("resolveAssistantChatRunningState", () => {
   });
 });
 
+describe("settleInterruptedAssistantToolCallsInRepo", () => {
+  it("settles active tool activity so stopped tool cards do not keep spinning", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tool-1",
+                toolName: "query",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+    const tool = settled.repo.messages[0].message.content[0] as {
+      result?: unknown;
+      isError?: boolean;
+      activity?: boolean;
+    };
+
+    expect(settled.changed).toBe(true);
+    expect(tool.result).toBe("Stopped before this action started.");
+    expect(tool.isError).toBe(true);
+    expect(tool.activity).toBe(true);
+    expect(settled.repo.messages[0].message.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+  });
+});
+
 describe("resolveAssistantChatRunningStatusLabel", () => {
   it("keeps active tool activity ahead of recovery labels", () => {
     expect(
@@ -613,6 +686,39 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         hasReconnectContent: false,
       }),
     ).toBe("Thinking");
+  });
+});
+
+describe("chat submit and stop hardening", () => {
+  it("does not block chat composer submit on the async readiness hook", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain(
+      "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
+    );
+    expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+  });
+
+  it("clears queued follow-ups and settles stopped tool calls by default", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const stopActiveRun = useCallback");
+    const end = source.indexOf("// Keep the ref current");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("preserveQueuedMessages");
+    expect(helperSource).toContain("queueStopVersionRef.current += 1");
+    expect(helperSource).toContain("dequeueInFlightRef.current = false");
+    expect(helperSource).toContain("applyLocalQueuedMessages(() => [])");
+    expect(helperSource).toContain("setPendingReconnectRecovery(null)");
+    expect(helperSource).toContain("resetRunningActivity()");
+    expect(helperSource).toContain("includeActivity: true");
+    expect(helperSource).toContain("settleVisibleInterruptedTools()");
   });
 });
 
@@ -815,7 +921,7 @@ describe("waitForThreadRunToClear", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("{(isReconnecting || reconnectFrozen) &&");
+    const start = source.indexOf("visibleReconnectContent.length > 0");
     const end = source.indexOf("{showRunningInUI &&", start);
     const renderSource = source.slice(start, end);
 
@@ -824,6 +930,7 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).toContain("adapterHandoffPending");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -1003,7 +1110,26 @@ describe("server thread snapshot caching", () => {
     expect(end).toBeGreaterThan(start);
     expect(importSource).toContain("shouldImport = false");
     expect(importSource).toContain(
+      "isRuntimeRunningRef.current || isAutoResumingRef.current",
+    );
+    expect(importSource).toContain(
       "if (settled && Array.isArray(repo?.queuedMessages))",
+    );
+  });
+});
+
+describe("adapter reconnect handoff", () => {
+  it("defers wiping reconnect content until the adapter message catches up", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("adapterHandoffPending");
+    expect(source).toContain("setAdapterHandoffPending(true)");
+    expect(source).toContain(
+      "dedupeReconnectContentAgainstMessages(reconnectContent, messages)",
+    );
+    expect(source).toMatch(
+      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
     );
   });
 });

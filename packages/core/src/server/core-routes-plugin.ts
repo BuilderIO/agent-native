@@ -25,6 +25,7 @@ import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isStoredEngineUsableForRequest,
+  normalizeModelForEngine,
 } from "../agent/engine/registry.js";
 import {
   canUpdateAgentLoopSettings,
@@ -174,6 +175,16 @@ import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+
+export function normalizeAgentEngineStatusModel(
+  entry:
+    | { name: string; defaultModel: string; supportedModels: readonly string[] }
+    | undefined,
+  model: string | null | undefined,
+): string {
+  if (!entry) return model ?? DEFAULT_MODEL;
+  return normalizeModelForEngine(entry, model ?? entry.defaultModel);
+}
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
@@ -2727,10 +2738,14 @@ export function createCoreRoutesPlugin(
             if (isAgentEngineSettingConfigured(stored)) {
               const engine = (stored as { engine: string }).engine;
               const entry = getAgentEngineEntry(engine);
+              const model = normalizeAgentEngineStatusModel(
+                entry,
+                stored?.model,
+              );
               return {
                 configured: true,
                 engine,
-                model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
+                model,
                 source: "settings" as const,
                 openAiBaseUrlConfigured,
               };
@@ -2775,10 +2790,14 @@ export function createCoreRoutesPlugin(
                   isStoredEngineUsableForRequest(stored, entry),
                 ))
               ) {
+                const model = normalizeAgentEngineStatusModel(
+                  entry,
+                  stored.model,
+                );
                 return {
                   configured: true,
                   engine: stored.engine,
-                  model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
+                  model,
                   source: "env" as const,
                   envVar: entry.requiredEnvVars[0],
                   openAiBaseUrlConfigured,

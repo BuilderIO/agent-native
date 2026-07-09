@@ -9,6 +9,7 @@ const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
+const startRunMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourceListAllOwners: resourceListAllOwnersMock,
@@ -30,6 +31,11 @@ vi.mock("../agent/production-agent.js", () => ({
   runAgentLoop: runAgentLoopMock,
 }));
 
+vi.mock("../agent/run-manager.js", () => ({
+  resolveRunSoftTimeoutMs: vi.fn(() => 0),
+  startRun: startRunMock,
+}));
+
 vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -44,6 +50,12 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
     getDbExec: getDbExecMock,
   };
 });
+
+const testEngine = {
+  name: "test",
+  defaultModel: "test-model",
+  supportedModels: ["test-model"],
+} as any;
 
 describe("processRecurringJobs", () => {
   const originalEnv = { ...process.env };
@@ -78,6 +90,35 @@ Summarize the inbox.`,
       cacheWriteTokens: 5,
       model: "test-model",
     });
+    startRunMock.mockImplementation(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: unknown) => void,
+          signal: AbortSignal,
+        ) => Promise<void>,
+        onComplete?: (run: { status: string }) => void | Promise<void>,
+      ) => {
+        const abort = new AbortController();
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+        };
+        void Promise.resolve().then(async () => {
+          try {
+            await runFn(vi.fn(), abort.signal);
+            activeRun.status = "completed";
+          } catch {
+            activeRun.status = "errored";
+          }
+          await onComplete?.(activeRun);
+        });
+        return activeRun;
+      },
+    );
     recordUsageMock.mockResolvedValue(undefined);
   });
 
@@ -85,7 +126,7 @@ Summarize the inbox.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
     });
 
@@ -119,7 +160,7 @@ Summarize the inbox.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt,
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
     });
 
@@ -135,7 +176,7 @@ Summarize the inbox.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
     });
 
@@ -147,7 +188,7 @@ Summarize the inbox.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
       appId: "mail",
     });
@@ -195,7 +236,7 @@ Do some work.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
     });
 
@@ -237,7 +278,7 @@ Do some work.`,
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
-      engine: {} as any,
+      engine: testEngine,
       model: "test-model",
     });
 

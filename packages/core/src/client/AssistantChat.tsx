@@ -366,6 +366,44 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
   );
 }
 
+export function settleInterruptedAssistantToolCallsInRepo<
+  T extends { messages?: unknown[] },
+>(repo: T): { repo: T; changed: boolean } {
+  if (!Array.isArray(repo.messages)) return { repo, changed: false };
+  let changed = false;
+  const nextMessages = repo.messages.map((entry) => {
+    const wrapper =
+      entry && typeof entry === "object" && "message" in entry
+        ? (entry as { message?: unknown })
+        : null;
+    const message = (wrapper?.message ?? entry) as
+      | { role?: unknown; content?: unknown; status?: unknown }
+      | null
+      | undefined;
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      return entry;
+    }
+    const content = cloneContentParts(message.content as ContentPart[]);
+    if (
+      !settleInterruptedToolCalls(content, undefined, { includeActivity: true })
+    ) {
+      return entry;
+    }
+    changed = true;
+    const nextMessage = {
+      ...message,
+      content,
+      status: { type: "incomplete", reason: "error" },
+    };
+    return wrapper
+      ? { ...(entry as Record<string, unknown>), message: nextMessage }
+      : nextMessage;
+  });
+  return changed
+    ? { repo: { ...repo, messages: nextMessages }, changed }
+    : { repo, changed };
+}
+
 function clearPendingSelection() {
   fetch(
     agentNativePath(
@@ -587,6 +625,28 @@ function toolCallPartHasResult(part: unknown): boolean {
 }
 
 /**
+ * Monotonic progress rank for a tool-call part. Higher means the UI should
+ * prefer this copy over a lower-ranked duplicate of the same logical call.
+ * Used so reconnect overlays that are ahead of lagging thread messages stay
+ * visible instead of flickering back to an older pending spinner.
+ */
+function toolCallProgressRank(part: unknown): number {
+  if (!part || typeof part !== "object") return 0;
+  const candidate = part as {
+    type?: unknown;
+    result?: unknown;
+    activity?: unknown;
+    argsText?: unknown;
+  };
+  if (candidate.type !== "tool-call") return 0;
+  if ("result" in candidate) return 4;
+  if (candidate.activity === true) return 1;
+  return typeof candidate.argsText === "string" && candidate.argsText.length > 0
+    ? 2
+    : 1;
+}
+
+/**
  * Identity fingerprint for a tool-call part that survives across readers: two
  * readers of the same run assign unrelated synthetic toolCallIds until both
  * have seen the server id, but the tool name + serialized args are identical
@@ -615,10 +675,10 @@ function toolCallFingerprintFromContentPart(part: unknown): string | null {
 }
 
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
-  byId: Map<string, { hasResult: boolean }>;
-  latestAssistantByFingerprint: Map<string, { hasResult: boolean }>;
+  byId: Map<string, { rank: number }>;
+  latestAssistantByFingerprint: Map<string, { rank: number }>;
 } {
-  const byId = new Map<string, { hasResult: boolean }>();
+  const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
@@ -626,18 +686,15 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
     for (const part of content) {
       const id = toolCallIdFromContentPart(part);
       if (!id) continue;
-      const hasResult = toolCallPartHasResult(part);
+      const rank = toolCallProgressRank(part);
       const existing = byId.get(id);
       byId.set(id, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
+        rank: Math.max(existing?.rank ?? 0, rank),
       });
     }
   }
 
-  const latestAssistantByFingerprint = new Map<
-    string,
-    { hasResult: boolean }
-  >();
+  const latestAssistantByFingerprint = new Map<string, { rank: number }>();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
   const latestContent = latestMessage?.content;
@@ -645,10 +702,10 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
     for (const part of latestContent) {
       const fingerprint = toolCallFingerprintFromContentPart(part);
       if (!fingerprint) continue;
-      const hasResult = toolCallPartHasResult(part);
+      const rank = toolCallProgressRank(part);
       const existing = latestAssistantByFingerprint.get(fingerprint);
       latestAssistantByFingerprint.set(fingerprint, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
+        rank: Math.max(existing?.rank ?? 0, rank),
       });
     }
   }
@@ -760,25 +817,35 @@ export function dedupeReconnectContentAgainstMessages(
   const filtered =
     byId.size > 0 || latestAssistantByFingerprint.size > 0
       ? snapshotDeduped.filter((part) => {
+          const reconnectRank = toolCallProgressRank(part);
           const id = toolCallIdFromContentPart(part);
           const existing = id ? byId.get(id) : undefined;
           if (existing) {
-            changed = true;
-            return false;
+            // Keep reconnect copies that are strictly ahead of the rendered
+            // message (e.g. completed overlay vs lagging pending thread data).
+            // Same-or-behind ranks are duplicates and should stay hidden.
+            if (reconnectRank <= existing.rank) {
+              changed = true;
+              return false;
+            }
+            return true;
           }
           // Fingerprint fallback for the id-convergence window: two readers of
           // the same active run can assign unrelated ids to the same logical tool
           // call before the server id converges. Suppress the reconnect overlay
-          // whenever it matches the latest rendered assistant tool call and either
-          // side is still pending; completed-vs-completed remains visible so a
-          // legitimately repeated identical call is not hidden.
+          // only when the rendered message is at least as far along; completed
+          // reconnect copies stay visible over pending message copies so the UI
+          // does not pop back to an older spinner.
           const fingerprint = toolCallFingerprintFromContentPart(part);
           const latestByFingerprint = fingerprint
             ? latestAssistantByFingerprint.get(fingerprint)
             : undefined;
+          const isCompletedRepeat =
+            reconnectRank >= 4 && latestByFingerprint?.rank === 4;
           if (
             latestByFingerprint &&
-            (!toolCallPartHasResult(part) || !latestByFingerprint.hasResult)
+            !isCompletedRepeat &&
+            reconnectRank <= latestByFingerprint.rank
           ) {
             changed = true;
             return false;
@@ -1557,6 +1624,7 @@ const AssistantChatInner = forwardRef<
   const queueDirtyRef = useRef(false);
   const queueMutationVersionRef = useRef(0);
   const dequeueInFlightRef = useRef(false);
+  const queueStopVersionRef = useRef(0);
   const [composerContextItems, setComposerContextItems] = useState<
     AgentChatContextItem[]
   >([]);
@@ -1728,6 +1796,9 @@ const AssistantChatInner = forwardRef<
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
+  // Adapter took over while reconnect still had visible tool cards — keep the
+  // overlay until the adapter message catches up so we don't flash an empty gap.
+  const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
@@ -1784,16 +1855,23 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      isReconnecting || reconnectFrozen
+      isReconnecting || reconnectFrozen || adapterHandoffPending
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [isReconnecting, reconnectFrozen, runningActivityTool],
+    [
+      adapterHandoffPending,
+      isReconnecting,
+      reconnectFrozen,
+      runningActivityTool,
+    ],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
   // a running turn without adding many unstable closure deps to its dep list.
-  const stopActiveRunRef = useRef<() => void>(() => {});
+  const stopActiveRunRef = useRef<
+    (options?: { preserveQueuedMessages?: boolean }) => void
+  >(() => {});
 
   const markOptimisticRunning = useCallback(() => {
     setOptimisticRunning(true);
@@ -1888,15 +1966,21 @@ const AssistantChatInner = forwardRef<
       let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
-        try {
-          shouldImport = shouldImportServerThreadData(
-            normalizeThreadRepository(threadRuntime.export()),
-            repo,
-          );
-        } catch {
-          // If the runtime/export comparison itself fails, do not fail open by
-          // importing a server snapshot that may be stale relative to local UI.
+        // Adapter owns the live turn (including auto-continuation gaps). Do not
+        // let a lagging server thread snapshot clobber in-flight tool cards.
+        if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
           shouldImport = false;
+        } else {
+          try {
+            shouldImport = shouldImportServerThreadData(
+              normalizeThreadRepository(threadRuntime.export()),
+              repo,
+            );
+          } catch {
+            // If the runtime/export comparison itself fails, do not fail open by
+            // importing a server snapshot that may be stale relative to local UI.
+            shouldImport = false;
+          }
         }
         if (shouldImport) {
           if (options?.markTitleGenerated) {
@@ -2058,6 +2142,25 @@ const AssistantChatInner = forwardRef<
         return false;
       }
 
+      // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
+      // (e.g. repeated stale_run at "Contacting model") produces a new runId
+      // every few seconds; each call here used to OVERWRITE the single-slot
+      // refs below without tearing down the prior closure, leaving its
+      // watchdog (1s) + idleCheck (1s) + thread poll (2s) + SSE retry loop all
+      // running. 4-5 stacked generations = a ~20 req/s request storm that
+      // hammers the same Neon pool the server needs for heartbeats, deepening
+      // the DB saturation that causes the failures in the first place. Abort
+      // the prior generation's AbortController so its stream loop exits and its
+      // `finally` clears every interval before we start a fresh one.
+      if (reconnectAbortRef.current) {
+        try {
+          reconnectAbortRef.current.abort();
+        } catch {
+          // Already aborted / detached — nothing to unwind.
+        }
+        reconnectAbortRef.current = null;
+      }
+
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       reconnectTailOnlyRef.current = afterSeq > 0;
@@ -2072,6 +2175,7 @@ const AssistantChatInner = forwardRef<
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
+      setAdapterHandoffPending(false);
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
@@ -2152,6 +2256,19 @@ const AssistantChatInner = forwardRef<
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
         const preparingActionState: PreparingActionState = {};
+        // Exponential backoff for the reattach retry loop. A run that is
+        // "active" server-side but producing no stream (the exact stuck state
+        // that triggers a reconnect) would otherwise re-fetch /runs/:id/events
+        // every ~250ms — several req/s per generation. Back off 250ms → 5s so a
+        // genuinely stuck run stops hammering the server; reset the moment real
+        // progress streams in (see the onSeq callback) so a recovering run
+        // re-tightens immediately.
+        let reconnectRetryCount = 0;
+        const backoffRetryDelay = () => {
+          const ms = Math.min(250 * 2 ** reconnectRetryCount, 5000);
+          reconnectRetryCount += 1;
+          return new Promise((resolve) => window.setTimeout(resolve, ms));
+        };
         const sameRunStillActive = async (): Promise<
           "active" | "inactive" | "unknown"
         > => {
@@ -2176,6 +2293,11 @@ const AssistantChatInner = forwardRef<
           afterSeq > 0
             ? window.setInterval(() => {
                 if (reconnectRunIdRef.current !== runId) return;
+                // Adapter took over mid-poll — skip imports that would race the
+                // live stream and flicker tool cards back to older snapshots.
+                if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+                  return;
+                }
                 void refreshThreadFromServer();
               }, 2000)
             : undefined;
@@ -2197,7 +2319,7 @@ const AssistantChatInner = forwardRef<
             if (!sseRes.ok || !sseRes.body) {
               const activeState = await sameRunStillActive();
               if (activeState !== "inactive") {
-                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                await backoffRetryDelay();
                 continue;
               }
               break;
@@ -2223,6 +2345,7 @@ const AssistantChatInner = forwardRef<
                 scheduleUpdate,
                 (seq) => {
                   markReconnectProgress();
+                  reconnectRetryCount = 0;
                   updateActiveRunSeq(seq);
                 },
                 { preparingActionState },
@@ -2241,9 +2364,7 @@ const AssistantChatInner = forwardRef<
                 }
                 const activeState = await sameRunStillActive();
                 if (activeState !== "inactive") {
-                  await new Promise((resolve) =>
-                    window.setTimeout(resolve, 250),
-                  );
+                  await backoffRetryDelay();
                   continue;
                 }
               }
@@ -2604,7 +2725,8 @@ const AssistantChatInner = forwardRef<
       !loadHistoryRepository ||
       !hasRestoredRef.current ||
       isRestoring ||
-      isRunning
+      isRunning ||
+      isAutoResuming
     ) {
       return;
     }
@@ -2621,6 +2743,7 @@ const AssistantChatInner = forwardRef<
   }, [
     historyReloadKey,
     importThreadData,
+    isAutoResuming,
     isRestoring,
     isRunning,
     loadHistoryRepository,
@@ -3046,6 +3169,7 @@ const AssistantChatInner = forwardRef<
 
     const next = queuedMessages[0];
     if (!next) return;
+    const stopVersion = queueStopVersionRef.current;
 
     dequeueInFlightRef.current = true;
     let cancelled = false;
@@ -3063,7 +3187,10 @@ const AssistantChatInner = forwardRef<
           await waitForThreadRunToClear(apiUrl, threadId);
           if (cancelled) return;
 
-          if (queuedMessagesRef.current[0]?.id !== next.id) {
+          if (
+            queueStopVersionRef.current !== stopVersion ||
+            queuedMessagesRef.current[0]?.id !== next.id
+          ) {
             return;
           }
 
@@ -3100,6 +3227,7 @@ const AssistantChatInner = forwardRef<
         } catch (err) {
           if (
             removedForAppend &&
+            queueStopVersionRef.current === stopVersion &&
             !queuedMessagesRef.current.some((message) => message.id === next.id)
           ) {
             applyLocalQueuedMessages((prev) => [next, ...prev]);
@@ -3154,29 +3282,65 @@ const AssistantChatInner = forwardRef<
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
       // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed). Any live reconnect reader is now a
-      // duplicate accumulator — abort it and DISCARD its content; the adapter's
-      // stream renders the canonical message. Null the run ref first so the
-      // reader's own cleanup paths (which all check reconnectRunIdRef) no-op.
+      // started or an adopted run resumed). Abort the reconnect reader, but keep
+      // its visible content until the adapter message has tool/text parts so the
+      // UI does not flash an empty gap between readers.
       if (reconnectRunIdRef.current !== null) {
+        const keepOverlay = reconnectContent.length > 0;
         reconnectRunIdRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
         setIsReconnecting(false);
-        setReconnectContent([]);
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
+        if (keepOverlay) {
+          setAdapterHandoffPending(true);
+        } else {
+          setReconnectContent([]);
+          setAdapterHandoffPending(false);
+        }
       } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        setAdapterHandoffPending(false);
         reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
       }
     }
-  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
+  }, [
+    isRuntimeRunning,
+    reconnectFrozen,
+    forceStopped,
+    reconnectContent.length,
+  ]);
+
+  // Release the deferred reconnect overlay once thread messages have caught
+  // up enough that dedupe would hide the overlay, or after a short timeout so
+  // a stuck handoff cannot leave duplicate tool cards forever.
+  useEffect(() => {
+    if (!adapterHandoffPending) return;
+    if (!isRuntimeRunning) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const stillNeeded =
+      dedupeReconnectContentAgainstMessages(reconnectContent, messages).length >
+      0;
+    if (!stillNeeded) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [adapterHandoffPending, isRuntimeRunning, messages, reconnectContent]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -3194,6 +3358,7 @@ const AssistantChatInner = forwardRef<
     if (!reconnectCanMaterializeRef.current) {
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       return;
     }
     try {
@@ -3236,6 +3401,7 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
     } catch (err) {
       captureError(err, {
@@ -3259,61 +3425,108 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
+  const settleVisibleInterruptedTools = useCallback(() => {
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+      if (settled.changed) {
+        threadRuntime.import(ensureMessageMetadata(settled.repo));
+      }
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "settle-stopped-tool-calls",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        },
+      });
+    }
+  }, [tabId, threadId, threadRuntime]);
+
   // Abort the active server run (identical to what the Stop button does) so
   // an immediate-while-running send can proceed cleanly without a 409 race.
   // Captured in a stable ref so addToQueue can call it without listing
   // all the stop-related state in its own dep array.
-  const stopActiveRun = useCallback(() => {
-    setForceStopped(true);
-    setOptimisticRunning(false);
-    const activeRun = getActiveRun();
-    const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
-    userStoppedRunRef.current = {
-      at: Date.now(),
-      ...(runIdToAbort ? { runId: runIdToAbort } : {}),
-    };
-    setRunErrorInfo(null);
-    setDismissedRunErrorKey(null);
-    if (runIdToAbort) {
-      if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
-      fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
-        method: "POST",
-      }).catch(() => {});
-    }
-    if (isReconnecting) {
-      reconnectAbortRef.current?.abort();
-      reconnectAbortRef.current = null;
-      reconnectRunIdRef.current = null;
-      setIsReconnecting(false);
-      const shouldFreezeReconnectContent =
-        !reconnectTailOnlyRef.current &&
-        reconnectCanMaterializeRef.current &&
-        reconnectContent.length > 0;
-      if (shouldFreezeReconnectContent) {
-        setReconnectFrozen(true);
-      } else {
-        setReconnectFrozen(false);
-        setReconnectContent([]);
-        reconnectCanMaterializeRef.current = false;
+  const stopActiveRun = useCallback(
+    (options?: { preserveQueuedMessages?: boolean }) => {
+      setForceStopped(true);
+      setOptimisticRunning(false);
+      setHasActiveServerRun(false);
+      setPendingReconnectRecovery(null);
+      setIsAutoResuming(false);
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
       }
-      reconnectTailOnlyRef.current = false;
-    }
-    threadRuntime.cancelRun();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: false, tabId: tabId || threadId },
-        }),
-      );
-    }
-  }, [
-    apiUrl,
-    isReconnecting,
-    reconnectContent.length,
-    tabId,
-    threadId,
-    threadRuntime,
-  ]);
+      resetRunningActivity();
+      if (!options?.preserveQueuedMessages) {
+        queueStopVersionRef.current += 1;
+        dequeueInFlightRef.current = false;
+        applyLocalQueuedMessages(() => []);
+      }
+      const activeRun = getActiveRun();
+      const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      userStoppedRunRef.current = {
+        at: Date.now(),
+        ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+      };
+      setRunErrorInfo(null);
+      setDismissedRunErrorKey(null);
+      if (runIdToAbort) {
+        if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
+        fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
+          method: "POST",
+        }).catch(() => {});
+      }
+      if (isReconnecting) {
+        reconnectAbortRef.current?.abort();
+        reconnectAbortRef.current = null;
+        reconnectRunIdRef.current = null;
+        setIsReconnecting(false);
+        setAdapterHandoffPending(false);
+        const shouldFreezeReconnectContent =
+          !reconnectTailOnlyRef.current &&
+          reconnectCanMaterializeRef.current &&
+          reconnectContent.length > 0;
+        if (shouldFreezeReconnectContent) {
+          const frozenContent = cloneContentParts(reconnectContent);
+          settleInterruptedToolCalls(frozenContent, undefined, {
+            includeActivity: true,
+          });
+          setReconnectContent(frozenContent);
+          setReconnectFrozen(true);
+        } else {
+          setReconnectFrozen(false);
+          setReconnectContent([]);
+          reconnectCanMaterializeRef.current = false;
+        }
+        reconnectTailOnlyRef.current = false;
+      }
+      threadRuntime.cancelRun();
+      settleVisibleInterruptedTools();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId: tabId || threadId },
+          }),
+        );
+      }
+    },
+    [
+      apiUrl,
+      applyLocalQueuedMessages,
+      isReconnecting,
+      resetRunningActivity,
+      reconnectContent,
+      settleVisibleInterruptedTools,
+      tabId,
+      threadId,
+      threadRuntime,
+    ],
+  );
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
@@ -3331,7 +3544,8 @@ const AssistantChatInner = forwardRef<
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
     ) => {
-      if (!(await ensureAgentEngineReadyForSubmit())) {
+      if (agentEngineConfigured.state === "missing") {
+        void ensureAgentEngineReadyForSubmit();
         return;
       }
       if (!preserveReconnectAutoRecoveryBudget) {
@@ -3500,7 +3714,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
           },
         ]);
-        stopActiveRunRef.current();
+        stopActiveRunRef.current({ preserveQueuedMessages: true });
       } else if (isRunning && intent === "queued") {
         applyLocalQueuedMessages((prev) => [
           ...prev,
@@ -3550,6 +3764,7 @@ const AssistantChatInner = forwardRef<
     },
     [
       applyLocalQueuedMessages,
+      agentEngineConfigured.state,
       buildComposerContextSubmission,
       ensureAgentEngineReadyForSubmit,
       execMode,
@@ -4138,7 +4353,9 @@ const AssistantChatInner = forwardRef<
                               />
                             </MessageScrollerItem>
                           )}
-                          {(isReconnecting || reconnectFrozen) &&
+                          {(isReconnecting ||
+                            reconnectFrozen ||
+                            adapterHandoffPending) &&
                             visibleReconnectContent.length > 0 && (
                               <MessageScrollerItem>
                                 <ReconnectStreamMessage
@@ -4146,7 +4363,9 @@ const AssistantChatInner = forwardRef<
                                 />
                               </MessageScrollerItem>
                             )}
-                          {(isReconnecting || reconnectFrozen) &&
+                          {(isReconnecting ||
+                            reconnectFrozen ||
+                            adapterHandoffPending) &&
                             visibleReconnectContent.length === 0 &&
                             reconnectContent.length === 0 &&
                             reconnectActivityContent.length > 0 && (
@@ -4348,7 +4567,6 @@ const AssistantChatInner = forwardRef<
                           : undefined
                       }
                       onSlashCommand={onSlashCommand}
-                      onBeforeSubmit={ensureAgentEngineReadyForSubmit}
                       execMode={execMode}
                       onExecModeChange={onExecModeChange}
                       planModeDisabled={planModeDisabled}
@@ -4383,7 +4601,7 @@ const AssistantChatInner = forwardRef<
                                 <TooltipTrigger asChild>
                                   <button
                                     type="button"
-                                    onClick={stopActiveRun}
+                                    onClick={() => stopActiveRun()}
                                     className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
                                   >
                                     <IconPlayerStop className="h-3.5 w-3.5" />

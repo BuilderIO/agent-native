@@ -761,8 +761,6 @@ function ModeSelector({
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
   "claude-fable-5": "Fable 5",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",

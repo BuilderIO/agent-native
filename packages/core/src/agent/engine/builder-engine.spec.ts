@@ -692,6 +692,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("socket hang up");
   });
 
+  it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Connection error.",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe("Connection error.");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
@@ -1028,6 +1051,39 @@ describe("createBuilderEngine", () => {
     expect(events.some((e) => e.type === "text-delta" && e.text === "hi")).toBe(
       true,
     );
+  });
+
+  it("normalizes gateway reasoning deltas into thinking events and final content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "reasoning-delta", text: "Check the schema. " },
+          { type: "reasoning-delta", text: "Then answer.", signature: "sig-1" },
+          { type: "text-delta", text: "Done." },
+          { type: "stop", reason: "end_turn" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "thinking-delta")).toEqual([
+      { type: "thinking-delta", text: "Check the schema. " },
+      { type: "thinking-delta", text: "Then answer.", signature: "sig-1" },
+    ]);
+    expect(events).toContainEqual({
+      type: "assistant-content",
+      parts: [
+        {
+          type: "thinking",
+          text: "Check the schema. Then answer.",
+          signature: "sig-1",
+        },
+        { type: "text", text: "Done." },
+      ],
+    });
   });
 
   it("surfaces invalid JSONL lines as a stop-error", async () => {

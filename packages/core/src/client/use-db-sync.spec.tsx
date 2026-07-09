@@ -319,6 +319,90 @@ describe("useDbSync", () => {
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
   });
 
+  it("does not refetch action/extension/tool queries for app-state-only events", async () => {
+    // Regression guard for the client fetch storm: an active agent session
+    // mirrors navigation/selection into application_state continuously, and
+    // the serverless poll path replays those writes back to the tab. Those
+    // app-state events must NOT fan out into "refetch every action query"
+    // (which exhausted the DB pool and surfaced downstream as stale_run).
+    const result = await renderWithEvent({
+      version: 1,
+      source: "app-state",
+      type: "change",
+      key: "selection",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(result.fetchMock).toHaveBeenCalled();
+    // The one query app-state writes legitimately refresh.
+    expect(result.queryClient.calls).toContainEqual({
+      queryKey: ["app-state"],
+    });
+    // But never the broad data-query prefixes.
+    expect(result.queryClient.calls).not.toContainEqual(undefined);
+    expect(result.queryClient.calls).not.toContainEqual({
+      queryKey: ["action"],
+    });
+    expect(result.queryClient.calls).not.toContainEqual({
+      queryKey: ["extension"],
+    });
+    expect(result.queryClient.calls).not.toContainEqual({
+      queryKey: ["tool"],
+    });
+    expect(result.queryClient.calls).not.toContainEqual({
+      queryKey: ["tools"],
+    });
+  });
+
+  it("still refetches action queries when an action event rides alongside app-state churn", async () => {
+    // A real mutation (action event) that ALSO writes navigation state must
+    // still refresh action queries — the scoping only drops app-state-ONLY
+    // batches from the data-query invalidation.
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [
+              {
+                version: 1,
+                source: "app-state",
+                type: "change",
+                key: "navigate",
+              },
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "create-slide",
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toContainEqual({ queryKey: ["app-state"] });
+    expect(queryClient.calls).toContainEqual({
+      queryKey: ["navigate-command"],
+    });
+  });
+
   it("flushes app-state navigate/show-questions/__set_url__ events immediately, bypassing the coalesce window", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(

@@ -5982,6 +5982,21 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(false);
   });
 
+  it("retries on Anthropic bare 'Connection error.' transport failures", () => {
+    // Anthropic SDK APIConnectionError defaults to this exact message with no
+    // HTTP status. Slides prod was dying in ~3s on this and storming client
+    // POSTs because neither in-run retry nor run-level resume recognized it.
+    expect(isRetryableError(new Error("Connection error."))).toBe(true);
+    expect(
+      isRetryableError(
+        new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("retries on Anthropic 'overloaded' message keyword", () => {
     expect(isRetryableError(new Error("Anthropic API overloaded"))).toBe(true);
   });

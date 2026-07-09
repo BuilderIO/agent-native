@@ -854,6 +854,21 @@ function lastActivityTool(
   return undefined;
 }
 
+function lastPreparingActionTool(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const entry = trail[i];
+    const tool = entry?.tool?.trim();
+    if (!tool) continue;
+    const label = entry.label.trim().toLowerCase();
+    if (label.startsWith("preparing ") && label.includes(" action")) {
+      return tool;
+    }
+  }
+  return undefined;
+}
+
 function formatActivityTrail(
   trail: readonly AgentActivityTrailEntry[],
 ): string | undefined {
@@ -2484,7 +2499,8 @@ export function createAgentChatAdapter(
               part.result !== undefined,
           );
           const currentPreparingToolName =
-            lastUnresolvedToolActivity(visibleContent);
+            lastUnresolvedToolActivity(visibleContent) ??
+            lastPreparingActionTool(signal.activityTrail);
           // In-flight tool stall guard. When the same write tool is stuck
           // in-flight because the connection keeps dropping (stream_ended),
           // hasInFlightTool=true keeps madeProgress=true and completely

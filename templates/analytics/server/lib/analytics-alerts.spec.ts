@@ -225,6 +225,45 @@ describe("analytics alert evaluation", () => {
     );
   });
 
+  it("emits a Netlify scheduled uptime monitor sweep", () => {
+    const source = readFileSync(
+      new URL(
+        "../../scripts/emit-netlify-dashboard-report-cron.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const uptimeTriggerIndex = source.indexOf(
+      "function emitUptimeScheduledTrigger",
+    );
+    const uptimeSource = source.slice(uptimeTriggerIndex);
+
+    expect(source).toContain('const UPTIME_SCHEDULE = "* * * * *";');
+    expect(source).toContain(
+      'const UPTIME_ROUTE_PATH = "/api/uptime-monitors/run";',
+    );
+    expect(source).toContain("emitUptimeScheduledTrigger(uptimeToken)");
+    expect(source).toContain("emitUptimeBackgroundWorker(uptimeToken)");
+    expect(uptimeSource).toContain("async function readScheduledInvocation");
+    expect(uptimeSource).toContain(
+      '"x-agent-native-uptime-monitor-cron": CRON_TOKEN',
+    );
+    expect(uptimeSource).toContain(
+      "globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true",
+    );
+  });
+
+  it("compares the uptime monitor cron bearer secret safely", () => {
+    const source = readFileSync(
+      new URL("../routes/api/uptime-monitors/run.post.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('import { timingSafeEqual } from "node:crypto";');
+    expect(source).toContain("timingSafeEqual(Buffer.from(value)");
+    expect(source).not.toContain("return header ===");
+  });
+
   it("does not let a failed rule listing crash the whole sweep", () => {
     const jobSource = readFileSync(
       new URL("../jobs/analytics-alerts.ts", import.meta.url),

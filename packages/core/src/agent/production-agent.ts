@@ -1181,6 +1181,7 @@ export function isRetryableError(err: unknown): boolean {
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
+    code === "provider_network_error" ||
     code === "http_429" ||
     code === "http_500" ||
     code === "http_502" ||
@@ -1206,6 +1207,11 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("gateway error") ||
     msg.includes("socket hang up") ||
     msg.includes("connection reset") ||
+    // Anthropic SDK APIConnectionError default message is exactly
+    // "Connection error." — Builder gateway often forwards it as a stop
+    // event with no structured code. Without this match the run fails in
+    // ~3s and the client recovery loop storms POSTs.
+    msg.includes("connection error") ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
@@ -1853,7 +1859,8 @@ export function isResumableEngineError(err: unknown): boolean {
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
     code === "builder_gateway_timeout" ||
-    code === "builder_gateway_network_error"
+    code === "builder_gateway_network_error" ||
+    code === "provider_network_error"
   ) {
     return true;
   }
@@ -1873,6 +1880,7 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
+    text.includes("connection error") ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
@@ -4455,6 +4463,8 @@ function isRecoverableContinuationError(event: {
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    code === "builder_gateway_network_error" ||
+    code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
@@ -4463,6 +4473,7 @@ function isRecoverableContinuationError(event: {
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
+    message.includes("connection error") ||
     message.includes("temporarily unavailable")
   );
 }

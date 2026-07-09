@@ -232,19 +232,26 @@ class AnthropicEngine implements AgentEngine {
           : typeof err?.statusCode === "number"
             ? err.statusCode
             : undefined;
+      const errorMessage = err?.message ?? String(err);
+      // Anthropic SDK APIConnectionError defaults to "Connection error." with
+      // no HTTP status. Tag it so in-run retries and run-level resume treat
+      // the failure as a transient network interruption.
+      const isConnectionError =
+        statusCode === undefined &&
+        String(errorMessage).trim().toLowerCase() === "connection error.";
       if (statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: "ANTHROPIC_API_KEY",
           value: this.apiKey,
           status: statusCode,
           code: "http_401",
-          message: err?.message ?? String(err),
+          message: errorMessage,
         });
       }
       yield {
         type: "stop",
         reason: "error",
-        error: err?.message ?? String(err),
+        error: errorMessage,
         // Forward the provider HTTP status for EVERY known status, not just
         // 401. The Anthropic SDK reports empty-body failures as a bare
         // "429 status code (no body)" message, so without a structured
@@ -255,7 +262,12 @@ class AnthropicEngine implements AgentEngine {
         // continuation logic auto-resume a rate-limited turn.
         ...(statusCode !== undefined
           ? { errorCode: `http_${statusCode}`, statusCode }
-          : {}),
+          : isConnectionError
+            ? {
+                errorCode: "provider_network_error",
+                providerRetryable: true,
+              }
+            : {}),
       };
       throw err;
     }

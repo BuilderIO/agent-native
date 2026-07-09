@@ -140,6 +140,12 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(true);
     expect(
       requestMatchesEmbedTarget(
+        fakeEvent("/dashboards/q2-traffic?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=adhoc&dashboardId=q2-traffic",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
         fakeEvent("/analyses/analysis-1?embedded=1&__an_embed_token=tok"),
         "/_agent-native/open?app=analytics&view=analyses&analysisId=analysis-1",
       ),
@@ -204,6 +210,14 @@ describe("requestMatchesEmbedTarget", () => {
       requestMatchesEmbedTarget(
         fakeEvent("/overview?embedded=1&__an_embed_token=tok"),
         "/",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent(
+          "/dashboards/agent-native-templates-first-party?embedded=1&__an_embed_token=tok",
+        ),
+        "/dashboards",
       ),
     ).toBe(true);
     expect(

@@ -335,6 +335,14 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   return !!url && !!origin && url.origin === origin;
 }
 
+function isAgentNativeRuntimePath(pathname: string): boolean {
+  return (
+    pathname === "/_agent-native" ||
+    pathname.endsWith("/_agent-native") ||
+    pathname.includes("/_agent-native/")
+  );
+}
+
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return (
     init?.method ??
@@ -444,6 +452,18 @@ function withEmbedAuthHeaders(
   token: string,
   win: Window,
 ): [RequestInfo | URL, RequestInit | undefined] {
+  const method = requestMethod(input, init);
+  const url = inputUrl(input, win);
+  if (
+    url &&
+    sameOrigin(input, win) &&
+    GUARDED_METHODS.has(method) &&
+    isAgentNativeRuntimePath(url.pathname)
+  ) {
+    url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+    return [url.toString(), init];
+  }
+
   const headers = new Headers(
     init?.headers ?? (input instanceof Request ? input.headers : undefined),
   );

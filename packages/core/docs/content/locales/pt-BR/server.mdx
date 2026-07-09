@@ -129,6 +129,41 @@ Se o UI e o agente precisarem fazer algo, defina uma ação em vez de uma rota A
 
 Use rotas `/api/*` personalizadas somente quando precisar de um protocolo em formato de rota ou comportamento binário/streaming. Consulte [Actions](/docs/actions).
 
+### Aplicativos somente API {#api-only-apps}
+
+Você não precisa de um servidor Express só porque o aplicativo é somente API. Um aplicativo Agent Native já vem com um servidor Nitro/H3, e `defineAction()` é a superfície API padrão. Defina operações em `actions/`; a estrutura monta cada action em `/_agent-native/actions/<name>` com validação de schema e contexto de solicitação.
+
+Use a opção `http` da action para moldar o acesso HTTP direto: actions são `POST` por padrão, `http: { method: "GET" | "PUT" | "DELETE" }` altera o verbo, e `http: false` remove uma action do HTTP. Use `server/routes/api/*` apenas para necessidades com formato de rota ou protocolo: uploads de arquivos, streaming/SSE, webhooks, callbacks OAuth, páginas públicas ou uma forma REST externa que não possa ser representada claramente como uma action. Não crie rotas `/api/*` que principalmente encapsulem ou reexportem actions.
+
+Para um endpoint de status somente leitura, mantenha-o como uma action:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Chame diretamente via HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+Para `POST` e outras actions de escrita, envie um corpo JSON para o mesmo caminho da action.
+
 ## Completamento de texto único {#complete-text}
 
 A maior parte do trabalho de IA deve passar pelo chat do agente para que os usuários possam ver, orientar e auditar

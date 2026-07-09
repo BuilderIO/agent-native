@@ -29,7 +29,11 @@ import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { writeClipboardText } from "../clipboard.js";
-import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import type { ContentPart } from "../sse-event-processor.js";
@@ -306,16 +310,18 @@ function SimpleCodeViewer({
   );
 }
 
-function ToolOutputModal({
+function ToolOutputPopover({
   open,
   onOpenChange,
   title,
   payload,
+  children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   payload: ToolDetailPayload;
+  children: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -339,12 +345,17 @@ function ToolOutputModal({
   }, [payload.copyText]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(80vh,720px)] w-[min(92vw,760px)] max-w-[760px] flex-col gap-0 overflow-hidden p-0">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3 pr-12">
-          <DialogTitle className="truncate text-sm font-medium">
-            {title}
-          </DialogTitle>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={12}
+        className="flex w-[min(calc(100vw-2rem),760px)] flex-col gap-0 overflow-hidden p-0"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="truncate text-sm font-medium">{title}</div>
           <button
             type="button"
             onClick={copyValue}
@@ -354,15 +365,15 @@ function ToolOutputModal({
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="p-3">
           <SimpleCodeViewer
             text={payload.text}
             lang={payload.lang}
-            maxHeightClass="max-h-none"
+            maxHeightClass="max-h-[75vh]"
           />
         </div>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -800,25 +811,23 @@ function ToolCallDisplayGeneric({
             />
           )}
           {resultPayload && (
-            <button
-              type="button"
-              onClick={() => setOutputOpen(true)}
-              aria-label={`View ${toolName} output`}
-              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+            <ToolOutputPopover
+              open={outputOpen}
+              onOpenChange={setOutputOpen}
+              title={outputTitle}
+              payload={resultPayload}
             >
-              <IconCode className="size-3.5" />
-            </button>
+              <button
+                type="button"
+                aria-label={`View ${toolName} output`}
+                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <IconCode className="size-3.5" />
+              </button>
+            </ToolOutputPopover>
           )}
         </div>
       </AnimatedCollapse>
-      {resultPayload && (
-        <ToolOutputModal
-          open={outputOpen}
-          onOpenChange={setOutputOpen}
-          title={outputTitle}
-          payload={resultPayload}
-        />
-      )}
       {approval && (
         <ApprovalAffordance toolName={toolName} approval={approval} />
       )}
