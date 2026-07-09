@@ -71,6 +71,12 @@ describe("sync-builder-starter-manifest", () => {
             "utf-8",
           ),
         ).toContain('appId: "builder-agent-native-starter"');
+        expect(fs.existsSync(path.join(snapshot.dir, ".react-router"))).toBe(
+          false,
+        );
+        expect(fs.existsSync(path.join(snapshot.dir, "node_modules"))).toBe(
+          false,
+        );
         expect(files.get("netlify.toml")).toContain('publish = "dist"');
         expect(files.get("netlify.toml")).not.toContain("templates/chat");
         expect(files.get("netlify.toml")).toContain(

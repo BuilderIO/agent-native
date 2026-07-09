@@ -34,6 +34,7 @@ import {
   count,
   desc,
   eq,
+  gt,
   gte,
   isNull,
   lte,
@@ -216,6 +217,7 @@ const MIN_INTERVAL_SECONDS = 30;
 const MAX_INTERVAL_SECONDS = 24 * 60 * 60;
 const MIN_TIMEOUT_MS = 1000;
 const MAX_TIMEOUT_MS = 120_000;
+const DEFAULT_TRANSIENT_FAILURE_CONFIRMATION_CHECKS = 2;
 
 const ASSERTION_TYPES: AssertionType[] = [
   "body_contains",
@@ -279,6 +281,14 @@ function monitorLimitPerOwner(): number {
   return Number.isFinite(parsed) && parsed > 0
     ? Math.min(parsed, 1000)
     : DEFAULT_MONITOR_LIMIT_PER_OWNER;
+}
+
+function transientFailureConfirmationChecks(): number {
+  const raw = process.env.UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS;
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(parsed, 10)
+    : DEFAULT_TRANSIENT_FAILURE_CONFIRMATION_CHECKS;
 }
 
 export function hostFromUrl(url: string): string {
@@ -675,6 +685,40 @@ export function evaluateCheck(params: EvaluateCheckParams): {
 // SSRF-safe fetch + probe
 // ---------------------------------------------------------------------------
 
+// A single SSRF-safe dispatcher (undici Agent) is reused across every probe.
+// Building a fresh Agent per check disabled HTTP keep-alive — each check paid a
+// cold DNS + TCP + TLS handshake, inflating the recorded latency well above the
+// site's real response time (and occasionally spiking near the timeout) — and
+// leaked Agents, which are never closed. The connect-time private-IP guard runs
+// on every new socket, so reuse keeps the exact same SSRF protection.
+// `undefined` = not built yet; the resolved value may be `null` on runtimes
+// without undici / node:dns, in which case callers fall back to plain `fetch`.
+let sharedSsrfDispatcherPromise: Promise<unknown | null> | undefined;
+
+function getSharedSsrfDispatcher(): Promise<unknown | null> {
+  if (!sharedSsrfDispatcherPromise) {
+    sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch(() => null);
+  }
+  return sharedSsrfDispatcherPromise;
+}
+
+async function prepareMonitorFetch(
+  url: string,
+  opts: { allowPrivateHosts: boolean },
+): Promise<{ dispatcher: unknown | undefined }> {
+  const dispatcher = opts.allowPrivateHosts
+    ? undefined
+    : ((await getSharedSsrfDispatcher()) ?? undefined);
+
+  if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
+    throw new Error(
+      `SSRF blocked: refusing to fetch private/internal address (${url})`,
+    );
+  }
+
+  return { dispatcher };
+}
+
 async function safeMonitorFetch(
   url: string,
   init: RequestInit,
@@ -682,17 +726,26 @@ async function safeMonitorFetch(
     followRedirects: boolean;
     maxRedirects: number;
     allowPrivateHosts: boolean;
+    /** Prebuilt outside the abort window so SSRF setup is not billed as site latency. */
+    dispatcher?: unknown;
+    /** When true, the caller already DNS-checked `url` before starting the timer. */
+    initialDnsChecked?: boolean;
   },
 ): Promise<Response> {
-  const dispatcher = opts.allowPrivateHosts
-    ? undefined
-    : ((await createSsrfSafeDispatcher()) ?? undefined);
+  const dispatcher =
+    opts.dispatcher !== undefined
+      ? opts.dispatcher
+      : opts.allowPrivateHosts
+        ? undefined
+        : ((await getSharedSsrfDispatcher()) ?? undefined);
 
   let currentUrl = url;
   const maxHops = opts.followRedirects ? opts.maxRedirects : 0;
 
   for (let hop = 0; hop <= maxHops; hop++) {
+    const skipDns = hop === 0 && opts.initialDnsChecked;
     if (
+      !skipDns &&
       !opts.allowPrivateHosts &&
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
@@ -711,6 +764,7 @@ async function safeMonitorFetch(
     if (opts.followRedirects && isRedirect) {
       const location = response.headers.get("location");
       if (!location) return response;
+      await cancelResponseBody(response);
       currentUrl = new URL(location, currentUrl).href;
       continue;
     }
@@ -721,17 +775,50 @@ async function safeMonitorFetch(
   );
 }
 
-async function readCappedText(res: Response, cap: number): Promise<string> {
+async function cancelResponseBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function readCappedText(
+  res: Response,
+  cap: number,
+  timeoutMs?: number,
+): Promise<{ text: string; timedOut: boolean }> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const body = res.body;
   if (!body) {
     try {
-      const text = await res.text();
-      return text.length > cap ? text.slice(0, cap) : text;
+      const text =
+        timeoutMs && timeoutMs > 0
+          ? await Promise.race([
+              res.text(),
+              new Promise<string>((resolve) => {
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  resolve("");
+                }, timeoutMs);
+              }),
+            ])
+          : await res.text();
+      return { text: text.length > cap ? text.slice(0, cap) : text, timedOut };
     } catch {
-      return "";
+      return { text: "", timedOut };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   const reader = body.getReader();
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      void reader.cancel().catch(() => {});
+    }, timeoutMs);
+  }
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -746,6 +833,7 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
   } catch {
     // Partial body is fine for text assertions.
   } finally {
+    if (timer) clearTimeout(timer);
     try {
       await reader.cancel();
     } catch {
@@ -762,7 +850,10 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
     merged.set(slice, offset);
     offset += slice.length;
   }
-  return new TextDecoder("utf-8", { fatal: false }).decode(merged);
+  return {
+    text: new TextDecoder("utf-8", { fatal: false }).decode(merged),
+    timedOut,
+  };
 }
 
 function headersToObject(headers: Headers): Record<string, string> {
@@ -773,10 +864,22 @@ function headersToObject(headers: Headers): Record<string, string> {
   return out;
 }
 
+function needsResponseBody(assertions: Assertion[]): boolean {
+  return assertions.some(
+    (assertion) =>
+      assertion.type === "body_contains" || assertion.type === "body_absent",
+  );
+}
+
 /**
  * Execute one probe for `monitor`. Performs an SSRF-safe fetch with an
  * AbortController timeout, measures latency, caps the response body, and
  * classifies the result. Never throws — failures are captured in the outcome.
+ *
+ * The abort budget covers only the HTTP fetch (headers / redirect chain), not
+ * SSRF dispatcher/DNS setup or optional body reads. Billing setup time against
+ * `timeoutMs` produced false "Timed out after Nms" alerts when the site itself
+ * was fine.
  */
 export async function runMonitorCheck(
   monitor: Pick<
@@ -818,14 +921,50 @@ export async function runMonitorCheck(
     };
   }
 
-  const controller = new AbortController();
   const timeoutMs = clampInt(
     monitor.timeoutMs,
     MIN_TIMEOUT_MS,
     MAX_TIMEOUT_MS,
     DEFAULT_MONITOR_TIMEOUT_MS,
   );
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let dispatcher: unknown | undefined;
+  try {
+    ({ dispatcher } = await prepareMonitorFetch(monitor.url, {
+      allowPrivateHosts,
+    }));
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : String(err ?? "check failed");
+    const isConfig = message.startsWith("SSRF blocked");
+    const errorText = message.slice(0, 500);
+    const outcome = evaluateCheck({
+      statusCode: null,
+      latencyMs: null,
+      bodyText: "",
+      headers: {},
+      matcher,
+      assertions,
+      fetchError: errorText,
+      errorKind: isConfig ? "config" : "network",
+    });
+    return {
+      checkedAt,
+      statusCode: null,
+      latencyMs: null,
+      status: outcome.status,
+      ok: outcome.ok,
+      failedAssertions: outcome.failedAssertions,
+      error: errorText,
+    };
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   const start = Date.now();
 
   try {
@@ -846,15 +985,32 @@ export async function runMonitorCheck(
       followRedirects: monitor.followRedirects,
       maxRedirects: MAX_REDIRECT_HOPS,
       allowPrivateHosts,
+      dispatcher,
+      initialDnsChecked: Boolean(dispatcher),
     });
 
-    const bodyText =
-      method === "HEAD"
-        ? ""
-        : await readCappedText(response, MAX_RESPONSE_BODY_BYTES);
+    // Stop the abort timer as soon as headers arrive so a slow/optional body
+    // read cannot be mislabeled as a request timeout with a null status code.
+    clearTimeout(timer);
+
     const latencyMs = Date.now() - start;
     const statusCode = response.status;
     const headers = headersToObject(response.headers);
+    let bodyText = "";
+    let bodyReadError: string | null = null;
+    if (method !== "HEAD" && needsResponseBody(assertions)) {
+      const body = await readCappedText(
+        response,
+        MAX_RESPONSE_BODY_BYTES,
+        timeoutMs,
+      );
+      bodyText = body.text;
+      if (body.timedOut) {
+        bodyReadError = `Response body read timed out after ${timeoutMs}ms`;
+      }
+    } else {
+      await cancelResponseBody(response);
+    }
 
     const outcome = evaluateCheck({
       statusCode,
@@ -864,31 +1020,33 @@ export async function runMonitorCheck(
       matcher,
       assertions,
     });
+    const failedAssertions = bodyReadError
+      ? [...outcome.failedAssertions, bodyReadError]
+      : outcome.failedAssertions;
+    const status = bodyReadError ? "down" : outcome.status;
 
     return {
       checkedAt,
       statusCode,
       latencyMs,
-      status: outcome.status,
-      ok: outcome.ok,
-      failedAssertions: outcome.failedAssertions,
-      error: outcome.failedAssertions.length
-        ? outcome.failedAssertions.join("; ")
-        : null,
+      status,
+      ok: status === "up" && outcome.ok,
+      failedAssertions,
+      error: failedAssertions.length ? failedAssertions.join("; ") : null,
     };
   } catch (err) {
-    const isTimeout =
-      (err as { name?: string })?.name === "AbortError" ||
-      controller.signal.aborted;
     const message =
       err instanceof Error ? err.message : String(err ?? "check failed");
     const isConfig = message.startsWith("SSRF blocked");
+    // Only our timer sets `timedOut`. Prefer the real SSRF/config message when
+    // both happened (e.g. abort fired while a redirect DNS check was in flight).
+    const isTimeout = timedOut && !isConfig;
     const errorText = isTimeout
       ? `Timed out after ${timeoutMs}ms`
       : message.slice(0, 500);
     const outcome = evaluateCheck({
       statusCode: null,
-      latencyMs: null,
+      latencyMs: isTimeout ? timeoutMs : null,
       bodyText: "",
       headers: {},
       matcher,
@@ -899,7 +1057,7 @@ export async function runMonitorCheck(
     return {
       checkedAt,
       statusCode: null,
-      latencyMs: null,
+      latencyMs: isTimeout ? timeoutMs : null,
       status: outcome.status,
       ok: outcome.ok,
       failedAssertions: outcome.failedAssertions,
@@ -1434,6 +1592,25 @@ function describeCause(outcome: CheckOutcome): string {
   return "Check failed";
 }
 
+function isTransientNoResponseFailure(outcome: CheckOutcome): boolean {
+  return (
+    outcome.status === "down" &&
+    outcome.statusCode == null &&
+    Boolean(outcome.error)
+  );
+}
+
+export function shouldOpenMonitorIncident(
+  outcome: CheckOutcome,
+  priorConsecutiveFailures: number,
+  confirmationChecks = transientFailureConfirmationChecks(),
+): boolean {
+  const needed = isTransientNoResponseFailure(outcome)
+    ? Math.max(1, Math.min(10, Math.floor(confirmationChecks)))
+    : 1;
+  return Math.max(0, Math.floor(priorConsecutiveFailures)) + 1 >= needed;
+}
+
 async function getOpenIncident(
   monitorId: string,
   ctx: AccessCtx,
@@ -1476,6 +1653,29 @@ async function recentlyResolvedWithinCooldown(
   const resolved = Date.parse(row.resolvedAt);
   if (!Number.isFinite(resolved)) return false;
   return now.getTime() - resolved < monitor.cooldownMinutes * 60 * 1000;
+}
+
+async function getFailureStreakStartedAt(
+  monitor: Monitor,
+  ctx: AccessCtx,
+  fallback: string,
+): Promise<string> {
+  const db = getDb() as any;
+  const table = schema.monitorCheckResults;
+  const clauses: any[] = [
+    resultsOwnerWhere(ctx),
+    eq(table.monitorId, monitor.id),
+    eq(table.ok, false),
+  ];
+  if (monitor.lastSuccessAt)
+    clauses.push(gt(table.checkedAt, monitor.lastSuccessAt));
+  const [row] = await db
+    .select({ checkedAt: table.checkedAt })
+    .from(table)
+    .where(and(...clauses))
+    .orderBy(asc(table.checkedAt))
+    .limit(1);
+  return row?.checkedAt ?? fallback;
 }
 
 async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
@@ -1561,8 +1761,8 @@ export interface EvaluateMonitorResult {
 
 /**
  * Open / update / resolve incidents based on the latest outcome and send
- * notifications. On a transition into failure it opens an incident and
- * notifies (respecting an anti-flap cooldown); on recovery it resolves the
+ * notifications. On a transition into confirmed failure it opens an incident
+ * and notifies (respecting an anti-flap cooldown); on recovery it resolves the
  * open incident and sends a recovery notice.
  */
 export async function evaluateAndNotifyMonitor(
@@ -1576,6 +1776,8 @@ export async function evaluateAndNotifyMonitor(
 
   if (!outcome.ok) {
     const cause = describeCause(outcome);
+    const priorConsecutiveFailures = monitor.consecutiveFailures ?? 0;
+    const nextChecksFailed = priorConsecutiveFailures + 1;
     if (open) {
       const nextStatus =
         open.status === "down" ? "down" : (outcome.status as MonitorStatus);
@@ -1589,6 +1791,10 @@ export async function evaluateAndNotifyMonitor(
         })
         .where(eq(schema.monitorIncidents.id, open.id));
       return { status: outcome.status, incidentId: open.id, notified: false };
+    }
+
+    if (!shouldOpenMonitorIncident(outcome, priorConsecutiveFailures)) {
+      return { status: outcome.status, notified: false };
     }
 
     const suppressed = await recentlyResolvedWithinCooldown(monitor, ctx, now);
@@ -1605,17 +1811,21 @@ export async function evaluateAndNotifyMonitor(
       }
     }
     const incidentId = randomUUID();
+    const startedAt =
+      nextChecksFailed > 1
+        ? await getFailureStreakStartedAt(monitor, ctx, outcome.checkedAt)
+        : outcome.checkedAt;
     await db.insert(schema.monitorIncidents).values({
       id: incidentId,
       monitorId: monitor.id,
-      startedAt: outcome.checkedAt,
+      startedAt,
       resolvedAt: null,
       status: outcome.status === "degraded" ? "degraded" : "down",
       severity: monitor.severity,
       cause,
       lastError: outcome.error,
       notificationId: notificationId ?? null,
-      checksFailed: 1,
+      checksFailed: nextChecksFailed,
       createdAt: outcome.checkedAt,
       ownerEmail: monitor.ownerEmail,
       orgId: monitor.orgId,

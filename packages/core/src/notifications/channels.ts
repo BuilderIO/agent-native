@@ -189,17 +189,10 @@ function createEmailChannel(): NotificationChannel {
         input.metadata.emailSubject.trim()
           ? input.metadata.emailSubject.trim()
           : `[${input.severity}] ${input.title}`;
-      const metadata = scrubEmailMetadata(input.metadata);
-      const metadataText = metadata
-        ? `\n\nMetadata:\n${JSON.stringify(metadata, null, 2)}`
-        : "";
-      const text = `${input.title}\n\n${input.body ?? ""}${metadataText}`;
+      const text = `${input.title}\n\n${input.body ?? ""}`;
       const html = [
         `<p><strong>${escapeHtml(input.title)}</strong></p>`,
         input.body ? `<p>${escapeHtml(input.body)}</p>` : "",
-        metadata
-          ? `<pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>`
-          : "",
       ].join("");
 
       await Promise.all(
@@ -327,20 +320,6 @@ function commaList(value: string | undefined): string[] {
         .map((item) => item.trim())
         .filter(Boolean)
     : [];
-}
-
-function scrubEmailMetadata(
-  metadata: Record<string, unknown> | undefined,
-): Record<string, unknown> | null {
-  if (!metadata) return null;
-  const entries = Object.entries(metadata).filter(
-    ([key]) =>
-      key !== "emailRecipients" &&
-      key !== "emailSubject" &&
-      key !== "webhookUrl" &&
-      key !== "slackWebhookUrl",
-  );
-  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 function slackText(

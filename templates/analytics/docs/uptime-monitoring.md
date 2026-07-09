@@ -19,12 +19,19 @@ are shareable and the agent can deep-link a monitor.
 
 Each check runs on the server (`server/lib/uptime-monitors.ts`):
 
-1. Fetch the monitor's `url` with the configured `method`, headers, and body,
-   through an SSRF-safe path, with an `AbortController` timeout.
-2. Measure latency and read up to **512 KB** of the response body (skipped for
-   `HEAD`).
-3. Evaluate the **status matcher** and every **assertion**.
-4. Classify the result:
+1. Run SSRF setup (dispatcher + DNS private-address check) **outside** the
+   request timeout budget. The connect-time dispatcher is built once and reused
+   across checks (HTTP keep-alive), so latency reflects the real request round
+   trip instead of a fresh DNS + TCP + TLS handshake on every probe.
+2. Fetch the monitor's `url` with the configured `method`, headers, and body,
+   through that SSRF-safe path, with an `AbortController` timeout that covers
+   only the HTTP request (headers / redirect chain).
+3. Measure latency from the HTTP response headers. If a body assertion is
+   configured, read up to **512 KB** of the response body (skipped for `HEAD`)
+   with a bounded body-read timer after clearing the request abort timer, so a
+   slow body cannot be mislabeled as a request timeout or hang indefinitely.
+4. Evaluate the **status matcher** and every **assertion**.
+5. Classify the result:
    - `up` — status matches and all assertions pass.
    - `degraded` — status matches but only a `max_latency_ms` assertion fails
      (the endpoint responded, just too slowly). Alerts at `warning` severity.
@@ -58,14 +65,18 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
 
 `evaluateAndNotifyMonitor` manages incidents like the analytics alert engine:
 
-- On a transition **into failure**, it opens a `monitor_incidents` row (one per
-  continuous failure streak) and calls `notifyWithDelivery` with a clear title
-  and body plus safe inbox metadata
+- On a transition **into confirmed failure**, it opens a `monitor_incidents` row
+  (one per continuous failure streak) and calls `notifyWithDelivery` with a
+  clear title and body plus safe inbox metadata
   `{ kind: "uptime_monitor", monitorId, url, statusCode, latencyMs, failedAssertions, emailRecipients }`.
   The `inbox` channel is the in-app bell; `email` uses the monitor's
   `emailRecipients`; `slack` / `webhook` use the monitor's optional
   delivery-only `slackWebhookUrl` / `webhookUrl` (falling back to workspace
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL` when unset).
+- Transient no-response failures, such as network errors or timeouts, must fail
+  twice in a row before opening an incident or alerting. Set
+  `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS=1` to alert on the first
+  transient failure, or a higher value (max 10) for stricter confirmation.
 - While an incident is open it will not re-alert. After an incident resolves,
   `cooldownMinutes` suppresses a fresh "down" alert for that window to prevent
   flapping.
@@ -101,15 +112,16 @@ incidents, and prunes old check results.
 
 Environment flags (mirrors the analytics alert job):
 
-| flag                                   | effect                                                              |
-| -------------------------------------- | ------------------------------------------------------------------- |
-| `UPTIME_MONITOR_JOBS`                  | `1` enables the in-process cron; `0` disables it.                   |
-| `RUN_BACKGROUND_JOBS`                  | fallback flag when `UPTIME_MONITOR_JOBS` is unset.                  |
-| (production)                           | on by default unless a flag is `0` or a platform scheduler owns it. |
-| `UPTIME_MONITOR_INTERVAL_MS`           | wake interval for the sweep (default 30s, min 10s).                 |
-| `UPTIME_MONITOR_SWEEP_LIMIT`           | max monitors processed per sweep (default 100).                     |
-| `UPTIME_MONITOR_RESULT_RETENTION_DAYS` | how long check results are kept (default 30).                       |
-| `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS`   | allow probing private/internal hosts.                               |
+| flag                                                   | effect                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `UPTIME_MONITOR_JOBS`                                  | `1` enables the in-process cron; `0` disables it.                                  |
+| `RUN_BACKGROUND_JOBS`                                  | fallback flag when `UPTIME_MONITOR_JOBS` is unset.                                 |
+| (production)                                           | on by default unless a flag is `0` or a platform scheduler owns it.                |
+| `UPTIME_MONITOR_INTERVAL_MS`                           | wake interval for the sweep (default 30s, min 10s).                                |
+| `UPTIME_MONITOR_SWEEP_LIMIT`                           | max monitors processed per sweep (default 100).                                    |
+| `UPTIME_MONITOR_RESULT_RETENTION_DAYS`                 | how long check results are kept (default 30).                                      |
+| `UPTIME_MONITOR_ALLOW_PRIVATE_HOSTS`                   | allow probing private/internal hosts.                                              |
+| `UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS` | consecutive timeout/network failures required before alerting (default 2, max 10). |
 
 The monitor tables (`monitors`, `monitor_check_results`, `monitor_incidents`)
 are created by the app migration list in `server/plugins/db.ts`, which runs at

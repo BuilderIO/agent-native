@@ -382,9 +382,13 @@ describe("email notification channel", () => {
       "alice@example.com",
       "ops@example.com",
     ]);
-    expect(sendEmail.mock.calls[0][0].subject).toBe("Custom subject");
-    expect(sendEmail.mock.calls[0][0].text).toContain('"ruleId": "rule_1"');
-    expect(sendEmail.mock.calls[0][0].text).not.toContain("emailRecipients");
+    const sent = sendEmail.mock.calls[0][0];
+    expect(sent.subject).toBe("Custom subject");
+    expect(sent.text).toContain("Error spike");
+    expect(sent.text).toContain("More failures than expected");
+    expect(sent.text).not.toContain('"ruleId": "rule_1"');
+    expect(sent.text).not.toContain("Metadata:");
+    expect(sent.html).not.toContain("<pre>");
   });
 
   it("does nothing when email has no recipients", async () => {
