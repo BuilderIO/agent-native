@@ -26,6 +26,7 @@ import {
   IconPlus,
   IconAlertTriangle,
   IconUsersGroup,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -327,8 +328,6 @@ function MembersCard() {
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
 
-  const [showInviteForm, setShowInviteForm] = useState(false);
-
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
@@ -373,26 +372,6 @@ function MembersCard() {
         </div>
 
         {isOwnerOrAdmin && (
-          <div className="border-t border-border pt-4">
-            {!showInviteForm ? (
-              <button
-                type="button"
-                onClick={() => setShowInviteForm(true)}
-                className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
-              >
-                <IconUserPlus className="h-3.5 w-3.5" />
-                {t("org.inviteMembers")}
-              </button>
-            ) : (
-              <BulkInviteForm
-                currentUserRole={org.role}
-                onClose={() => setShowInviteForm(false)}
-              />
-            )}
-          </div>
-        )}
-
-        {isOwnerOrAdmin && (
           <div className="grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
             <DomainSettingsSection
               domain={org.allowedDomain}
@@ -431,17 +410,37 @@ function MembersTableCard({
   currentUserRole: string | null;
 }) {
   const t = useT();
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
 
   return (
     <section className="rounded-lg border border-border bg-card">
-      <div className="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
             {t("org.memberCount", { count: members.length })}
           </p>
         </div>
+        {canInvite && !showInviteForm && (
+          <button
+            type="button"
+            onClick={() => setShowInviteForm(true)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconUserPlus className="h-3.5 w-3.5" />
+            {t("org.inviteMembers")}
+          </button>
+        )}
       </div>
+      {canInvite && showInviteForm && (
+        <div className="border-b border-border p-4">
+          <BulkInviteForm
+            currentUserRole={currentUserRole}
+            onClose={() => setShowInviteForm(false)}
+          />
+        </div>
+      )}
       <Table>
         <TableHeader>
           <TableRow>
@@ -1181,9 +1180,25 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   const masked = secret ? "****" + secret.slice(-8) : "Not set";
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Cross-app authentication
+    <div className="space-y-2">
+      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        <span>Cross-app authentication</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href="/docs/a2a-protocol#organization-secret-sync"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Read the cross-app authentication documentation"
+              className="inline-flex size-3.5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+            >
+              <IconHelpCircle className="size-3" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>
+            Read the cross-app authentication documentation
+          </TooltipContent>
+        </Tooltip>
       </div>
       <p className="text-[11px] text-muted-foreground">
         This secret authenticates cross-app delegation (e.g. Dispatch to

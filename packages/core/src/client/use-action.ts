@@ -212,6 +212,40 @@ export interface ActionFetchOptions {
   signal?: AbortSignal;
   /** Per-call override for the fetch timeout. */
   timeoutMs?: number;
+  /** Keep the request alive while the document is being unloaded. */
+  keepalive?: boolean;
+  /** Pre-serialized mutation body used by the keepalive budget coordinator. */
+  serializedBody?: string;
+}
+
+/**
+ * Conservative per-document keepalive body budget. Browsers commonly enforce
+ * an approximately 64 KiB aggregate limit across every in-flight keepalive
+ * request; leaving headroom for other framework traffic prevents a request
+ * that passed our guard from being rejected by the browser at send time.
+ */
+export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
+
+let reservedKeepaliveBodyBytes = 0;
+
+function utf8ByteLength(value: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes +=
+      codePoint <= 0x7f
+        ? 1
+        : codePoint <= 0x7ff
+          ? 2
+          : codePoint <= 0xffff
+            ? 3
+            : 4;
+  }
+  return bytes;
 }
 
 async function actionFetch<T>(
@@ -237,6 +271,7 @@ async function actionFetch<T>(
     method,
     headers,
     cache: "no-store",
+    keepalive: options?.keepalive,
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {
@@ -245,7 +280,7 @@ async function actionFetch<T>(
     const qs = serializeActionQueryParams(params);
     if (qs) url += `?${qs}`;
   } else if (method !== "GET" && params) {
-    init.body = JSON.stringify(params);
+    init.body = options?.serializedBody ?? JSON.stringify(params);
   }
 
   // One controller drives both cancellation sources: the caller's signal
@@ -392,6 +427,83 @@ export function callAction<
     signal: options.signal,
     timeoutMs: options.timeoutMs,
   });
+}
+
+export type KeepaliveActionCallRejectionReason =
+  | "body-too-large"
+  | "budget-exhausted";
+
+export type KeepaliveActionCallResult<TResult> =
+  | {
+      accepted: true;
+      bodyBytes: number;
+      completion: Promise<TResult>;
+    }
+  | {
+      accepted: false;
+      bodyBytes: number;
+      reason: KeepaliveActionCallRejectionReason;
+      completion: null;
+    };
+
+/**
+ * Attempts an unload-safe action call without exceeding the browser's shared
+ * keepalive request budget. The reservation remains held until the response
+ * body has completed, because browsers count every in-flight keepalive body
+ * against the same per-document quota.
+ *
+ * A rejected attempt is deliberately synchronous so callers can fall back to
+ * a durable outbox before returning from `pagehide`.
+ */
+export function tryCallActionKeepalive<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: Omit<ClientActionCallOptions, "method"> = {},
+): KeepaliveActionCallResult<
+  TResult extends undefined ? ActionResult<TName> : TResult
+> {
+  type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  const serializedBody = JSON.stringify(params ?? {});
+  const bodyBytes = utf8ByteLength(serializedBody);
+
+  if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "body-too-large",
+      completion: null,
+    };
+  }
+
+  if (
+    reservedKeepaliveBodyBytes + bodyBytes >
+    ACTION_KEEPALIVE_BODY_BUDGET_BYTES
+  ) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "budget-exhausted",
+      completion: null,
+    };
+  }
+
+  reservedKeepaliveBodyBytes += bodyBytes;
+  const completion = actionFetch<R>(actionName, "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+    keepalive: true,
+    serializedBody,
+  }).finally(() => {
+    reservedKeepaliveBodyBytes = Math.max(
+      0,
+      reservedKeepaliveBodyBytes - bodyBytes,
+    );
+  });
+
+  return { accepted: true, bodyBytes, completion };
 }
 
 // ---------------------------------------------------------------------------

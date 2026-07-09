@@ -2840,6 +2840,25 @@ export async function runAgentLoop(opts: {
     try {
       const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
       if (priorEvents.length > 0) {
+        // A logical turn can span multiple background continuation runs. Final
+        // response guards must see successful reads from earlier chunks, not
+        // only tools executed after the latest handoff. Otherwise a guard can
+        // reject a grounded answer (or a successfully-created artifact) after
+        // the evidence-producing query completed in a predecessor run.
+        for (const event of priorEvents) {
+          if (event.type === "tool_start") {
+            toolCallHistory.push({
+              name: event.tool,
+              input: event.input,
+            });
+          } else if (event.type === "tool_done") {
+            toolResultHistory.push({
+              name: event.tool,
+              content: event.result,
+              isError: event.isError === true,
+            });
+          }
+        }
         toolCallJournal = classifyToolCallJournal(priorEvents);
       }
     } catch {
@@ -3790,7 +3809,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, unknown>,
             result,
-            completedSideEffect: false,
+            completedSideEffect: true,
           });
           recordToolResult(result, false);
           return {
@@ -3844,6 +3863,7 @@ export async function runAgentLoop(opts: {
               tool: toolCall.name,
               input: toolCall.input as Record<string, unknown>,
               result,
+              completedSideEffect: true,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
             recordToolResult(result, false);
@@ -4951,6 +4971,73 @@ export interface ChainServerDrivenContinuationDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** Retry-budget sizing for one `chainServerDrivenContinuation` dispatch. */
+export interface ContinuationDispatchBudget {
+  maxDispatchAttempts: number;
+  dispatchResponseTimeoutMs: number;
+  /** Cap (ms) on the per-gap exponential backoff. `Infinity` preserves the
+   *  original uncapped `500 * 2 ** attempt` schedule for the two budgets
+   *  that predate this cap (their attempt counts are low enough it never
+   *  mattered); only the larger proven-in-background-function budget uses a
+   *  real cap so its extra attempts don't add unbounded backoff. */
+  backoffCapMs: number;
+}
+
+/**
+ * Sizes the dispatch retry budget by *remaining wall-clock capacity*, not by
+ * dispatch TARGET — the two are independent concerns. `chainViaDurableBackground`
+ * only picks where the dispatch goes (see `continuationDispatchPath` above);
+ * this picks how hard to retry getting it there.
+ *
+ * Three cases:
+ *   - `chainViaDurableBackground === true`: the durable worker chain dispatching
+ *     to the Netlify background function url. Unchanged: 3 attempts / 15s.
+ *   - `chainViaDurableBackground === false` and
+ *     `workerProvenInBackgroundFunction === true`: a worker PROVEN (by runtime
+ *     function name, see `shouldUseBackgroundFunctionTimeoutForWorker`) to
+ *     already be executing inside a real `-background` function — it was
+ *     forced onto the regular-function dispatch target only because a
+ *     background function cannot invoke its own URL from within a live
+ *     invocation (see the caller's `&& !runsInBackgroundFunction` comment),
+ *     NOT because it lacks time or a connected-client fallback. This worker
+ *     has up to `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` (13min) of soft-timeout
+ *     budget behind it and up to Netlify's ~15min hard function limit ahead —
+ *     roughly 2 minutes of remaining wall clock — and, being a background
+ *     worker, NO connected client to fall back on if the handoff is dropped.
+ *     Demoting it to the foreground's 2-attempt/10s budget is exactly the bug
+ *     this type documents: 5 attempts / 15s response timeout, with backoff
+ *     capped at 4s/gap (500ms, 1s, 2s, 4s across the 4 gaps ≈ 7.5s total).
+ *     Worst case: 5 × 15s dispatch + ~7.5s backoff ≈ 82.5s, safely inside the
+ *     ~2min of remaining budget before the function's hard kill.
+ *   - Otherwise: a true foreground caller not proven in a background
+ *     function. Unchanged: 2 attempts / 10s — it has a live connected client
+ *     as a fallback (the terminal `auto_continue` event still reaches it).
+ */
+export function resolveContinuationDispatchBudget(opts: {
+  chainViaDurableBackground: boolean;
+  workerProvenInBackgroundFunction: boolean;
+}): ContinuationDispatchBudget {
+  if (opts.chainViaDurableBackground) {
+    return {
+      maxDispatchAttempts: 3,
+      dispatchResponseTimeoutMs: 15_000,
+      backoffCapMs: Infinity,
+    };
+  }
+  if (opts.workerProvenInBackgroundFunction) {
+    return {
+      maxDispatchAttempts: 5,
+      dispatchResponseTimeoutMs: 15_000,
+      backoffCapMs: 4_000,
+    };
+  }
+  return {
+    maxDispatchAttempts: 2,
+    dispatchResponseTimeoutMs: 10_000,
+    backoffCapMs: Infinity,
+  };
+}
+
 /**
  * Server-driven continuation handoff for a chunk that hit its soft-timeout
  * boundary still unfinished: mint the next chunk's runId, PRE-INSERT its run
@@ -4980,7 +5067,14 @@ export interface ChainServerDrivenContinuationDeps {
  *     a dead handoff — after a failed/timed-out attempt the successor's
  *     ATOMIC CLAIM is consulted (`readBackgroundRunClaim`): a row that
  *     flipped to `background-processing` (or already went terminal) proves
- *     the handoff landed, so no retry is fired. 2 attempts, ~10s settle.
+ *     the handoff landed, so no retry is fired.
+ *
+ * `chainViaDurableBackground` does NOT alone determine the retry BUDGET —
+ * see `resolveContinuationDispatchBudget` and `workerProvenInBackgroundFunction`
+ * below: a worker forced onto this same `false` target because it is proven
+ * to already be inside a real background function gets a materially larger
+ * budget than a true foreground caller, since it has no connected-client
+ * fallback and minutes of remaining wall clock instead of seconds.
  *
  * Never throws — all failure paths are handled (recorded + marked) inside.
  */
@@ -4994,6 +5088,13 @@ export async function chainServerDrivenContinuation(opts: {
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
   chainViaDurableBackground: boolean;
+  /** True only when this worker is PROVEN (by runtime function name) to
+   *  already be executing inside a real Netlify `-background` function —
+   *  distinct from `chainViaDurableBackground`, which is forced `false` for
+   *  this exact worker (it cannot dispatch to its own function URL from a
+   *  live invocation). Widens the retry budget; does NOT change the dispatch
+   *  target. See `resolveContinuationDispatchBudget`. Defaults to `false`. */
+  workerProvenInBackgroundFunction?: boolean;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
   const d = {
@@ -5060,10 +5161,13 @@ export async function chainServerDrivenContinuation(opts: {
     : AGENT_CHAT_PROCESS_RUN_PATH;
   const continuationExpectsNetlifyBackgroundFunction =
     dispatchPathTargetsNetlifyBackgroundFunction(continuationDispatchPath);
-  const maxDispatchAttempts = opts.chainViaDurableBackground ? 3 : 2;
-  const dispatchResponseTimeoutMs = opts.chainViaDurableBackground
-    ? 15_000
-    : 10_000;
+  const dispatchBudget = resolveContinuationDispatchBudget({
+    chainViaDurableBackground: opts.chainViaDurableBackground,
+    workerProvenInBackgroundFunction:
+      opts.workerProvenInBackgroundFunction === true,
+  });
+  const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
+  const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
@@ -5147,7 +5251,17 @@ export async function chainServerDrivenContinuation(opts: {
     ) {
       try {
         if (attempt > 0) {
-          await d.sleep(500 * 2 ** attempt);
+          // Uncapped budgets (durable-background and true-foreground) keep
+          // the original `500 * 2 ** attempt` schedule unchanged. The capped
+          // budget (proven-in-background-function) instead uses a schedule
+          // starting at 500ms and doubling per gap, capped at
+          // `backoffCapMs` — see `resolveContinuationDispatchBudget` for why
+          // this stays well inside the worker's remaining wall clock even
+          // with 5 attempts.
+          const backoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
+            ? Math.min(500 * 2 ** (attempt - 1), dispatchBudget.backoffCapMs)
+            : 500 * 2 ** attempt;
+          await d.sleep(backoffMs);
           // Keep the pre-inserted successor row visibly alive while we
           // retry: the awaited attempts + backoff can outlast
           // UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and without a fresh
@@ -6599,6 +6713,14 @@ export function createProductionAgentHandler(
                     isAgentChatDurableBackgroundEnabled({
                       appOptIn: options.durableBackgroundRuns === true,
                     }) && !runsInBackgroundFunction,
+                  // Only changes the retry BUDGET, never the dispatch target
+                  // above: a worker proven in a real background function has
+                  // minutes of remaining wall clock and no connected-client
+                  // fallback, so it must not be demoted to the foreground's
+                  // 2-attempt budget just because it was forced onto the
+                  // regular-function dispatch target. See
+                  // `resolveContinuationDispatchBudget`.
+                  workerProvenInBackgroundFunction: runsInBackgroundFunction,
                 });
               }
             } finally {

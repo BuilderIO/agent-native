@@ -68,6 +68,10 @@ Automation-first app هو Agent-Native app بلا متصفح من أجل schedul
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
+## أضف الدردشة لاحقاً {#add-chat-later}
+
+يختار `--headless` السقالة الأولية فقط، ولا يوجد أمر `agent-native` يحوّل مشروعاً قائماً بلا واجهة إلى تطبيق دردشة في مكانه. عندما يحتاج الأشخاص إلى محادثة في المتصفح، استخدم [قالب Chat](/docs/template-chat) كمرجع للترحيل: احتفظ بالـ actions وبيانات SQL والتعليمات والمهارات، ثم أضف shell المتصفح وserver plugins و`<AgentChatSurface>` وplugin للدردشة يحمّل actions الحالية. تحقّق من `pnpm typecheck` ومن محادثة تستدعي action قائمة. استخدم `agent-native add` لمخططات التكامل، لا لهذا التحويل.
+
 ## ما هي الخطوة التالية
 
 - [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — دليل القرار الكامل بدون رأس وAPIs

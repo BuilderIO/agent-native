@@ -15,7 +15,7 @@
 
 import path from "node:path";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -24,6 +24,8 @@ export interface WriteGrantContext {
   connectionId: string;
   /** Email of the currently authenticated user (from request context). */
   ownerEmail: string;
+  /** Active organization. Null denotes the user's personal workspace. */
+  orgId: string | null;
   /** Target path relative to rootPath (or absolute — validated either way). */
   targetPath: string;
 }
@@ -41,7 +43,7 @@ export interface WriteGrantResult {
 export async function verifyWriteGrant(
   ctx: WriteGrantContext,
 ): Promise<WriteGrantResult> {
-  const { designId, connectionId, ownerEmail, targetPath } = ctx;
+  const { designId, connectionId, ownerEmail, orgId, targetPath } = ctx;
 
   const db = getDb();
   const [grant] = await db
@@ -52,6 +54,9 @@ export async function verifyWriteGrant(
         eq(schema.designLocalhostWriteGrants.designId, designId),
         eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
         eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+        orgId
+          ? eq(schema.designLocalhostWriteGrants.orgId, orgId)
+          : isNull(schema.designLocalhostWriteGrants.orgId),
       ),
     )
     .limit(1);

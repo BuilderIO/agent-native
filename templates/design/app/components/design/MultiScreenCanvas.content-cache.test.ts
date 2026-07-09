@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   getCachedScreenContentNode,
+  pruneResolvedMetadataCache,
+  pruneScreenContentCache,
   resolveScreenMetadataCached,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/screen-content-cache";
+import type { FrameGeometry } from "./multi-screen/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,6 +57,39 @@ function makeRender() {
 // ---------------------------------------------------------------------------
 
 describe("getCachedScreenContentNode", () => {
+  it("retains an evicted screen's cached node and prunes it only on deletion", () => {
+    const cache = new Map();
+    const { render, calls } = makeRender();
+    const screen = makeScreen("s1", "<html>a</html>");
+    const metadata = makeMetadata();
+    const geometry = makeGeometry();
+    const first = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+    );
+
+    // LRU eviction removes the mounted iframe, not this lightweight content
+    // descriptor. A revisit therefore reuses the identical React node.
+    pruneScreenContentCache(cache, new Set(["s1"]));
+    const revisited = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+    );
+    expect(revisited).toBe(first);
+    expect(calls).toHaveLength(1);
+
+    pruneScreenContentCache(cache, new Set());
+    expect(cache.has("s1")).toBe(false);
+    void getCachedScreenContentNode(cache, screen, metadata, geometry, render);
+    expect(calls).toHaveLength(2);
+  });
+
   it("returns the identical node for unchanged inputs and renders only once", () => {
     const cache = new Map();
     const { render, calls } = makeRender();
@@ -229,7 +264,7 @@ describe("getCachedScreenContentNode", () => {
     expect(calls.length).toBe(2);
   });
 
-  it("regenerates when the renderScreenContent callback identity changes", () => {
+  it("renders once per preview-state renderer identity and caches each result", () => {
     const cache = new Map();
     const a = makeRender();
     const b = makeRender();
@@ -254,6 +289,16 @@ describe("getCachedScreenContentNode", () => {
 
     expect(afterCallbackChange).not.toBe(first);
     expect(a.calls.length).toBe(1);
+    expect(b.calls.length).toBe(1);
+
+    const afterCallbackChangeAgain = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      b.render,
+    );
+    expect(afterCallbackChangeAgain).toBe(afterCallbackChange);
     expect(b.calls.length).toBe(1);
   });
 
@@ -398,6 +443,40 @@ describe("resolveScreenMetadataCached", () => {
 
     expect(second).not.toBe(first);
     expect(second.title).toBe("Pricing");
+  });
+
+  it("recomputes when legacy status changes the preview state", () => {
+    const cache = new Map();
+    const screen = makeScreen("s1", "<html>hello</html>");
+    const first = resolveScreenMetadataCached(
+      cache,
+      screen,
+      { status: "preview" },
+      undefined,
+      "none",
+    );
+    const second = resolveScreenMetadataCached(
+      cache,
+      screen,
+      { status: "live" },
+      undefined,
+      "none",
+    );
+
+    expect(second).not.toBe(first);
+    expect(first.previewState).toBe("preview");
+    expect(second.previewState).toBe("live");
+  });
+
+  it("prunes metadata for screens removed from the board", () => {
+    const cache = new Map([
+      ["live", {} as never],
+      ["deleted", {} as never],
+    ]);
+
+    pruneResolvedMetadataCache(cache, new Set(["live"]));
+
+    expect([...cache.keys()]).toEqual(["live"]);
   });
 
   it("recomputes when previewDeviceFrame changes", () => {

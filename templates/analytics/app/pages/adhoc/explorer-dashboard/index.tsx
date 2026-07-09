@@ -205,7 +205,7 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
-  useDashboardChatContext({
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
     id: dashboardId,
     kind: "explorer",
     title: dashboard?.name,
@@ -797,6 +797,8 @@ export default function ExplorerDashboardPage() {
                     navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
+                  selectedForChat={selectedPanelId === chart.id}
+                  selectPanelForChat={selectPanelForChat}
                 />
               ))}
             </div>

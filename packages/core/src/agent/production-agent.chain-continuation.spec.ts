@@ -7,6 +7,7 @@ import {
 import {
   chainServerDrivenContinuation,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  resolveContinuationDispatchBudget,
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -128,6 +129,7 @@ async function runChain(
   harness: Harness,
   opts?: {
     chainViaDurableBackground?: boolean;
+    workerProvenInBackgroundFunction?: boolean;
     requestBody?: Record<string, unknown>;
   },
 ): Promise<void> {
@@ -144,6 +146,7 @@ async function runChain(
     },
     backgroundContinuationCount: 0,
     chainViaDurableBackground: opts?.chainViaDurableBackground ?? false,
+    workerProvenInBackgroundFunction: opts?.workerProvenInBackgroundFunction,
     deps: harness.deps,
   });
 }
@@ -311,6 +314,104 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
       "turn_continuation_budget_exhausted",
+    );
+  });
+});
+
+describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
+  it("sizes the durable-background worker chain at 3 attempts / 15s (unchanged), regardless of workerProvenInBackgroundFunction", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: false,
+      }),
+    ).toMatchObject({
+      maxDispatchAttempts: 3,
+      dispatchResponseTimeoutMs: 15_000,
+    });
+    // The dispatch TARGET takes priority over the worker's proven runtime —
+    // a durable-background dispatch is always sized the same regardless of
+    // where the CALLER happens to be running.
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: true,
+      }),
+    ).toMatchObject({
+      maxDispatchAttempts: 3,
+      dispatchResponseTimeoutMs: 15_000,
+    });
+  });
+
+  it("widens the budget for a worker PROVEN in a real background function forced onto the foreground target", () => {
+    const budget = resolveContinuationDispatchBudget({
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+    // Materially larger than the foreground budget: this worker has minutes
+    // of remaining wall clock and no connected-client fallback.
+    expect(budget.maxDispatchAttempts).toBe(5);
+    expect(budget.dispatchResponseTimeoutMs).toBe(15_000);
+    expect(budget.backoffCapMs).toBe(4_000);
+    // Worst case stays well inside the ~2min gap between the 13-min soft
+    // timeout ceiling and Netlify's ~15-min background-function hard limit.
+    const worstCaseDispatchMs =
+      budget.maxDispatchAttempts * budget.dispatchResponseTimeoutMs;
+    const worstCaseBackoffMs = [1, 2, 3, 4]
+      .map((attempt) => Math.min(500 * 2 ** (attempt - 1), budget.backoffCapMs))
+      .reduce((a, b) => a + b, 0);
+    expect(worstCaseBackoffMs).toBe(7_500);
+    expect(worstCaseDispatchMs + worstCaseBackoffMs).toBeLessThan(120_000);
+  });
+
+  it("keeps a true foreground caller (not proven in a background function) at 2 attempts / 10s (unchanged)", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: false,
+      }),
+    ).toMatchObject({
+      maxDispatchAttempts: 2,
+      dispatchResponseTimeoutMs: 10_000,
+      backoffCapMs: Infinity,
+    });
+  });
+});
+
+describe("chainServerDrivenContinuation — worker proven in background function gets the widened budget", () => {
+  it("retries up to 5 times at a 15s response timeout, using the capped backoff schedule, before failing loud", async () => {
+    const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h, {
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+
+    // Full budget consumed — a transient/resumable error (`fetch failed`)
+    // does not short-circuit the retry loop.
+    expect(dispatchMock).toHaveBeenCalledTimes(5);
+    const dispatch = dispatchMock.mock.calls[0][0];
+    expect(dispatch.responseTimeoutMs).toBe(15_000);
+    // Capped exponential backoff: 500ms, 1s, 2s, 4s across the 4 gaps.
+    const sleepCalls = (h.deps.sleep as any).mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(sleepCalls).toEqual([500, 1000, 2000, 4000]);
+    // Dispatch still targets the regular `_process-run` route (unchanged
+    // target — only the budget widened), and both rows go terminal loudly
+    // on final exhaustion, same as the foreground exhaustion path.
+    expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-next",
+      "errored",
+    );
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_failed",
     );
   });
 });

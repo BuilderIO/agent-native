@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  getSnapshotRetryDelayMs,
-  getZoomToCursorScrollDelta,
-} from "./DesignCanvas";
+import { getZoomToCursorScrollDelta } from "./design-canvas/coordinate-transforms";
+import { getSnapshotRetryDelayMs } from "./design-canvas/external-preview";
 
 describe("getZoomToCursorScrollDelta", () => {
   it("returns zero delta when zoom does not change (ratio === 1)", () => {

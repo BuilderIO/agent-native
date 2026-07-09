@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { parseBreakpointWidthInput } from "@/components/design/BreakpointBar";
 
+import { shouldPopToOverviewOnZoomOut } from "./design-editor/overview-camera";
 import {
   applyScopedVisualStyleEdit,
   formatPendingVisualStylePrompt,
-  shouldPopToOverviewOnZoomOut,
-} from "./DesignEditor";
+} from "./design-editor/pending-edits";
 
 const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
 

@@ -13,7 +13,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import type { DesignSourceCapabilities } from "../shared/design-source-capabilities.js";
 import {
-  normalizeDesignSourceType,
+  designSourceTypeFromData,
   resolveDescriptorCapabilities,
   type DesignSourceDescriptor,
 } from "../shared/source-mode.js";
@@ -34,7 +34,7 @@ function resolveCapabilities(
     if (parsed.capabilities && typeof parsed.capabilities === "object") {
       return parsed.capabilities as DesignSourceCapabilities;
     }
-    const sourceType = normalizeDesignSourceType(parsed.sourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(parsed);
     const descriptor: DesignSourceDescriptor =
       sourceType === "fusion"
         ? { sourceType, connected: parsed.connected === true }

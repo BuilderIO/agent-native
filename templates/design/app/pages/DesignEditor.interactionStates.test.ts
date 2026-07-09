@@ -7,7 +7,7 @@ import {
 import {
   applyInteractionStateStyleCommit,
   deriveStatePreviewTarget,
-} from "./DesignEditor";
+} from "./design-editor/pending-edits";
 
 const BASE_HTML = `<!doctype html>
 <html>

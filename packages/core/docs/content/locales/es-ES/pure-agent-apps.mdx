@@ -70,6 +70,10 @@ la caja, el andamio, el acceso al repositorio y el uso compartido de ejecuciones
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
+## Añade chat más adelante {#add-chat-later}
+
+`--headless` solo elige el scaffold inicial; no hay un comando de `agent-native` que convierta en el sitio un proyecto existente solo de acciones en una app de chat. Cuando las personas necesiten una conversación en el navegador, usa la [plantilla Chat](/docs/template-chat) como referencia de migración: conserva las actions, los datos SQL, las instrucciones y las skills, y añade el shell del navegador, los plugins de servidor, `<AgentChatSurface>` y un plugin de chat que cargue las actions existentes. Comprueba `pnpm typecheck` y un turno de chat que llame una action existente. `agent-native add` es para planos de integración, no para esta conversión.
+
 ## ¿Qué sigue?
 
 - [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless): la guía completa de decisiones sin cabeza y API

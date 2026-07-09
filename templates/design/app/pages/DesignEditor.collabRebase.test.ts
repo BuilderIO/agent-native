@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveScreenCollabSyncTarget,
   shouldRebaseCollabDocFromStoredContent,
-} from "./DesignEditor";
+} from "./design-editor/collab-sync";
 
 const OLD_HTML =
   '<!doctype html><html><body><div data-agent-native-node-id="an-1">old</div></body></html>';

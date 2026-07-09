@@ -34,6 +34,9 @@ const screenRouteSchema = z.object({
   url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
+  sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
+  screenshotUrl: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   x: z.number().optional(),
@@ -107,6 +110,11 @@ function routeManifestFromScreens(args: {
   if (screenInputs.length === 0) return undefined;
 
   return screenInputs.map((input) => {
+    if (!input.path && !input.url) {
+      throw new Error(
+        `Route "${input.routeId ?? "(unknown)"}" needs path or url when no routeManifest is provided.`,
+      );
+    }
     const url = routeUrl(args.devServerUrl, {
       path: input.path,
       url: input.url,
@@ -117,7 +125,9 @@ function routeManifestFromScreens(args: {
       path,
       title: input.title ?? titleFromRoutePath(path),
       sourceFile: input.sourceFile,
-      sourceKind: "manual" as const,
+      sourceKind: input.sourceKind ?? ("manual" as const),
+      screenshotUrl: input.screenshotUrl,
+      metadata: input.metadata,
     };
   });
 }
@@ -166,6 +176,12 @@ export default defineAction({
           "self-registered). Omit it and the server mints one, stores it, and " +
           "returns it as `bridgeToken` so the caller can start the local bridge " +
           "with `design connect --bridge-token <token>`.",
+      ),
+    previewToken: z
+      .string()
+      .optional()
+      .describe(
+        "Optional paired read-only preview token from a self-registering CLI. Omit it with bridgeToken to derive the compatible token automatically.",
       ),
     routes: jsonArray(z.array(screenRouteSchema))
       .optional()
@@ -244,6 +260,7 @@ export default defineAction({
       routeManifest,
       capabilities: args.capabilities,
       bridgeToken: args.bridgeToken,
+      previewToken: args.previewToken,
       status: "connected",
     });
 
@@ -321,6 +338,7 @@ export default defineAction({
       // Minted/stored by connect-localhost; the skill starts the bridge with
       // `design connect --bridge-token <this>` so bridge and row agree.
       bridgeToken: connection.bridgeToken,
+      previewToken: connection.previewToken,
     };
   },
   link: ({ result }) => {

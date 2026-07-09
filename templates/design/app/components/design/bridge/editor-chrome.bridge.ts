@@ -1925,8 +1925,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var persistentNodes = Array.prototype.slice.call(
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
-    var activeSelector =
-      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // A forced whole-document replace is used for structural edits (duplicate,
+    // delete, cut/paste, undo/redo). Never fall back to the current selection
+    // in that mode: doing so activates the single-subtree fast path below,
+    // which can faithfully replace the selected node while silently omitting
+    // newly inserted or removed siblings elsewhere in the document.
+    var activeSelector = forceFullDocument
+      ? ""
+      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -8378,6 +8384,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       target.removeEventListener("keyup", onSelectionChange, true);
       target.removeEventListener("mouseup", onSelectionChange, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
       document.documentElement.removeAttribute(
@@ -8443,17 +8450,37 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // Escape/blur would take, instead of only resetting activeTextEditEl.
     finishActiveTextEdit = finish;
 
-    function onBlur() {
-      if (programmaticTextEdit && !(target.textContent || "").trim()) {
-        window.setTimeout(function () {
-          if (committed || (target.textContent || "").trim()) return;
-          target.focus();
-          updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-          postTextEditingState(target, true);
-        }, 0);
-        return;
+    var emptyProgrammaticRefocusScheduled = false;
+    function refocusEmptyProgrammaticEdit() {
+      if (
+        emptyProgrammaticRefocusScheduled ||
+        !programmaticTextEdit ||
+        (target.textContent || "").trim()
+      ) {
+        return false;
       }
+      emptyProgrammaticRefocusScheduled = true;
+      window.setTimeout(function () {
+        emptyProgrammaticRefocusScheduled = false;
+        if (committed || (target.textContent || "").trim()) return;
+        target.focus();
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+        postTextEditingState(target, true);
+      }, 0);
+      return true;
+    }
+
+    function onBlur() {
+      if (refocusEmptyProgrammaticEdit()) return;
       finish(true);
+    }
+
+    // Moving focus from a child browsing context back to the host canvas does
+    // not consistently blur the iframe's activeElement in Chromium. Listen at
+    // the window boundary too so the newly created empty text field keeps the
+    // keyboard until the user types or explicitly exits.
+    function onWindowBlur() {
+      refocusEmptyProgrammaticEdit();
     }
 
     function onKeyDown(ev) {
@@ -8525,6 +8552,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     target.addEventListener("keyup", onSelectionChange, true);
     target.addEventListener("mouseup", onSelectionChange, true);
     document.addEventListener("selectionchange", onSelectionChange);
+    window.addEventListener("blur", onWindowBlur, true);
     target.focus();
     if (programmaticTextEdit) {
       // The synthesized point sits at the (0×0) node's edge and resolves to the
@@ -8560,8 +8588,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     textTarget: HTMLElement,
     force: boolean,
   ): void {
-    // If we are already editing this element, do nothing.
-    if (activeTextEditEl && activeTextEditEl === textTarget) return;
+    // The host canvas can reclaim keyboard focus while React settles a newly
+    // created layer. In that case this document still reports the same
+    // activeElement even though its browsing context no longer has focus, so
+    // treating the session as already active makes every retry a no-op and the
+    // user's first keystroke hits host shortcuts. Re-focus the existing
+    // session instead of rebuilding it.
+    if (activeTextEditEl && activeTextEditEl === textTarget) {
+      if (document.activeElement !== textTarget || !document.hasFocus()) {
+        textTarget.focus();
+        try {
+          var refocusRange = document.createRange();
+          refocusRange.selectNodeContents(textTarget);
+          refocusRange.collapse(false);
+          var refocusSelection = window.getSelection();
+          refocusSelection.removeAllRanges();
+          refocusSelection.addRange(refocusRange);
+        } catch {}
+        postTextEditingState(textTarget, true);
+      }
+      return;
+    }
     // Synthesise coordinates at the end of the element content so the caret
     // lands at the insertion point (right after any placeholder text).
     var bteRect = textTarget.getBoundingClientRect();
@@ -9019,7 +9066,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         );
         if (
           textEditStatusEditingEl &&
-          document.activeElement === textEditStatusEditingEl
+          document.activeElement === textEditStatusEditingEl &&
+          document.hasFocus()
         ) {
           textEditStatus = "active";
         } else if (

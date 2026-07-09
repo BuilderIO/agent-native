@@ -1,17 +1,22 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
   clampFrameGeometryToViewport,
+  computeBoundedScreenCullState,
   computeScreenCullTier,
+  getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
   OVERVIEW_CULLING_ENABLED,
   OVERVIEW_CULLING_OVERSCAN_FACTOR,
-  SURFACE_PADDING,
-  type FrameGeometry,
+  OVERVIEW_LIVE_IFRAME_BUDGET,
+  type ScreenCullCandidate,
   type OverscannedViewportBounds,
-  type Point,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/culling";
+import { SURFACE_PADDING } from "./multi-screen/overview-layout";
+import type { FrameGeometry, Point } from "./multi-screen/types";
 
 function geom(
   x: number,
@@ -30,6 +35,239 @@ describe("MultiScreenCanvas viewport culling", () => {
 
   it("uses a generous (>=1.5x) overscan factor by default", () => {
     expect(OVERVIEW_CULLING_OVERSCAN_FACTOR).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("measures the initial viewport in a layout effect before first paint", () => {
+    const source = readFileSync(
+      "app/components/design/MultiScreenCanvas.tsx",
+      "utf8",
+    );
+    const measurementStart = source.indexOf(
+      "// Track the pannable surface's own on-screen size",
+    );
+    const measurementBlock = source.slice(
+      measurementStart,
+      measurementStart + 1800,
+    );
+
+    expect(measurementStart).toBeGreaterThanOrEqual(0);
+    expect(measurementBlock).toContain("useLayoutEffect(() => {");
+    expect(measurementBlock).toContain("surface.getBoundingClientRect()");
+  });
+
+  it("uses one mount/hide lifecycle for primary and breakpoint iframes", () => {
+    expect(getScreenContentCullState("placeholder")).toEqual({
+      shouldMount: false,
+      isHidden: false,
+    });
+    expect(getScreenContentCullState("visible")).toEqual({
+      shouldMount: true,
+      isHidden: false,
+    });
+    expect(getScreenContentCullState("culled")).toEqual({
+      shouldMount: true,
+      isHidden: true,
+    });
+    expect(getScreenContentCullState("evicted")).toEqual({
+      shouldMount: false,
+      isHidden: false,
+    });
+
+    const source = readFileSync(
+      "app/components/design/MultiScreenCanvas.tsx",
+      "utf8",
+    );
+    expect(source.match(/getScreenContentCullState\(cullTier\)/g)).toHaveLength(
+      2,
+    );
+    expect(source).toContain(
+      "iframeCount: 1 + (screen.breakpointWidths?.length ?? 0)",
+    );
+    expect(
+      source.match(/loading=\{cullTier === "visible" \? "eager" : "lazy"\}/g),
+    ).toHaveLength(2);
+  });
+
+  describe("bounded live iframe allocation", () => {
+    const viewport: OverscannedViewportBounds = {
+      left: 0,
+      top: 0,
+      right: 100_000,
+      bottom: 100_000,
+    };
+
+    function candidate(
+      id: string,
+      x: number,
+      iframeCount = 1,
+    ): ScreenCullCandidate {
+      return { id, geometry: geom(x, 100), iframeCount };
+    }
+
+    function compute(
+      candidates: ScreenCullCandidate[],
+      options: {
+        viewport?: OverscannedViewportBounds | null;
+        protectedIds?: ReadonlySet<string>;
+        previous?: ReturnType<typeof computeBoundedScreenCullState>;
+        epoch?: number;
+        budget?: number;
+      } = {},
+    ) {
+      return computeBoundedScreenCullState({
+        candidates,
+        viewport: options.viewport === undefined ? viewport : options.viewport,
+        protectedScreenIds: options.protectedIds ?? new Set(),
+        previousLiveScreenIds:
+          options.previous?.liveScreenIds ?? new Set<string>(),
+        everVisibleScreenIds:
+          options.previous?.everVisibleScreenIds ?? new Set<string>(),
+        lastVisibleEpochByScreenId:
+          options.previous?.lastVisibleEpochByScreenId ??
+          new Map<string, number>(),
+        accessEpoch: options.epoch ?? 1,
+        liveIframeBudget: options.budget,
+      });
+    }
+
+    it("caps a 120-screen viewport at the explicit live-context budget", () => {
+      const candidates = Array.from({ length: 120 }, (_, index) =>
+        candidate(`screen-${String(index).padStart(3, "0")}`, index * 500),
+      );
+      const result = compute(candidates);
+
+      expect(OVERVIEW_LIVE_IFRAME_BUDGET).toBeGreaterThan(0);
+      expect(result.liveScreenIds.size).toBe(OVERVIEW_LIVE_IFRAME_BUDGET);
+      expect(result.mountedIframeCount).toBe(OVERVIEW_LIVE_IFRAME_BUDGET);
+      expect(
+        [...result.tierByScreenId.values()].filter(
+          (tier) => tier === "visible",
+        ),
+      ).toHaveLength(OVERVIEW_LIVE_IFRAME_BUDGET);
+      expect(
+        [...result.tierByScreenId.values()].filter(
+          (tier) => tier === "placeholder",
+        ),
+      ).toHaveLength(120 - OVERVIEW_LIVE_IFRAME_BUDGET);
+    });
+
+    it("evicts least-recently-visible screens and restores them on revisit", () => {
+      const candidates = [
+        candidate("a", 100),
+        candidate("b", 500),
+        candidate("c", 5_100),
+        candidate("d", 5_500),
+      ];
+      const firstViewport = { left: 0, top: 0, right: 1_000, bottom: 1_000 };
+      const secondViewport = {
+        left: 5_000,
+        top: 0,
+        right: 6_000,
+        bottom: 1_000,
+      };
+      const first = compute(candidates, {
+        viewport: firstViewport,
+        budget: 2,
+        epoch: 1,
+      });
+      expect(first.liveScreenIds).toEqual(new Set(["a", "b"]));
+
+      const second = compute(candidates, {
+        viewport: secondViewport,
+        budget: 2,
+        epoch: 2,
+        previous: first,
+      });
+      expect(second.liveScreenIds).toEqual(new Set(["c", "d"]));
+      expect(second.tierByScreenId.get("a")).toBe("evicted");
+      expect(second.tierByScreenId.get("b")).toBe("evicted");
+
+      const revisited = compute(candidates, {
+        viewport: firstViewport,
+        budget: 2,
+        epoch: 3,
+        previous: second,
+      });
+      expect(revisited.liveScreenIds).toEqual(new Set(["a", "b"]));
+      expect(revisited.tierByScreenId.get("a")).toBe("visible");
+      expect(revisited.tierByScreenId.get("b")).toBe("visible");
+      expect(revisited.tierByScreenId.get("c")).toBe("evicted");
+    });
+
+    it("keeps active and selected offscreen screens protected", () => {
+      const candidates = Array.from({ length: 40 }, (_, index) =>
+        candidate(`screen-${index}`, index * 1_000),
+      );
+      const protectedId = "screen-39";
+      const narrowViewport = {
+        left: 0,
+        top: 0,
+        right: 2_000,
+        bottom: 1_000,
+      };
+      const result = compute(candidates, {
+        viewport: narrowViewport,
+        protectedIds: new Set([protectedId]),
+        budget: 4,
+      });
+
+      expect(result.liveScreenIds.has(protectedId)).toBe(true);
+      expect(result.tierByScreenId.get(protectedId)).toBe("visible");
+      expect(result.mountedIframeCount).toBeLessThanOrEqual(4);
+    });
+
+    it("counts every breakpoint iframe against the hard budget", () => {
+      const candidates = Array.from({ length: 10 }, (_, index) =>
+        candidate(`responsive-${index}`, index * 500, 4),
+      );
+      const result = compute(candidates, { budget: 10 });
+
+      // Screen groups remain atomic: two groups x (base + three breakpoints)
+      // fit, while a third would cross the 10-context cap.
+      expect(result.liveScreenIds.size).toBe(2);
+      expect(result.mountedIframeCount).toBe(8);
+      expect(result.mountedIframeCount).toBeLessThanOrEqual(10);
+    });
+
+    it("allows only protected interactions to temporarily exceed the pool", () => {
+      const candidates = [
+        candidate("active", 100, 3),
+        candidate("selected", 500, 3),
+      ];
+      const result = compute(candidates, {
+        viewport: null,
+        protectedIds: new Set(["active", "selected"]),
+        budget: 4,
+      });
+
+      expect(result.liveScreenIds).toEqual(new Set(["active", "selected"]));
+      expect(result.mountedIframeCount).toBe(6);
+      expect(result.tierByScreenId.get("active")).toBe("visible");
+      expect(result.tierByScreenId.get("selected")).toBe("visible");
+    });
+
+    it("keeps a recent offscreen screen warm when budget remains", () => {
+      const candidates = [candidate("warm", 100), candidate("cold", 5_000)];
+      const first = compute(candidates, {
+        viewport: { left: 0, top: 0, right: 1_000, bottom: 1_000 },
+        budget: 2,
+      });
+      const offscreen = compute(candidates, {
+        viewport: {
+          left: 10_000,
+          top: 10_000,
+          right: 11_000,
+          bottom: 11_000,
+        },
+        previous: first,
+        budget: 2,
+        epoch: 2,
+      });
+
+      expect(offscreen.liveScreenIds).toEqual(new Set(["warm"]));
+      expect(offscreen.tierByScreenId.get("warm")).toBe("culled");
+      expect(offscreen.tierByScreenId.get("cold")).toBe("placeholder");
+    });
   });
 
   describe("getOverscannedViewportCanvasBounds", () => {
@@ -244,7 +482,7 @@ describe("MultiScreenCanvas viewport culling", () => {
       ).toBe("visible");
     });
 
-    it("treats everything as visible when the viewport is not yet known", () => {
+    it("keeps never-seen screens as placeholders until the viewport is measured", () => {
       expect(
         computeScreenCullTier({
           geometry: geom(5000, 5000),
@@ -252,7 +490,26 @@ describe("MultiScreenCanvas viewport culling", () => {
           alwaysVisible: false,
           hasBeenVisible: false,
         }),
+      ).toBe("placeholder");
+    });
+
+    it("keeps active screens visible before measurement without mounting every iframe", () => {
+      expect(
+        computeScreenCullTier({
+          geometry: geom(5000, 5000),
+          viewport: null,
+          alwaysVisible: true,
+          hasBeenVisible: false,
+        }),
       ).toBe("visible");
+      expect(
+        computeScreenCullTier({
+          geometry: geom(5000, 5000),
+          viewport: null,
+          alwaysVisible: false,
+          hasBeenVisible: true,
+        }),
+      ).toBe("culled");
     });
 
     it("never regresses hasBeenVisible=true back to placeholder across repeated calls", () => {

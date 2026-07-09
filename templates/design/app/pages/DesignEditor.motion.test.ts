@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MotionDockTrack } from "../components/design/MotionDock";
-import { applyMotionAutoKeyframesForStyles } from "./DesignEditor";
+import { applyMotionAutoKeyframesForStyles } from "./design-editor/motion-state";
 
 function track(overrides: Partial<MotionDockTrack> = {}): MotionDockTrack {
   return {

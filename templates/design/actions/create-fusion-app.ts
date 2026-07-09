@@ -20,15 +20,14 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
 import {
   FULL_APP_BUILDING_ENABLED,
-  parseDesignDataBlob,
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
@@ -170,22 +169,27 @@ export default defineAction({
     });
 
     const now = new Date().toISOString();
-    const db = getDb();
-    const nextData = writeFusionApp(parseDesignDataBlob(design.data), {
+    const nextFusionApp = {
       projectId: result.projectId,
       branchName: result.branchName,
       editorUrl: result.url,
-      status: "building",
+      status: "building" as const,
       statusMessage:
         "App is being generated. Call sync-fusion-app to check progress.",
       createdAt: now,
       updatedAt: now,
+    };
+    await mutateDesignData({
+      designId,
+      mutate: (current) => writeFusionApp(current, nextFusionApp),
+      isApplied: (current) => {
+        const persisted = readFusionApp(current);
+        return (
+          persisted?.projectId === result.projectId &&
+          persisted.branchName === result.branchName
+        );
+      },
     });
-
-    await db
-      .update(schema.designs)
-      .set({ data: JSON.stringify(nextData), updatedAt: now })
-      .where(eq(schema.designs.id, designId));
 
     return {
       status: "building" as const,

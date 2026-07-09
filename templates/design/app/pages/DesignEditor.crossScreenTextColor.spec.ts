@@ -52,7 +52,7 @@ import {
   isStaleAutoTextColorMarker,
   resolveDestinationBackgroundLightness,
   shouldAdaptAutoTextColorForCrossScreenMove,
-} from "./DesignEditor";
+} from "./design-editor/cross-screen-text-color";
 
 describe("resolveDestinationBackgroundLightness (pure, finding 1)", () => {
   it("is light with no signal anywhere in the chain (conservative default)", () => {

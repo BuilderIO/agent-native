@@ -175,6 +175,9 @@ details live in `.agents/skills/`.
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
+- Clicking a dashboard chart, table, or extension stages that panel as a chat
+  context chip and writes `selected-object` with `type="dashboard-panel"`.
+  Use its dashboard and panel ids to scope inspection and edits to that panel.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
   replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the

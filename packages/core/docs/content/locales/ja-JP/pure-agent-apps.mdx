@@ -68,6 +68,10 @@ Automation-first app は、scheduled jobs、queues、scripts、integration worke
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
+## 後からチャットを追加する {#add-chat-later}
+
+`--headless` が選ぶのは初期 scaffold だけで、既存の action-only プロジェクトをその場で Chat アプリに変換する `agent-native` コマンドはありません。ブラウザーでの会話が必要になったら、移行の参照として [Chat template](/docs/template-chat) を使います。actions、SQL データ、instructions、skills は保持し、browser shell、server plugins、`<AgentChatSurface>`、既存 actions を読み込む chat plugin を追加してください。`pnpm typecheck` と既存 action を呼ぶ chat turn を確認します。`agent-native add` は integration blueprints 用であり、この変換用ではありません。
+
 ## 次は何ですか
 
 - [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — 完全なヘッドレス意思決定ガイドと API

@@ -6,37 +6,62 @@ import {
 } from "@shared/pen-path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { computeAltHoverMeasurement } from "./multi-screen/alt-hover-measurement";
 import {
-  __clearPrimitiveParseCachesForTests,
-  computeAltHoverMeasurement,
-  getActiveScreenIframeId,
   getBoardContentKey,
   getBoardContentLayerSignature,
-  getBoardSurfaceLayerStyle,
   getBoardSurfaceRenderContent,
-  getBreakpointFrameGeometry,
-  getBreakpointIframeId,
+  hasBoardSurfaceContent,
+} from "./multi-screen/board-surface-html";
+import {
+  shouldBoardSurfaceCapturePointerEvents,
+  shouldBeginCanvasPan,
+  shouldShowBreakpointMenuAffordance,
+} from "./multi-screen/canvas-tools";
+import {
+  boardPointToScreenLocalPoint,
+  screenLocalPointToBoardPoint,
+} from "./multi-screen/coordinate-transforms";
+import {
   getCrossScreenDropGuideForHitTest,
+  getCrossScreenDropGuideStyle,
+} from "./multi-screen/cross-screen-drop";
+import {
+  draftPrimitiveToInsert,
   getDraftPreviewGeometryForTool,
+} from "./multi-screen/draft-primitives";
+import {
+  frameStyleLeftTop,
+  getBreakpointFrameGeometry,
+  getLayerSelectableBounds,
   getOutsideFrameDraftFallback,
+} from "./multi-screen/frame-geometry";
+import { screenPxToCanvasPx } from "./multi-screen/gradient-overlay-geometry";
+import {
+  getActiveScreenIframeId,
+  getBreakpointIframeId,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
-  frameStyleLeftTop,
+} from "./multi-screen/iframe-targeting";
+import {
+  getBoardSurfaceLayerStyle,
+  SURFACE_PADDING,
+} from "./multi-screen/overview-layout";
+import {
+  __clearPrimitiveParseCachesForTests,
+  __getPrimitiveParseCacheSizesForTests,
   getPrimitiveDropTargetForPoint,
-  hasBoardSurfaceContent,
-  ParsedScreenPrimitive,
   parsePrimitivesFromScreen,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
-  screenPxToCanvasPx,
-  shouldBoardSurfaceCapturePointerEvents,
-  shouldShowBreakpointMenuAffordance,
-  SURFACE_PADDING,
+  type ParsedScreenPrimitive,
+} from "./multi-screen/primitive-drop-target";
+import type { DraftPrimitive, FrameGeometry } from "./multi-screen/types";
+import {
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/vector-edit-geometry";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -287,6 +312,19 @@ describe("board surface pointer capture", () => {
   });
 });
 
+describe("global canvas pan gestures", () => {
+  it("keeps middle-mouse pan available regardless of the active edit tool", () => {
+    expect(shouldBeginCanvasPan({ button: 1, tool: "move" })).toBe(true);
+    expect(shouldBeginCanvasPan({ button: 1, tool: "pen" })).toBe(true);
+  });
+
+  it("uses left mouse only for the hand tool", () => {
+    expect(shouldBeginCanvasPan({ button: 0, tool: "hand" })).toBe(true);
+    expect(shouldBeginCanvasPan({ button: 0, tool: "move" })).toBe(false);
+    expect(shouldBeginCanvasPan({ button: 2, tool: "hand" })).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // primitiveLocalToBoardRect
 // ---------------------------------------------------------------------------
@@ -340,6 +378,50 @@ describe("primitiveLocalToBoardRect", () => {
       }),
     ).not.toThrow();
   });
+
+  it("maps local primitive geometry through a rotated screen", () => {
+    const result = primitiveLocalToBoardRect(
+      0,
+      0,
+      20,
+      40,
+      { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      { width: 100, height: 200 },
+    );
+
+    // Local center (10,20), rotated 90deg around frame center (50,100),
+    // lands at board center (130,60).
+    expect(result.x).toBeCloseTo(120);
+    expect(result.y).toBeCloseTo(40);
+    expect(result.width).toBe(20);
+    expect(result.height).toBe(40);
+    expect(result.rotation).toBe(90);
+  });
+});
+
+describe("draftPrimitiveToInsert", () => {
+  it("keeps a board-space draft visually stationary when inserted into a rotated screen", () => {
+    const draft: DraftPrimitive = {
+      id: "draft",
+      kind: "rectangle",
+      // This box is the board-space result of local (0,0,20,40) inside the
+      // 90deg frame below. Its own global rotation is zero.
+      geometry: { x: 120, y: 40, width: 20, height: 40 },
+    };
+
+    const insert = draftPrimitiveToInsert(draft, {
+      ...makeGeom(0, 0, 100, 200),
+      rotation: 90,
+    });
+
+    expect(insert.geometry).toEqual({
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 40,
+      rotation: -90,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -382,6 +464,17 @@ describe("frameStyleLeftTop", () => {
   });
 });
 
+describe("layer marquee bounds", () => {
+  it("does not include the screen-only label band above a layer", () => {
+    expect(getLayerSelectableBounds(makeGeom(100, 200, 80, 40))).toEqual({
+      left: 100,
+      top: 200,
+      right: 180,
+      bottom: 240,
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // getCrossScreenDropGuideForHitTest
 // ---------------------------------------------------------------------------
@@ -412,6 +505,29 @@ describe("getCrossScreenDropGuideForHitTest", () => {
         targetMetadata: { width: 320, height: 640 },
       }),
     ).toBeNull();
+  });
+
+  it("maps and rotates guides with their target screen", () => {
+    const guide = getCrossScreenDropGuideForHitTest({
+      hit: {
+        anchorRect: { left: 0, top: 0, width: 20, height: 40 },
+        placement: "inside",
+        axis: "y",
+      },
+      targetGeometry: { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      targetMetadata: { width: 100, height: 200 },
+    });
+
+    expect(guide?.boardRect.x).toBeCloseTo(120);
+    expect(guide?.boardRect.y).toBeCloseTo(40);
+    expect(guide?.boardRect.rotation).toBe(90);
+    expect(
+      getCrossScreenDropGuideStyle({
+        guide: guide!,
+        pan: { x: 0, y: 0 },
+        scale: 1,
+      }).transform,
+    ).toBe("rotate(90deg)");
   });
 });
 
@@ -585,6 +701,22 @@ describe("parsePrimitivesFromScreen identity cache", () => {
     expect(third).toBe(seededV1);
     expect(second).not.toBe(first);
   });
+
+  it("bounds per-screen identity entries on long-lived boards", () => {
+    for (let index = 0; index < 80; index += 1) {
+      const screen: ScreenStub = {
+        id: `identity-${index}`,
+        filename: `${index}.html`,
+        content: `content-${index}`,
+      };
+      seedCache(screen, []);
+      parsePrimitivesFromScreen(screen as never);
+    }
+
+    expect(
+      __getPrimitiveParseCacheSizesForTests().identity,
+    ).toBeLessThanOrEqual(64);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -682,6 +814,122 @@ describe("getPrimitiveDropTargetForPoint", () => {
     expect(result?.nodeId).toBe("outer");
   });
 
+  it("uses the visibly top overlapping screen instead of array fallthrough", () => {
+    const overlappingFrames = {
+      sA: makeGeom(0, 0, 320, 640),
+      sB: makeGeom(0, 0, 320, 640),
+    };
+    seedCache(screenA, [
+      primEntry("container-a", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(screenB, [
+      primEntry("container-b", "sB", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+
+    // Equal z: later DOM sibling paints above the earlier one.
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 100, y: 100 },
+        null,
+        [screenA, screenB],
+        overlappingFrames,
+        getMeta,
+      )?.nodeId,
+    ).toBe("container-b");
+
+    // The selected/active foreground boost wins even when it is earlier.
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 100, y: 100 },
+        null,
+        [screenA, screenB],
+        overlappingFrames,
+        getMeta,
+        { foregroundScreenId: "sA" },
+      )?.nodeId,
+    ).toBe("container-a");
+  });
+
+  it("keeps the board behind an overlapping screen", () => {
+    const boardScreen: ScreenStub = {
+      id: "board",
+      filename: "__board__.html",
+      content: "",
+    };
+    seedCache(screenA, [
+      primEntry("screen-container", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(boardScreen, [
+      primEntry("board-container", "board", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 100, y: 100 },
+      null,
+      [screenA, boardScreen],
+      {
+        sA: makeGeom(0, 0, 320, 640),
+        board: makeGeom(-65536, -65536, 131072, 131072),
+      },
+      getMeta,
+      {
+        identityCoordinateScreenIds: new Set(["board"]),
+        backgroundScreenIds: new Set(["board"]),
+      },
+    );
+
+    expect(result?.nodeId).toBe("screen-container");
+  });
+
+  it("hit-tests containers inside rotated screens in board space", () => {
+    seedCache(screenA, [
+      primEntry("rotated-container", "sA", {
+        left: 0,
+        top: 0,
+        width: 20,
+        height: 40,
+      }),
+    ]);
+    seedCache(screenB, []);
+    const rotatedFrames = {
+      sA: { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      sB: makeGeom(400, 0, 320, 640),
+    };
+
+    // The primitive's rotated board center is (130,60), outside the frame's
+    // unrotated x range but inside what is visibly painted after rotation.
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 130, y: 60 },
+      null,
+      [screenA, screenB],
+      rotatedFrames,
+      () => ({ width: 100, height: 200 }),
+    );
+
+    expect(result?.nodeId).toBe("rotated-container");
+    expect(result?.boardRect.rotation).toBe(90);
+  });
+
   it("excludes the exact dragged node and returns another screen's container", () => {
     seedCache(screenA, [
       primEntry("outer", "sA", { left: 0, top: 0, width: 320, height: 640 }),
@@ -705,6 +953,40 @@ describe("getPrimitiveDropTargetForPoint", () => {
       getMeta,
     );
     expect(result?.nodeId).toBe("other-screen-container");
+  });
+
+  it("does not mistake a container on another screen for a descendant", () => {
+    const overlappingFrames = {
+      sA: makeGeom(0, 0, 320, 640),
+      sB: { ...makeGeom(0, 0, 320, 640), z: 1 },
+    };
+    seedCache(screenA, [
+      primEntry("dragged-outer", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(screenB, [
+      primEntry("other-screen-inner", "sB", {
+        left: 100,
+        top: 100,
+        width: 120,
+        height: 120,
+      }),
+    ]);
+
+    // The target is geometrically enclosed by the dragged node's old board
+    // rect, but it belongs to a different screen and cannot be its descendant.
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 150, y: 150 },
+      "dragged-outer",
+      [screenA, screenB],
+      overlappingFrames,
+      getMeta,
+    );
+    expect(result?.nodeId).toBe("other-screen-inner");
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {
@@ -840,10 +1122,9 @@ describe("resolveNodeScreenId", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cross-screen coord translation: board coords from iframe coords
-// The cross-screen drag receiver uses the same formula as primitiveLocalToBoardRect
-// (boardX = frame.x + iframeX * (frame.width / metadata.width)).  Verify they
-// round-trip correctly and are consistent with each other.
+// Cross-screen coord translation: board coords from iframe coords. Verify the
+// shared mapping matches primitive rect conversion and remains invertible when
+// a screen frame is rotated.
 // ---------------------------------------------------------------------------
 describe("cross-screen coord translation (iframeX → boardX consistency)", () => {
   it("board coords from iframe coords match primitiveLocalToBoardRect inversion", () => {
@@ -879,6 +1160,21 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
     const boardY = frameGeom.y + 0 * scaleY;
     expect(boardX).toBe(50);
     expect(boardY).toBe(80);
+  });
+
+  it("round-trips points through a rotated screen without drift", () => {
+    const frameGeom = {
+      ...makeGeom(100, 200, 320, 640),
+      rotation: 37,
+    };
+    const viewport = { width: 390, height: 844 };
+    const local = { x: 78, y: 168 };
+
+    const board = screenLocalPointToBoardPoint(local, frameGeom, viewport);
+    const roundTrip = boardPointToScreenLocalPoint(board, frameGeom, viewport);
+
+    expect(roundTrip.x).toBeCloseTo(local.x, 8);
+    expect(roundTrip.y).toBeCloseTo(local.y, 8);
   });
 });
 

@@ -1,11 +1,9 @@
 import { getCameraForBounds } from "@shared/canvas-math";
 import { describe, expect, it } from "vitest";
 
-import {
-  findTopFrameEntryAtPoint,
-  isOsFileDrag,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+import { isOsFileDrag } from "./multi-screen/canvas-tools";
+import { findTopFrameEntryAtPoint } from "./multi-screen/frame-geometry";
+import type { FrameGeometry } from "./multi-screen/types";
 
 function dragEventWithTypes(types: string[]) {
   return {
@@ -68,6 +66,22 @@ describe("findTopFrameEntryAtPoint (OS file drop-target resolution)", () => {
     expect(findTopFrameEntryAtPoint(entries, { x: 50, y: 50 })?.id).toBe(
       "second",
     );
+  });
+
+  it("mirrors the selected/active frame's visual foreground boost", () => {
+    const entries = [
+      frame("selected", { x: 0, y: 0, width: 200, height: 200, z: 1 }),
+      frame("higher-z", { x: 0, y: 0, width: 200, height: 200, z: 5 }),
+    ];
+    expect(
+      findTopFrameEntryAtPoint(
+        entries,
+        { x: 50, y: 50 },
+        {
+          foregroundId: "selected",
+        },
+      )?.id,
+    ).toBe("selected");
   });
 
   it("accounts for frame rotation when hit-testing", () => {

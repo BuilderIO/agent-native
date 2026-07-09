@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
+  tryCallActionKeepalive,
   useSession,
   useCollaborativeDoc,
   isReconcileLeadClient,
@@ -9,12 +10,10 @@ import {
   dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
-  PresenceBar,
   AgentChatSurface,
   ShareButton,
   agentNativePath,
   appBasePath,
-  ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
   getBrowserTabId,
   readClientAppState,
@@ -53,14 +52,7 @@ import {
   type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
-import {
-  DEFAULT_CANVAS_MAX_ZOOM,
-  DEFAULT_CANVAS_MIN_ZOOM,
-  getCameraForBounds,
-  getFrameGroupBounds,
-  type FrameBounds,
-  type FrameEntry,
-} from "@shared/canvas-math";
+import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import { resolveSourceCapabilities } from "@shared/capability-resolver";
 import {
   applyVisualEdit,
@@ -69,14 +61,12 @@ import {
   ensureCodeLayerNodeIdsInHtml,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
-  type ApplyVisualEditResult,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
   type MoveNodeEditIntent,
 } from "@shared/code-layer";
-import { parseCssColorExtended } from "@shared/color-utils";
-import { componentNameFor, isComponentInstance } from "@shared/component-model";
+import { isComponentInstance } from "@shared/component-model";
 import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
@@ -84,22 +74,13 @@ import {
 } from "@shared/design-source-capabilities";
 import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
-import {
-  duplicateStatePreviewRules,
-  type InteractionState,
-  upsertStateStyles,
-} from "@shared/interaction-states";
+import type { InteractionState } from "@shared/interaction-states";
 import {
   compile as compileMotionTimeline,
   injectManagedMotionCss,
 } from "@shared/motion-compiler";
-import type {
-  MotionAnimationClip,
-  MotionEase,
-  MotionTrack,
-} from "@shared/motion-timeline";
+import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
-  applyMotionAutoKeyframe,
   copyLayerAnimation,
   createMotionTrackFromPreset,
   MOTION_PROPERTY_PRESETS,
@@ -108,28 +89,22 @@ import {
   upsertMotionKeyframeAtTime,
 } from "@shared/motion-timeline";
 import {
-  createCornerNode,
   getPenPathGeometry,
   parsePenNodes,
   serializePenNodes,
   serializePenPath,
-  type PenNode,
   type PenPath,
-  type PenPoint,
 } from "@shared/pen-path";
 import {
   resolveTweaksToCssVars,
+  tweakSelectionsHash,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
 import {
   breakpointUpperBoundPx,
-  planBreakpointStyleWrite,
   utilityStem,
 } from "@shared/responsive-classes";
-import {
-  normalizeDesignSourceType,
-  type DesignSourceType,
-} from "@shared/source-mode";
+import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
@@ -137,10 +112,6 @@ import {
   IconPencil,
   IconMessage,
   IconBrush,
-  IconDeviceDesktop,
-  IconDeviceTablet,
-  IconDeviceMobile,
-  IconViewportWide,
   IconPlus,
   IconLayoutGrid,
   IconFrame,
@@ -222,14 +193,15 @@ import {
   type CanvasContextMenuHandle,
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import {
-  DesignCanvas,
-  type CreatePrimitiveSpec,
-  type CreationTool,
-  type IframeContextMenuPayload,
-  type IframeHotkeyPayload,
-  type MotionTrackWire,
-} from "@/components/design/DesignCanvas";
+import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
+import { sanitizeLocalhostSourceSnapshotHtml } from "@/components/design/design-canvas/external-preview";
+import type {
+  IframeContextMenuPayload,
+  IframeHotkeyPayload,
+} from "@/components/design/design-canvas/iframe-events";
+import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
+import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
   AssetLibraryPanel,
@@ -271,20 +243,19 @@ import {
   MotionDock,
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
-import {
-  getInitialFrameGeometry,
-  getPrimaryIframeId,
-  isWheelCameraGestureActive,
-  MultiScreenCanvas,
-  OVERVIEW_FRAME_WIDTH,
-  type CanvasLayerMarqueeSelection,
-  type CanvasPrimitiveInsert,
-  type FrameGeometry,
-  type GradientEditOverlayTarget,
-  type MultiScreenCanvasTool,
-  type Point,
-  type VectorEditOverlayState,
-} from "@/components/design/MultiScreenCanvas";
+import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import type {
+  CanvasLayerMarqueeSelection,
+  CanvasPrimitiveInsert,
+  FrameGeometry,
+  GradientEditOverlayTarget,
+  MultiScreenCanvasTool,
+  Point,
+  VectorEditOverlayState,
+} from "@/components/design/multi-screen/types";
+import { isWheelCameraGestureActive } from "@/components/design/multi-screen/wheel-gesture-state";
+import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
@@ -294,7 +265,6 @@ import type {
   ElementSelectionIntent,
   DeviceFrameType,
   PortableStyleSnapshot,
-  PortableStyleSnapshotNode,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -324,8 +294,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
@@ -373,6 +341,15 @@ import {
   serializeDesignClipboardPayload,
 } from "@/lib/design-import";
 import {
+  acknowledgeDesignSaveOutboxEntry,
+  createDesignSaveOutboxEntry,
+  discardDesignSaveOutboxEntry,
+  drainDesignSaveOutbox,
+  journalDesignSaveOutboxEntry,
+  updateFileResultPersistedContent,
+  type DesignSaveOutboxEntry,
+} from "@/lib/design-save-outbox";
+import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
   isPendingGenerationStale,
@@ -380,10 +357,230 @@ import {
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
 } from "@/lib/pending-generation";
+import {
+  canCopyPngToClipboard,
+  copyPngPromiseToClipboard,
+  PngClipboardError,
+} from "@/lib/png-clipboard";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
-const TAB_ID = generateTabId();
+import {
+  CANVAS_TEXT_DEFAULT_FONT_FAMILY,
+  createPrimitiveInsertFromSpec,
+  defaultCanvasTextColor,
+  parsePenPathFromSerializedD,
+} from "./design-editor/canvas-primitives";
+import {
+  bridgeSourceIdForCodeLayerNode,
+  canonicalElementInfoForCodeLayerNode,
+  canonicalizeElementInfoFromProjection,
+  codeLayerNodeLooksLikeComponent,
+  codeLayerNodeMatchesBridgeTarget,
+  codeLayerPatchMessage,
+  codeLayerSelectorAliases,
+  codeLayerSelectorMatches,
+  codeLayerTreeToPanelNodes,
+  collectCodeLayerAncestors,
+  collectCodeLayerSubtreeDataNodeIds,
+  collectEffectiveCodeLayerState,
+  type EffectiveCodeLayerState,
+  elementInfoFromCodeLayerNode,
+  elementInfoIsRuntimeOnly,
+  ensureGoogleFontLinkInHtml,
+  findCodeLayerSiblingOrder,
+  findMovedCodeLayerNodeInProjection,
+  preferredCodeLayerSelector,
+  refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
+  removeEmptyGeneratedGroupWrappers,
+  renameFilenamePreservingExtension,
+  resolveCodeLayerNodeFromBridge,
+  resolveCodeLayerNodeFromElementInfo,
+  type SelectedLayerTarget,
+} from "./design-editor/code-layer-state";
+import {
+  resolveScreenCollabSyncTarget,
+  shouldRebaseCollabDocFromStoredContent,
+} from "./design-editor/collab-sync";
+import {
+  adaptAutoTextColorForCrossScreenNode,
+  BOARD_TEXT_AUTO_COLOR_MARKER,
+  clearAutoTextColorMarkerOnExplicitColorCommit,
+} from "./design-editor/cross-screen-text-color";
+import {
+  applyDesignDataOperations,
+  buildFrameGeometryDataOperations,
+  clearAcknowledgedDesignDataOperationsThroughRevision,
+  compactDesignDataOperations,
+  pendingDesignDataOperations,
+  stagePendingDesignDataOperations,
+  type DesignDataOperation,
+  type PendingDesignDataOperations,
+  viewportSizeFromFrameGeometry,
+} from "./design-editor/data-operations";
+import { isRadixOverlayOpen } from "./design-editor/dom-guards";
+import { queryUniqueSelector } from "./design-editor/dom-utils";
+import {
+  createEditorSaveOperationSource,
+  LOCAL_EDIT_ORIGIN,
+  TAB_ID,
+} from "./design-editor/editor-session";
+import {
+  applyRelativeDeltaToStyleValue,
+  type FileContentSaveRequest,
+  flushPendingFileContentSavesOnCleanup,
+  getDesignEditorShareUrl,
+  getDesignEditorStateUrlSearch,
+  getFreshActiveFileContent,
+  getFreshScreenContent,
+  getLayerMoveIterationOrder,
+  getLayerMoveSourceContent,
+  getLocalhostRouteSourceFile,
+  getPersistedContentHostSyncOptions,
+  removeUndoRedoOrderKind,
+  resolveLocalhostSourceWriteContent,
+  shouldClearLatestUnloadSave,
+  shouldReplacePreviewAfterVisualStyleCommit,
+  shouldSendKeepalive,
+  shouldSkipVisualStyleCommitForPreview,
+  type UndoRedoOrderKind,
+} from "./design-editor/editor-state";
+import {
+  computeExportCropBox,
+  EDITOR_CHROME_OVERLAY_SELECTOR,
+  getExportCompositeBounds,
+  unionExportCropRects,
+} from "./design-editor/export-capture";
+import {
+  frameGeometryEquals,
+  geometrySnapshotsEqual,
+  sanitizeCanvasFrameGeometryForPersist,
+} from "./design-editor/geometry-persistence";
+import {
+  applyGeometryHistoryDiff,
+  type ContentHistoryChange,
+  type ContentHistoryEntry,
+  type FileCreationHistoryEntry,
+  findLastContentHistoryChangeIndex,
+  getAvailableContentHistoryChanges,
+  getContentHistoryChanges,
+  type GeometryHistoryEntry,
+  type GeometryHistorySelection,
+  MAX_DESIGN_UNDO_STACK,
+  mergeLocalContentHistoryFallback,
+  pruneFileCreationHistoryStack,
+  pruneGeometryHistoryEntryForDeletedFiles,
+  removeRecentUndoRedoOrderKinds,
+} from "./design-editor/history";
+import {
+  type AlignableRect,
+  computeAlignedPositions,
+  computeDistributedPositions,
+  computeTidyPositions,
+  inferAutoLayoutFromChildren,
+} from "./design-editor/layout-operations";
+import {
+  applyMotionAutoKeyframesForStyles,
+  computedMotionStyleValue,
+  hydrateMotionDockTracks,
+  MOTION_KEYFRAME_TIME_EPSILON,
+  type MotionTimelineQueryResult,
+  motionTimelineFingerprint,
+} from "./design-editor/motion-state";
+import {
+  clampOverviewDisplayZoom,
+  clampZoom,
+  findScreenFrameAtCanvasPoint,
+  getAllScreenFrameEntries,
+  getDefaultOverviewCanvasZoom,
+  getNextZoomStepDown,
+  getNextZoomStepUp,
+  getOverviewCanvasZoom,
+  getOverviewDisplayZoom,
+  getOverviewZoomScale,
+  getScreenFrameOriginCanvas,
+  resolveOverviewZoomBasisScreenId,
+  resolveScreenEntryZoom,
+  resolveZoomUpdate,
+  shouldPopToOverviewOnZoomChange,
+  shouldResetExplicitOverviewZoomOnBasisChange,
+} from "./design-editor/overview-camera";
+import {
+  applyInteractionStateStyleCommit,
+  applyScopedVisualStyleEdit,
+  buildPendingVisualStyleRevertPatches,
+  deriveStatePreviewTarget,
+  formatPendingVisualStylePrompt,
+  getPendingVisualStylePropertyCount,
+  mergePendingLiveNonStyleEdits,
+  mergePendingVisualStyleEdits,
+  originalStylesForPendingVisualEdit,
+  type PendingLiveNonStyleEdit,
+  type PendingLiveNonStyleUndoEntry,
+  type PendingLiveStructureEdit,
+  type PendingLiveTextEdit,
+  type PendingLiveTextUndoEntry,
+  pendingLiveTextUndoRevertValue,
+  type PendingVisualStyleEdit,
+  type PendingVisualStyleUndoEntry,
+  pendingVisualStyleUndoRevertStyles,
+  resolveOverviewScreenSourceType,
+  resolveVisualStyleCommitContent,
+  shouldBlockPendingVisualStyleNavigation,
+  shouldShowPendingVisualStyleApply,
+} from "./design-editor/pending-edits";
+import {
+  applyPortableStyles,
+  applyPortableStyleSnapshotToHtml,
+  elementAtPortableStylePath,
+  styleHost,
+} from "./design-editor/portable-style";
+import {
+  buildActiveFileNodeIdSet,
+  dedupeStringIds,
+  getContentSignature,
+  getOverviewEnterTarget,
+  getOverviewScreenIdsFromLayerSelection,
+  getOverviewScreenRuntimeReplacementKey,
+  getSelectedScreenGeometryForInspector,
+  getSelectedScreenIdsForEditorState,
+  getSidebarCodeLayerSelectionState,
+  isScreenRootElementInfo,
+  resolveAvailableActiveFileId,
+  sameStringIds,
+  shouldClearBridgeSelectionOnEmptyMarquee,
+  shouldEscapeToOverview,
+  shouldIgnoreOverviewLayerCreationEcho,
+  shouldLimitEditorChromeUntilContentReady,
+  shouldMirrorSelectedElementToAgentChat,
+  shouldIncludeScreenRenameContentOverride,
+  shouldUseOverviewRuntimeReplacement,
+} from "./design-editor/selection-state";
+import {
+  getDesignToolActivationState,
+  getMoveGroupToolPresentation,
+  getSingleScreenCreationTool,
+  isSingleScreenAnnotationTool,
+  MOVE_GROUP_TOOL_PRESENTATIONS,
+  normalizeDesignTool,
+} from "./design-editor/tool-state";
+import {
+  classifyTweakSaveFailure,
+  clearCompletedTweakSave,
+  createQueuedTweakSave,
+  rebaseTweakSaveForSend,
+  retainLatestFailedTweakSave,
+  sendJournaledTweakSaveKeepalive,
+  type PendingTweakSave,
+} from "./design-editor/tweak-save";
+import {
+  type DesignLeftPanel,
+  type DesignTool,
+  type EditorMode,
+  type ShapeTool,
+  SHOW_DESIGN_CODE_LEFT_PANEL,
+} from "./design-editor/types";
 
 // Selection is tab-scoped (like navigation) so a second editor tab cannot
 // overwrite this tab's selection context. The global key is mirrored as a
@@ -394,16 +591,15 @@ function designSelectionStateKeys(): string[] {
 // Stable symbol used as the Yjs transaction origin for all local user edits.
 // The UndoManager tracks only this origin so remote peers' and the agent's
 // edits are never undone by this user's Cmd+Z.
-const LOCAL_EDIT_ORIGIN = TAB_ID + ":local";
 const MAX_GENERATION_ATTEMPTS = 3;
 const AUTO_RETRY_DELAY_MS = 1200;
 const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
-const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
 const MOTION_DOCK_EXIT_SETTLE_MS = 80;
 const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
+const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
 const BOARD_SURFACE_SIZE = 131_072;
 /** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
  * anchor-stamp fallback warning) so production consoles stay quiet while
@@ -430,8 +626,6 @@ const NO_LOCALHOST_WRITE_PATH_MESSAGE =
 const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
   "You need edit access to add tweak controls." /* i18n-ignore */;
 const FOCUSED_SCREEN_ZOOM = 100;
-export const DEFAULT_OVERVIEW_ZOOM = 60;
-const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
   /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
 const HTML2CANVAS_COLOR_PROPERTIES = [
@@ -461,1260 +655,7 @@ function blurActiveDesignEditableTarget() {
   }
 }
 
-// PF11: cache the FNV hash by content-string value. Two calls with an equal
-// (===, i.e. SameValueZero) content string always hash to the same
-// signature, so a plain value-keyed Map is a correct cache — no need for
-// reference-identity tricks. Bounded LRU-ish eviction (drop oldest entry)
-// keeps this from growing unboundedly across a long editing session with
-// many distinct HTML revisions.
-const CONTENT_SIGNATURE_CACHE_MAX = 200;
-const contentSignatureCache = new Map<string, string>();
-function getContentSignature(content: string): string {
-  const cached = contentSignatureCache.get(content);
-  if (cached !== undefined) return cached;
-  let hash = 2166136261;
-  for (let index = 0; index < content.length; index += 1) {
-    hash ^= content.charCodeAt(index);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  const signature = `${content.length}:${hash.toString(36)}`;
-  if (contentSignatureCache.size >= CONTENT_SIGNATURE_CACHE_MAX) {
-    const oldestKey = contentSignatureCache.keys().next().value;
-    if (oldestKey !== undefined) contentSignatureCache.delete(oldestKey);
-  }
-  contentSignatureCache.set(content, signature);
-  return signature;
-}
-
-export function getOverviewScreenRuntimeReplacementKey({
-  screenId,
-  updatedAt,
-  content,
-}: {
-  screenId: string;
-  updatedAt?: string | null;
-  content: string;
-}) {
-  return [screenId, updatedAt ?? "", getContentSignature(content)].join(":");
-}
-
-export function shouldUseOverviewRuntimeReplacement({
-  sourceType,
-  externalSnapshotHtml,
-}: {
-  sourceType?: DesignSourceType | null;
-  externalSnapshotHtml?: string | null;
-}) {
-  return sourceType === "inline" && !externalSnapshotHtml;
-}
-
-function dedupeStringIds(ids: string[]): string[] {
-  return Array.from(new Set(ids.filter(Boolean)));
-}
-
-function sameStringIds(a: string[], b: string[]) {
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
-  const tagName = info?.tagName?.toUpperCase();
-  return tagName === "BODY" || tagName === "HTML";
-}
-
-export function shouldMirrorSelectedElementToAgentChat(
-  info: ElementInfo | null | undefined,
-): info is ElementInfo {
-  if (!info || isScreenRootElementInfo(info)) return false;
-  const text = info.textContent?.replace(/\s+/g, " ").trim();
-  if (!text) return true;
-  const labelText = text.replace(/^[^A-Za-z0-9]+/, "").toLowerCase();
-  return !labelText.startsWith("nothing here yet");
-}
-
-export function shouldIgnoreOverviewLayerCreationEcho(args: {
-  pendingLayerId: string | null | undefined;
-  pendingScreenId: string | null | undefined;
-  screenId: string;
-  info?: ElementInfo | null;
-  event: "select" | "clear";
-}) {
-  if (!args.pendingLayerId) return false;
-  if (args.pendingScreenId && args.pendingScreenId !== args.screenId) {
-    return false;
-  }
-  return args.event === "clear" || isScreenRootElementInfo(args.info);
-}
-
-export function getSelectedScreenIdsForEditorState(args: {
-  activeFileId: string | null | undefined;
-  overviewSelectedScreenIds: string[];
-  viewMode: "single" | "overview";
-}) {
-  const { activeFileId, overviewSelectedScreenIds, viewMode } = args;
-  if (viewMode === "overview") {
-    return overviewSelectedScreenIds.length
-      ? overviewSelectedScreenIds
-      : activeFileId
-        ? [activeFileId]
-        : [];
-  }
-  return activeFileId ? [activeFileId] : [];
-}
-
-export function getSelectedScreenGeometryForInspector(args: {
-  selectedInspectorElementCount: number;
-  selectedScreenIds: string[];
-  overviewScreens: Array<{
-    id: string;
-    filename: string;
-    title?: string;
-    width?: number;
-    height?: number;
-  }>;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
-}): ScreenGeometrySelection | null {
-  if (args.selectedInspectorElementCount > 0) return null;
-  if (args.selectedScreenIds.length !== 1) return null;
-  const screenId = args.selectedScreenIds[0];
-  if (!screenId) return null;
-  const screenIndex = args.overviewScreens.findIndex(
-    (screen) => screen.id === screenId,
-  );
-  if (screenIndex < 0) return null;
-  const screen = args.overviewScreens[screenIndex];
-  if (!screen) return null;
-  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
-    width: screen.width ?? 1280,
-    height: screen.height ?? 2560,
-  });
-  const persistedGeometry = args.canvasFrameGeometryById[screenId] ?? {};
-  const geometry = {
-    ...fallbackGeometry,
-    ...persistedGeometry,
-  };
-  return {
-    id: screen.id,
-    title: screen.title ?? prettyScreenName(screen.filename),
-    x: geometry.x,
-    y: geometry.y,
-    width: geometry.width,
-    height: geometry.height,
-  };
-}
-
-/**
- * Generic rect shape shared by the alignment/distribute/tidy pure helpers
- * below. Works for BOTH overview screen frames (`FrameGeometry`-shaped) and
- * in-screen layer nodes (parsed from authored left/top/width/height style),
- * keyed by an opaque `id` the caller assigns meaning to (screen file id or
- * code-layer node id).
- */
-export interface AlignableRect {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/**
- * Figma's Alignment row: moves each rect in `rects` so its own edge/center
- * lines up with the shared bounding box's matching edge/center. A 2+
- * multi-selection aligns to the selection's own combined bounding box; the
- * caller is responsible for passing a single-rect `bounds` (e.g. the parent's
- * content box) for the single-selection case, since Figma's single-selection
- * alignment target is the PARENT, not the object's own (degenerate) bbox.
- *
- * Returns a Map from rect id to its new {x, y} — only for rects whose
- * position actually changes — so callers can commit a minimal patch set (no
- * spurious no-op writes for a rect that's already aligned).
- */
-export function computeAlignedPositions(
-  rects: readonly AlignableRect[],
-  bounds: { x: number; y: number; width: number; height: number },
-  edge: DesignHotkeyAlignEdge,
-): Map<string, { x: number; y: number }> {
-  const next = new Map<string, { x: number; y: number }>();
-  for (const rect of rects) {
-    let x = rect.x;
-    let y = rect.y;
-    switch (edge) {
-      case "left":
-        x = bounds.x;
-        break;
-      case "right":
-        x = bounds.x + bounds.width - rect.width;
-        break;
-      case "center-h":
-        x = bounds.x + (bounds.width - rect.width) / 2;
-        break;
-      case "top":
-        y = bounds.y;
-        break;
-      case "bottom":
-        y = bounds.y + bounds.height - rect.height;
-        break;
-      case "center-v":
-        y = bounds.y + (bounds.height - rect.height) / 2;
-        break;
-    }
-    x = Math.round(x);
-    y = Math.round(y);
-    if (x !== Math.round(rect.x) || y !== Math.round(rect.y)) {
-      next.set(rect.id, { x, y });
-    }
-  }
-  return next;
-}
-
-/**
- * Figma's Distribute (Alt+Shift+H/V): with 3+ objects selected, the first and
- * last (by position along `axis`) stay put; the middle ones are re-spaced so
- * the GAP between each consecutive pair is equal. Fewer than 3 rects is a
- * no-op (nothing to redistribute) — the caller should treat an empty result
- * as "not applicable" and skip the commit/toast accordingly.
- */
-export function computeDistributedPositions(
-  rects: readonly AlignableRect[],
-  axis: DesignHotkeyDistributeAxis,
-): Map<string, { x: number; y: number }> {
-  const next = new Map<string, { x: number; y: number }>();
-  if (rects.length < 3) return next;
-  const sorted = [...rects].sort((a, b) =>
-    axis === "horizontal" ? a.x - b.x : a.y - b.y,
-  );
-  const first = sorted[0]!;
-  const last = sorted[sorted.length - 1]!;
-  const size = (rect: AlignableRect) =>
-    axis === "horizontal" ? rect.width : rect.height;
-  const start = (rect: AlignableRect) =>
-    axis === "horizontal" ? rect.x : rect.y;
-  const totalSpan = start(last) + size(last) - start(first);
-  const totalContentSize = sorted.reduce((sum, rect) => sum + size(rect), 0);
-  const gapCount = sorted.length - 1;
-  const gap = (totalSpan - totalContentSize) / gapCount;
-  let cursor = start(first) + size(first) + gap;
-  for (let index = 1; index < sorted.length - 1; index += 1) {
-    const rect = sorted[index]!;
-    const position = Math.round(cursor);
-    if (position !== Math.round(start(rect))) {
-      next.set(
-        rect.id,
-        axis === "horizontal"
-          ? { x: position, y: rect.y }
-          : { x: rect.x, y: position },
-      );
-    }
-    cursor += size(rect) + gap;
-  }
-  return next;
-}
-
-/**
- * Figma's "Tidy up" (Ctrl+Alt+T): arranges the selection into a compact grid
- * with uniform gaps. Real Figma's exact packing heuristic isn't published, so
- * this uses a simple, documented approximation: a roughly-square grid (columns
- * = ceil(sqrt(n)), Figma's own rough visual target for small-to-medium
- * selections), cell size = the MEDIAN rect width/height (so a few oversized
- * outliers don't blow up every cell), and a uniform gap equal to the largest
- * gap already occurring between any two horizontally-adjacent rects in the
- * original layout, falling back to 24px when fewer than 2 rects exist to
- * measure a gap from. Rects are placed left-to-right, top-to-bottom in
- * ascending (y, then x) order, anchored at the original selection bbox's
- * top-left so the tidy-up doesn't jump to the canvas origin.
- */
-export function computeTidyPositions(
-  rects: readonly AlignableRect[],
-): Map<string, { x: number; y: number }> {
-  const next = new Map<string, { x: number; y: number }>();
-  if (rects.length === 0) return next;
-  const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
-  const columns = Math.max(1, Math.ceil(Math.sqrt(sorted.length)));
-  const median = (values: number[]): number => {
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sortedValues.length / 2);
-    return sortedValues.length % 2 === 0
-      ? (sortedValues[mid - 1]! + sortedValues[mid]!) / 2
-      : sortedValues[mid]!;
-  };
-  const cellWidth = median(sorted.map((rect) => rect.width));
-  const cellHeight = median(sorted.map((rect) => rect.height));
-  // Largest existing horizontal gap between two rects whose rows overlap
-  // vertically — a reasonable proxy for "the gap this design already uses".
-  let gap = 24;
-  const gapsFound: number[] = [];
-  for (let i = 0; i < sorted.length; i += 1) {
-    for (let j = 0; j < sorted.length; j += 1) {
-      if (i === j) continue;
-      const a = sorted[i]!;
-      const b = sorted[j]!;
-      const verticallyOverlaps = a.y < b.y + b.height && b.y < a.y + a.height;
-      if (!verticallyOverlaps) continue;
-      const candidateGap = b.x - (a.x + a.width);
-      if (candidateGap > 0) gapsFound.push(candidateGap);
-    }
-  }
-  if (gapsFound.length > 0) gap = Math.max(...gapsFound);
-  const originX = Math.min(...sorted.map((rect) => rect.x));
-  const originY = Math.min(...sorted.map((rect) => rect.y));
-  sorted.forEach((rect, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    const x = Math.round(originX + col * (cellWidth + gap));
-    const y = Math.round(originY + row * (cellHeight + gap));
-    if (x !== Math.round(rect.x) || y !== Math.round(rect.y)) {
-      next.set(rect.id, { x, y });
-    }
-  });
-  return next;
-}
-
-/**
- * Figma's Shift+A "Add auto layout" inference: given the vertical/horizontal
- * spread of a container's DIRECT children, infer flex-direction (children
- * spread wider than tall → row, else column), the gap (median inter-child
- * gap along the chosen axis, rounded, falling back to 10px when there's
- * nothing to measure), and padding (the smallest child inset from the
- * container's own edges on all four sides, falling back to 0 when negative/
- * unmeasurable).
- */
-export function inferAutoLayoutFromChildren(
-  container: { x: number; y: number; width: number; height: number },
-  children: readonly AlignableRect[],
-): {
-  direction: "row" | "column";
-  gap: number;
-  padding: number;
-} {
-  if (children.length === 0) {
-    return { direction: "row", gap: 10, padding: 0 };
-  }
-  const minX = Math.min(...children.map((child) => child.x));
-  const maxX = Math.max(...children.map((child) => child.x + child.width));
-  const minY = Math.min(...children.map((child) => child.y));
-  const maxY = Math.max(...children.map((child) => child.y + child.height));
-  const spreadWidth = maxX - minX;
-  const spreadHeight = maxY - minY;
-  const direction: "row" | "column" =
-    spreadWidth >= spreadHeight ? "row" : "column";
-  const sorted = [...children].sort((a, b) =>
-    direction === "row" ? a.x - b.x : a.y - b.y,
-  );
-  const gaps: number[] = [];
-  for (let index = 1; index < sorted.length; index += 1) {
-    const prev = sorted[index - 1]!;
-    const current = sorted[index]!;
-    const gapValue =
-      direction === "row"
-        ? current.x - (prev.x + prev.width)
-        : current.y - (prev.y + prev.height);
-    if (Number.isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
-  }
-  const median = (values: number[]): number => {
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sortedValues.length / 2);
-    return sortedValues.length % 2 === 0
-      ? (sortedValues[mid - 1]! + sortedValues[mid]!) / 2
-      : sortedValues[mid]!;
-  };
-  const gap = gaps.length > 0 ? Math.round(median(gaps)) : 10;
-  const insets = [
-    minX - container.x,
-    minY - container.y,
-    container.x + container.width - maxX,
-    container.y + container.height - maxY,
-  ].filter((inset) => Number.isFinite(inset));
-  const padding =
-    insets.length > 0 ? Math.max(0, Math.round(Math.min(...insets))) : 0;
-  return { direction, gap, padding };
-}
-
-/**
- * Vector-edit foundations (P5 integration): resolves the canvas-space point
- * where a screen's own screen-content-local (0,0) sits — i.e.
- * `VectorEditOverlayState.originCanvas` — for a committed pen path owned by
- * `screenId`.
- *
- * Mirrors the exact same fallback-merge (`getInitialFrameGeometry(index,
- * ...)` overridden by any persisted `canvasFrameGeometryById` entry) that
- * `getSelectedScreenGeometryForInspector` above and MultiScreenCanvas's own
- * internal frame-geometry resolution both use, so the overlay lines up with
- * whatever frame position is actually rendered on screen.
- *
- * The reserved board file (`__board__.html`, see shared/board-file.ts) is the
- * one exception: `handleBoardDrawPrimitive`/`persistDraftPrimitive` commit
- * board primitives with a 1:1 `{x:0,y:0,width:1,height:1}` frame (no offset
- * subtraction — see MultiScreenCanvas's persistDraftPrimitive), so a board
- * pen path's nodes are already in absolute canvas coordinates and
- * `originCanvas` is `{0, 0}`.
- *
- * Returns `null` when the screen can't be resolved (not in `overviewScreens`
- * and not the board file) — the caller should not enter vector-edit mode in
- * that case.
- */
-export function getScreenFrameOriginCanvas(args: {
-  screenId: string;
-  overviewScreens: Array<{
-    id: string;
-    width?: number;
-    height?: number;
-  }>;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
-  boardFileId?: string | null;
-}): Point | null {
-  if (args.boardFileId && args.screenId === args.boardFileId) {
-    return { x: 0, y: 0 };
-  }
-  const screenIndex = args.overviewScreens.findIndex(
-    (screen) => screen.id === args.screenId,
-  );
-  if (screenIndex < 0) return null;
-  const screen = args.overviewScreens[screenIndex];
-  if (!screen) return null;
-  const fallbackGeometry = getInitialFrameGeometry(screenIndex, {
-    width: screen.width ?? 1280,
-    height: screen.height ?? 2560,
-  });
-  const persistedGeometry = args.canvasFrameGeometryById[args.screenId] ?? {};
-  return {
-    x: persistedGeometry.x ?? fallbackGeometry.x,
-    y: persistedGeometry.y ?? fallbackGeometry.y,
-  };
-}
-
-/**
- * Resolves every overview screen's effective canvas-space frame geometry —
- * persisted `canvasFrameGeometryById` entry merged over the same
- * `getInitialFrameGeometry(index, ...)` fallback `getSelectedScreenGeometryForInspector`
- * and `getScreenFrameOriginCanvas` above already use — as `FrameEntry[]` for
- * `@shared/canvas-math` bounds/fit helpers (`getFrameGroupBounds`,
- * `getCameraForBounds`). Optionally includes the board frame (real Figma has
- * no board-file equivalent, but a design with only board primitives and no
- * screens should still have something to fit to).
- */
-export function getAllScreenFrameEntries(args: {
-  overviewScreens: Array<{
-    id: string;
-    width?: number;
-    height?: number;
-  }>;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
-  boardFrameGeometry?: FrameGeometry;
-  boardFileId?: string | null;
-}): FrameEntry[] {
-  const entries: FrameEntry[] = args.overviewScreens.map((screen, index) => {
-    const fallbackGeometry = getInitialFrameGeometry(index, {
-      width: screen.width ?? 1280,
-      height: screen.height ?? 2560,
-    });
-    const persistedGeometry = args.canvasFrameGeometryById[screen.id] ?? {};
-    return {
-      id: screen.id,
-      geometry: { ...fallbackGeometry, ...persistedGeometry },
-    };
-  });
-  if (
-    args.boardFileId &&
-    args.boardFrameGeometry &&
-    !entries.some((entry) => entry.id === args.boardFileId)
-  ) {
-    entries.push({ id: args.boardFileId, geometry: args.boardFrameGeometry });
-  }
-  return entries;
-}
-
-/**
- * Hit-tests a canvas-space point (the same coordinate system
- * `getAllScreenFrameEntries` resolves frame geometry into) against every real
- * screen frame — excluding `excludeFileId` (the board file itself, which is
- * only a paste-target FALLBACK, never a hit-testable "screen" to drop into).
- * Used by overview image/content paste (see handlePastedImageFiles) to decide
- * whether a paste anchor point lands on a screen — and if so, which one — so
- * the paste can be inserted into that screen's own local coordinate space
- * instead of always landing on the shared board file.
- *
- * When multiple frames overlap at the point (frames can be freely dragged on
- * top of each other), the LAST matching entry wins — `overviewScreens`/
- * `getAllScreenFrameEntries` order screens back-to-front by z, matching
- * MultiScreenCanvas's own render order, so this picks the topmost screen at
- * that point, same as a real click would hit.
- */
-export function findScreenFrameAtCanvasPoint(
-  point: { x: number; y: number },
-  frames: FrameEntry[],
-  excludeFileId?: string | null,
-): FrameEntry | null {
-  let match: FrameEntry | null = null;
-  for (const frame of frames) {
-    if (excludeFileId && frame.id === excludeFileId) continue;
-    const { x, y, width, height } = frame.geometry;
-    if (
-      point.x >= x &&
-      point.x <= x + width &&
-      point.y >= y &&
-      point.y <= y + height
-    ) {
-      match = frame;
-    }
-  }
-  return match;
-}
-
-/**
- * Figma's Shift+1 ("Zoom to fit") / Shift+2 ("Zoom to selection"): compute the
- * real fit zoom + canvas offset for a set of frames within the given viewport
- * size, via the shared `getCameraForBounds` fit-viewport math (already used
- * nowhere else in this app — this is the first caller — so this is a thin
- * wrapper that resolves the frame-entries-to-bounds step and clamps to the
- * shared canvas zoom range). Returns null when there is nothing to fit
- * (no frames, or a degenerate/zero-size viewport).
- */
-export function computeFitCameraForFrames(
-  frames: readonly FrameEntry[],
-  viewport: { width: number; height: number },
-  options?: { paddingScreenPx?: number },
-) {
-  if (frames.length === 0) return null;
-  if (viewport.width <= 0 || viewport.height <= 0) return null;
-  const bounds = getFrameGroupBounds(frames);
-  if (!bounds) return null;
-  return getCameraForBounds(bounds, viewport, {
-    paddingScreenPx: options?.paddingScreenPx ?? 64,
-    minZoom: DEFAULT_CANVAS_MIN_ZOOM,
-    maxZoom: DEFAULT_CANVAS_MAX_ZOOM,
-    fallbackZoom: 100,
-  });
-}
-
-function fileIdFromLayerSelectionId(
-  layerId: string,
-  fileIds: Set<string>,
-): string | null {
-  const normalized = layerId.startsWith("code:")
-    ? layerId.slice("code:".length)
-    : layerId;
-  return fileIds.has(normalized) ? normalized : null;
-}
-
-export function getOverviewScreenIdsFromLayerSelection(args: {
-  fileIds: string[];
-  layerIds: string[];
-}) {
-  const fileIds = new Set(args.fileIds);
-  const seen = new Set<string>();
-  const selectedScreenIds: string[] = [];
-  args.layerIds.forEach((layerId) => {
-    const fileId = fileIdFromLayerSelectionId(layerId, fileIds);
-    if (!fileId || seen.has(fileId)) return;
-    seen.add(fileId);
-    selectedScreenIds.push(fileId);
-  });
-  return selectedScreenIds;
-}
-
-export function getOverviewEnterTarget(args: {
-  activeFileId: string | null | undefined;
-  overviewSelectedScreenIds: string[];
-}) {
-  const { activeFileId, overviewSelectedScreenIds } = args;
-  if (overviewSelectedScreenIds.length === 0) {
-    return activeFileId ?? null;
-  }
-  if (activeFileId && overviewSelectedScreenIds.includes(activeFileId)) {
-    return activeFileId;
-  }
-  return (
-    overviewSelectedScreenIds[overviewSelectedScreenIds.length - 1] ?? null
-  );
-}
-
-export function getSidebarCodeLayerSelectionState(args: {
-  currentViewMode: "single" | "overview";
-  ownerFileId?: string | null;
-  overviewSelectedScreenIds: string[];
-  screenFileIds?: string[];
-}) {
-  const {
-    currentViewMode,
-    ownerFileId,
-    overviewSelectedScreenIds,
-    screenFileIds,
-  } = args;
-  const ownerScreenId =
-    ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
-      ? ownerFileId
-      : null;
-  return {
-    viewMode: currentViewMode,
-    overviewSelectedScreenIds:
-      currentViewMode === "overview" && ownerScreenId
-        ? [ownerScreenId]
-        : currentViewMode === "overview" && ownerFileId
-          ? []
-          : overviewSelectedScreenIds,
-  };
-}
-
-export function getOverviewZoomScale(args: {
-  frameWidth: number | null | undefined;
-  sourceWidth: number | null | undefined;
-}) {
-  const frameWidth =
-    typeof args.frameWidth === "number" && args.frameWidth > 0
-      ? args.frameWidth
-      : OVERVIEW_FRAME_WIDTH;
-  const sourceWidth =
-    typeof args.sourceWidth === "number" && args.sourceWidth > 0
-      ? args.sourceWidth
-      : 1280;
-  return frameWidth / sourceWidth;
-}
-
-export function getOverviewDisplayZoom(
-  canvasZoom: number,
-  overviewZoomScale: number,
-) {
-  const scale = overviewZoomScale > 0 ? overviewZoomScale : 1;
-  return canvasZoom * scale;
-}
-
-export function getOverviewCanvasZoom(
-  displayZoom: number,
-  overviewZoomScale: number,
-) {
-  const scale = overviewZoomScale > 0 ? overviewZoomScale : 1;
-  return displayZoom / scale;
-}
-
-export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
-  return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
-}
-
-/**
- * Board-zoom-corruption fix (observed in the wild as a 10241.49% displayed
- * zoom): the overview zoom SCALE basis must always be a real overview screen.
- * When `activeFileId` flips to the board file (creating a text primitive on
- * the empty board, clicking a board element, …) or to any non-screen file
- * (e.g. a CSS support file), the old `activeFile?.id ?? activeFileId ??
- * overviewScreens[0]?.id` resolution made that file the basis: it has no
- * entry in `overviewScreens` OR `canvasFrames`, so BOTH getOverviewZoomScale
- * inputs fell back (320/1280 = 0.25) while `explicitOverviewCanvasZoom`
- * stayed pinned to a value established under the real screen's scale —
- * garbage displayed zoom. This helper only accepts a candidate that is a
- * known overview screen (and never the board, even if a future
- * `overviewScreens` regression let the board leak into the list), otherwise
- * it falls back to the first real overview screen.
- */
-export function resolveOverviewZoomBasisScreenId(args: {
-  candidateFileId: string | null | undefined;
-  boardFileId: string | null | undefined;
-  overviewScreenIds: readonly string[];
-}): string | null {
-  const boardId = args.boardFileId ?? null;
-  const candidate = args.candidateFileId ?? null;
-  if (
-    candidate &&
-    candidate !== boardId &&
-    args.overviewScreenIds.includes(candidate)
-  ) {
-    return candidate;
-  }
-  return (
-    args.overviewScreenIds.find((screenId) => screenId !== boardId) ?? null
-  );
-}
-
-/**
- * Displayed overview zooms below this are unrenderable garbage, not a
- * deliberate camera position — the wheel/pinch path can't legitimately reach
- * them (MultiScreenCanvas clamps its canvas zoom well above the product of
- * this with any real screen scale).
- */
-export const MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM = 0.01;
-
-/**
- * Board-zoom-corruption fix, defensive layer: when the zoom-scale BASIS
- * IDENTITY changes (a different screen becomes the basis), a pinned
- * `explicitOverviewCanvasZoom` was established under the OLD basis' scale.
- * A normal screen-to-screen basis change only shifts the displayed zoom
- * label by the two screens' native-scale ratio (camera untouched) — that is
- * intended Figma-like behavior and must NOT reset the camera. But if the new
- * basis' scale turns the pinned value into a displayed zoom outside the
- * editor's absolute zoom range (non-finite, unrenderably small, or above
- * DEFAULT_CANVAS_MAX_ZOOM), the pin is provably garbage for this basis:
- * invalidate it so the derivation re-anchors at the default overview zoom
- * instead of showing a corrupted percentage.
- */
-export function shouldResetExplicitOverviewZoomOnBasisChange(args: {
-  previousBasisScreenId: string | null;
-  nextBasisScreenId: string | null;
-  explicitOverviewCanvasZoom: number | null;
-  nextOverviewZoomScale: number;
-}): boolean {
-  if (args.explicitOverviewCanvasZoom == null) return false;
-  if (args.previousBasisScreenId === args.nextBasisScreenId) return false;
-  const nextDisplayZoom = getOverviewDisplayZoom(
-    args.explicitOverviewCanvasZoom,
-    args.nextOverviewZoomScale,
-  );
-  return (
-    !Number.isFinite(nextDisplayZoom) ||
-    nextDisplayZoom < MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM ||
-    nextDisplayZoom > DEFAULT_CANVAS_MAX_ZOOM
-  );
-}
-
-/**
- * Final sanity clamp on the DISPLAYED overview zoom (the number the zoom
- * field shows and zoom-relative flows consume). Non-finite/non-positive
- * products (a corrupted basis flip) fall back to the default overview zoom;
- * anything above the editor's absolute max zoom is capped there. The lower
- * bound is deliberately NOT floored to DEFAULT_CANVAS_MIN_ZOOM: a legit
- * canvas zoom near the minimum times a sub-1 screen scale can display below
- * 2% and must not be misreported (it would desync the displayed value from
- * the real camera and drift zoom-relative round-trips).
- */
-export function clampOverviewDisplayZoom(displayZoom: number): number {
-  if (!Number.isFinite(displayZoom) || displayZoom <= 0) {
-    return DEFAULT_OVERVIEW_ZOOM;
-  }
-  return Math.min(displayZoom, DEFAULT_CANVAS_MAX_ZOOM);
-}
-
-/**
- * Flash-prevention routing for adopting an ALREADY-server-persisted content
- * snapshot into the editor — the "onApplied host-sync" family: shader fill
- * applies (`apply-shader-fill` → onShaderFillApplied), GLSL shader
- * apply/remove/knob commits (GlslShaderPanel's read-source-file →
- * apply-source-edit → onApplied), and component prop edits.
- *
- * These handlers previously passed `refreshPreview: true` for the active
- * file, but in applyLocalContentUpdate that flag means "skip the in-place
- * replace and force a full srcdoc rebuild" — a real iframe reload of the
- * active screen (white flash, lost scroll/Alpine state, and an onload refire
- * that re-runs screen measurement — observed in the wild as the shader-apply
- * flash plus a zoom-badge drift in the same gesture). The patched content is
- * a normal document update, exactly what the bridge's live in-place
- * full-document replace exists for (see applyLocalContentUpdate's
- * "Holistic flash pipeline" comment), so route it through
- * `forcePreviewFullDocument` instead; applyLocalContentUpdate already falls
- * back to the srcdoc rebuild on its own when the live bridge isn't
- * registered for the surface yet.
- *
- * `persist: false` because the server already owns this content — the
- * updatedAt stamp (when present) records it as the acked base for the next
- * guarded update-file save rather than re-queueing a redundant save.
- */
-export function getPersistedContentHostSyncOptions(args: {
-  fileId: string;
-  activeFileId: string | null | undefined;
-  updatedAt?: string;
-}): {
-  forcePreviewFullDocument: boolean;
-  persist: false;
-  updatedAt?: string;
-} {
-  return {
-    forcePreviewFullDocument:
-      args.activeFileId != null && args.fileId === args.activeFileId,
-    persist: false,
-    updatedAt: args.updatedAt,
-  };
-}
-
-export function getDesignEditorShareUrl(
-  id: string,
-  origin: string,
-  basePath = "",
-) {
-  const normalizedBasePath = basePath.replace(/\/+$/, "");
-  const pathname = normalizedBasePath
-    ? `${normalizedBasePath}/design/${encodeURIComponent(id)}`
-    : `/design/${encodeURIComponent(id)}`;
-  return new URL(pathname, origin).toString();
-}
-
-function formatDesignEditorUrlZoom(zoom: number): string {
-  const rounded = Math.round(zoom * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
-}
-
-export function getDesignEditorStateUrlSearch(args: {
-  currentSearch: string;
-  viewMode: "single" | "overview";
-  screenId?: string | null;
-  codeFileId?: string | null;
-  codeFilename?: string | null;
-  selectionId?: string | null;
-  leftPanel?: DesignLeftPanel | null;
-  zoom?: number | null;
-}) {
-  const params = new URLSearchParams(args.currentSearch);
-  const leftPanel =
-    args.leftPanel === "code" && !SHOW_DESIGN_CODE_LEFT_PANEL
-      ? null
-      : args.leftPanel;
-  params.set("view", args.viewMode);
-  if (leftPanel && leftPanel !== "file") {
-    params.set("panel", leftPanel);
-  } else {
-    params.delete("panel");
-  }
-  if (args.screenId) {
-    params.set("screen", args.screenId);
-  } else {
-    params.delete("screen");
-  }
-  if (leftPanel === "code" && args.codeFileId) {
-    params.set("fileId", args.codeFileId);
-  } else {
-    params.delete("fileId");
-  }
-  if (leftPanel === "code" && !args.codeFileId && args.codeFilename) {
-    params.set("filename", args.codeFilename);
-  } else {
-    params.delete("filename");
-  }
-  if (args.selectionId) {
-    params.set("selection", args.selectionId);
-  } else {
-    params.delete("selection");
-  }
-  if (typeof args.zoom === "number" && Number.isFinite(args.zoom)) {
-    params.set("zoom", formatDesignEditorUrlZoom(args.zoom));
-  } else {
-    params.delete("zoom");
-  }
-  const query = params.toString();
-  return query ? `?${query}` : "";
-}
-
-export function getLocalhostRouteSourceFile(args: {
-  sourceFile?: string;
-  source?: string;
-}): string | undefined {
-  if (args.sourceFile?.trim()) return args.sourceFile;
-  const raw = args.source;
-  if (!raw) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "file" in parsed &&
-      typeof (parsed as Record<string, unknown>).file === "string"
-    ) {
-      return (parsed as Record<string, string>).file;
-    }
-  } catch {
-    if (raw.length > 0) return raw;
-  }
-  return undefined;
-}
-
-export function getLayerMoveSourceContent(args: {
-  sourceFileId: string;
-  activeFileId?: string | null;
-  activeContent: string;
-  sourceFileContent?: string;
-  sourceContentMap: ReadonlyMap<string, string>;
-}) {
-  return (
-    args.sourceContentMap.get(args.sourceFileId) ??
-    (args.sourceFileId === args.activeFileId
-      ? args.activeContent
-      : args.sourceFileContent) ??
-    ""
-  );
-}
-
-export function getFreshActiveFileContent(args: {
-  activeContent: string;
-  latestContent?: string | null;
-  lastLocalContent?: string | null;
-}) {
-  return args.latestContent ?? args.lastLocalContent ?? args.activeContent;
-}
-
-export function getFreshScreenContent(args: {
-  screenId: string;
-  activeFileId?: string | null;
-  freshActiveContentFileId?: string | null;
-  freshActiveContent: string;
-  fileContentById: ReadonlyMap<string, string>;
-  /**
-   * Nest-conversion clobber fix: the freshest same-tick local write for this
-   * screen (DesignEditor's `pendingLocalFileContentsRef`), or null. The
-   * `fileContentById` map is memoized off React state, so a write made by
-   * `applyFileContentUpdate` earlier in the SAME task burst (e.g. the bridge's
-   * auto-layout conversion `visual-style-change` that lands right before the
-   * nest-drop's `visual-structure-change`) is not visible in it yet — the
-   * structure handler would rebase off pre-conversion content and its own
-   * write would silently clobber the conversion. Preferring the synchronous
-   * pending write mirrors what the active file already gets through
-   * `getFreshActiveFileContent`'s latest/lastLocal refs.
-   */
-  pendingContent?: string | null;
-}) {
-  const freshActiveContentFileId =
-    args.freshActiveContentFileId ?? args.activeFileId;
-  if (
-    args.screenId === args.activeFileId &&
-    args.screenId === freshActiveContentFileId
-  ) {
-    return args.freshActiveContent;
-  }
-  return args.pendingContent ?? args.fileContentById.get(args.screenId) ?? "";
-}
-
-export function shouldReplacePreviewAfterVisualStyleCommit(args: {
-  runtimeApplied?: boolean;
-  runtimeStyleApplied: boolean;
-}) {
-  return !args.runtimeApplied && !args.runtimeStyleApplied;
-}
-
-/**
- * PF12: decide whether a style change from EditPanel (ScrubInput scrub tick /
- * DesignColorPicker drag tick) should skip the expensive source commit
- * (commitVisualStyles / commitStylesToSelectedLayers — projection parse, HTML
- * patch, Yjs write, history entry) and instead only try the cheap live
- * iframe preview.
- *
- * Only a genuine mid-gesture "preview" tick against a single selected element
- * qualifies: `meta` is undefined for every existing call site that never
- * passed gesture metadata (keyboard edits, agent edits, discrete commits),
- * so this returns false for all of them — preserving prior full-commit
- * behavior exactly. Multi-layer-selection edits (`selectedLayerCount > 1`)
- * have no equivalent cheap multi-element preview channel, so those
- * conservatively keep committing on every tick, same as before PF12.
- */
-export function shouldSkipVisualStyleCommitForPreview(args: {
-  phase?: "preview" | "commit";
-  selectedLayerCount: number;
-}): boolean {
-  return args.phase === "preview" && args.selectedLayerCount <= 1;
-}
-
-/**
- * Unit-aware relative-delta application for a per-node multi-select style
- * commit (see commitRelativeStyleDeltaToSelectedLayers). ScrubInput's arrow-
- * key step and the future `relativeDelta` meta both operate on a plain
- * unitless number in the *same numeric domain* the field displays (px count,
- * degree count, raw opacity/line-height number) — the CSS unit suffix is
- * purely a serialization detail added back on here, matching how
- * formatScrubValue/EditPanel already build the CSS string for a single-target
- * commit.
- *
- * Parses the leading numeric portion of `currentValue` (e.g. "12px" -> 12,
- * "45deg" -> 45, "0.5" -> 0.5), adds `delta`, and re-serializes with
- * whatever unit suffix (if any) the ORIGINAL value used — so a per-node
- * relative nudge preserves that node's own unit instead of assuming every
- * selected node shares the same one. Returns `null` when `currentValue`
- * doesn't parse as a leading number (e.g. a keyword like "auto" or "none"),
- * so the caller can skip that node rather than writing garbage.
- */
-export function applyRelativeDeltaToStyleValue(
-  currentValue: string | undefined,
-  delta: number,
-): string | null {
-  if (typeof currentValue !== "string") return null;
-  const match = currentValue.trim().match(/^(-?\d*\.?\d+)(.*)$/);
-  if (!match) return null;
-  const [, numeric, unit] = match;
-  const base = Number(numeric);
-  if (!Number.isFinite(base)) return null;
-  const next = base + delta;
-  // Match formatScrubValue's collapse of float noise (e.g. avoid
-  // "12.000000000000002px" from repeated float addition) without imposing a
-  // fixed precision the property doesn't use.
-  const rounded = Math.round(next * 1e6) / 1e6;
-  return `${Object.is(rounded, -0) ? 0 : rounded}${unit ?? ""}`;
-}
-
-export function getLayerMoveIterationOrder<T>(
-  orderedIds: readonly T[],
-  placement: "before" | "after" | "inside",
-): T[] {
-  return placement === "after" ? [...orderedIds].reverse() : [...orderedIds];
-}
-
-export function removeUndoRedoOrderKind<T extends string>(
-  order: readonly T[],
-  kind: T,
-): T[] {
-  return order.filter((entry) => entry !== kind);
-}
-
-export type UndoRedoOrderKind =
-  | "content"
-  | "file-content"
-  | "geometry"
-  | "file-created";
-
-export function getUndoRedoPriorityOrder(
-  preferred: UndoRedoOrderKind | undefined,
-): UndoRedoOrderKind[] {
-  if (preferred === "geometry") return ["geometry", "content", "file-content"];
-  if (preferred === "file-content")
-    return ["file-content", "content", "geometry"];
-  return ["content", "file-content", "geometry"];
-}
-
-function resolveZoomUpdate(update: SetStateAction<number>, current: number) {
-  return typeof update === "function" ? update(current) : update;
-}
-
-/**
- * Figma-style zoom stepping: doubling/halving anchors relative to 100%
- * (…6.25, 12.5, 25, 50, 100, 200, 400, 800…) instead of a small fixed preset
- * list that stalls once it runs out of entries. Used by the keyboard/menu
- * zoom in/out handlers so they never stop stepping above/below the old
- * ZOOM_PRESETS bounds — clamped to the shared canvas zoom range so the
- * result always matches what the wheel/pinch zoom path allows.
- */
-export function getNextZoomStepUp(
-  current: number,
-  { min = DEFAULT_CANVAS_MIN_ZOOM, max = DEFAULT_CANVAS_MAX_ZOOM } = {},
-): number {
-  if (!Number.isFinite(current) || current <= 0) return Math.min(100, max);
-  // Anchor exponent: how many doublings 100 * 2^n is from `current`. Round up
-  // (with a small epsilon so an exact anchor doesn't get skipped by float
-  // error) to find the next anchor strictly greater than current.
-  const exponent = Math.floor(Math.log2(current / 100) + 1e-9) + 1;
-  const next = 100 * Math.pow(2, exponent);
-  return clampZoom(next, min, max);
-}
-
-export function getNextZoomStepDown(
-  current: number,
-  { min = DEFAULT_CANVAS_MIN_ZOOM, max = DEFAULT_CANVAS_MAX_ZOOM } = {},
-): number {
-  if (!Number.isFinite(current) || current <= 0) return Math.max(100, min);
-  const exponent = Math.ceil(Math.log2(current / 100) - 1e-9) - 1;
-  const prev = 100 * Math.pow(2, exponent);
-  return clampZoom(prev, min, max);
-}
-
-export function clampZoom(
-  zoom: number,
-  min: number = DEFAULT_CANVAS_MIN_ZOOM,
-  max: number = DEFAULT_CANVAS_MAX_ZOOM,
-): number {
-  if (!Number.isFinite(zoom)) return min;
-  return Math.min(max, Math.max(min, zoom));
-}
-
-/**
- * Camera-restore sanity ceiling (item 5): the shared canvas zoom range
- * (DEFAULT_CANVAS_MIN_ZOOM..DEFAULT_CANVAS_MAX_ZOOM, up to 25600%) is sized
- * for a deliberate "zoom in on this one selection" gesture, not for restoring
- * a "where I left off" per-screen memory. A corrupted/degenerate remembered
- * zoom (e.g. 1506%/3968%, observed in the field) is technically within that
- * absolute range but re-entering a screen at it shows an unrecognizable
- * close-up of whatever happens to sit at the scroll container's default
- * (0,0) origin — effectively "lands on empty canvas" from the user's
- * perspective, since single-screen mode has no separate persisted pan
- * position to also restore in sync. Restoring a saner default here is this
- * app's equivalent of a fit-all fallback.
- */
-export const MAX_SANE_SCREEN_ENTRY_ZOOM = 400;
-
-/**
- * Per-screen zoom memory: resolve which zoom `enterSingleScreen` should
- * restore for a given target screen id. Looks up the screen's last-
- * remembered zoom in the `screenZoomById` map (populated as the user zooms
- * while a screen is focused); falls back to `defaultZoom` (FOCUSED_SCREEN_ZOOM
- * in practice) for a screen's first visit, when no target id is known, or
- * when the remembered value is missing/non-finite/outside the shared canvas
- * zoom range, or so extreme (see MAX_SANE_SCREEN_ENTRY_ZOOM) that restoring it
- * would show unrecognizable content instead of the screen the user expects.
- * Pure/extracted so this lookup rule is unit-testable without mounting the
- * full DesignEditor component.
- */
-export function resolveScreenEntryZoom(
-  targetFileId: string | null | undefined,
-  screenZoomById: ReadonlyMap<string, number>,
-  defaultZoom: number,
-): number {
-  if (!targetFileId) return defaultZoom;
-  const remembered = screenZoomById.get(targetFileId);
-  if (remembered === undefined) return defaultZoom;
-  if (!Number.isFinite(remembered) || remembered <= 0) return defaultZoom;
-  const clamped = clampZoom(remembered);
-  return clamped > MAX_SANE_SCREEN_ENTRY_ZOOM ? defaultZoom : clamped;
-}
-
-/**
- * BP-DEEP v2 item 2 (full-view mode flicker) — the Figma-style "zoom far
- * enough out of a focused screen and you pop back to the overview" heuristic
- * must only fire when the user actually ZOOMS OUT ACROSS the threshold while
- * already settled in single-screen view. The previous level-triggered check
- * (`zoom < threshold` → pop) also fired on ENTRY: enterSingleScreen restores
- * the screen's remembered zoom, and when that remembered value was below the
- * threshold the editor flashed into full view for one frame and immediately
- * bounced back to overview — Steve's "Full view flickers then bounces" bug.
- * Edge-triggering on the previous observed single-view zoom means entry
- * (previousZoom === null — the tracking ref resets whenever single view is
- * left) can never bounce, and an entry that legitimately restores e.g. 30%
- * stays a focused 30% view until the user crosses the threshold from above.
- * Pure/extracted for unit tests.
- */
-export function shouldPopToOverviewOnZoomOut(args: {
-  /** Last zoom observed while ALREADY in single view; null right after
-   *  entering single view (or when single view isn't active/edit-mode). */
-  previousZoom: number | null;
-  zoom: number;
-  threshold: number;
-}): boolean {
-  if (!Number.isFinite(args.zoom)) return false;
-  if (args.zoom >= args.threshold) return false;
-  return args.previousZoom !== null && args.previousZoom >= args.threshold;
-}
-
-/**
- * Fix-wave (zoom presets) — an explicit destination zoom (a "Zoom to
- * 50/100/200%" menu preset, or a typed zoom-% commit) crosses
- * OVERVIEW_ZOOM_THRESHOLD from above just as easily as a real zoom-out
- * gesture does (e.g. the default single-view zoom is 100%, and "Zoom to 50%"
- * lands under the 60% threshold) — `shouldPopToOverviewOnZoomOut` alone can't
- * tell the two apart from the raw before/after zoom numbers. Callers that
- * fire an explicit destination zoom mark the NEXT zoom-change observation as
- * suppressed; this combines that one-shot flag with the edge-trigger check so
- * "Zoom to 50%" always stays in single view regardless of the zoom it
- * started from, while continuous zoom-out (scroll/pinch/the zoom-out button)
- * is untouched and still pops at the threshold like Figma.
- */
-export function shouldPopToOverviewOnZoomChange(args: {
-  previousZoom: number | null;
-  zoom: number;
-  threshold: number;
-  suppressExplicitZoom: boolean;
-}): boolean {
-  if (args.suppressExplicitZoom) return false;
-  return shouldPopToOverviewOnZoomOut(args);
-}
-
-export function shouldLimitEditorChromeUntilContentReady(args: {
-  fileCount: number;
-  hasActiveCanvasContent: boolean;
-  generating: boolean;
-  pendingGenerationActive: boolean;
-}) {
-  const {
-    fileCount,
-    generating,
-    hasActiveCanvasContent,
-    pendingGenerationActive,
-  } = args;
-  return (
-    (fileCount === 0 || !hasActiveCanvasContent) &&
-    (generating || pendingGenerationActive)
-  );
-}
-
-export function shouldEscapeToOverview(args: {
-  activeTool: DesignTool;
-  drawMode: boolean;
-  mode: EditorMode;
-  pinMode: boolean;
-  selectedElement: ElementInfo | null;
-  viewMode: "single" | "overview";
-}) {
-  const { activeTool, drawMode, mode, pinMode, selectedElement, viewMode } =
-    args;
-  return (
-    viewMode === "single" &&
-    !selectedElement &&
-    !drawMode &&
-    !pinMode &&
-    mode === "edit" &&
-    activeTool === "move"
-  );
-}
-
-/**
- * B5-1: an empty-canvas click (a marquee/hit-test that resolved to zero
- * elements) must deselect ANY current selection kind — a selected
- * overview screen frame AND a selected element inside a screen (set via the
- * iframe bridge). `handleLayerMarqueeSelectionChange` already clears the
- * host-side `selectedElement` state when nothing was hit and the gesture
- * isn't additive; this helper decides whether it must ALSO signal the
- * iframe/bridge overlays to clear their own selection highlight
- * (`overviewClearSelectionRequest`) — otherwise a previously-selected
- * in-screen element keeps showing its selection chrome inside the iframe
- * even though the host's `selectedElement` is already null. True whenever
- * the resolved hit-set is empty and the gesture isn't additive (an additive
- * click/shift-click on empty space is a no-op, matching Escape and the
- * MultiScreenCanvas-level `shouldClearSelectionOnEmptyCanvasClick`).
- *
- * Exported for unit testing.
- */
-export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
-  resolvedCount: number;
-  additive: boolean | undefined;
-}): boolean {
-  return args.resolvedCount === 0 && !args.additive;
-}
-
-/**
- * Build the set of all node ids (both projection ids and data-agent-native-node-id
- * attribute values) that exist in the given projection. Used by handleGroupSelection
- * and handleUngroupSelection to filter selectedLayerIdsState to the active file's
- * nodes before passing them to wrapNodes / unwrap, preventing cross-file stale ids
- * from causing spurious "conflict" errors.
- *
- * Exported for unit testing.
- */
-export function buildActiveFileNodeIdSet(
-  projection: CodeLayerProjection,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const n of projection.nodes) {
-    ids.add(n.id);
-    const attrId = n.dataAttributes["data-agent-native-node-id"];
-    if (attrId) ids.add(attrId);
-  }
-  return ids;
-}
-
 let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
-
-interface FileContentSaveRequest {
-  id: string;
-  content: string;
-  syncCollab: boolean;
-  /**
-   * Optimistic-concurrency guard forwarded to update-file's
-   * `expectedVersionHash` param — the last content hash this client knows
-   * the server/collab doc holds for this file. Populated by callers when
-   * known (lastAckedFileContentHashRef); omitted when unknown so update-file
-   * keeps its legacy unguarded-write behavior.
-   */
-  expectedVersionHash?: string;
-}
-
-/**
- * Pure decision helper (exported for unit testing) for the pagehide/unload
- * keepalive: should it be sent at all?
- *
- * The keepalive posts a raw, unguarded full-document `content` write with
- * `keepalive: true` — there is no round trip to react to a server rejection,
- * so an unload-time write that races a live collaboration doc can silently
- * clobber newer content with a stale tab-close snapshot. When collab is
- * live (this pending save's `syncCollab` is false) and we don't have a known
- * acked hash to guard the write with, skip sending the keepalive entirely:
- * the collab layer (Yjs doc + other connected clients) already holds the
- * true current content, and an unguarded overwrite risks losing it. Every
- * other combination (collab not live, or a hash IS known) keeps sending the
- * keepalive as before.
- */
-export function shouldSendKeepalive(
-  hashKnown: boolean,
-  collabLive: boolean,
-): boolean {
-  return hashKnown || !collabLive;
-}
 
 function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
   if (html2CanvasColorContext !== undefined) return html2CanvasColorContext;
@@ -1826,28 +767,6 @@ function sanitizeHtml2CanvasClone(
 }
 
 /**
- * Editor-chrome overlays that editor-chrome.bridge.ts appends inside the preview
- * iframe (the selection outline + resize handles, hover highlight, marquee,
- * spacing/measurement guides, and badges). They live in the iframe DOM, so image
- * exports must strip them from the clone — otherwise a download captures the
- * editor's selection outline instead of just the design. Keep this in sync with
- * the data-agent-native-* markers set in editor-chrome.bridge.ts.
- */
-export const EDITOR_CHROME_OVERLAY_SELECTOR = [
-  "[data-agent-native-edit-overlay]",
-  "[data-agent-native-edit-handle]",
-  "[data-agent-native-edge-handle]",
-  "[data-agent-native-rotate-handle]",
-  "[data-agent-native-transform-badge]",
-  "[data-agent-native-spacing-badge]",
-  "[data-agent-native-spacing-overlay]",
-  "[data-agent-native-spacing-line]",
-  "[data-agent-native-spacing-region]",
-  "[data-agent-native-insertion-guide]",
-  "[data-agent-native-measurement-overlay]",
-].join(",");
-
-/**
  * Remove editor-chrome overlays from a cloned document/element before it is
  * rasterized (PNG) or serialized (SVG) for export.
  */
@@ -1875,11 +794,11 @@ function sanitizeSerializedXmlForSvg(value: string): string {
  * (BODY/HTML, which is the whole screen anyway), or when the element can no
  * longer be resolved in the live document.
  */
-function resolveExportCropRect(
+function resolveElementExportCropRect(
   doc: Document,
-  selected: ElementInfo | null | undefined,
+  selected: ElementInfo,
 ): { x: number; y: number; width: number; height: number } | null {
-  if (!selected || isScreenRootElementInfo(selected)) return null;
+  if (isScreenRootElementInfo(selected)) return null;
   const view = doc.defaultView;
   if (!view) return null;
   let element: Element | null = null;
@@ -1912,24 +831,21 @@ function resolveExportCropRect(
   };
 }
 
-/**
- * Map a document-space rect onto pixel coordinates within a rendered canvas of
- * the given size, clamped to stay inside the canvas. `scale` must match the
- * scale passed to html2canvas. Returns null when the crop would be empty or
- * lands fully outside the canvas, so callers can fall back to the full render.
- */
-export function computeExportCropBox(
-  sourceWidth: number,
-  sourceHeight: number,
-  rect: { x: number; y: number; width: number; height: number },
-  scale: number,
-): { sx: number; sy: number; sw: number; sh: number } | null {
-  const sx = Math.max(0, Math.round(rect.x * scale));
-  const sy = Math.max(0, Math.round(rect.y * scale));
-  const sw = Math.min(sourceWidth - sx, Math.round(rect.width * scale));
-  const sh = Math.min(sourceHeight - sy, Math.round(rect.height * scale));
-  if (sw <= 0 || sh <= 0) return null;
-  return { sx, sy, sw, sh };
+function resolveExportCropRect(
+  doc: Document,
+  selected: ElementInfo | readonly ElementInfo[] | null | undefined,
+): { x: number; y: number; width: number; height: number } | null {
+  const selections = Array.isArray(selected)
+    ? selected
+    : selected
+      ? [selected]
+      : [];
+  return unionExportCropRects(
+    selections.flatMap((selection) => {
+      const rect = resolveElementExportCropRect(doc, selection);
+      return rect ? [rect] : [];
+    }),
+  );
 }
 
 /**
@@ -1963,61 +879,73 @@ function cropCanvasToRect(
   return cropped;
 }
 
-function byteLength(value: string): number {
-  if (typeof TextEncoder === "undefined") return value.length;
-  return new TextEncoder().encode(value).length;
-}
-
-function sendFileContentSaveKeepalive(pending: FileContentSaveRequest): void {
-  if (typeof window === "undefined") return;
-  // pending.syncCollab is set to `!(ydoc && isSynced)` at every call site
-  // (see queueFileContentSave / saveFileContent callers), so `syncCollab ===
-  // false` reliably means a live collab doc was connected when this save was
-  // queued — that ydoc-presence flag is exactly the "is collab live" signal
-  // this decision needs. See shouldSendKeepalive's doc comment for why an
-  // unguarded write is skipped entirely in that case when no hash is known.
-  const collabLive = pending.syncCollab === false;
-  const hashKnown = pending.expectedVersionHash !== undefined;
-  if (!shouldSendKeepalive(hashKnown, collabLive)) return;
-  const body = JSON.stringify({
-    id: pending.id,
-    content: pending.content,
-    syncCollab: pending.syncCollab,
-    ...(pending.expectedVersionHash
-      ? { expectedVersionHash: pending.expectedVersionHash }
-      : {}),
-  });
-  if (byteLength(body) > KEEPALIVE_FILE_SAVE_MAX_BYTES) return;
-  ensureEmbedAuthFetchInterceptor();
-  void fetch(agentNativePath("/_agent-native/actions/update-file"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-Frontend": "1",
+async function renderExportDocumentCanvas({
+  doc,
+  iframe,
+  exportScale,
+  render,
+}: {
+  doc: Document;
+  iframe: HTMLIFrameElement;
+  exportScale: number;
+  render: (typeof import("html2canvas"))["default"];
+}): Promise<HTMLCanvasElement> {
+  const width = Math.max(
+    doc.documentElement.scrollWidth,
+    doc.body?.scrollWidth ?? 0,
+    iframe.clientWidth,
+  );
+  const height = Math.max(
+    doc.documentElement.scrollHeight,
+    doc.body?.scrollHeight ?? 0,
+    iframe.clientHeight,
+  );
+  const options = {
+    width,
+    height,
+    windowWidth: width,
+    windowHeight: height,
+    scale: exportScale,
+    useCORS: true,
+    backgroundColor: null,
+    onclone: (clonedDocument: Document) => {
+      sanitizeHtml2CanvasClone(doc, clonedDocument);
+      removeEditorChromeOverlays(clonedDocument);
     },
-    body,
-    cache: "no-store",
-    keepalive: true,
-  }).catch(() => {});
+  };
+  try {
+    return await render(doc.documentElement, {
+      ...options,
+      foreignObjectRendering: true,
+    });
+  } catch (primaryError) {
+    console.warn(
+      "PNG capture failed with foreignObjectRendering; retrying canvas renderer:",
+      primaryError,
+    );
+    return await render(doc.documentElement, {
+      ...options,
+      foreignObjectRendering: false,
+    });
+  }
 }
 
-type EditorMode = "annotate" | "edit" | "interact";
-type DesignTool =
-  | "move"
-  | "frame"
-  | "rect"
-  | "line"
-  | "arrow"
-  | "ellipse"
-  | "polygon"
-  | "star"
-  | "text"
-  | "pen"
-  | "hand"
-  | "comment"
-  | "draw"
-  | "scale";
-type ShapeTool = "rect" | "line" | "arrow" | "ellipse" | "polygon" | "star";
+type PngCaptureErrorCode =
+  | "no-preview"
+  | "external-preview"
+  | "read-only-preview"
+  | "blob-failed";
+
+class PngCaptureError extends Error {
+  readonly code: PngCaptureErrorCode;
+
+  constructor(code: PngCaptureErrorCode) {
+    super(`PNG capture ${code}`);
+    this.name = "PngCaptureError";
+    this.code = code;
+  }
+}
+
 // PF6: local alias for DesignCanvas's inline `embeddedFrame` prop type (not
 // exported from DesignCanvas.tsx) so the per-screen cache below can be typed.
 type DesignCanvasEmbeddedFrame = {
@@ -2029,71 +957,6 @@ type DesignCanvasEmbeddedFrame = {
   contentOffsetX?: number;
   contentOffsetY?: number;
 };
-
-const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
-  "move",
-  "frame",
-  "rect",
-  "line",
-  "arrow",
-  "ellipse",
-  "polygon",
-  "star",
-  "text",
-  "pen",
-  "hand",
-  "comment",
-  "draw",
-  "scale",
-]);
-
-function normalizeDesignTool(value: unknown): DesignTool | null {
-  return typeof value === "string" &&
-    DESIGN_EDITOR_TOOLS.has(value as DesignTool)
-    ? (value as DesignTool)
-    : null;
-}
-
-function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
-  return tool === "draw" || tool === "comment";
-}
-
-/**
- * P4/single-screen placement: maps the editor's current tool + view mode to
- * the `CreationTool` DesignCanvas's single-screen click-to-place overlay
- * understands, or `null` when the overlay should not mount.
- *
- * Only mounts while actually focused on a single screen (`viewMode ===
- * "single"`) with an active file — overview mode keeps using
- * MultiScreenCanvas's own draft-primitive drawing, which this overlay does
- * not replace. `rect` (the DesignTool id) maps to CreationTool's
- * `"rectangle"`; `frame` maps to `"frame"` (Figma parity: F/A inside a
- * focused screen places a nested bare container <div> instead of yanking
- * the user to overview); `polygon`/`star`/`draw`/`hand`/`comment`/`scale`/
- * `move` have no single-screen click-to-place equivalent yet and map to
- * `null` so the overlay never mounts for them (existing tool behavior for
- * those is unaffected).
- */
-export function getSingleScreenCreationTool(args: {
-  activeTool: DesignTool;
-  viewMode: "single" | "overview";
-  hasActiveFile: boolean;
-}): CreationTool | null {
-  if (args.viewMode !== "single" || !args.hasActiveFile) return null;
-  switch (args.activeTool) {
-    case "rect":
-      return "rectangle";
-    case "ellipse":
-    case "line":
-    case "arrow":
-    case "text":
-    case "pen":
-    case "frame":
-      return args.activeTool;
-    default:
-      return null;
-  }
-}
 
 interface DesignFile {
   id: string;
@@ -2109,547 +972,6 @@ interface LiveScreenSnapshot {
   html: string;
   status?: number;
   contentType?: string;
-}
-
-export interface PendingVisualStyleEdit {
-  screenId: string;
-  filename: string;
-  screenName: string;
-  selector: string;
-  sourceId?: string | null;
-  tagName?: string | null;
-  classes: string[];
-  styles: Record<string, string>;
-  /**
-   * Inline style values to replay when the user discards the live preview.
-   * Missing authored inline values are stored as "" so the bridge removes the
-   * temporary inline style and lets the app's real CSS win again.
-   */
-  originalStyles: Record<string, string>;
-  updatedAt: number;
-  /**
-   * §6.4 — breakpoint scope active when the edit was made. When present the
-   * edit must be applied as a width-scoped override (apply-visual-edit with
-   * `activeFrameWidthPx`), not a base write. `upperBoundPx` is the Framer
-   * cascade bound (just below the next-wider frame); null means the active
-   * frame was the widest context (base edit).
-   */
-  breakpoint?: {
-    activeWidthPx: number;
-    upperBoundPx: number | null;
-  };
-}
-
-export interface PendingLiveTextEdit {
-  kind: "text";
-  screenId: string;
-  filename: string;
-  screenName: string;
-  selector: string;
-  sourceId?: string | null;
-  tagName?: string | null;
-  classes: string[];
-  value: string;
-  html?: string;
-  originalValue: string;
-  originalHtml?: string;
-  updatedAt: number;
-}
-
-export interface PendingLiveStructureEdit {
-  kind: "structure";
-  screenId: string;
-  filename: string;
-  screenName: string;
-  selector: string;
-  sourceId?: string | null;
-  anchorSelector: string;
-  anchorSourceId?: string | null;
-  placement: "before" | "after" | "inside";
-  requestId?: string;
-  updatedAt: number;
-}
-
-type PendingLiveNonStyleEdit = PendingLiveTextEdit | PendingLiveStructureEdit;
-type PendingVisualStyleUndoEntry = {
-  edit: PendingVisualStyleEdit;
-  revertStyles: Record<string, string>;
-};
-type PendingLiveTextUndoEntry = {
-  kind: "text";
-  edit: PendingLiveTextEdit;
-  revertValue: string;
-  revertHtml?: string;
-};
-type PendingLiveStructureUndoEntry = {
-  kind: "structure";
-  edit: PendingLiveStructureEdit;
-};
-type PendingLiveNonStyleUndoEntry =
-  | PendingLiveTextUndoEntry
-  | PendingLiveStructureUndoEntry;
-
-function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
-  return [
-    edit.screenId,
-    edit.sourceId?.trim() || edit.selector.trim() || "unknown",
-  ].join("::");
-}
-
-export function mergePendingVisualStyleEdit(
-  edits: readonly PendingVisualStyleEdit[],
-  nextEdit: PendingVisualStyleEdit,
-): PendingVisualStyleEdit[] {
-  const nextKey = pendingVisualStyleEditKey(nextEdit);
-  let merged = false;
-  const next = edits.map((edit) => {
-    if (pendingVisualStyleEditKey(edit) !== nextKey) return edit;
-    merged = true;
-    return {
-      ...edit,
-      ...nextEdit,
-      classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
-      styles: { ...edit.styles, ...nextEdit.styles },
-      originalStyles: {
-        ...nextEdit.originalStyles,
-        ...edit.originalStyles,
-      },
-    };
-  });
-  return merged ? next : [...edits, nextEdit];
-}
-
-export function mergePendingVisualStyleEdits(
-  edits: readonly PendingVisualStyleEdit[],
-): PendingVisualStyleEdit[] {
-  return edits.reduce<PendingVisualStyleEdit[]>(
-    (merged, edit) => mergePendingVisualStyleEdit(merged, edit),
-    [],
-  );
-}
-
-export function pendingVisualStyleUndoRevertStyles(
-  currentEdits: readonly PendingVisualStyleEdit[],
-  nextEdit: PendingVisualStyleEdit,
-): Record<string, string> {
-  const currentForTarget = currentEdits.find(
-    (edit) =>
-      pendingVisualStyleEditKey(edit) === pendingVisualStyleEditKey(nextEdit),
-  );
-  return Object.fromEntries(
-    Object.keys(nextEdit.styles).map((property) => [
-      property,
-      currentForTarget?.styles[property] ??
-        nextEdit.originalStyles[property] ??
-        "",
-    ]),
-  );
-}
-
-function styleLookup(
-  styles: Record<string, string> | undefined,
-  property: string,
-): string | undefined {
-  if (!styles) return undefined;
-  const camel = camelStyleProperty(property);
-  const kebab = property.replace(
-    /[A-Z]/g,
-    (match) => `-${match.toLowerCase()}`,
-  );
-  return styles[property] ?? styles[camel] ?? styles[kebab];
-}
-
-export function originalStylesForPendingVisualEdit(
-  styles: Record<string, string>,
-  primaryInfo?: Pick<ElementInfo, "computedStyles" | "inlineStyles"> | null,
-  fallbackInfo?: Pick<ElementInfo, "computedStyles" | "inlineStyles"> | null,
-): Record<string, string> {
-  const sourceInfo = primaryInfo ?? fallbackInfo ?? null;
-  const inlineStyles = sourceInfo?.inlineStyles;
-  const computedStyles = sourceInfo?.computedStyles;
-  return Object.fromEntries(
-    Object.keys(styles).map((property) => {
-      const inlineValue = styleLookup(inlineStyles, property);
-      if (inlineValue !== undefined) return [property, inlineValue];
-      if (inlineStyles) return [property, ""];
-      return [property, styleLookup(computedStyles, property) ?? ""];
-    }),
-  );
-}
-
-export function buildPendingVisualStyleRevertPatches(
-  edits: readonly PendingVisualStyleEdit[],
-): Array<{
-  screenId: string;
-  selector: string;
-  sourceId?: string | null;
-  styles: Record<string, string>;
-}> {
-  return edits
-    .map((edit) => ({
-      screenId: edit.screenId,
-      selector: edit.selector,
-      sourceId: edit.sourceId,
-      styles: edit.originalStyles,
-    }))
-    .filter((patch) => Object.keys(patch.styles).length > 0);
-}
-
-export function getPendingVisualStylePropertyCount(
-  edits: readonly PendingVisualStyleEdit[],
-): number {
-  return edits.reduce(
-    (count, edit) => count + Object.keys(edit.styles).length,
-    0,
-  );
-}
-
-export function shouldBlockPendingVisualStyleNavigation(args: {
-  hasPendingVisualStyleEdits: boolean;
-  currentPathname: string;
-  nextPathname: string;
-}): boolean {
-  return (
-    args.hasPendingVisualStyleEdits &&
-    args.currentPathname !== args.nextPathname
-  );
-}
-
-export function formatPendingVisualStylePrompt(args: {
-  designId?: string | null;
-  designTitle?: string | null;
-  activeFileId?: string | null;
-  activeFilename?: string | null;
-  edits: readonly PendingVisualStyleEdit[];
-  liveEdits?: readonly PendingLiveNonStyleEdit[];
-}): string {
-  const title = args.designTitle?.trim();
-  const editPayload = args.edits.map((edit) => ({
-    screenId: edit.screenId,
-    filename: edit.filename,
-    screenName: edit.screenName,
-    selector: edit.selector,
-    sourceId: edit.sourceId ?? null,
-    tagName: edit.tagName ?? null,
-    classes: edit.classes,
-    styles: edit.styles,
-    ...(edit.breakpoint ? { breakpoint: edit.breakpoint } : {}),
-  }));
-  const hasBreakpointScopedEdits = args.edits.some(
-    (edit) => edit.breakpoint && edit.breakpoint.upperBoundPx !== null,
-  );
-  const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
-    if (edit.kind === "text") {
-      return {
-        kind: edit.kind,
-        screenId: edit.screenId,
-        filename: edit.filename,
-        screenName: edit.screenName,
-        selector: edit.selector,
-        sourceId: edit.sourceId ?? null,
-        tagName: edit.tagName ?? null,
-        classes: edit.classes,
-        value: edit.value,
-        html: edit.html,
-      };
-    }
-    return {
-      kind: edit.kind,
-      screenId: edit.screenId,
-      filename: edit.filename,
-      screenName: edit.screenName,
-      selector: edit.selector,
-      sourceId: edit.sourceId ?? null,
-      anchorSelector: edit.anchorSelector,
-      anchorSourceId: edit.anchorSourceId ?? null,
-      placement: edit.placement,
-    };
-  });
-
-  return [
-    `Apply these pending live visual edits${title ? ` to "${title}"` : ""}.`,
-    args.designId ? `Design id: "${args.designId}".` : "",
-    args.activeFileId
-      ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
-      : "",
-    "",
-    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
-    hasBreakpointScopedEdits
-      ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports."
-      : "",
-    "",
-    "Pending style edits:",
-    JSON.stringify(editPayload, null, 2),
-    liveEditPayload.length > 0 ? "Pending text/structure edits:" : "",
-    liveEditPayload.length > 0 ? JSON.stringify(liveEditPayload, null, 2) : "",
-  ]
-    .filter((line) => line !== "")
-    .join("\n");
-}
-
-export function resolveOverviewScreenSourceType(
-  screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null }
-    | null
-    | undefined,
-  fallbackSourceType: DesignSourceType = "inline",
-): DesignSourceType {
-  if (!screen) return fallbackSourceType;
-  return (
-    normalizeDesignSourceType(screen.sourceType) ??
-    (screen.bridgeUrl ? "localhost" : undefined) ??
-    fallbackSourceType
-  );
-}
-
-export function shouldShowPendingVisualStyleApply(args: {
-  edits: readonly PendingVisualStyleEdit[];
-  liveEdits?: readonly PendingLiveNonStyleEdit[];
-  screenSourceTypes: ReadonlyMap<string, unknown>;
-  fallbackSourceType?: unknown;
-}): boolean {
-  const allEdits = [...args.edits, ...(args.liveEdits ?? [])];
-  return (
-    allEdits.length > 0 &&
-    allEdits.every(
-      (edit) =>
-        normalizeDesignSourceType(
-          args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
-        ) === "localhost",
-    )
-  );
-}
-
-/**
- * §6.4 — One scoped style write (Framer cascade). Routes a single
- * (property, value) edit through the class-vs-media decision
- * (`planBreakpointStyleWrite`) for the active breakpoint scope:
- *
- * - `upperBoundPx == null` (base editing): plain inline-style edit that
- *   cascades down to every narrower breakpoint unless overridden there.
- * - Tailwind-utility value: width-scoped responsive class
- *   (`max-[<bound>px]:utility`), falling back to the media path if the
- *   class patch is rejected.
- * - Raw CSS value: managed `@media (max-width: <bound>px)` rule in the
- *   `<style data-agent-native-breakpoints>` block.
- *
- * Scoped failures return the failing patch rather than silently mutating
- * the base layer — callers surface `result.message`.
- */
-export function applyScopedVisualStyleEdit(args: {
-  content: string;
-  target: { nodeId: string } | { selector: string };
-  property: string;
-  value: string;
-  upperBoundPx: number | null;
-}): ApplyVisualEditResult {
-  const { content, target, property, value, upperBoundPx } = args;
-  const plan = planBreakpointStyleWrite({ property, value, upperBoundPx });
-  if (plan.mode === "class") {
-    const rcPatch = applyVisualEdit(content, {
-      kind: "responsive-class",
-      target,
-      // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
-      prefix: "base",
-      maxWidthPx: plan.boundPx,
-      operation: "replace",
-      utility: plan.utility,
-      stem: utilityStem(plan.utility),
-    });
-    if (rcPatch.result.status === "applied") return rcPatch;
-    // Fall through to the media path so the edit still lands scoped.
-  }
-  if (plan.mode !== "base" && upperBoundPx != null) {
-    return applyVisualEdit(content, {
-      kind: "breakpoint-style",
-      target,
-      maxWidthPx: upperBoundPx,
-      property,
-      value,
-      operation: "set",
-    });
-  }
-  return applyVisualEdit(content, { kind: "style", target, property, value });
-}
-
-/**
- * Pure decision behind commitVisualStyles' commit-or-fail outcome, extracted
- * so the fail-loud contract is unit-testable:
- *
- * - scoped patch applied → its content wins;
- * - scoped patch failed while a BREAKPOINT scope is active → hard error
- *   (the legacy selector fallback is a BASE write and would clobber every
- *   viewport width with a value the user meant to scope — §6.4);
- * - scoped patch failed on BASE scope → the legacy selector-based
- *   inline-style fallback may stand in, but ONLY when it actually resolved
- *   (queryUniqueSelector demands exactly one match — never a guessy write);
- * - nothing resolved → hard error. Callers MUST surface `error` loudly
- *   (toast), never swallow it: a silent no-op here leaves the inspector
- *   displaying a value that was never persisted.
- */
-export function resolveVisualStyleCommitContent(args: {
-  scopedContent: string;
-  scopedFailure: string | null;
-  legacyFallbackContent: string | null;
-  breakpointScoped: boolean;
-}): { content: string } | { error: string | null } {
-  if (!args.scopedFailure) return { content: args.scopedContent };
-  if (args.breakpointScoped) return { error: args.scopedFailure };
-  if (args.legacyFallbackContent)
-    return { content: args.legacyFallbackContent };
-  return { error: args.scopedFailure };
-}
-
-/**
- * Interaction-states phase 2 — the pure content transform behind
- * `commitInteractionStateStyles` (DesignEditor's useCallback wrapper, which
- * only resolves `activeFile`/`selectedElement`/`canEditDesign` and calls
- * `applyFileContentUpdate`). Extracted as a top-level function so it's
- * unit-testable the same way `applyScopedVisualStyleEdit` is above.
- *
- * Writes every property in `styles` into the managed
- * `[data-agent-native-node-id="<nodeId>"]:<state> { … }` rule
- * (`upsertStateStyles`) and regenerates that rule's forced-preview twin
- * (`duplicateStatePreviewRules`) in one pass, so a caller that folds the
- * result into a single `applyFileContentUpdate`/history-recording call gets
- * exactly one undo step for the whole commit — see
- * `shared/interaction-states.ts`'s module doc for the twin-rule mechanism.
- */
-export function applyInteractionStateStyleCommit(
-  content: string,
-  nodeId: string,
-  state: InteractionState,
-  styles: Record<string, string>,
-): string {
-  const withStateStyles = upsertStateStyles(content, nodeId, state, styles);
-  return duplicateStatePreviewRules(withStateStyles);
-}
-
-/**
- * Interaction-states phase 2 — the pure decision behind `statePreviewTarget`,
- * the value DesignEditor forwards into both the single-screen and overview
- * `DesignCanvas` instances' `statePreviewTarget` prop, which in turn drives
- * the `state-preview` postMessage that sets/clears the bridge's
- * `data-an-state-preview` attribute (see interaction-states.ts's "Forced-
- * preview mechanism" doc comment for the full pipeline). Returns null
- * whenever there's no active non-default interaction state OR no resolvable
- * single-element screen/node target — both must be present for a preview to
- * make sense, matching EditPanel's InteractionStatePanel only ever offering
- * the state selector for a single selection with a stable node id.
- */
-export function deriveStatePreviewTarget(
-  activeState: InteractionState | null,
-  screenId: string | null | undefined,
-  nodeId: string | null | undefined,
-): { screenId: string; nodeId: string; state: InteractionState } | null {
-  if (!activeState || !screenId || !nodeId) return null;
-  return { screenId, nodeId, state: activeState };
-}
-
-/**
- * §gesture-persistence collab-clobber fix — the decision behind whether a
- * just-connected (or just-observed) Yjs doc snapshot should be REBASED from
- * SQL `design_files.content` instead of adopted as the live/authoritative
- * value.
- *
- * `shouldUseLiveFileContent` (shared/html-content.ts) answers a narrower
- * question than its call sites here used to assume: "does the live Yjs text
- * look like well-formed HTML, or does it look like corrupted/orphaned
- * markup?" It has no notion of staleness — a Yjs doc that hasn't been
- * touched in hours still "looks like HTML" and passes it. That gap is what
- * let gesture-persistence edits (which write SQL directly and only touch the
- * Yjs doc when a client is already connected) get silently clobbered: when
- * the Code panel later opens a fresh ydoc connection, `GET .../state` can
- * return an old `_collab_docs` snapshot that predates the gesture edit, and
- * the old seed-effect logic would adopt that stale-but-well-formed text as
- * `latestActiveContentRef.current` before the timestamp-gated DB-reconcile
- * effect got a chance to correct it — a window in which a follow-on gesture
- * edit could patch off the stale DOM (stale node ids) and, once merged back
- * through the Yjs CRDT text diff, produce duplicated nodes.
- *
- * This helper closes that window by making the FIRST reconcile against a
- * freshly-synced doc always prefer SQL when it differs from the live text —
- * exactly like the DB-reconcile effect's own "no baseline yet ... always
- * adopts so a stale persisted Y.Doc can't shadow newer SQL" rule, just
- * applied one step earlier (at seed time) instead of one tick later. Once
- * `lastAppliedUpdatedAt` is established, subsequent genuine Yjs edits (from
- * this or other connected clients after the rebase) are trusted normally —
- * this only guards the initial adopt-vs-rebase decision for an unproven
- * snapshot.
- */
-export function shouldRebaseCollabDocFromStoredContent({
-  liveContent,
-  storedContent,
-  storedUpdatedAt,
-  lastAppliedUpdatedAt,
-  fileType,
-}: {
-  liveContent: string;
-  storedContent: string;
-  storedUpdatedAt: string | null | undefined;
-  lastAppliedUpdatedAt: string | null;
-  fileType: string;
-}): boolean {
-  if (liveContent === storedContent) return false;
-  // Preserve the existing corruption guard: malformed/orphaned live content
-  // is always rebased from SQL regardless of staleness.
-  if (
-    !shouldUseLiveFileContent({
-      liveContent,
-      storedContent,
-      fileType,
-    })
-  ) {
-    return true;
-  }
-  // The staleness gate below only applies to the HTML gesture-persistence
-  // flow this fix targets. Non-HTML fields never went through the
-  // gesture-persistence direct-SQL-write path, so preserve the original
-  // permissive "trust the live doc" default for them.
-  if (fileType.toLowerCase() !== "html") return false;
-  // No established watermark yet for this doc in this session (first sync
-  // after connect) — an untrusted snapshot can't outrank SQL just because it
-  // parses as HTML. Rebase whenever SQL has ever been written and disagrees.
-  if (!lastAppliedUpdatedAt) return !!storedUpdatedAt;
-  return false;
-}
-
-/**
- * §gesture-persistence collab-clobber fix — the pure decision behind
- * `applyFileContentUpdate`'s per-screen (non-active-file) write path.
- *
- * Before this fix, a gesture commit to a screen OTHER than `activeFile` (the
- * overview per-frame path, `handleScreenVisualStyleChange` ->
- * `applyFileContentUpdate`) only ever wrote SQL and passed a hardcoded
- * `syncCollab: true`, relying entirely on the server-side
- * `applyText`/`hasCollabState` round-trip (see actions/update-file.ts) to
- * keep any already-connected Yjs doc for that screen in step. That round-trip
- * is not synchronous with the SQL write from the client's point of view: if
- * that screen's doc happens to be the one live-connected via the
- * presence-only `overviewYdoc` subscription (`overviewPresenceFileId`), the
- * connected client could still be holding pre-edit Yjs text for a window
- * after the SQL write lands, mirroring the active-file clobber this same bug
- * produces.
- *
- * This mirrors `applyLocalContentUpdate`'s active-file behavior: when the
- * target screen's doc is live and synced RIGHT HERE in this client, write
- * the ydoc directly (untracked full rewrite, `TAB_ID` origin) and skip the
- * redundant server-side `syncCollab` round-trip; otherwise keep relying on
- * `syncCollab: true` exactly as before.
- */
-export function resolveScreenCollabSyncTarget({
-  fileId,
-  overviewPresenceFileId,
-  overviewDocConnected,
-}: {
-  fileId: string;
-  overviewPresenceFileId: string | null;
-  /** Whether the presence-only overview Yjs doc is connected AND synced. */
-  overviewDocConnected: boolean;
-}): { writeLiveDoc: boolean; syncCollab: boolean } {
-  const writeLiveDoc =
-    overviewDocConnected && overviewPresenceFileId === fileId;
-  return { writeLiveDoc, syncCollab: !writeLiveDoc };
 }
 
 interface DesignData {
@@ -2688,311 +1010,6 @@ interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
   tree: CodeLayerTreeNode[];
 }
 
-export interface MotionTimelineRow {
-  id: string | null;
-  designId: string;
-  sourceRef: string | null;
-  filePath: string | null;
-  tracks: unknown;
-  durationMs: number;
-  defaultEase: string;
-  compiledHash: string | null;
-  cssHash?: string | null;
-  source?: "stored" | "recovered-css" | "stored-css-drift";
-  createdAt: string | null;
-  updatedAt: string | null;
-}
-
-interface MotionTimelineQueryResult {
-  designId: string;
-  timelines: MotionTimelineRow[];
-  count: number;
-}
-
-function isMotionTrack(value: unknown): value is MotionTrack {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as {
-    targetNodeId?: unknown;
-    property?: unknown;
-    keyframes?: unknown;
-  };
-  return (
-    typeof candidate.targetNodeId === "string" &&
-    typeof candidate.property === "string" &&
-    Array.isArray(candidate.keyframes)
-  );
-}
-
-function normalizeMotionTracks(value: unknown): MotionTrack[] {
-  return Array.isArray(value) ? value.filter(isMotionTrack) : [];
-}
-
-function labelForMotionTrack(
-  track: MotionTrack,
-  projection: CodeLayerProjection,
-): string {
-  const node = projection.nodes.find(
-    (candidate) =>
-      candidate.dataAttributes["data-agent-native-node-id"] ===
-        track.targetNodeId || candidate.id === track.targetNodeId,
-  );
-  return node?.layerName || node?.tag || track.targetNodeId;
-}
-
-export function hydrateMotionDockTracks(
-  tracks: unknown,
-  projection: CodeLayerProjection,
-): MotionDockTrack[] {
-  return normalizeMotionTracks(tracks).map((track) => ({
-    ...track,
-    label: labelForMotionTrack(track, projection),
-  }));
-}
-
-const MOTION_KEYFRAME_TIME_EPSILON = 0.002;
-
-function motionCssPropertyName(property: string): string | null {
-  const trimmed = property.trim();
-  if (!trimmed || trimmed.startsWith("--")) return null;
-  const cssName = trimmed
-    .replace(/^css/, "")
-    .replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
-    .toLowerCase();
-  return /^-?[a-z][a-z0-9-]*$/i.test(cssName) ? cssName : null;
-}
-
-/**
- * Properties auto-keyframe is allowed to record. Discrete / structural
- * properties (display, position, overflow, font-family, …) do not animate
- * meaningfully, so committing a multi-property style edit must not invent
- * tracks for them.
- */
-const MOTION_ANIMATABLE_PROPERTIES = new Set([
-  "opacity",
-  "transform",
-  "translate",
-  "rotate",
-  "scale",
-  "filter",
-  "backdrop-filter",
-  "color",
-  "background-color",
-  "border-color",
-  "outline-color",
-  "fill",
-  "stroke",
-  "box-shadow",
-  "text-shadow",
-  "width",
-  "height",
-  "min-width",
-  "min-height",
-  "max-width",
-  "max-height",
-  "top",
-  "left",
-  "right",
-  "bottom",
-  "inset",
-  "border-radius",
-  "border-width",
-  "gap",
-  "row-gap",
-  "column-gap",
-  "font-size",
-  "line-height",
-  "letter-spacing",
-  "word-spacing",
-  "text-indent",
-  "background-position",
-  "background-size",
-]);
-
-export function isMotionAnimatableProperty(property: string): boolean {
-  if (MOTION_ANIMATABLE_PROPERTIES.has(property)) return true;
-  return (
-    /^(margin|padding)(-(top|right|bottom|left|inline|block)(-(start|end))?)?$/.test(
-      property,
-    ) ||
-    /^border-(top|right|bottom|left)-(color|width)$/.test(property) ||
-    /^border-(top|bottom)-(left|right)-radius$/.test(property)
-  );
-}
-
-/**
- * Item 7 — motion auto-key. The pure decision behind
- * upsertMotionKeyframesFromStyles (DesignEditor's useCallback wrapper, which
- * only resolves the DOM/projection-dependent targetNodeId and calls this):
- * given a style-change batch, key every ALREADY-tracked, motion-animatable
- * property on `targetNodeId` at the current playhead via
- * applyMotionAutoKeyframe. Matches Figma parity — arming auto-keyframe never
- * invents a new track for an untracked property; that stays a plain style
- * change regardless of this function's outcome (the caller commits the style
- * either way). Returns the SAME `tracks` reference when nothing changed, so
- * callers can cheaply detect "no-op" via reference equality (as the
- * setMotionTracks updater here does) without a separate dirty flag.
- * Extracted as a standalone pure function so the armed/wiring conditions
- * (property-name mapping to the shared motion catalog, playhead threading,
- * per-property track lookup) are directly unit-testable — see
- * DesignEditor.motion.test.ts.
- */
-export function applyMotionAutoKeyframesForStyles(
-  tracks: MotionDockTrack[],
-  args: {
-    targetNodeId: string;
-    styles: Record<string, string | undefined>;
-    playheadT: number;
-    timelineDurationMs: number;
-    defaultEase?: MotionEase;
-  },
-): MotionDockTrack[] {
-  let next: MotionDockTrack[] = tracks;
-  for (const [rawProperty, rawValue] of Object.entries(args.styles)) {
-    if (rawValue === undefined) continue;
-    const property = motionCssPropertyName(rawProperty);
-    if (!property || !isMotionAnimatableProperty(property)) continue;
-    const value = String(rawValue).trim();
-    if (!value) continue;
-    const keyed = applyMotionAutoKeyframe(
-      next,
-      {
-        targetNodeId: args.targetNodeId,
-        property,
-        value,
-        playheadT: args.playheadT,
-        timelineDurationMs: args.timelineDurationMs,
-      },
-      args.defaultEase,
-    );
-    if (keyed) next = keyed as MotionDockTrack[];
-  }
-  return next;
-}
-
-function camelStyleProperty(property: string): string {
-  return property.replace(/-([a-z])/g, (_, letter: string) =>
-    letter.toUpperCase(),
-  );
-}
-
-function computedMotionStyleValue(
-  computedStyles: Record<string, string> | undefined,
-  property: string,
-): string | undefined {
-  if (!computedStyles) return undefined;
-  return (
-    computedStyles[property] ??
-    computedStyles[camelStyleProperty(property)] ??
-    computedStyles[
-      property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
-    ]
-  );
-}
-
-function defaultMotionBaseValue(property: string, nextValue: string): string {
-  if (property === "opacity") return "1";
-  if (property === "transform" || property === "filter") return "none";
-  return nextValue;
-}
-
-export function upsertMotionStyleKeyframes(args: {
-  tracks: MotionDockTrack[];
-  targetNodeId: string;
-  label: string;
-  styles: Record<string, string>;
-  computedStyles?: Record<string, string>;
-  playhead: number;
-  defaultEase?: string;
-}): MotionDockTrack[] {
-  const t = Math.max(0, Math.min(1, args.playhead));
-  const ease = args.defaultEase ?? "ease";
-  let nextTracks = args.tracks;
-
-  for (const [rawProperty, rawValue] of Object.entries(args.styles)) {
-    if (rawValue === undefined) continue;
-    const value = String(rawValue).trim();
-    if (!value) continue;
-    const property = motionCssPropertyName(rawProperty);
-    if (!property) continue;
-    // Only record properties that actually animate; structural commits
-    // (display, position, overflow, …) must not invent motion tracks.
-    if (!isMotionAnimatableProperty(property)) continue;
-
-    const existingIndex = nextTracks.findIndex(
-      (track) =>
-        track.targetNodeId === args.targetNodeId && track.property === property,
-    );
-
-    if (existingIndex >= 0) {
-      nextTracks = nextTracks.map((track, index) => {
-        if (index !== existingIndex) return track;
-        const withoutCurrentTime = track.keyframes.filter(
-          (keyframe) => Math.abs(keyframe.t - t) > MOTION_KEYFRAME_TIME_EPSILON,
-        );
-        return {
-          ...track,
-          label: track.label || args.label,
-          keyframes: [...withoutCurrentTime, { t, value, ease }].sort(
-            (a, b) => a.t - b.t,
-          ),
-        };
-      });
-      continue;
-    }
-
-    const baseValue =
-      computedMotionStyleValue(args.computedStyles, property) ??
-      computedMotionStyleValue(args.computedStyles, rawProperty) ??
-      defaultMotionBaseValue(property, value);
-    // A brand-new track whose committed value equals its base value would be
-    // a from == to no-op animation — skip it instead of persisting it.
-    if (value === baseValue) continue;
-    const keyframes =
-      t <= MOTION_KEYFRAME_TIME_EPSILON
-        ? [
-            { t: 0, value, ease },
-            { t: 1, value: baseValue, ease },
-          ]
-        : t >= 1 - MOTION_KEYFRAME_TIME_EPSILON
-          ? [
-              { t: 0, value: baseValue, ease },
-              { t: 1, value, ease },
-            ]
-          : [
-              { t: 0, value: baseValue, ease },
-              { t, value, ease },
-              { t: 1, value: baseValue, ease },
-            ];
-    nextTracks = [
-      ...nextTracks,
-      {
-        targetNodeId: args.targetNodeId,
-        property,
-        keyframes,
-        label: args.label,
-      },
-    ];
-  }
-
-  return nextTracks;
-}
-
-export function motionTimelineFingerprint(
-  fileId: string,
-  timeline: MotionTimelineRow | null | undefined,
-): string {
-  if (!timeline) return `${fileId}:empty`;
-  return [
-    fileId,
-    timeline.id ?? "css",
-    timeline.updatedAt ?? "no-updated-at",
-    timeline.compiledHash ?? "no-compiled-hash",
-    timeline.cssHash ?? "no-css-hash",
-    timeline.source ?? "stored",
-    JSON.stringify(timeline.tracks),
-  ].join(":");
-}
-
 function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   const base = agentNativePath("/_agent-native/sign-in");
   if (typeof window === "undefined") return base;
@@ -3003,220 +1020,6 @@ function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   returnUrl.searchParams.set("intent", intent);
   const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
   return `${base}?return=${encodeURIComponent(ret)}`;
-}
-
-// Figma-parity undo/redo selection restore: what was selected at the moment a
-// geometry or content edit was committed. Captured once per gesture/edit and
-// stashed on the matching history entry so undo/redo can put the SAME
-// selection back — undoing a change re-selects the objects the change
-// applied to (standard Figma behavior), rather than leaving whatever is
-// currently selected untouched. Deliberately a plain data snapshot (ids only,
-// no live object references) so it survives being stored in a stack across
-// arbitrary future renders/deletes.
-export interface GeometryHistorySelection {
-  overviewSelectedScreenIds: string[];
-  selectedLayerIds: string[];
-  activeFileId: string | null;
-}
-
-export interface GeometryHistoryEntry {
-  before: CanvasFrameGeometryById;
-  after: CanvasFrameGeometryById;
-  // Selection as it was right BEFORE this entry's change (i.e. the selection
-  // undo should restore). Optional so existing callers/tests that construct a
-  // bare {before, after} literal keep working unchanged.
-  selectionBefore?: GeometryHistorySelection;
-  // Selection as it was right AFTER this entry's change committed (i.e. the
-  // selection redo should restore).
-  selectionAfter?: GeometryHistorySelection;
-}
-
-// U12: history for a screen create/duplicate. Undo deletes the created file
-// (via performDeleteFiles, which already prunes any content/geometry undo
-// entries that reference it); redo recreates it with the same filename,
-// content, and fileType through createFileMutation and restores its
-// geometry, if any was recorded when it was created.
-export interface FileCreationHistoryEntry {
-  filename: string;
-  content: string;
-  fileType: string;
-  geometry?: CanvasFrameGeometry;
-}
-
-// U12: prune a file-creation history stack (undo OR redo) by removing any
-// entry whose filename is being hard-deleted, returning the pruned stack and
-// how many entries were removed (so the caller can trim the parallel
-// undo/redo-order arrays by the same count).
-//
-// `skip: true` is used by undoFileCreation on the REDO stack only: that path
-// pushes the just-undone create onto the redo stack and THEN soft-deletes the
-// same filename, so pruning by filename would immediately drop the entry it
-// just pushed — leaving redo permanently empty after an undo. Every other
-// caller (a direct hard delete from the overview/panel) prunes normally so a
-// redo entry pointing at a since-hard-deleted file cannot resurrect it.
-export function pruneFileCreationHistoryStack(
-  stack: FileCreationHistoryEntry[],
-  deletedFilenames: Set<string>,
-  options?: { skip?: boolean },
-): { stack: FileCreationHistoryEntry[]; removed: number } {
-  if (options?.skip) return { stack, removed: 0 };
-  const next = stack.filter((entry) => !deletedFilenames.has(entry.filename));
-  return { stack: next, removed: stack.length - next.length };
-}
-
-export function geometryHistoryEntryTouchesFrameIds(
-  entry: GeometryHistoryEntry,
-  frameIds: Set<string>,
-) {
-  for (const frameId of frameIds) {
-    if (entry.before[frameId] || entry.after[frameId]) return true;
-  }
-  return false;
-}
-
-// Screen deletion drops frame keys from a whole-board geometry snapshot
-// rather than discarding the whole undo/redo entry, so unrelated screens'
-// recorded moves in the same grouped entry stay undoable/redoable. The entry
-// is only dropped once every remaining key is unchanged (nothing left to
-// undo/redo for the frames that still exist).
-export function pruneGeometryHistoryEntryForDeletedFiles(
-  entry: GeometryHistoryEntry,
-  deletedFileIds: Set<string>,
-): GeometryHistoryEntry | null {
-  if (!geometryHistoryEntryTouchesFrameIds(entry, deletedFileIds)) {
-    return entry;
-  }
-  const before = { ...entry.before };
-  const after = { ...entry.after };
-  for (const frameId of deletedFileIds) {
-    delete before[frameId];
-    delete after[frameId];
-  }
-  const remainingIds = new Set([...Object.keys(before), ...Object.keys(after)]);
-  let hasRemainingChange = false;
-  for (const frameId of remainingIds) {
-    if (before[frameId] !== after[frameId]) {
-      hasRemainingChange = true;
-      break;
-    }
-  }
-  if (!hasRemainingChange) return null;
-  // Preserve selectionBefore/selectionAfter (when present) through the
-  // prune — only conditionally spread so an entry that never carried a
-  // selection snapshot (e.g. a bare {before, after} test literal) still
-  // round-trips to an object with no selection keys at all, not explicit
-  // `undefined` ones.
-  return {
-    before,
-    after,
-    ...(entry.selectionBefore
-      ? { selectionBefore: entry.selectionBefore }
-      : {}),
-    ...(entry.selectionAfter ? { selectionAfter: entry.selectionAfter } : {}),
-  };
-}
-
-// U11: a geometry undo/redo entry's before/after are whole-board snapshots
-// taken at commit time. Replacing the ENTIRE live map with one of those
-// snapshots (the previous behavior) silently drops placement for any frame
-// created AFTER that entry was recorded — it simply isn't a key in either
-// snapshot. Instead, apply only the per-frame diff between before/after onto
-// the CURRENT live map: every frame id absent from the entry (created later,
-// unrelated to this gesture) passes through untouched.
-export function applyGeometryHistoryDiff(
-  currentGeometry: CanvasFrameGeometryById,
-  entry: GeometryHistoryEntry,
-  direction: "undo" | "redo",
-): CanvasFrameGeometryById {
-  const from = direction === "undo" ? entry.after : entry.before;
-  const to = direction === "undo" ? entry.before : entry.after;
-  const touchedIds = new Set([...Object.keys(from), ...Object.keys(to)]);
-  const next = { ...currentGeometry };
-  for (const frameId of touchedIds) {
-    const target = to[frameId];
-    if (target) {
-      next[frameId] = target;
-    } else {
-      delete next[frameId];
-    }
-  }
-  return next;
-}
-
-function removeRecentUndoRedoOrderKinds<T extends string>(
-  order: T[],
-  kind: T,
-  count: number,
-): T[] {
-  if (count <= 0) return order;
-  const next = [...order];
-  let remaining = count;
-  for (let index = next.length - 1; index >= 0 && remaining > 0; index -= 1) {
-    if (next[index] !== kind) continue;
-    next.splice(index, 1);
-    remaining -= 1;
-  }
-  return next;
-}
-
-export interface ContentHistoryChange {
-  fileId: string;
-  before: string;
-  after: string;
-}
-
-export interface ContentHistoryGroup {
-  changes: ContentHistoryChange[];
-}
-
-export type ContentHistoryEntry = ContentHistoryChange | ContentHistoryGroup;
-
-export function getContentHistoryChanges(
-  entry: ContentHistoryEntry,
-): ContentHistoryChange[] {
-  return "changes" in entry ? entry.changes : [entry];
-}
-
-export function getAvailableContentHistoryChanges(
-  entry: ContentHistoryEntry,
-  availableFileIds: Iterable<string>,
-  activeFileId?: string | null,
-): ContentHistoryChange[] {
-  const fileIds = new Set(availableFileIds);
-  const activeFileIsAvailable = !!activeFileId && fileIds.has(activeFileId);
-  return getContentHistoryChanges(entry).filter(
-    (change) =>
-      fileIds.has(change.fileId) ||
-      (activeFileIsAvailable && change.fileId === activeFileId),
-  );
-}
-
-function findLastContentHistoryChangeIndex(
-  stack: ContentHistoryChange[],
-  fileId?: string | null,
-) {
-  if (!fileId) return -1;
-  for (let index = stack.length - 1; index >= 0; index -= 1) {
-    if (stack[index]?.fileId === fileId) return index;
-  }
-  return -1;
-}
-
-// Pure merge-or-append step for the U3 local-history fallback mirror: a
-// no-op change is dropped; a change that continues the same file's most
-// recent stack entry (its `before` matches that entry's `after`) is folded
-// into it instead of appended, so mirroring every Yjs-tracked edit doesn't
-// produce one fallback entry per keystroke.
-export function mergeLocalContentHistoryFallback(
-  stack: ContentHistoryChange[],
-  change: ContentHistoryChange,
-): ContentHistoryChange[] {
-  if (change.before === change.after) return stack;
-  const last = stack[stack.length - 1];
-  if (last && last.fileId === change.fileId && last.after === change.before) {
-    return [...stack.slice(0, -1), { ...last, after: change.after }];
-  }
-  return [...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)), change];
 }
 
 type PatchProofStatus =
@@ -3642,457 +1445,6 @@ function getAbsolutePositioningForNodeInHtml(
   }
 }
 
-function elementAtPortableStylePath(
-  root: Element,
-  node: PortableStyleSnapshotNode,
-): Element | null {
-  let current: Element | null = root;
-  for (const index of node.path) {
-    if (!current || !Number.isInteger(index) || index < 0) return null;
-    current = current.children.item(index);
-  }
-  return current;
-}
-
-// Cross-screen moves must never bake editor-internal CSS custom properties
-// (selection chrome colors, editor-chrome scale compensation, framework
-// clipboard/surface tokens) into persisted user HTML — they leak into
-// exports and have no meaning outside this editor session. The capture side
-// (bridge collectPortableComputedStyles) sweeps every visible custom
-// property indiscriminately; filter them back out here on the apply side.
-const EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
-  "--design-editor-",
-  "--agent-native-editor-chrome-",
-  "--agent-native-",
-];
-
-export function isEditorInternalCssVar(property: string): boolean {
-  return EDITOR_INTERNAL_CSS_VAR_PREFIXES.some((prefix) =>
-    property.startsWith(prefix),
-  );
-}
-
-function applyPortableStyles(
-  element: Element | null,
-  styles: Record<string, string>,
-) {
-  if (!element) return;
-  const host = styleHost(element);
-  if (!host) return;
-  Object.entries(styles).forEach(([property, value]) => {
-    if (!value) return;
-    if (property.startsWith("--")) {
-      if (isEditorInternalCssVar(property)) return;
-      host.style.setProperty(property, value);
-      return;
-    }
-    if (property.includes("-")) {
-      host.style.setProperty(property, value);
-      return;
-    }
-    (host.style as any)[property] = value;
-  });
-}
-
-// True when two documents' <head> markup (styles/links/design tokens) are
-// byte-identical, e.g. a screen duplicated from the same source. In that
-// case a cross-screen move needs zero portable style baking to preserve
-// appearance — the destination already cascades identically.
-export function sameStylesheetHead(
-  sourceHtml: string,
-  destHtml: string,
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const parser = new DOMParser();
-    const sourceHead = parser.parseFromString(sourceHtml, "text/html").head
-      ?.innerHTML;
-    const destHead = parser.parseFromString(destHtml, "text/html").head
-      ?.innerHTML;
-    return (
-      typeof sourceHead === "string" &&
-      typeof destHead === "string" &&
-      sourceHead === destHead
-    );
-  } catch {
-    return false;
-  }
-}
-
-export function applyPortableStyleSnapshotToHtml(
-  content: string,
-  nodeAttrId: string,
-  snapshot?: PortableStyleSnapshot,
-  sourceContent?: string,
-): string {
-  if (typeof window === "undefined" || !snapshot?.nodes?.length) {
-    return content;
-  }
-  // Same-stylesheet fast path: source and dest cascade identically (e.g. a
-  // duplicated screen), so no inline styles are needed to preserve
-  // appearance — skip baking entirely and keep the move lossless.
-  if (sourceContent && sameStylesheetHead(sourceContent, content)) {
-    return content;
-  }
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const root = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    );
-    if (!root) return content;
-    let appliedAny = false;
-    snapshot.nodes.forEach((node) => {
-      const target = elementAtPortableStylePath(root, node);
-      if (!target) return;
-      const filteredEntries = Object.entries(node.styles).filter(
-        ([property, value]) => value && !isEditorInternalCssVar(property),
-      );
-      if (filteredEntries.length === 0) return;
-      applyPortableStyles(target, Object.fromEntries(filteredEntries));
-      appliedAny = true;
-    });
-    if (appliedAny) {
-      root.setAttribute("data-agent-native-preserve-styles", "true");
-    }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-// Relative luminance threshold mirroring containerBackgroundIsLight in
-// editor-chrome.bridge.ts (keep both in sync) — used by the pure decision
-// helper below so its threshold can't drift from the in-screen bridge path.
-const AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD = 150;
-
-function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
-  return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
-}
-
-// Tolerant "is this the board's auto-applied default white" check, shared
-// by shouldAdaptAutoTextColorForCrossScreenMove and
-// isStaleAutoTextColorMarker (finding 2) — both need the exact same
-// definition of "still the auto-default", just applied to different
-// questions (safe to adapt vs. safe to keep trusting the marker).
-function isAutoDefaultWhiteColor(
-  inlineColor: string | null | undefined,
-): boolean {
-  const normalized = (inlineColor || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  return (
-    normalized === "#ffffff" ||
-    normalized === "#fff" ||
-    normalized === "rgb(255,255,255)" ||
-    normalized === "rgb(255, 255, 255)" ||
-    normalized === "white"
-  );
-}
-
-/**
- * Finding 2(a): BOARD_TEXT_AUTO_COLOR_MARKER is stamped once at board-text
- * creation time and never removed by the bridge, so it goes stale the
- * moment a user explicitly recolors previously-auto-white text (e.g. picks
- * a brand color) without the marker being cleared in the same edit. Trusting
- * a stale marker unconditionally (the previous behavior) forced that
- * deliberately-chosen color back to `inherit` on the next reparent/
- * cross-screen move. A marker is only trustworthy evidence of "this color is
- * still auto-applied" when the node's CURRENT inline color is still exactly
- * the auto-default white — any other color means the user (or some other
- * edit) changed it after the marker was stamped, so the marker is stale and
- * must not be honored (callers should also strip it — see
- * stripStaleAutoTextColorMarkerFromHtml below).
- */
-export function isStaleAutoTextColorMarker(params: {
-  inlineColor: string | null | undefined;
-  hasAutoMarker: boolean;
-}): boolean {
-  return params.hasAutoMarker && !isAutoDefaultWhiteColor(params.inlineColor);
-}
-
-/**
- * Pure decision: should a moved text node's auto-applied board color be
- * rewritten to `inherit` once it lands in its cross-screen destination?
- *
- * Mirrors adaptAutoTextColorForNest's decision in editor-chrome.bridge.ts
- * (keep both in sync), adapted to the host's HTML-string world instead of a
- * live DOM re-parent check — the cross-screen drop path
- * (handleCrossScreenElementDrop) always represents an actual re-parent (the
- * node moves from one document's body into another), so there is no
- * same-parent short-circuit to mirror here.
- *
- * - `hasAutoMarker` AND the color is still the auto-default white: always
- *   safe to adapt regardless of the destination background — the color is
- *   definitely still auto-applied, not user-set (finding 2: a marker whose
- *   color has since diverged from white is STALE and must not short-circuit
- *   here — falls through to the same conservative heuristic as no marker).
- * - No marker (pre-marker content, a node the stamp missed, or a stale
- *   marker whose color moved off white): fall back to the conservative
- *   default-white + light-destination heuristic so a deliberately-chosen
- *   color is never touched.
- */
-export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
-  inlineColor: string | null | undefined;
-  hasAutoMarker: boolean;
-  destinationBackgroundIsLight: boolean;
-}): boolean {
-  const { inlineColor, hasAutoMarker, destinationBackgroundIsLight } = params;
-  const normalized = (inlineColor || "").trim().toLowerCase();
-  if (
-    !normalized ||
-    normalized === "inherit" ||
-    normalized === "currentcolor"
-  ) {
-    return false;
-  }
-  const isDefaultWhite = isAutoDefaultWhiteColor(inlineColor);
-  if (hasAutoMarker && isDefaultWhite) return true;
-  if (!isDefaultWhite) return false;
-  return destinationBackgroundIsLight;
-}
-
-/**
- * Pure decision for finding 1: given an ordered chain of background signals
- * read from an element's ancestor chain (innermost first — same walk order
- * `collectDestinationBackgroundSignals` below produces), decide whether the
- * destination background is light.
- *
- * Each entry is either a CSS color string (from an inline `background`/
- * `background-color` declaration, or a live `getComputedStyle().
- * backgroundColor` read when a live document is available — see call site)
- * or a `{ darkClassHint: true }` marker for a cheap utility-class signal
- * (e.g. `bg-black`, `bg-gray-900`, `dark:bg-*`) when no inline/computed
- * color was found on that same element. The first entry that resolves to a
- * non-transparent (alpha >= 0.4) color wins; alpha below that threshold is
- * treated as transparent so the walk keeps climbing instead of trusting a
- * near-invisible tint. A dark-class hint only counts when no color signal
- * was present on that element (a real color always wins over a guessed
- * class). No signal anywhere in the chain conservatively reports "light" so
- * the default-white heuristic can still fire and prevent invisible text.
- */
-export function resolveDestinationBackgroundLightness(
-  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
-): boolean {
-  for (const entry of chain) {
-    if ("color" in entry && entry.color) {
-      const rgba = parseCssColorExtended(entry.color);
-      if (rgba && rgba.a >= 0.4) {
-        return (
-          relativeLuminance(rgba) > AUTO_TEXT_COLOR_LIGHT_LUMINANCE_THRESHOLD
-        );
-      }
-      continue;
-    }
-    if ("darkClassHint" in entry && entry.darkClassHint) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// Cheap, best-effort utility-class signal for "this element's classes look
-// like a dark background" — used only when an element carries no inline or
-// computed background color at all (a real color signal always wins). Not
-// an attempt to parse Tailwind's full config: just the small set of
-// class-name shapes generated designs actually use for dark surfaces
-// (`bg-black`, `bg-gray-900`, `bg-neutral-950`, `dark:bg-slate-900`, etc.).
-const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|:)bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
-
-function elementHasDarkBackgroundClassHint(element: Element): boolean {
-  const className =
-    typeof element.className === "string"
-      ? element.className
-      : (element.getAttribute("class") ?? "");
-  return DARK_BACKGROUND_CLASS_RE.test(className);
-}
-
-/**
- * Builds the ancestor background-signal chain `resolveDestinationBackgroundLightness`
- * consumes, walking up from `element`. Prefers a LIVE document's computed
- * style (real cascade, resolves stylesheet/utility classes correctly —
- * mirrors the bridge's `containerBackgroundIsLight`) when `liveElement` is
- * supplied (see `destinationBackgroundIsLightForNode`'s doc for how the
- * live node is resolved); otherwise falls back to reading INLINE
- * `background`/`background-color` declarations plus the dark-class-name
- * heuristic on the detached parsed-doc element, since a DOMParser document
- * has no `defaultView` in real browsers and can't run `getComputedStyle`.
- */
-function collectDestinationBackgroundSignals(
-  element: Element,
-  liveElement: Element | null,
-): Array<{ color: string | null } | { darkClassHint: boolean }> {
-  const chain: Array<{ color: string | null } | { darkClassHint: boolean }> =
-    [];
-  if (liveElement) {
-    const liveView = liveElement.ownerDocument?.defaultView;
-    let cursor: Element | null = liveElement;
-    while (
-      liveView &&
-      cursor &&
-      cursor !== liveElement.ownerDocument.documentElement
-    ) {
-      chain.push({ color: liveView.getComputedStyle(cursor).backgroundColor });
-      cursor = cursor.parentElement;
-    }
-    return chain;
-  }
-  let cursor: Element | null = element;
-  while (cursor && cursor !== element.ownerDocument.documentElement) {
-    const inline = (cursor as HTMLElement).style;
-    const inlineColor = inline?.backgroundColor || inline?.background || null;
-    if (inlineColor) {
-      chain.push({ color: inlineColor });
-    } else {
-      chain.push({ darkClassHint: elementHasDarkBackgroundClassHint(cursor) });
-    }
-    cursor = cursor.parentElement;
-  }
-  return chain;
-}
-
-/**
- * Resolves whether the destination background around `element` (a node in a
- * DOMParser-parsed detached document) is light. Prefers reading the LIVE
- * destination screen iframe's computed style for the corresponding node
- * when `liveDoc` is supplied — MultiScreenCanvas mounts every visible
- * screen as a same-origin iframe reachable via
- * `[data-screen-iframe-id="<screenId>"]` (see `getPrimaryIframeId` in
- * MultiScreenCanvas.tsx), so the real cascade (including Tailwind utility
- * classes, `<style>` rules, `dark:` variants, etc.) is available exactly
- * like the in-iframe bridge's `containerBackgroundIsLight` — that live path
- * is what makes class-based dark destinations (not just inline-styled ones)
- * resolve correctly. Falls back to the detached doc's inline-style +
- * dark-class-hint chain when no live document is available (e.g. the
- * destination screen isn't currently mounted).
- */
-function destinationBackgroundIsLightForNode(
-  element: Element,
-  liveDoc?: Document | null,
-): boolean {
-  try {
-    const liveElement =
-      liveDoc && element.hasAttribute("data-agent-native-node-id")
-        ? liveDoc.querySelector(
-            `[data-agent-native-node-id="${CSS.escape(
-              element.getAttribute("data-agent-native-node-id") ?? "",
-            )}"]`,
-          )
-        : null;
-    const chain = collectDestinationBackgroundSignals(element, liveElement);
-    return resolveDestinationBackgroundLightness(chain);
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Cross-screen counterpart to adaptAutoTextColorForNest — runs HOST-SIDE
- * after moveNodeBetweenDocuments has already re-parented the text node into
- * `destContent`'s DOM (identified by `destNodeAttrId`). Board-drawn text
- * carries an explicit inline `color:#ffffff` default (see
- * defaultCanvasTextColor / appendCanvasPrimitiveToHtml) because
- * `currentColor` would inherit black on the always-dark board; dropped into
- * a light destination screen/container, that stale inline white is
- * invisible white-on-white. The in-screen drag path already handles this
- * via the bridge's adaptAutoTextColorForNest; this is the missing
- * cross-screen mirror (finding 8).
- *
- * No-op (returns `content` unchanged) when the moved node isn't a text
- * primitive, carries no color needing adaptation, or the DOM can't be
- * parsed — always best-effort, never a hard requirement for the move to
- * succeed.
- *
- * `liveDestDoc` (optional) is the destination screen's LIVE iframe document
- * when it's currently mounted — see `destinationBackgroundIsLightForNode`'s
- * doc comment for why callers should prefer passing it when available
- * (correct resolution for class-based/cascaded dark backgrounds, not just
- * inline-styled ones).
- */
-export function adaptAutoTextColorForCrossScreenNode(
-  content: string,
-  destNodeAttrId: string,
-  liveDestDoc?: Document | null,
-): string {
-  if (typeof window === "undefined" || !destNodeAttrId) return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const moved = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(destNodeAttrId)}"]`,
-    );
-    if (!moved) return content;
-    const kind = (
-      moved.getAttribute("data-an-primitive") ||
-      moved.getAttribute("data-agent-native-primitive") ||
-      ""
-    ).toLowerCase();
-    if (kind !== "text") return content;
-    const el = moved as HTMLElement;
-    const hasAutoMarker = moved.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
-    // Finding 2(a): a marker whose color has since diverged from the
-    // auto-default white is stale — strip it here (in addition to falling
-    // through to the conservative heuristic below) so it can't mislead a
-    // LATER move/commit into re-honoring it once the color happens to be
-    // reset back to white for unrelated reasons.
-    let markerStripped = false;
-    if (
-      isStaleAutoTextColorMarker({
-        inlineColor: el.style.color,
-        hasAutoMarker,
-      })
-    ) {
-      moved.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
-      markerStripped = true;
-    }
-    const shouldAdapt = shouldAdaptAutoTextColorForCrossScreenMove({
-      inlineColor: el.style.color,
-      hasAutoMarker: hasAutoMarker && !markerStripped,
-      destinationBackgroundIsLight: destinationBackgroundIsLightForNode(
-        moved,
-        liveDestDoc,
-      ),
-    });
-    if (!shouldAdapt && !markerStripped) return content;
-    if (shouldAdapt) el.style.color = "inherit";
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-/**
- * Finding 2(b): the other half of the stale-marker fix. Stripping only
- * happens lazily (finding 2(a), inside adaptAutoTextColorForCrossScreenNode)
- * when a move/adapt pass actually re-reads the node — a user who sets an
- * explicit color and never triggers another move/reparent would otherwise
- * keep carrying a now-stale marker indefinitely. Called from
- * commitVisualStyles whenever a "color" property is part of the committed
- * style patch, so the marker is cleared at the moment the user's explicit
- * choice is actually persisted, not just the next time something happens to
- * re-check it. No-op (returns `content` unchanged) when the node has no
- * marker, isn't found, or the DOM can't be parsed.
- */
-export function clearAutoTextColorMarkerOnExplicitColorCommit(
-  content: string,
-  nodeId: string | null | undefined,
-): string {
-  if (typeof window === "undefined" || !nodeId) return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const node = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-    );
-    if (!node || !node.hasAttribute(BOARD_TEXT_AUTO_COLOR_MARKER)) {
-      return content;
-    }
-    node.removeAttribute(BOARD_TEXT_AUTO_COLOR_MARKER);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
 /**
  * Finding 4: normalizePoisonedBoardNestedCoords (shared/board-file.ts)
  * heuristically rewrites persisted nested board coords with no built-in
@@ -4115,60 +1467,6 @@ function warnIfPoisonedBoardCoordsNormalized(
       samples: result.samples,
     },
   );
-}
-
-/**
- * Finding 7: shared predicate behind BOTH of the editor's Radix-overlay
- * pointer-event shields — `inspectorPopoverOpen` (gates keyboard focus
- * routing) and `updateIframePointerEvents` (gates the single-screen preview
- * iframe's `pointer-events`). The two used to have hand-duplicated, subtly
- * different logic: `inspectorPopoverOpen`'s version correctly falls back to
- * checking `wrapperEl`'s OWN `data-state` when it has no stateful child at
- * all, but `updateIframePointerEvents`'s version treated "no stateful
- * child" as unconditionally open regardless of the wrapper's own
- * `data-state` — so closing the zoom menu via item-select (which closes
- * through the reused-wrapper path, flipping `data-state="closed"` on the
- * wrapper itself with no stateful child left inside) could leave the
- * preview iframe's pointer-events stuck at `none`. Both call sites now
- * share this one corrected definition instead of drifting again.
- *
- * A wrapper counts as "open" unless:
- * - it's a first-party tooltip wrapper itself
- *   (`data-agent-native-tooltip`), or
- * - its only stateful descendants are all first-party tooltips (the
- *   Tooltip+DropdownMenu combo case — see the call sites' doc comments), or
- * - it (or its one stateful descendant, when present) explicitly carries
- *   `data-state="closed"`.
- *
- * With no stateful descendant AND no `data-state` anywhere on the wrapper
- * itself, there's no signal either way — conservatively treated as open
- * (matches the previous default-open behavior for that specific case).
- */
-export function isRadixOverlayOpen(wrapperEl: Element): boolean {
-  if (wrapperEl.hasAttribute("data-agent-native-tooltip")) return false;
-  const isOpenState = (el: Element) =>
-    el.getAttribute("data-state") !== "closed";
-  const stateful = wrapperEl.querySelectorAll("[data-state]");
-  if (stateful.length > 0) {
-    const allTooltips = Array.from(stateful).every((content) =>
-      content.hasAttribute("data-agent-native-tooltip"),
-    );
-    if (allTooltips) return false;
-    if (wrapperEl.hasAttribute("data-state")) {
-      return isOpenState(wrapperEl);
-    }
-    // Multiple stateful descendants (or one non-tooltip descendant among
-    // several): open if ANY non-tooltip stateful descendant is open.
-    return Array.from(stateful).some(
-      (content) =>
-        !content.hasAttribute("data-agent-native-tooltip") &&
-        isOpenState(content),
-    );
-  }
-  if (wrapperEl.hasAttribute("data-state")) {
-    return isOpenState(wrapperEl);
-  }
-  return true;
 }
 
 function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
@@ -4330,208 +1628,6 @@ function reassignDuplicatedNodeIds(content: string): string {
   );
 }
 
-/** Mirrors DesignCanvas's own local CREATION_DEFAULT_LINE_LENGTH (single-
- *  screen creation overlay) so a single-screen pen click gets a visible
- *  minimal path of the same default length a line/arrow click would use,
- *  rather than a zero-length point. */
-const SINGLE_SCREEN_PEN_CLICK_DEFAULT_LENGTH = 120;
-
-/**
- * P4/single-screen placement: converts a `CreatePrimitiveSpec` emitted by
- * DesignCanvas's single-screen click-to-place overlay (coordinates already in
- * screen-content space, matching `appendCanvasPrimitiveToHtml`'s own
- * coordinate system) into the `CanvasPrimitiveInsert` shape the overview path
- * (`handleCreatePrimitive` / `appendCanvasPrimitiveToHtml`) already knows how
- * to persist. This deliberately reuses the exact same insert shape as
- * `draftPrimitiveToInsert` produces in MultiScreenCanvas.tsx so single-screen
- * and overview creation commit through one shared persistence path instead of
- * two.
- *
- * Pen is the one deferred case (see DesignCanvas's SingleScreenCreationOverlay
- * doc comment): a single-screen pen click only ever gets a single start
- * point, so — rather than force overview to get full multi-click pen
- * authoring — this commits a minimal open 2-node path (start point to a
- * fixed-length point to the right, matching the line/arrow click default
- * length) so the user gets a real, editable pen path immediately. True
- * single-screen multi-click pen authoring remains a follow-up.
- */
-export function createPrimitiveInsertFromSpec(
-  spec: CreatePrimitiveSpec,
-  nodeId: string,
-): CanvasPrimitiveInsert | null {
-  if (spec.tool === "line" || spec.tool === "arrow") {
-    const points = spec.points;
-    if (!points || points.length < 2) return null;
-    const [start, end] = points;
-    if (!start || !end) return null;
-    const left = Math.min(start.x, end.x);
-    const top = Math.min(start.y, end.y);
-    const width = Math.max(1, Math.abs(end.x - start.x));
-    const height = Math.max(1, Math.abs(end.y - start.y));
-    return {
-      kind: spec.tool,
-      nodeId,
-      geometry: { x: left, y: top, width, height },
-      points,
-    };
-  }
-
-  if (spec.tool === "pen") {
-    const start = spec.points?.[0];
-    if (!start) return null;
-    const end = {
-      x: start.x + SINGLE_SCREEN_PEN_CLICK_DEFAULT_LENGTH,
-      y: start.y,
-    };
-    const penPath: PenPath = {
-      nodes: [createCornerNode(start), createCornerNode(end)],
-      closed: false,
-    };
-    const geometry = getPenPathGeometry(penPath);
-    return {
-      kind: "path",
-      nodeId,
-      geometry,
-      points: [start, end],
-      pathData: serializePenPath(penPath),
-    };
-  }
-
-  const rect = spec.rect;
-  if (!rect) return null;
-  return {
-    kind: spec.tool,
-    nodeId,
-    geometry: {
-      x: rect.x,
-      y: rect.y,
-      width: Math.max(1, rect.width),
-      height: Math.max(1, rect.height),
-    },
-    autoSize: spec.tool === "text" ? spec.fromClick : undefined,
-  };
-}
-
-/**
- * Reconstructs a structured `PenPath` (nodes + optional handles) from a `d`
- * string produced by `serializePenPath` (shared/pen-path.ts). This is the
- * deliberate INVERSE of that exact serializer — not a general SVG path
- * parser — so it only needs to understand the small grammar
- * `serializePenPath` actually emits: `M x y`, then per-segment `L x y` (both
- * handles coincide with their anchors) or `C c1x c1y c2x c2y x y`
- * (`c1`/`c2` are the FROM node's `handleOut` / TO node's `handleIn`,
- * respectively — see `serializeSegment`), optionally followed by a trailing
- * `Z` for a closed path (whose preceding segment is the wrap-around from the
- * last node back to the first, not a new node).
- *
- * This exists because `CanvasPrimitiveInsert` (MultiScreenCanvas.tsx) only
- * carries the already-flattened `pathData` string across the overview
- * commit boundary, not the richer `DraftPrimitive.penPath` MultiScreenCanvas
- * keeps internally — so committing a pen path drawn in OVERVIEW mode has no
- * other source for the structured node/handle data `data-an-pen-nodes`
- * needs. Single-screen pen placement (`createPrimitiveInsertFromSpec` above)
- * builds its `PenPath` directly and never needs this reverse parse.
- *
- * Returns `null` for anything that doesn't match the expected grammar
- * (empty/malformed `d`) rather than throwing, so a call site can always fall
- * back to skipping `data-an-pen-nodes` for that element.
- */
-export function parsePenPathFromSerializedD(d: string): PenPath | null {
-  const trimmed = d.trim();
-  if (!trimmed) return null;
-  const tokens = trimmed.match(/[MLCZ]|-?\d+(?:\.\d+)?/gi);
-  if (!tokens || tokens.length === 0) return null;
-
-  const readNumbers = (count: number): PenPoint[] => {
-    const points: PenPoint[] = [];
-    for (let i = 0; i < count; i += 2) {
-      const x = Number(tokens[cursor + i]);
-      const y = Number(tokens[cursor + i + 1]);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        throw new Error("invalid pen path number");
-      }
-      points.push({ x, y });
-    }
-    return points;
-  };
-
-  let cursor = 0;
-  const command = tokens[cursor];
-  if (command?.toUpperCase() !== "M") return null;
-  cursor += 1;
-
-  try {
-    const [start] = readNumbers(2);
-    if (!start) return null;
-    cursor += 2;
-    const nodes: PenNode[] = [{ point: start }];
-    let closed = false;
-
-    while (cursor < tokens.length) {
-      const token = tokens[cursor]?.toUpperCase();
-      if (token === "Z") {
-        cursor += 1;
-        continue;
-      }
-      if (token === "L") {
-        cursor += 1;
-        const [to] = readNumbers(2);
-        if (!to) return null;
-        cursor += 2;
-        // Same wrap-around case as the "C" branch below: a closed path's
-        // final segment (immediately followed by Z) returns to the FIRST
-        // node rather than describing a new one.
-        const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
-        if (nextIsClose) {
-          closed = true;
-        } else {
-          nodes.push({ point: to });
-        }
-        continue;
-      }
-      if (token === "C") {
-        cursor += 1;
-        const coords = readNumbers(6);
-        cursor += 6;
-        const [c1, c2, to] = coords;
-        if (!c1 || !c2 || !to) return null;
-        const fromNode = nodes[nodes.length - 1];
-        if (!fromNode) return null;
-        if (!samePenPoint(c1, fromNode.point)) {
-          fromNode.handleOut = c1;
-        }
-        // A closed path's final "C"/"L" segment (immediately followed by Z)
-        // wraps from the last real node back to the FIRST node — it is not a
-        // new node. Apply its handles to the existing first node instead of
-        // pushing a duplicate.
-        const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
-        if (nextIsClose) {
-          closed = true;
-          const firstNode = nodes[0];
-          if (firstNode && !samePenPoint(c2, firstNode.point)) {
-            firstNode.handleIn = c2;
-          }
-        } else {
-          const node: PenNode = { point: to };
-          if (!samePenPoint(c2, to)) node.handleIn = c2;
-          nodes.push(node);
-        }
-        continue;
-      }
-      // Unknown token — grammar mismatch, bail rather than guess.
-      return null;
-    }
-
-    return { nodes, closed };
-  } catch {
-    return null;
-  }
-}
-
-function samePenPoint(a: PenPoint, b: PenPoint): boolean {
-  return Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05;
-}
-
 function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -4556,40 +1652,6 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   }
 }
 
-// Reads the app's actual resolved theme (next-themes' `dark` class on
-// <html>) rather than raw OS `prefers-color-scheme`. NOTE: this is about the
-// EDITOR CHROME theme only — it must NOT gate board-content defaults. The
-// board surface itself is ALWAYS dark (BOARD_SURFACE_BACKGROUND is a fixed
-// hsl(0 0% 10%) regardless of editor theme), so board-drawn text keys its
-// default color off `isBoardTarget` alone — see defaultCanvasTextColor.
-// Gating it on this flag made T-tool board text render black-on-dark
-// (invisible) whenever the editor UI was in light mode.
-export function isDesignEditorDarkTheme(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.documentElement.classList.contains("dark");
-}
-
-/**
- * Default text color for a freshly drawn text primitive.
- *
- * - BOARD target: always white. The board surface is permanently dark
- *   (BOARD_SURFACE_BACKGROUND), independent of the editor chrome theme, so
- *   the "white Inter on dark board" default must not depend on
- *   isDesignEditorDarkTheme() — that gate left board text at `currentColor`
- *   (black in an unstyled document) for light-theme editor sessions.
- * - SCREEN target: `currentColor`, so text dropped into an existing (often
- *   light) screen inherits its surrounding styles/theme exactly as before.
- */
-export function defaultCanvasTextColor(isBoardTarget: boolean): string {
-  return isBoardTarget ? "#ffffff" : "currentColor";
-}
-
-/** Default font stack for board-drawn text — Inter with the app's standard
- * system-font fallback chain, matching the rest of the editor's UI type
- * instead of the browser's serif default for an unstyled <div>. */
-export const CANVAS_TEXT_DEFAULT_FONT_FAMILY =
-  '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-
 /**
  * Marker attribute stamped on board-drawn text whose inline `color` is the
  * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
@@ -4602,8 +1664,6 @@ export const CANVAS_TEXT_DEFAULT_FONT_FAMILY =
  * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
  * remove this attribute so the text is never "helpfully" overridden again.
  */
-export const BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
-
 function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -5053,12 +2113,6 @@ function cloneHtmlLayerAtPosition(
   );
 }
 
-function styleHost(element: Element): (HTMLElement | SVGElement) | null {
-  return element instanceof HTMLElement || element instanceof SVGElement
-    ? element
-    : null;
-}
-
 function clearRootLayerPosition(element: Element) {
   const host = styleHost(element);
   if (!host) return;
@@ -5237,18 +2291,6 @@ function queryFirstSelector(
   return null;
 }
 
-function queryUniqueSelector(
-  root: ParentNode,
-  selector: string,
-): Element | null {
-  try {
-    const matches = root.querySelectorAll(selector);
-    return matches.length === 1 ? (matches[0] ?? null) : null;
-  } catch {
-    return null;
-  }
-}
-
 function insertClonedHtmlLayer(
   content: string,
   cloneHtml: string,
@@ -5410,7 +2452,16 @@ function scheduleBeginTextEditForScreen(
     timers.forEach((timer) => window.clearTimeout(timer));
     onExhausted?.(status);
   };
-  const delays = [180, 300, 600, 900, 1200, 1800, 2400, 3200, 4200];
+  const delays = [
+    POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
+    600,
+    900,
+    1200,
+    1800,
+    2400,
+    3200,
+    4200,
+  ];
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
@@ -5532,1011 +2583,6 @@ function updateElementContentInHtml(
   }
 }
 
-function layerTypeForCodeLayer(
-  node: CodeLayerTreeNode,
-): LayersPanelNode["type"] {
-  if (node.type === "group") return "group";
-  if (node.type === "component") return "component";
-  if (node.type === "ellipse") return "ellipse";
-  if (node.type === "shape") return "shape";
-  if (node.type === "vector") return "vector";
-  if (node.type === "line") return "line";
-  if (node.type === "arrow") return "arrow";
-  if (node.type === "polygon") return "polygon";
-  if (node.type === "star") return "star";
-  if (node.type === "text") return "text";
-  if (node.type === "image") return "image";
-  return "element";
-}
-
-function codeLayerNodeLooksLikeComponent(
-  node: CodeLayerNode | null | undefined,
-): boolean {
-  if (!node) return false;
-  if (isComponentInstance(node)) return true;
-  const tag = node.tag.toLowerCase();
-  if (
-    tag === "button" ||
-    tag === "input" ||
-    tag === "select" ||
-    tag === "textarea"
-  ) {
-    return true;
-  }
-  if (/component|card|button|control/i.test(node.layerName)) return true;
-  return node.classes.some((item) =>
-    /component|card|button|control/i.test(item),
-  );
-}
-
-function preferredCodeLayerSelector(node: CodeLayerNode): string {
-  return (
-    node.selectors.find((selector) =>
-      /^\[data-(agent-native-node-id|code-layer-id|layer-id|builder-id|loc)=/.test(
-        selector,
-      ),
-    ) ??
-    node.path ??
-    node.selector
-  );
-}
-
-function codeLayerSelectorAliases(
-  node: CodeLayerNode | null | undefined,
-): string[] {
-  if (!node) return [];
-  return Array.from(
-    new Set(
-      [
-        preferredCodeLayerSelector(node),
-        node.selector,
-        node.path,
-        ...node.selectors,
-      ]
-        .map((selector) => selector.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function pendingLiveTextEditKey(edit: PendingLiveTextEdit): string {
-  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
-}
-
-export function mergePendingLiveNonStyleEdits(
-  edits: readonly PendingLiveNonStyleEdit[],
-): PendingLiveNonStyleEdit[] {
-  const merged: PendingLiveNonStyleEdit[] = [];
-  for (const edit of edits) {
-    if (edit.kind === "structure") {
-      merged.push(edit);
-      continue;
-    }
-    const nextKey = pendingLiveTextEditKey(edit);
-    const index = merged.findIndex(
-      (candidate) =>
-        candidate.kind === "text" &&
-        pendingLiveTextEditKey(candidate) === nextKey,
-    );
-    if (index === -1) {
-      merged.push(edit);
-      continue;
-    }
-    const previous = merged[index] as PendingLiveTextEdit;
-    merged[index] = {
-      ...previous,
-      ...edit,
-      originalValue: previous.originalValue,
-      originalHtml: previous.originalHtml,
-    };
-  }
-  return merged;
-}
-
-export function pendingLiveTextUndoRevertValue(
-  currentEdits: readonly PendingLiveNonStyleEdit[],
-  nextEdit: PendingLiveTextEdit,
-): { value: string; html?: string } {
-  const currentForTarget = currentEdits.find(
-    (edit): edit is PendingLiveTextEdit =>
-      edit.kind === "text" &&
-      pendingLiveTextEditKey(edit) === pendingLiveTextEditKey(nextEdit),
-  );
-  return currentForTarget
-    ? { value: currentForTarget.value, html: currentForTarget.html }
-    : { value: nextEdit.originalValue, html: nextEdit.originalHtml };
-}
-
-function normalizeCodeLayerSelector(selector: string): string {
-  return (
-    selector
-      .trim()
-      .replace(/\s*>\s*/g, " > ")
-      .replace(/\s+/g, " ")
-      // Bridge emits :nth-of-type(1) for first siblings when multiple share a
-      // tag; the projection omits the suffix for first occurrences. Strip it so
-      // both forms round-trip to the same normalized string.
-      .replace(/:nth-of-type\(1\)/g, "")
-  );
-}
-
-function codeLayerSelectorPartTag(selectorPart: string): string | null {
-  const match = selectorPart.trim().match(/^([A-Za-z][A-Za-z0-9:-]*)/);
-  return match?.[1]?.toLowerCase() ?? null;
-}
-
-function stripLeadingDocumentRootSelectorParts(selector: string): string {
-  const parts = normalizeCodeLayerSelector(selector)
-    .split(" > ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  while (
-    parts.length > 0 &&
-    ["html", "body"].includes(codeLayerSelectorPartTag(parts[0] ?? "") ?? "")
-  ) {
-    parts.shift();
-  }
-  return parts.join(" > ");
-}
-
-function codeLayerSelectorMatchTargets(selector: string): string[] {
-  return Array.from(
-    new Set(
-      [
-        normalizeCodeLayerSelector(selector),
-        stripLeadingDocumentRootSelectorParts(selector),
-      ]
-        .map((target) => target.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function codeLayerSelectorMatches(
-  node: CodeLayerNode | null | undefined,
-  selector: string | undefined,
-): boolean {
-  if (!node || !selector) return false;
-  const targets = codeLayerSelectorMatchTargets(selector);
-  return codeLayerSelectorAliases(node).some((candidate) => {
-    const normalized = normalizeCodeLayerSelector(candidate);
-    return targets.some((target) => {
-      const targetHasDirectPath = target.includes(" > ");
-      return (
-        normalized === target ||
-        (targetHasDirectPath &&
-          normalized.includes(" > ") &&
-          (normalized.endsWith(` > ${target}`) ||
-            target.endsWith(` > ${normalized}`)))
-      );
-    });
-  });
-}
-
-const GENERIC_TAG_DISPLAY_NAMES: Record<string, string> = {
-  html: "Document",
-  head: "Head",
-  canvas: "Canvas",
-  table: "Table",
-  thead: "Table Head",
-  tbody: "Table Body",
-  tr: "Table Row",
-  td: "Table Cell",
-  th: "Table Header",
-  dl: "Description List",
-  dt: "Description Term",
-  dd: "Description",
-  blockquote: "Quote",
-  pre: "Preformatted",
-  code: "Code",
-  input: "Input",
-  select: "Select",
-  textarea: "Textarea",
-  video: "Video",
-  audio: "Audio",
-  iframe: "Embed",
-  details: "Details",
-  summary: "Summary",
-};
-
-function resolvedLayerName(node: CodeLayerTreeNode): string {
-  // layerNameSource "tag" means the projection fell back to the raw tag name.
-  // For unrecognised tags fallbackTagLayerName() returns tag.toUpperCase(),
-  // which is not user-friendly. Override those with a friendlier label while
-  // leaving explicit semantic/text/attribute names unchanged.
-  if (
-    node.name === node.tag.toUpperCase() ||
-    node.name === node.tag.toLowerCase()
-  ) {
-    return GENERIC_TAG_DISPLAY_NAMES[node.tag] ?? node.name;
-  }
-  return node.name;
-}
-
-function codeLayerTreeToPanelNodes(
-  nodes: CodeLayerTreeNode[],
-  lockedIds: Set<string>,
-  hiddenIds: Set<string>,
-  inheritedLocked = false,
-  inheritedHidden = false,
-  // Ancestor-path ids guarding against a cyclic projection (e.g. duplicate or
-  // empty node ids like "an-" that make a node its own descendant) recursing
-  // forever and crashing the whole editor with a stack overflow.
-  ancestors: Set<string> = new Set(),
-): LayersPanelNode[] {
-  return nodes.map((node) => {
-    const selfLocked = lockedIds.has(node.id);
-    const selfHidden = hiddenIds.has(node.id);
-    const locked = inheritedLocked || selfLocked;
-    const hidden = inheritedHidden || selfHidden;
-    let children: LayersPanelNode[] = [];
-    if (!ancestors.has(node.id)) {
-      ancestors.add(node.id);
-      children = codeLayerTreeToPanelNodes(
-        node.children,
-        lockedIds,
-        hiddenIds,
-        locked,
-        hidden,
-        ancestors,
-      );
-      ancestors.delete(node.id);
-    }
-    return {
-      id: node.id,
-      name: resolvedLayerName(node),
-      type: layerTypeForCodeLayer(node),
-      tagName: node.tag,
-      layout: node.layout,
-      detail: node.detail,
-      badge: node.badge,
-      selectable: true,
-      renamable: node.renamable,
-      // L18: a descendant that is read-only only because an ANCESTOR is
-      // locked/hidden (not itself directly locked/hidden) still renders in
-      // the dimmed/read-only visual state (locked/hidden below stay true so
-      // existing row styling picks it up), but its own toggle affordance is
-      // suppressed — toggling it directly would be a no-op while the
-      // ancestor is still locked/hidden, which is confusing UI. Only a
-      // directly (self) locked/hidden row keeps a live toggle.
-      lockable: selfLocked || !inheritedLocked,
-      hideable: selfHidden || !inheritedHidden,
-      locked,
-      hidden,
-      children,
-    };
-  });
-}
-
-interface EffectiveCodeLayerState {
-  lockedIds: Set<string>;
-  hiddenIds: Set<string>;
-}
-
-interface SelectedLayerTarget {
-  layerId: string;
-  fileId: string;
-  node: CodeLayerNode;
-  tree: CodeLayerTreeNode[];
-  elementInfo: ElementInfo;
-}
-
-function collectEffectiveCodeLayerState(
-  nodes: CodeLayerTreeNode[],
-  lockedIds: Set<string>,
-  hiddenIds: Set<string>,
-  inheritedLocked: boolean,
-  inheritedHidden: boolean,
-  state: EffectiveCodeLayerState,
-  // Ids on the current ancestor path — guards against a malformed/cyclic
-  // projection (e.g. a node that appears as its own descendant from duplicate
-  // node ids) recursing forever and crashing the whole editor with a stack
-  // overflow. A true cycle is skipped; duplicate ids in disjoint subtrees are
-  // still visited.
-  ancestors: Set<string> = new Set(),
-): EffectiveCodeLayerState {
-  nodes.forEach((node) => {
-    if (ancestors.has(node.id)) return;
-    const locked = inheritedLocked || lockedIds.has(node.id);
-    const hidden = inheritedHidden || hiddenIds.has(node.id);
-    if (locked) state.lockedIds.add(node.id);
-    if (hidden) state.hiddenIds.add(node.id);
-    ancestors.add(node.id);
-    collectEffectiveCodeLayerState(
-      node.children,
-      lockedIds,
-      hiddenIds,
-      locked,
-      hidden,
-      state,
-      ancestors,
-    );
-    ancestors.delete(node.id);
-  });
-  return state;
-}
-
-function bridgeSourceIdForCodeLayerNode(node: CodeLayerNode): string {
-  return (
-    node.dataAttributes["data-agent-native-node-id"] ??
-    node.dataAttributes["data-code-layer-id"] ??
-    node.dataAttributes["data-layer-id"] ??
-    node.dataAttributes["data-builder-id"] ??
-    node.dataAttributes["data-loc"] ??
-    (typeof node.attributes.id === "string" ? node.attributes.id : undefined) ??
-    node.id
-  );
-}
-
-function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
-  return {
-    tagName: node.tag,
-    id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
-    sourceId: bridgeSourceIdForCodeLayerNode(node),
-    selector: preferredCodeLayerSelector(node),
-    classes: node.classes,
-    computedStyles: Object.fromEntries(
-      Object.entries(node.style).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
-      ),
-    ),
-    boundingRect: { x: 0, y: 0, width: 0, height: 0 },
-    textContent: node.textSnippet ?? undefined,
-    childElementCount: node.children.length,
-    isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
-    isFlexContainer: node.layout.isFlexContainer,
-    parentDisplay: node.layout.parentDisplay,
-    confidence: node.confidence,
-  };
-}
-
-function camelCaseCssProperty(property: string): string {
-  return property.replace(/-([a-z])/g, (_, letter: string) =>
-    letter.toUpperCase(),
-  );
-}
-
-function cssStyleAliases(
-  styles: Record<string, string>,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [property, value] of Object.entries(styles)) {
-    result[property] = value;
-    if (property.includes("-")) {
-      result[camelCaseCssProperty(property)] = value;
-    }
-  }
-  return result;
-}
-
-function refreshedComputedStyles(
-  info: ElementInfo,
-  sourceStyles: Record<string, string>,
-  sourceClasses: readonly string[],
-): Record<string, string> {
-  const sourceWithAliases = cssStyleAliases(sourceStyles);
-  return sourceClasses.length > 0
-    ? { ...info.computedStyles, ...sourceWithAliases }
-    : sourceWithAliases;
-}
-
-function codeLayerNodeMatchesBridgeTarget(
-  node: CodeLayerNode,
-  selector?: string,
-  sourceId?: string,
-): boolean {
-  if (sourceId) {
-    if (node.id === sourceId) return true;
-    if (
-      node.dataAttributes["data-agent-native-node-id"] === sourceId ||
-      node.dataAttributes["data-code-layer-id"] === sourceId ||
-      node.dataAttributes["data-layer-id"] === sourceId ||
-      node.dataAttributes["data-builder-id"] === sourceId ||
-      node.dataAttributes["data-loc"] === sourceId ||
-      node.attributes.id === sourceId
-    ) {
-      return true;
-    }
-  }
-  return codeLayerSelectorMatches(node, selector);
-}
-
-function resolveCodeLayerNodeFromBridge(
-  projection: { nodes: CodeLayerNode[] },
-  selector?: string,
-  sourceId?: string,
-): CodeLayerNode | null {
-  return (
-    projection.nodes.find((node) =>
-      codeLayerNodeMatchesBridgeTarget(node, selector, sourceId),
-    ) ?? null
-  );
-}
-
-function collapsedElementText(value: string | null | undefined): string {
-  return value?.replace(/\s+/g, " ").trim() ?? "";
-}
-
-export function resolveCodeLayerNodeFromElementInfo(
-  projection: { nodes: CodeLayerNode[] },
-  info: ElementInfo | null | undefined,
-): CodeLayerNode | null {
-  if (!info) return null;
-  const direct = resolveCodeLayerNodeFromBridge(
-    projection,
-    info.selector,
-    info.sourceId ?? info.id,
-  );
-  if (direct) return direct;
-
-  const tagName = info.tagName.toLowerCase();
-  const text = collapsedElementText(info.textContent);
-  const classes = new Set(info.classes);
-  const scored = projection.nodes
-    .filter((node) => node.tag === tagName)
-    .map((node) => {
-      let score = 0;
-      const nodeText = collapsedElementText(node.textSnippet);
-      if (text && nodeText) {
-        if (nodeText === text) score += 8;
-        else if (nodeText.includes(text) || text.includes(nodeText)) score += 4;
-      }
-      if (classes.size > 0) {
-        const matchingClasses = node.classes.filter((className) =>
-          classes.has(className),
-        ).length;
-        if (matchingClasses === classes.size) score += 4;
-        else if (matchingClasses > 0) score += matchingClasses;
-      }
-      if (info.id && node.attributes.id === info.id) score += 6;
-      return { node, score };
-    })
-    .filter((candidate) => candidate.score >= 4)
-    .sort((a, b) => b.score - a.score);
-
-  if (scored.length === 0) return null;
-  const [best, next] = scored;
-  if (!best) return null;
-  if (next && next.score === best.score) return null;
-  return best.node;
-}
-
-function canonicalElementInfoForCodeLayerNode(
-  info: ElementInfo,
-  node: CodeLayerNode,
-): ElementInfo {
-  return {
-    ...info,
-    sourceId: bridgeSourceIdForCodeLayerNode(node),
-    selector: preferredCodeLayerSelector(node),
-    classes: node.classes,
-    confidence: node.confidence,
-    childElementCount: node.children.length,
-    editCapabilities: info.editCapabilities?.some((capability) =>
-      capability.kind.startsWith("deterministic"),
-    )
-      ? info.editCapabilities
-      : [
-          {
-            kind: "deterministic-style-edit",
-            label: "deterministic-style-edit",
-            confidence: 0.88,
-            reason: "Selection resolved to a unique source code layer.",
-          },
-        ],
-  };
-}
-
-function canonicalizeElementInfoFromProjection(
-  projection: { nodes: CodeLayerNode[] },
-  info: ElementInfo,
-): ElementInfo {
-  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
-  return node ? canonicalElementInfoForCodeLayerNode(info, node) : info;
-}
-
-function elementInfoIsRuntimeOnly(
-  info: ElementInfo | null | undefined,
-): boolean {
-  return Boolean(
-    info?.editCapabilities?.some(
-      (capability) => capability.kind === "unsupported",
-    ),
-  );
-}
-
-function codeLayerPatchMessage(
-  message: string | null | undefined,
-  fallback: string,
-): string {
-  if (!message) return fallback;
-  return message.includes("did not match a code layer node")
-    ? fallback
-    : message;
-}
-
-// T16: known Google Font families offered by the inspector's font-family
-// picker (FONT_FAMILY_OPTIONS in EditPanel.tsx — kept in sync manually since
-// that file isn't editable from here). Maps the exact display family name to
-// the Google Fonts CSS2 API family query param (weight range 400-700 covers
-// the FONT_WEIGHT_OPTIONS range without over-fetching every weight).
-const KNOWN_GOOGLE_FONTS: Record<string, string> = {
-  Inter: "Inter:wght@400;500;600;700",
-  Poppins: "Poppins:wght@400;500;600;700",
-  "Playfair Display": "Playfair+Display:wght@400;500;600;700",
-  "JetBrains Mono": "JetBrains+Mono:wght@400;500;600;700",
-};
-
-/**
- * T16: extract the primary (first) font-family name from a CSS font-family
- * value, stripping quotes. Deliberately simple (no full CSS-value tokenizer)
- * since this only needs to recognize the small known-Google-Fonts set above,
- * not arbitrary font stacks.
- */
-function primaryFontFamilyName(value: string): string {
-  const first = value.split(",")[0]?.trim() ?? "";
-  if (
-    (first.startsWith('"') && first.endsWith('"')) ||
-    (first.startsWith("'") && first.endsWith("'"))
-  ) {
-    return first.slice(1, -1).trim();
-  }
-  return first;
-}
-
-/**
- * T16: EditPanel's font-family picker lets a user choose Inter/Poppins/
- * Playfair Display/JetBrains Mono, but EditPanel only calls onStyleChange —
- * it has no way to also load the webfont, so picking one just silently fell
- * back to the browser's default font (the family was never actually
- * available). Injects a Google Fonts <link> into the screen's <head> when
- * the committed fontFamily's primary family is a KNOWN_GOOGLE_FONTS entry
- * and no link for that family is already present. Conservative by design:
- * exact-match family name only (case-sensitive, matching the picker's own
- * option values), and skips if ANY existing <link> already mentions the
- * family (avoids duplicate/near-duplicate <link> tags on repeated edits).
- */
-function ensureGoogleFontLinkInHtml(
-  content: string,
-  fontFamilyValue: string,
-): string {
-  if (typeof window === "undefined") return content;
-  const family = primaryFontFamilyName(fontFamilyValue);
-  const fontQuery = family ? KNOWN_GOOGLE_FONTS[family] : undefined;
-  if (!fontQuery) return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const head = doc.head;
-    if (!head) return content;
-    const existingLinks = Array.from(
-      head.querySelectorAll('link[href*="fonts.googleapis.com"]'),
-    );
-    const alreadyLoaded = existingLinks.some((link) => {
-      const href = link.getAttribute("href") ?? "";
-      return href.includes(encodeURIComponent(family)) || href.includes(family);
-    });
-    if (alreadyLoaded) return content;
-    const preconnectGoogleapis = doc.createElement("link");
-    preconnectGoogleapis.setAttribute("rel", "preconnect");
-    preconnectGoogleapis.setAttribute("href", "https://fonts.googleapis.com");
-    const preconnectGstatic = doc.createElement("link");
-    preconnectGstatic.setAttribute("rel", "preconnect");
-    preconnectGstatic.setAttribute("href", "https://fonts.gstatic.com");
-    preconnectGstatic.setAttribute("crossorigin", "");
-    const fontLink = doc.createElement("link");
-    fontLink.setAttribute("rel", "stylesheet");
-    fontLink.setAttribute(
-      "href",
-      `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`,
-    );
-    // Skip the preconnect hints if the head already has one for either host
-    // (avoids piling up duplicates across repeated font picks).
-    if (
-      !existingLinks.some((link) =>
-        (link.getAttribute("href") ?? "").includes("fonts.googleapis.com"),
-      ) &&
-      !head.querySelector(
-        'link[href*="fonts.googleapis.com"][rel="preconnect"]',
-      )
-    ) {
-      head.appendChild(preconnectGoogleapis);
-    }
-    if (
-      !head.querySelector('link[href*="fonts.gstatic.com"][rel="preconnect"]')
-    ) {
-      head.appendChild(preconnectGstatic);
-    }
-    head.appendChild(fontLink);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-/**
- * L11: compute the new on-disk filename for a screen rename, preserving the
- * ORIGINAL file's extension. The layers panel edits a designer-friendly
- * display name (prettyScreenName strips the extension entirely and
- * reformats the stem), so the raw typed text is never itself a valid
- * filename to write back verbatim.
- *
- *  - If the typed name already ends with the same extension as the current
- *    filename (case-insensitive), or with any other recognized web-file
- *    extension, it's used as-is (a user who explicitly types "about.html"
- *    is respected).
- *  - Otherwise, the current file's extension is appended to the typed name.
- *  - The typed name is trimmed; an empty result reverts to the current
- *    filename (matches the existing "empty rename reverts" convention noted
- *    as verified-correct for layer renames elsewhere in this file).
- *
- * Exported for unit testing.
- */
-export function renameFilenamePreservingExtension(
-  currentFilename: string,
-  typedName: string,
-): string {
-  const trimmed = typedName.trim();
-  if (!trimmed) return currentFilename;
-  const dot = currentFilename.lastIndexOf(".");
-  const currentExt = dot > 0 ? currentFilename.slice(dot) : "";
-  const KNOWN_EXTENSIONS = [".html", ".htm", ".css", ".jsx", ".tsx", ".js"];
-  const typedDot = trimmed.lastIndexOf(".");
-  const typedExt = typedDot > 0 ? trimmed.slice(typedDot).toLowerCase() : "";
-  if (
-    typedExt &&
-    (typedExt === currentExt.toLowerCase() ||
-      KNOWN_EXTENSIONS.includes(typedExt))
-  ) {
-    return trimmed;
-  }
-  return currentExt ? `${trimmed}${currentExt}` : trimmed;
-}
-
-/**
- * L11: update every `data-screen="<oldFilename>"` prototype-navigation
- * reference in a screen's HTML to point at the new filename after a rename.
- * Matches the exact attribute value only (word-boundary via the surrounding
- * quotes) so a filename that happens to be a substring of another isn't
- * partially replaced. Handles both double- and single-quoted attribute
- * values, matching how these attributes are authored in generated HTML.
- */
-export function replaceDataScreenReferences(
-  content: string,
-  oldFilename: string,
-  newFilename: string,
-): string {
-  if (oldFilename === newFilename) return content;
-  const escaped = oldFilename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(data-screen=)(["'])${escaped}\\2`, "g");
-  return content.replace(pattern, `$1$2${newFilename}$2`);
-}
-
-export function refreshElementInfoFromContent(
-  content: string,
-  info: ElementInfo | null,
-): ElementInfo | null {
-  if (!info) return null;
-  const projection = buildCodeLayerProjection(content);
-  const node =
-    resolveCodeLayerNodeFromElementInfo(projection, info) ??
-    resolveCodeLayerNodeFromBridge(
-      projection,
-      info.selector,
-      info.sourceId ?? info.id,
-    );
-  if (node) {
-    const sourceInfo = elementInfoFromCodeLayerNode(node);
-    return {
-      ...canonicalElementInfoForCodeLayerNode(info, node),
-      computedStyles: refreshedComputedStyles(
-        info,
-        sourceInfo.computedStyles,
-        sourceInfo.classes,
-      ),
-      textContent: sourceInfo.textContent,
-      childElementCount: sourceInfo.childElementCount,
-      isFlexChild: sourceInfo.isFlexChild,
-      isFlexContainer: sourceInfo.isFlexContainer,
-      parentDisplay: sourceInfo.parentDisplay,
-    };
-  }
-  if (!info.selector || typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = queryUniqueSelector(doc, info.selector);
-    if (!element) return null;
-    const classes = Array.from(element.classList);
-    return {
-      ...info,
-      classes,
-      computedStyles: refreshedComputedStyles(
-        info,
-        parseInlineStyleAttribute(element.getAttribute("style")),
-        classes,
-      ),
-      textContent: element.textContent?.slice(0, 200) ?? info.textContent,
-      childElementCount: element.children.length,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// U18: undo/redo already refreshes selectedElement via
-// refreshElementInfoFromContent, but selectedLayerIdsState (the layers-panel
-// multi-highlight array) was never touched — after an undo/redo that removes
-// or re-ids a node, the panel kept highlighting rows for ids that no longer
-// exist in the new content. Drops any id not present (as either the
-// projection node's own .id or its data-agent-native-node-id) in the new
-// content; returns the SAME array reference when nothing changed so callers
-// can skip the state update.
-export function refreshSelectedLayerIdsFromContent(
-  content: string,
-  layerIds: readonly string[],
-): string[] {
-  if (layerIds.length === 0) return layerIds as string[];
-  const projection = buildCodeLayerProjection(content);
-  const validIds = new Set<string>();
-  projection.nodes.forEach((node) => {
-    validIds.add(node.id);
-    const dataNodeId = node.dataAttributes["data-agent-native-node-id"];
-    if (dataNodeId) validIds.add(dataNodeId);
-  });
-  const next = layerIds.filter((id) => validIds.has(id));
-  return next.length === layerIds.length ? (layerIds as string[]) : next;
-}
-
-// L4: locate the DOM-order sibling id list that contains targetId (i.e. the
-// children array of its parent, or the root list when targetId is top-level)
-// plus its index within that list. Used by changeSelectedZIndex to compute
-// bring/send-forward/backward moveNode placements among real siblings,
-// instead of the previous z-index/position-hack approach. Returns null when
-// targetId isn't found anywhere in the tree.
-function findCodeLayerSiblingOrder(
-  nodes: CodeLayerTreeNode[],
-  targetId: string,
-): { siblingIds: string[]; index: number; parentId: string | null } | null {
-  const rootIndex = nodes.findIndex((node) => node.id === targetId);
-  if (rootIndex !== -1) {
-    return {
-      siblingIds: nodes.map((node) => node.id),
-      index: rootIndex,
-      parentId: null,
-    };
-  }
-  for (const node of nodes) {
-    const childIndex = node.children.findIndex(
-      (child) => child.id === targetId,
-    );
-    if (childIndex !== -1) {
-      return {
-        siblingIds: node.children.map((child) => child.id),
-        index: childIndex,
-        parentId: node.id,
-      };
-    }
-    const nested = findCodeLayerSiblingOrder(node.children, targetId);
-    if (nested) return nested;
-  }
-  return null;
-}
-
-// L25: matches the auto-generated wrapper name pattern from
-// nextSequentialGroupName in shared/code-layer.ts ("Group", "Group 2", ...).
-// Used to identify wrappers that were CREATED by the group action (as opposed
-// to a user's own named container) so we only auto-clean up ones we made.
-const GENERATED_GROUP_NAME_PATTERN = /^Group(?: \d+)?$/;
-
-function isGeneratedGroupWrapperNode(node: CodeLayerNode): boolean {
-  const layerNameAttr = node.dataAttributes["data-agent-native-layer-name"];
-  return Boolean(
-    layerNameAttr && GENERATED_GROUP_NAME_PATTERN.test(layerNameAttr.trim()),
-  );
-}
-
-/**
- * L25: after a move or delete empties out a generated "Group"/"Group N"
- * wrapper (created by the group action), remove the now-empty wrapper
- * instead of leaving an invisible, pointless container behind in the layer
- * tree. Only auto-generated group wrappers are cleaned up — a user's own
- * named empty container is left alone. Checks each candidate former-parent
- * id (by data-agent-native-node-id) against the CURRENT content, since by
- * the time this runs other edits may have already changed the document.
- * Returns the possibly-updated content (unchanged if nothing qualified).
- */
-function removeEmptyGeneratedGroupWrappers(
-  content: string,
-  candidateParentAttrIds: ReadonlySet<string>,
-): string {
-  if (candidateParentAttrIds.size === 0) return content;
-  let next = content;
-  // Loop: removing one empty wrapper can itself empty out ITS parent (e.g.
-  // ungrouping down a chain of nested generated groups), so keep sweeping
-  // until a pass makes no changes.
-  let changedInPass = true;
-  let guard = 0;
-  while (changedInPass && guard < 10) {
-    changedInPass = false;
-    guard += 1;
-    for (const attrId of candidateParentAttrIds) {
-      const projection = buildCodeLayerProjection(next);
-      const node = projection.nodes.find(
-        (n) => n.dataAttributes["data-agent-native-node-id"] === attrId,
-      );
-      if (!node || node.children.length > 0) continue;
-      if (!isGeneratedGroupWrapperNode(node)) continue;
-      const removed = removeCodeLayerNodeFromHtml(next, node);
-      if (removed && removed !== next) {
-        next = removed;
-        changedInPass = true;
-      }
-    }
-  }
-  return next;
-}
-
-function collectCodeLayerAncestors(
-  nodes: CodeLayerTreeNode[],
-  targetId: string,
-  ancestors: string[] = [],
-): string[] {
-  for (const node of nodes) {
-    if (node.id === targetId) return ancestors;
-    const match = collectCodeLayerAncestors(node.children, targetId, [
-      ...ancestors,
-      node.id,
-    ]);
-    if (match.length > 0) return match;
-  }
-  return [];
-}
-
-// U14: collects the `data-agent-native-node-id` of targetId and every
-// descendant beneath it in `tree`, using `nodesById` (keyed by projection
-// node .id) to resolve each tree node's stamped id. Used to find every
-// motion-track targetNodeId that becomes orphaned when a subtree is deleted
-// — deleting a parent silently removes its children's node ids from the DOM
-// too, and any track still targeting one of them would animate nothing.
-export function collectCodeLayerSubtreeDataNodeIds(
-  tree: CodeLayerTreeNode[],
-  targetId: string,
-  nodesById: Map<string, CodeLayerNode>,
-): Set<string> {
-  const ids = new Set<string>();
-  const collectSubtree = (nodes: CodeLayerTreeNode[]) => {
-    for (const node of nodes) {
-      const dataNodeId = nodesById.get(node.id)?.dataAttributes[
-        "data-agent-native-node-id"
-      ];
-      if (dataNodeId) ids.add(dataNodeId);
-      collectSubtree(node.children);
-    }
-  };
-  const findAndCollect = (nodes: CodeLayerTreeNode[]): boolean => {
-    for (const node of nodes) {
-      if (node.id === targetId) {
-        const dataNodeId = nodesById.get(node.id)?.dataAttributes[
-          "data-agent-native-node-id"
-        ];
-        if (dataNodeId) ids.add(dataNodeId);
-        collectSubtree(node.children);
-        return true;
-      }
-      if (findAndCollect(node.children)) return true;
-    }
-    return false;
-  };
-  findAndCollect(tree);
-  return ids;
-}
-
-export function sortCodeLayerIdsByTreeOrder(
-  ids: readonly string[],
-  tree: readonly CodeLayerTreeNode[],
-): string[] {
-  const treeOrder = new Map<string, number>();
-  let index = 0;
-  const visit = (nodes: readonly CodeLayerTreeNode[]) => {
-    for (const node of nodes) {
-      treeOrder.set(node.id, index);
-      index += 1;
-      visit(node.children);
-    }
-  };
-  visit(tree);
-
-  const originalOrder = new Map(
-    ids.map((id, originalIndex) => [id, originalIndex]),
-  );
-  return [...ids].sort((a, b) => {
-    const aOrder = treeOrder.get(a);
-    const bOrder = treeOrder.get(b);
-    if (aOrder === undefined && bOrder === undefined) {
-      return (originalOrder.get(a) ?? 0) - (originalOrder.get(b) ?? 0);
-    }
-    if (aOrder === undefined) return 1;
-    if (bOrder === undefined) return -1;
-    return aOrder - bOrder;
-  });
-}
-
-function findCodeLayerNodeInProjection(
-  projection: CodeLayerProjection,
-  previousNode: CodeLayerNode,
-): CodeLayerNode | null {
-  const stableSourceIds = [
-    previousNode.dataAttributes["data-agent-native-node-id"],
-    previousNode.dataAttributes["data-code-layer-id"],
-    previousNode.dataAttributes["data-layer-id"],
-    previousNode.dataAttributes["data-builder-id"],
-    previousNode.dataAttributes["data-loc"],
-    typeof previousNode.attributes.id === "string"
-      ? previousNode.attributes.id
-      : undefined,
-  ].filter((id): id is string => Boolean(id));
-
-  for (const sourceId of stableSourceIds) {
-    const stableMatch = projection.nodes.find(
-      (node) =>
-        node.dataAttributes["data-agent-native-node-id"] === sourceId ||
-        node.dataAttributes["data-code-layer-id"] === sourceId ||
-        node.dataAttributes["data-layer-id"] === sourceId ||
-        node.dataAttributes["data-builder-id"] === sourceId ||
-        node.dataAttributes["data-loc"] === sourceId ||
-        node.attributes.id === sourceId,
-    );
-    if (stableMatch) return stableMatch;
-  }
-
-  const exactMatch = projection.nodes.find(
-    (node) => node.id === previousNode.id,
-  );
-  if (exactMatch) return exactMatch;
-
-  const fallbackMatches = projection.nodes.filter(
-    (node) =>
-      node.tag === previousNode.tag &&
-      node.layerName === previousNode.layerName &&
-      (node.textSnippet ?? "") === (previousNode.textSnippet ?? ""),
-  );
-  return fallbackMatches.length === 1 ? (fallbackMatches[0] ?? null) : null;
-}
-
-export function findMovedCodeLayerNodeInProjection(
-  projection: CodeLayerProjection,
-  previousNode: CodeLayerNode,
-  movedNodeId?: string | null,
-): CodeLayerNode | null {
-  if (movedNodeId) {
-    const movedMatch = projection.nodes.find(
-      (node) =>
-        node.id === movedNodeId ||
-        node.dataAttributes["data-agent-native-node-id"] === movedNodeId ||
-        node.dataAttributes["data-code-layer-id"] === movedNodeId ||
-        node.dataAttributes["data-layer-id"] === movedNodeId ||
-        node.dataAttributes["data-builder-id"] === movedNodeId ||
-        node.dataAttributes["data-loc"] === movedNodeId ||
-        node.attributes.id === movedNodeId,
-    );
-    if (movedMatch) return movedMatch;
-  }
-  return findCodeLayerNodeInProjection(projection, previousNode);
-}
-
-export function parseInlineStyleAttribute(
-  style: string | null | undefined,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const declaration of (style ?? "").split(";")) {
-    const separator = declaration.indexOf(":");
-    if (separator <= 0) continue;
-    const property = declaration.slice(0, separator).trim();
-    const value = declaration.slice(separator + 1).trim();
-    if (property && value) result[property] = value;
-  }
-  return result;
-}
-
 function AgentNativeMenuMark({ className }: { className?: string }) {
   return (
     <svg
@@ -6562,17 +2608,6 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
     </svg>
   );
 }
-
-type DesignLeftPanel =
-  | "file"
-  | "agent"
-  | "assets"
-  | "tools"
-  | "tokens"
-  | "import"
-  | "code";
-
-const SHOW_DESIGN_CODE_LEFT_PANEL = true;
 
 const CodeWorkbench = lazy(() =>
   import("@/components/design/code-workbench/CodeWorkbench").then((module) => ({
@@ -7249,7 +3284,6 @@ function DesignBottomToolbar({
       key: "image-video",
       label: t("designEditor.tools.imageVideo"),
       icon: <IconPhotoVideo className="size-4" />,
-      shortcut: "⇧⌘K",
       disabled: true,
       onSelect: () => {},
     },
@@ -7257,6 +3291,13 @@ function DesignBottomToolbar({
   const activeShapeOption =
     shapeOptions.find((option) => option.key === activeShape) ??
     shapeOptions[0]!;
+  const activeMoveGroupTool = getMoveGroupToolPresentation(activeTool);
+  const handleActiveMoveGroupTool =
+    activeMoveGroupTool.tool === "hand"
+      ? onHand
+      : activeMoveGroupTool.tool === "scale"
+        ? onScale
+        : onMove;
   const tools: Array<{
     key: string;
     active: boolean;
@@ -7273,7 +3314,10 @@ function DesignBottomToolbar({
         (activeTool === "move" && mode === "edit") ||
         activeTool === "hand" ||
         activeTool === "scale",
-      label: t("designEditor.tools.move"),
+      // The parent button represents the active move-group sub-tool. Expose
+      // that same identity to assistive technology and the tooltip instead of
+      // announcing every H/K activation as the Move tool.
+      label: t(activeMoveGroupTool.labelKey),
       // Mirror the active sub-tool icon so the parent button is always
       // informative about the currently selected move-group tool.
       icon:
@@ -7284,13 +3328,16 @@ function DesignBottomToolbar({
         ) : (
           <IconPointer className="size-[18px]" />
         ),
-      onClick: onMove,
+      // Keep the primary action aligned with the icon/label it presents. A
+      // Hand or Scale button should remain Hand or Scale when clicked rather
+      // than silently switching back to Move.
+      onClick: handleActiveMoveGroupTool,
       options: [
         {
           key: "move",
           label: t("designEditor.tools.move"),
           icon: <IconPointer className="size-4" />,
-          shortcut: "V",
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.move.shortcut,
           active: activeTool === "move" && mode === "edit",
           onSelect: onMove,
         },
@@ -7298,7 +3345,7 @@ function DesignBottomToolbar({
           key: "hand",
           label: t("designEditor.tools.hand"),
           icon: <IconHandStop className="size-4" />,
-          shortcut: "H",
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut,
           active: activeTool === "hand",
           onSelect: onHand,
         },
@@ -7306,7 +3353,7 @@ function DesignBottomToolbar({
           key: "scale",
           label: t("designEditor.tools.scale"),
           icon: <IconScale className="size-4" />,
-          shortcut: "K",
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut,
           active: activeTool === "scale",
           onSelect: onScale,
         },
@@ -7338,23 +3385,6 @@ function DesignBottomToolbar({
       options: shapeOptions,
     },
     {
-      key: "text",
-      active: activeTool === "text",
-      label: t("designEditor.tools.text"),
-      icon: <IconTypography className="size-[18px]" />,
-      onClick: onText,
-      options: [
-        {
-          key: "text",
-          label: t("designEditor.tools.text"),
-          icon: <IconTypography className="size-4" />,
-          shortcut: "T",
-          active: activeTool === "text",
-          onSelect: onText,
-        },
-      ],
-    },
-    {
       key: "pen",
       active: activeTool === "pen",
       label: t("designEditor.tools.pen"),
@@ -7373,9 +3403,27 @@ function DesignBottomToolbar({
           key: "draw",
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
+          shortcut: "Y",
           active: activeTool === "draw" && mode === "annotate" && drawMode,
           disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
+        },
+      ],
+    },
+    {
+      key: "text",
+      active: activeTool === "text",
+      label: t("designEditor.tools.text"),
+      icon: <IconTypography className="size-[18px]" />,
+      onClick: onText,
+      options: [
+        {
+          key: "text",
+          label: t("designEditor.tools.text"),
+          icon: <IconTypography className="size-4" />,
+          shortcut: "T",
+          active: activeTool === "text",
+          onSelect: onText,
         },
       ],
     },
@@ -7399,6 +3447,7 @@ function DesignBottomToolbar({
           key: "draw",
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
+          shortcut: "Y",
           active: activeTool === "draw" && mode === "annotate" && drawMode,
           disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
@@ -7553,131 +3602,6 @@ function cloneCanvasFrameGeometry(
  * as changed. Only compares the frames the entry itself changed, so unrelated
  * concurrent edits to OTHER frames don't block this undo.
  */
-function frameGeometryEquals(
-  a: CanvasFrameGeometry | undefined,
-  b: CanvasFrameGeometry | undefined,
-): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-}
-
-// Cheaper replacement for a whole-board JSON.stringify comparison, which
-// handleGeometryCommit previously ran on every single commit (including every
-// tick of a keyboard-nudge auto-repeat). Short-circuits on key-count mismatch,
-// then only does a per-frame structural compare (frameGeometryEquals, itself
-// a small single-object JSON.stringify) instead of serializing the entire
-// map — a meaningful win once a board has many screens/frames.
-export function geometrySnapshotsEqual(
-  a: CanvasFrameGeometryById,
-  b: CanvasFrameGeometryById,
-): boolean {
-  if (a === b) return true;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => key in b && frameGeometryEquals(a[key], b[key]));
-}
-
-/**
- * Frame-geometry persistence guard (companion to the board-zoom-corruption
- * fix): while the overview zoom scalar was corrupted, ANY frame interaction
- * translated pointer deltas through the garbage scale and wrote absurd
- * canvasFrames/screenMetadata (observed in the wild: a 120x14976 screen
- * frame, ±65536-band poisoned coords) that survived reload. Every
- * canvasFrames persist path now refuses per-frame geometry that cannot be
- * real: non-finite fields, non-positive dimensions, a dimension beyond
- * MAX_SANE_FRAME_DIMENSION_PX, or a width:height aspect beyond
- * MAX_SANE_FRAME_ASPECT_RATIO — falling back to that frame's previously
- * persisted geometry (or dropping the entry when none exists) instead of
- * shredding the stored layout. x/y positions are deliberately NOT
- * range-bounded (frames legitimately sit anywhere on the ±65k board
- * surface); only non-finite positions are refused.
- *
- * MAX_SANE_FRAME_DIMENSION_PX is a truly-insane-only backstop, not the
- * primary corruption guard — the aspect-ratio check (MAX_SANE_FRAME_ASPECT_RATIO)
- * and the poisoned-coordinate checks are what actually catch the observed
- * corruption shape (garbage-scale drags produce absurd ASPECT ratios, not
- * merely large-but-plausible dimensions). A legitimately tall scrolling page
- * frame (e.g. 1440x30000, aspect ~20.8 — well under the ratio cap) is real
- * content and must not be silently reverted just for being long.
- */
-export const MAX_SANE_FRAME_DIMENSION_PX = 100000;
-export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
-
-export function isSaneCanvasFrameGeometryForPersist(
-  geometry: CanvasFrameGeometry,
-): boolean {
-  const numericFields = [
-    geometry.x,
-    geometry.y,
-    geometry.width,
-    geometry.height,
-    geometry.rotation,
-    geometry.z,
-  ];
-  if (
-    numericFields.some(
-      (value) => value !== undefined && !Number.isFinite(value),
-    )
-  ) {
-    return false;
-  }
-  const { width, height } = geometry;
-  if (
-    width !== undefined &&
-    (width <= 0 || width > MAX_SANE_FRAME_DIMENSION_PX)
-  ) {
-    return false;
-  }
-  if (
-    height !== undefined &&
-    (height <= 0 || height > MAX_SANE_FRAME_DIMENSION_PX)
-  ) {
-    return false;
-  }
-  if (width !== undefined && height !== undefined) {
-    const aspect = Math.max(width / height, height / width);
-    if (aspect > MAX_SANE_FRAME_ASPECT_RATIO) return false;
-  }
-  return true;
-}
-
-export function sanitizeCanvasFrameGeometryForPersist(
-  nextById: CanvasFrameGeometryById,
-  previousById: CanvasFrameGeometryById,
-  exemptFrameIds: readonly string[] = [],
-): { geometryById: CanvasFrameGeometryById; rejectedFrameIds: string[] } {
-  const rejectedFrameIds: string[] = [];
-  let sanitized: CanvasFrameGeometryById | null = null;
-  for (const [frameId, geometry] of Object.entries(nextById)) {
-    if (exemptFrameIds.includes(frameId)) continue;
-    if (isSaneCanvasFrameGeometryForPersist(geometry)) continue;
-    rejectedFrameIds.push(frameId);
-    if (sanitized === null) sanitized = { ...nextById };
-    const previous = previousById[frameId];
-    // Detectability: a guard revert here is otherwise silent — the caller
-    // sees a normal-looking geometryById back and has no way to notice the
-    // frame's edit was discarded. Surface the offending frame id and its
-    // rejected/fallback dimensions so a bad heuristic (or a real corruption
-    // case slipping past the aspect/finite checks) is visible in the wild.
-    console.warn(
-      "[design] rejected insane canvas frame geometry on persist — reverted to previous geometry",
-      {
-        frameId,
-        rejected: geometry,
-        revertedTo: previous ?? null,
-      },
-    );
-    if (previous && isSaneCanvasFrameGeometryForPersist(previous)) {
-      sanitized[frameId] = { ...previous };
-    } else {
-      delete sanitized[frameId];
-    }
-  }
-  // No rejects: return the input reference untouched so callers' equality
-  // checks and memoizations see no churn.
-  return { geometryById: sanitized ?? nextById, rejectedFrameIds };
-}
-
 function staleGeometryFrameIds(
   entry: GeometryHistoryEntry,
   live: CanvasFrameGeometryById,
@@ -7703,23 +3627,6 @@ function staleGeometryFrameIds(
   return stale;
 }
 
-function viewportSizeFromFrameGeometry(
-  geometry: CanvasFrameGeometry | undefined,
-) {
-  if (
-    typeof geometry?.width !== "number" ||
-    !Number.isFinite(geometry.width) ||
-    typeof geometry.height !== "number" ||
-    !Number.isFinite(geometry.height)
-  ) {
-    return null;
-  }
-  return {
-    width: Math.max(1, Math.round(geometry.width)),
-    height: Math.max(1, Math.round(geometry.height)),
-  };
-}
-
 function viewportChangedFrameIds(
   before: CanvasFrameGeometryById,
   after: CanvasFrameGeometryById,
@@ -7736,70 +3643,18 @@ function viewportChangedFrameIds(
   });
 }
 
-function withSyncedScreenMetadataViewports(
-  data: Record<string, unknown>,
-  geometryById: CanvasFrameGeometryById,
-  frameIds: string[],
-): Record<string, unknown> {
-  const uniqueFrameIds = [...new Set(frameIds)];
-  if (uniqueFrameIds.length === 0) return data;
-
-  const previousMetadata = getDesignDataRecord(data, "screenMetadata");
-  const nextMetadata = { ...previousMetadata };
-  let metadataChanged = false;
-
-  for (const frameId of uniqueFrameIds) {
-    const viewport = viewportSizeFromFrameGeometry(geometryById[frameId]);
-    if (!viewport) continue;
-    const previousEntry = getDesignDataRecord(previousMetadata, frameId);
-    if (
-      previousEntry.width === viewport.width &&
-      previousEntry.height === viewport.height
-    ) {
-      continue;
-    }
-    nextMetadata[frameId] = {
-      ...previousEntry,
-      width: viewport.width,
-      height: viewport.height,
-    };
-    metadataChanged = true;
-  }
-
-  if (!metadataChanged) return data;
-
-  const nextData: Record<string, unknown> = {
-    ...data,
-    screenMetadata: nextMetadata,
-  };
-  const previousLocalhostScreens = getDesignDataRecord(
-    data,
-    "localhostScreens",
-  );
-  let localhostScreensChanged = false;
-  const nextLocalhostScreens = { ...previousLocalhostScreens };
-  for (const frameId of uniqueFrameIds) {
-    const previousEntry = getDesignDataRecord(
-      previousLocalhostScreens,
-      frameId,
-    );
-    if (Object.keys(previousEntry).length === 0) continue;
-    const viewport = viewportSizeFromFrameGeometry(geometryById[frameId]);
-    if (!viewport) continue;
-    nextLocalhostScreens[frameId] = {
-      ...previousEntry,
-      width: viewport.width,
-      height: viewport.height,
-    };
-    localhostScreensChanged = true;
-  }
-  if (localhostScreensChanged) {
-    nextData.localhostScreens = nextLocalhostScreens;
-  }
-  return nextData;
+/**
+ * React Router reuses the same route component when only `:id` changes. Key
+ * the stateful editor by design id so pending refs, collaboration docs, tools,
+ * selections, and per-screen caches from one design can never leak into the
+ * next design during client-side navigation.
+ */
+export default function DesignEditorRoute() {
+  const { id } = useParams<{ id: string }>();
+  return <DesignEditor key={id ?? "missing-design"} />;
 }
 
-export default function DesignEditor() {
+function DesignEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -8352,7 +4207,17 @@ export default function DesignEditor() {
     },
     [clearMotionDockOpenAnimationFrame, clearMotionDockUnmountTimer],
   );
-  useEffect(() => () => clearMotionAutosaveTimer(), [clearMotionAutosaveTimer]);
+  useEffect(
+    () => () => {
+      const flushPendingMotionAutosave = motionAutosaveFlushRef.current;
+      if (flushPendingMotionAutosave) {
+        flushPendingMotionAutosave();
+        return;
+      }
+      clearMotionAutosaveTimer();
+    },
+    [clearMotionAutosaveTimer],
+  );
   const [shaderFillPreview, setShaderFillPreview] = useState<{
     selector?: string;
     nodeId?: string;
@@ -8807,8 +4672,28 @@ export default function DesignEditor() {
     [clearRedoStacks, syncUndoRedoState],
   );
   const persistedSelectionStateRef = useRef<string | null>(null);
+  const persistedSelectionContextRef = useRef<string | null>(null);
+  const pendingPersistedSelectionWriteRef = useRef<{
+    key: string;
+    contextKey: string;
+    value: Record<string, unknown>;
+  } | null>(null);
+  const persistedSelectionWriteTimerRef = useRef<number | null>(null);
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
+  const designSaveOperationSourceRef = useRef(
+    createEditorSaveOperationSource(),
+  );
   const frameGeometrySaveTimerRef = useRef<number | null>(null);
+  const pendingFrameGeometrySaveRef = useRef<{
+    geometryById: CanvasFrameGeometryById;
+    previousGeometry: CanvasFrameGeometryById;
+  } | null>(null);
+  const pendingFrameGeometryOperationsForUnloadRef =
+    useRef<PendingDesignDataOperations>({});
+  const frameGeometryOperationRevisionRef = useRef(0);
+  const frameGeometryMutationChainRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   // Item 11 (URL sync): debounce timer for the URL-state write effect below,
   // so continuous zoom/drag ticks coalesce into one history.replaceState
   // instead of one per tick. See that effect's doc comment.
@@ -8870,14 +4755,24 @@ export default function DesignEditor() {
     return () => {
       void (async () => {
         const keys = designSelectionStateKeys();
-        const current = await readClientAppState(keys[0]).catch(() => null);
-        const ownerId =
-          current && typeof current === "object"
-            ? (current as { ownerId?: unknown }).ownerId
-            : undefined;
-        if (ownerId !== designSelectionOwnerIdRef.current) return;
+        if (persistedSelectionWriteTimerRef.current !== null) {
+          window.clearTimeout(persistedSelectionWriteTimerRef.current);
+          persistedSelectionWriteTimerRef.current = null;
+        }
+        pendingPersistedSelectionWriteRef.current = null;
         persistedSelectionStateRef.current = null;
-        for (const key of designSelectionStateKeys()) {
+        persistedSelectionContextRef.current = null;
+        // Check ownership independently for every mirror. Another editor tab
+        // can update the global fallback after this tab wrote its scoped key;
+        // using only the scoped owner as permission to clear both keys would
+        // erase that newer tab's context during our unmount.
+        for (const key of keys) {
+          const current = await readClientAppState(key).catch(() => null);
+          const ownerId =
+            current && typeof current === "object"
+              ? (current as { ownerId?: unknown }).ownerId
+              : undefined;
+          if (ownerId !== designSelectionOwnerIdRef.current) continue;
           await setClientAppState(key, null, {
             keepalive: true,
           }).catch(() => {});
@@ -9068,6 +4963,7 @@ export default function DesignEditor() {
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
   const sessionResolved = !sessionLoading;
+  const designSaveActorScope = session?.userId ?? "anonymous";
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -9119,7 +5015,7 @@ export default function DesignEditor() {
 
   // Data fetching
   useEffect(() => {
-    if (!id) return;
+    if (!id || !sessionResolved) return;
     const pending = readPendingGeneration(id);
     if (!pending) {
       setHasPendingGeneration(false);
@@ -9249,10 +5145,13 @@ export default function DesignEditor() {
   }, [id, hasPendingGeneration, markGenerationStale]);
 
   const updateFileMutation = useActionMutation("update-file");
+  const renameScreenMutation = useActionMutation("rename-screen");
   const createFileMutation = useActionMutation("create-file");
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
+  const updateDesignAsync = updateDesignMutation.mutateAsync;
   const applyTweaksMutation = useActionMutation("apply-tweaks");
+  const applyTweaksAsync = applyTweaksMutation.mutateAsync;
   const duplicateDesignMutation = useActionMutation("duplicate-design");
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
@@ -9359,21 +5258,146 @@ export default function DesignEditor() {
    * write proceeds unguarded.
    */
   const lastAckedFileContentHashRef = useRef<Record<string, string>>({});
+  const fileSaveOperationRevisionRef = useRef<Record<string, number>>({});
   const latestFileSaveForUnloadRef = useRef<
     Record<string, FileContentSaveRequest>
   >({});
   const fileSaveTimersRef = useRef<Record<string, number>>({});
   const postAuthSaveRef = useRef<string | null>(null);
 
-  const cancelQueuedFileContentSave = useCallback((fileId: string) => {
-    const timer = fileSaveTimersRef.current[fileId];
-    if (timer) {
-      window.clearTimeout(timer);
-      delete fileSaveTimersRef.current[fileId];
-    }
-    delete pendingFileSavesRef.current[fileId];
-    delete latestFileSaveForUnloadRef.current[fileId];
-  }, []);
+  const warnChangesWillRetry = useCallback(() => {
+    toast.warning(t("visualEditor.changesSaveWhenReconnected"), {
+      id: "design-save-outbox-warning",
+    });
+  }, [t]);
+
+  const journalOutboxEntry = useCallback(
+    async (entry: DesignSaveOutboxEntry) => {
+      try {
+        await journalDesignSaveOutboxEntry(entry);
+        return true;
+      } catch {
+        warnChangesWillRetry();
+        return false;
+      }
+    },
+    [warnChangesWillRetry],
+  );
+
+  const acknowledgeOutboxEntry = useCallback(
+    async (entry: DesignSaveOutboxEntry) => {
+      try {
+        await acknowledgeDesignSaveOutboxEntry(entry);
+      } catch {
+        warnChangesWillRetry();
+      }
+    },
+    [warnChangesWillRetry],
+  );
+
+  useEffect(() => {
+    if (!id) return;
+    let disposed = false;
+    const drain = async () => {
+      try {
+        const result = await drainDesignSaveOutbox({
+          designId: id,
+          actorScope: designSaveActorScope,
+        });
+        if (disposed) return;
+        if (result.saved.length > 0) {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+        }
+        if (result.failed.length > 0) warnChangesWillRetry();
+      } catch {
+        if (!disposed) warnChangesWillRetry();
+      }
+    };
+    const handleRetryOpportunity = () => void drain();
+    void drain();
+    window.addEventListener("online", handleRetryOpportunity);
+    window.addEventListener("pageshow", handleRetryOpportunity);
+    return () => {
+      disposed = true;
+      window.removeEventListener("online", handleRetryOpportunity);
+      window.removeEventListener("pageshow", handleRetryOpportunity);
+    };
+  }, [
+    designSaveActorScope,
+    id,
+    queryClient,
+    sessionResolved,
+    warnChangesWillRetry,
+  ]);
+
+  const createFileContentSaveRequest = useCallback(
+    (
+      fileId: string,
+      content: string,
+      syncCollab: boolean,
+    ): FileContentSaveRequest => {
+      const operationRevision =
+        (fileSaveOperationRevisionRef.current[fileId] ?? 0) + 1;
+      fileSaveOperationRevisionRef.current[fileId] = operationRevision;
+      return {
+        id: fileId,
+        content,
+        syncCollab,
+        operationSource: designSaveOperationSourceRef.current,
+        operationRevision,
+        ...(lastAckedFileContentHashRef.current[fileId]
+          ? { expectedVersionHash: lastAckedFileContentHashRef.current[fileId] }
+          : {}),
+      };
+    },
+    [],
+  );
+
+  const createFileSaveOutboxEntry = useCallback(
+    (
+      pending: FileContentSaveRequest,
+      expectedVersionHash = pending.expectedVersionHash,
+    ) => {
+      if (!id) return null;
+      return createDesignSaveOutboxEntry({
+        designId: id,
+        actorScope: designSaveActorScope,
+        actionName: "update-file",
+        resourceId: pending.id,
+        operationSource: pending.operationSource,
+        operationRevision: pending.operationRevision,
+        payload: {
+          id: pending.id,
+          content: pending.content,
+          syncCollab: pending.syncCollab,
+          operationSource: pending.operationSource,
+          operationRevision: pending.operationRevision,
+          ...(expectedVersionHash ? { expectedVersionHash } : {}),
+        },
+      });
+    },
+    [designSaveActorScope, id],
+  );
+
+  const cancelQueuedFileContentSave = useCallback(
+    (fileId: string) => {
+      const queued = pendingFileSavesRef.current[fileId];
+      const timer = fileSaveTimersRef.current[fileId];
+      if (timer) {
+        window.clearTimeout(timer);
+        delete fileSaveTimersRef.current[fileId];
+      }
+      delete pendingFileSavesRef.current[fileId];
+      delete latestFileSaveForUnloadRef.current[fileId];
+      const entry = queued ? createFileSaveOutboxEntry(queued) : null;
+      if (entry) {
+        void discardDesignSaveOutboxEntry(entry).catch(warnChangesWillRetry);
+      }
+    },
+    [createFileSaveOutboxEntry, warnChangesWillRetry],
+  );
 
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
@@ -9398,6 +5422,10 @@ export default function DesignEditor() {
                   }
                 : {}),
             };
+      const queuedOutboxEntry = createFileSaveOutboxEntry(
+        latestFileSaveForUnloadRef.current[pending.id],
+      );
+      if (queuedOutboxEntry) void journalOutboxEntry(queuedOutboxEntry);
       const previous =
         fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
       const current = previous
@@ -9415,12 +5443,27 @@ export default function DesignEditor() {
             const expectedVersionHash =
               lastAckedFileContentHashRef.current[pending.id] ??
               pending.expectedVersionHash;
+            const outboxEntry = createFileSaveOutboxEntry(
+              pending,
+              expectedVersionHash,
+            );
+            if (outboxEntry) await journalOutboxEntry(outboxEntry);
             const result = await updateFileMutation.mutateAsync({
               id: pending.id,
               content: pending.content,
               syncCollab: pending.syncCollab,
+              operationSource: pending.operationSource,
+              operationRevision: pending.operationRevision,
               ...(expectedVersionHash ? { expectedVersionHash } : {}),
             } as any);
+            const resultInfo = result as
+              | {
+                  skippedStaleMirror?: boolean;
+                  skippedStaleOperation?: boolean;
+                  versionHash?: string;
+                }
+              | undefined;
+            const skippedStaleMirror = Boolean(resultInfo?.skippedStaleMirror);
             // skippedStaleMirror: the server intentionally left the SQL
             // mirror column untouched because our expectedVersionHash no
             // longer matched the live collab text (a live editor moved past
@@ -9431,12 +5474,27 @@ export default function DesignEditor() {
             // previously-acked hash in place instead; the DB-reconcile effect
             // (activeFile watcher) will pick up the true live content and
             // refresh the acked hash from that.
-            if (
-              !(result as { skippedStaleMirror?: boolean } | undefined)
-                ?.skippedStaleMirror
-            ) {
+            if (!skippedStaleMirror) {
               lastAckedFileContentHashRef.current[pending.id] =
-                sourceContentHash(pending.content);
+                resultInfo?.versionHash ?? sourceContentHash(pending.content);
+            }
+            const persistedContentMatches = updateFileResultPersistedContent(
+              resultInfo,
+              pending.content,
+            );
+            if (persistedContentMatches && outboxEntry) {
+              await acknowledgeOutboxEntry(outboxEntry);
+            } else if (!persistedContentMatches) {
+              warnChangesWillRetry();
+            }
+            if (
+              shouldClearLatestUnloadSave(
+                latestFileSaveForUnloadRef.current[pending.id],
+                pending,
+                !persistedContentMatches,
+              )
+            ) {
+              delete latestFileSaveForUnloadRef.current[pending.id];
             }
             setPatchProof((prev) =>
               prev && prev.fileId === pending.id && prev.status === "queued"
@@ -9449,7 +5507,10 @@ export default function DesignEditor() {
             // content, and the next save proceeds unguarded from that
             // rebased state instead of failing forever on a dead hash.
             delete lastAckedFileContentHashRef.current[pending.id];
-            clearPendingLocalFileContent(pending.id, pending.content);
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            warnChangesWillRetry();
             setPatchProof((prev) =>
               prev && prev.fileId === pending.id && prev.status === "queued"
                 ? {
@@ -9472,10 +5533,14 @@ export default function DesignEditor() {
       });
     },
     [
-      clearPendingLocalFileContent,
+      acknowledgeOutboxEntry,
+      createFileSaveOutboxEntry,
+      journalOutboxEntry,
       markPendingLocalFileContent,
+      queryClient,
       t,
       updateFileMutation,
+      warnChangesWillRetry,
     ],
   );
 
@@ -9486,21 +5551,20 @@ export default function DesignEditor() {
       options: { syncCollab?: boolean; immediate?: boolean } = {},
     ) => {
       if (!canEditDesignRef.current) return;
-      const pending: FileContentSaveRequest = {
-        id: fileId,
+      // Allocate the revision when the edit ENTERS the queue, not when its
+      // debounce fires. A pagehide keepalive and the ordinary chained save
+      // therefore carry the same idempotency key, while any newer queued edit
+      // is guaranteed to have a higher revision even if requests arrive at
+      // the server out of order.
+      const pending = createFileContentSaveRequest(
+        fileId,
         content,
-        syncCollab: options.syncCollab ?? true,
-        // Stamp the known acked hash up front (not just inside
-        // saveFileContent) so a pagehide firing while this save is still
-        // sitting in the debounce window (pendingFileSavesRef, before
-        // saveFileContent ever runs) still sees it via
-        // latestFileSaveForUnloadRef — see shouldSendKeepalive.
-        ...(lastAckedFileContentHashRef.current[fileId]
-          ? { expectedVersionHash: lastAckedFileContentHashRef.current[fileId] }
-          : {}),
-      };
+        options.syncCollab ?? true,
+      );
       markPendingLocalFileContent(fileId, content);
       latestFileSaveForUnloadRef.current[fileId] = pending;
+      const outboxEntry = createFileSaveOutboxEntry(pending);
+      if (outboxEntry) void journalOutboxEntry(outboxEntry);
       if (options.immediate) {
         const timer = fileSaveTimersRef.current[fileId];
         if (timer) {
@@ -9524,7 +5588,47 @@ export default function DesignEditor() {
         saveFileContent(pending);
       }, 400);
     },
-    [markPendingLocalFileContent, saveFileContent],
+    [
+      createFileContentSaveRequest,
+      createFileSaveOutboxEntry,
+      journalOutboxEntry,
+      markPendingLocalFileContent,
+      saveFileContent,
+    ],
+  );
+
+  const sendFileContentSaveKeepalive = useCallback(
+    (pending: FileContentSaveRequest) => {
+      // A live collab document already owns the current text. Without an
+      // acknowledged hash, a full-document mirror write could overwrite a
+      // peer, so preserve the existing stale-write guard.
+      const collabLive = pending.syncCollab === false;
+      const hashKnown = pending.expectedVersionHash !== undefined;
+      if (!shouldSendKeepalive(hashKnown, collabLive)) return;
+      const entry = createFileSaveOutboxEntry(pending);
+      if (!entry) return;
+      void journalOutboxEntry(entry);
+      const attempt = tryCallActionKeepalive(
+        "update-file",
+        entry.payload as any,
+      );
+      if (!attempt.accepted) return;
+      void attempt.completion
+        .then((result: unknown) => {
+          if (!updateFileResultPersistedContent(result, pending.content)) {
+            warnChangesWillRetry();
+            return;
+          }
+          return acknowledgeOutboxEntry(entry);
+        })
+        .catch(warnChangesWillRetry);
+    },
+    [
+      acknowledgeOutboxEntry,
+      createFileSaveOutboxEntry,
+      journalOutboxEntry,
+      warnChangesWillRetry,
+    ],
   );
 
   useEffect(() => {
@@ -9543,65 +5647,259 @@ export default function DesignEditor() {
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      sendPendingKeepaliveSaves();
-      for (const timer of Object.values(fileSaveTimersRef.current)) {
-        window.clearTimeout(timer);
-      }
+      // Component cleanup is also used for normal client-side navigation.
+      // Drain each debounce slot into the existing per-file promise chain so
+      // route changes cannot drop the last edit. A real document unload has
+      // already fired pagehide above; its keepalive uses the same operation
+      // source/revision and is therefore safely idempotent with this save.
+      flushPendingFileContentSavesOnCleanup(
+        pendingFileSavesRef.current,
+        Object.values(fileSaveTimersRef.current),
+        saveFileContent,
+        window.clearTimeout,
+      );
       fileSaveTimersRef.current = {};
       pendingFileSavesRef.current = {};
     };
-  }, []);
+  }, [saveFileContent, sendFileContentSaveKeepalive]);
 
   // Debounced persistence of the user's live tweak knob values into
   // designs.data.tweakSelections (additive JSON merge, server-side). This is
   // what makes the visual-tune survive reload and feeds the snapshot/handoff
   // round-trip so external agents continue from the *tuned* design.
-  const pendingTweakSaveRef = useRef<{
-    selections: TweakSelections;
-    revision: number;
-  } | null>(null);
+  const pendingTweakSaveRef = useRef<PendingTweakSave | null>(null);
   const tweakSaveTimerRef = useRef<number | null>(null);
   const tweakSaveRevisionRef = useRef(0);
+  const tweakSaveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const tweakSaveInFlightRef = useRef(false);
+  const confirmedTweakSelectionsHashRef = useRef(tweakSelectionsHash({}));
+  const journalTweakOutboxEntry = useCallback(
+    async (entry: DesignSaveOutboxEntry) => {
+      try {
+        await journalDesignSaveOutboxEntry(entry);
+        return true;
+      } catch {
+        // Do not claim an offline retry exists when IndexedDB itself failed.
+        // The mutation path below distinguishes durable retries from edits
+        // that must stay in this tab's memory.
+        return false;
+      }
+    },
+    [],
+  );
+  const createTweakSaveOutboxEntry = useCallback(
+    (pending: PendingTweakSave) => {
+      if (!id) return null;
+      return createDesignSaveOutboxEntry({
+        designId: id,
+        actorScope: designSaveActorScope,
+        actionName: "apply-tweaks",
+        resourceId: id,
+        operationSource: designSaveOperationSourceRef.current,
+        operationRevision: pending.revision,
+        payload: {
+          designId: id,
+          selections: pending.selections,
+          expectedSelectionsHash: pending.expectedSelectionsHash,
+        },
+      });
+    },
+    [designSaveActorScope, id],
+  );
+  const persistTweakSave = useCallback(
+    (pending: PendingTweakSave) => {
+      if (!id || !canEditDesignRef.current) return;
+      const previous = tweakSaveChainRef.current;
+      const current = previous
+        .catch(() => {})
+        .then(async () => {
+          tweakSaveInFlightRef.current = true;
+          const sendPending = rebaseTweakSaveForSend(
+            pending,
+            confirmedTweakSelectionsHashRef.current,
+          );
+          const entry = createTweakSaveOutboxEntry(sendPending);
+          if (!entry) {
+            tweakSaveInFlightRef.current = false;
+            return;
+          }
+          const journaled = await journalTweakOutboxEntry(entry);
+          try {
+            const result = (await applyTweaksAsync(entry.payload as any)) as {
+              appliedTweaks?: Record<string, unknown>;
+              selectionsHash?: string;
+            };
+            const confirmedHash =
+              typeof result?.selectionsHash === "string"
+                ? result.selectionsHash
+                : tweakSelectionsHash(
+                    result?.appliedTweaks ?? sendPending.selections,
+                  );
+            confirmedTweakSelectionsHashRef.current = confirmedHash;
+            if (result?.appliedTweaks) {
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (!old || typeof old !== "object") return old;
+                  let data: Record<string, unknown>;
+                  try {
+                    const parsed = JSON.parse(old.data ?? "{}");
+                    data =
+                      parsed &&
+                      typeof parsed === "object" &&
+                      !Array.isArray(parsed)
+                        ? parsed
+                        : {};
+                  } catch {
+                    return old;
+                  }
+                  return {
+                    ...old,
+                    data: JSON.stringify({
+                      ...data,
+                      tweakSelections: result.appliedTweaks,
+                    }),
+                  };
+                },
+              );
+            }
+            if (journaled) await acknowledgeOutboxEntry(entry);
+
+            const queuedAfterSuccess = clearCompletedTweakSave(
+              pendingTweakSaveRef.current,
+              pending.revision,
+            );
+            if (
+              queuedAfterSuccess &&
+              queuedAfterSuccess.revision > pending.revision
+            ) {
+              const rebasedQueued = rebaseTweakSaveForSend(
+                queuedAfterSuccess,
+                confirmedHash,
+              );
+              pendingTweakSaveRef.current = rebasedQueued;
+              const rebasedEntry = createTweakSaveOutboxEntry(rebasedQueued);
+              if (rebasedEntry) void journalTweakOutboxEntry(rebasedEntry);
+            } else {
+              pendingTweakSaveRef.current = queuedAfterSuccess;
+            }
+            if (tweakSaveRevisionRef.current === pending.revision) {
+              setTweakSaveActive(false);
+            }
+          } catch (error) {
+            pendingTweakSaveRef.current = retainLatestFailedTweakSave(
+              pendingTweakSaveRef.current,
+              sendPending,
+            );
+            if (tweakSaveRevisionRef.current === pending.revision) {
+              setTweakSaveActive(true);
+            }
+            const failureKind = classifyTweakSaveFailure(error, journaled);
+            if (failureKind === "conflict") {
+              toast.error(t("designEditor.toasts.tweakConflict"));
+            } else if (failureKind === "durable-retry") {
+              warnChangesWillRetry();
+            } else {
+              toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
+            }
+          } finally {
+            tweakSaveInFlightRef.current = false;
+          }
+        });
+      tweakSaveChainRef.current = current;
+      void current.finally(() => {
+        if (tweakSaveChainRef.current === current) {
+          tweakSaveChainRef.current = Promise.resolve();
+        }
+      });
+    },
+    [
+      acknowledgeOutboxEntry,
+      applyTweaksAsync,
+      createTweakSaveOutboxEntry,
+      id,
+      journalTweakOutboxEntry,
+      queryClient,
+      t,
+      warnChangesWillRetry,
+    ],
+  );
+  const flushPendingTweakSave = useCallback(() => {
+    if (tweakSaveTimerRef.current !== null) {
+      window.clearTimeout(tweakSaveTimerRef.current);
+      tweakSaveTimerRef.current = null;
+    }
+    const pending = pendingTweakSaveRef.current;
+    pendingTweakSaveRef.current = null;
+    if (pending) persistTweakSave(pending);
+  }, [persistTweakSave]);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
       if (!id || !canEditDesignRef.current) return;
       const revision = tweakSaveRevisionRef.current + 1;
       tweakSaveRevisionRef.current = revision;
       setTweakSaveActive(true);
-      pendingTweakSaveRef.current = { selections, revision };
-      if (tweakSaveTimerRef.current) {
+      const pending = createQueuedTweakSave(
+        selections,
+        revision,
+        confirmedTweakSelectionsHashRef.current,
+        pendingTweakSaveRef.current,
+      );
+      pendingTweakSaveRef.current = pending;
+      const entry = createTweakSaveOutboxEntry(pending);
+      if (entry) void journalTweakOutboxEntry(entry);
+      if (tweakSaveTimerRef.current !== null) {
         window.clearTimeout(tweakSaveTimerRef.current);
       }
-      tweakSaveTimerRef.current = window.setTimeout(() => {
-        const pending = pendingTweakSaveRef.current;
-        pendingTweakSaveRef.current = null;
-        tweakSaveTimerRef.current = null;
-        if (!pending) return;
-        applyTweaksMutation.mutate(
-          {
-            designId: id,
-            selections: pending.selections,
-          } as any,
-          {
-            onSettled: () => {
-              if (tweakSaveRevisionRef.current === pending.revision) {
-                setTweakSaveActive(false);
-              }
-            },
-          },
-        );
-      }, 600);
+      tweakSaveTimerRef.current = window.setTimeout(flushPendingTweakSave, 600);
     },
-    [id, applyTweaksMutation],
+    [
+      createTweakSaveOutboxEntry,
+      flushPendingTweakSave,
+      id,
+      journalTweakOutboxEntry,
+    ],
   );
 
   useEffect(() => {
-    return () => {
-      if (tweakSaveTimerRef.current) {
-        window.clearTimeout(tweakSaveTimerRef.current);
+    const handlePageHide = () => {
+      const pending = pendingTweakSaveRef.current;
+      if (!id || !pending || !canEditDesignRef.current) return;
+      if (tweakSaveInFlightRef.current) return;
+      // Keep the normal timer/pending entry intact for bfcache restores. The
+      // keepalive is the unload safety net; if the page survives, the regular
+      // mutation still settles state and confirms persistence.
+      const entry = createTweakSaveOutboxEntry(pending);
+      if (!entry) return;
+      void sendJournaledTweakSaveKeepalive({
+        journal: () => journalTweakOutboxEntry(entry),
+        send: () =>
+          tryCallActionKeepalive("apply-tweaks", entry.payload as any),
+        acknowledge: () => acknowledgeOutboxEntry(entry),
+      }).catch(() => {});
+    };
+    const handleOnline = () => {
+      if (pendingTweakSaveRef.current && !tweakSaveInFlightRef.current) {
+        flushPendingTweakSave();
       }
     };
-  }, []);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("online", handleOnline);
+      // Client-side navigation used to cancel the 600 ms debounce and drop
+      // the user's final knob position. Flush it synchronously into the
+      // mutation pipeline before this keyed editor instance unmounts.
+      flushPendingTweakSave();
+    };
+  }, [
+    acknowledgeOutboxEntry,
+    createTweakSaveOutboxEntry,
+    flushPendingTweakSave,
+    id,
+    journalTweakOutboxEntry,
+  ]);
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   const editorShareUrl = useMemo(() => {
@@ -9994,7 +6292,7 @@ export default function DesignEditor() {
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
           bridgeUrl: stringValue("bridgeUrl"),
-          bridgeToken: stringValue("bridgeToken"),
+          previewToken: stringValue("previewToken"),
           // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
           // renders one iframe per width to the right of the primary frame.
           breakpointWidths: bpWidths,
@@ -10055,49 +6353,228 @@ export default function DesignEditor() {
     };
   }, [boardFileId]);
 
+  const createFrameGeometryOutboxEntry = useCallback(
+    (dataOperations: readonly DesignDataOperation[], revision: number) => {
+      if (!id) return null;
+      const compacted = compactDesignDataOperations(dataOperations);
+      if (compacted.length === 0) return null;
+      return createDesignSaveOutboxEntry({
+        designId: id,
+        actorScope: designSaveActorScope,
+        actionName: "update-design",
+        resourceId: id,
+        operationSource: designSaveOperationSourceRef.current,
+        operationRevision: revision,
+        payload: {
+          id,
+          dataOperations: compacted,
+          operationSource: designSaveOperationSourceRef.current,
+          operationRevision: revision,
+        },
+      });
+    },
+    [designSaveActorScope, id],
+  );
+
+  const enqueueFrameGeometryDataSave = useCallback(
+    (dataOperations: DesignDataOperation[]) => {
+      if (!id || !canEditDesignRef.current || dataOperations.length === 0) {
+        return false;
+      }
+      const revision = frameGeometryOperationRevisionRef.current + 1;
+      frameGeometryOperationRevisionRef.current = revision;
+      pendingFrameGeometryOperationsForUnloadRef.current =
+        stagePendingDesignDataOperations(
+          pendingFrameGeometryOperationsForUnloadRef.current,
+          dataOperations,
+          revision,
+        );
+      const outboxEntry = createFrameGeometryOutboxEntry(
+        pendingDesignDataOperations(
+          pendingFrameGeometryOperationsForUnloadRef.current,
+        ),
+        revision,
+      );
+      if (!outboxEntry) return false;
+      const previous = frameGeometryMutationChainRef.current;
+      const current = previous
+        .catch(() => {})
+        .then(async () => {
+          try {
+            await journalOutboxEntry(outboxEntry);
+            await updateDesignAsync(outboxEntry.payload as any);
+            pendingFrameGeometryOperationsForUnloadRef.current =
+              clearAcknowledgedDesignDataOperationsThroughRevision(
+                pendingFrameGeometryOperationsForUnloadRef.current,
+                revision,
+              );
+            await acknowledgeOutboxEntry(outboxEntry);
+          } catch {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            warnChangesWillRetry();
+          }
+        });
+      frameGeometryMutationChainRef.current = current;
+      void current.finally(() => {
+        if (frameGeometryMutationChainRef.current === current) {
+          frameGeometryMutationChainRef.current = Promise.resolve();
+        }
+      });
+      return true;
+    },
+    [
+      acknowledgeOutboxEntry,
+      createFrameGeometryOutboxEntry,
+      id,
+      journalOutboxEntry,
+      queryClient,
+      updateDesignAsync,
+      warnChangesWillRetry,
+    ],
+  );
+
+  const persistFrameGeometrySave = useCallback(
+    (
+      pending: {
+        geometryById: CanvasFrameGeometryById;
+        previousGeometry: CanvasFrameGeometryById;
+      },
+      keepalive = false,
+    ): boolean => {
+      if (!id || !canEditDesignRef.current) return false;
+      // Geometry-persist guard: refuse absurd per-frame geometry (see
+      // sanitizeCanvasFrameGeometryForPersist) so a corrupted transient
+      // zoom basis can never shred the persisted layout. The board frame
+      // is exempt — its surface is a legitimate 131k square.
+      const { geometryById: safeGeometryById } =
+        sanitizeCanvasFrameGeometryForPersist(
+          pending.geometryById,
+          pending.previousGeometry,
+          boardFileId ? [boardFileId] : [],
+        );
+      const dataOperations = buildFrameGeometryDataOperations({
+        previousGeometry: pending.previousGeometry,
+        nextGeometry: safeGeometryById,
+        designData: designDataJsonRef.current,
+      });
+      if (keepalive) {
+        const combinedOperations = compactDesignDataOperations([
+          ...pendingDesignDataOperations(
+            pendingFrameGeometryOperationsForUnloadRef.current,
+          ),
+          ...dataOperations,
+        ]);
+        if (combinedOperations.length === 0) return true;
+        const operationRevision = frameGeometryOperationRevisionRef.current + 1;
+        frameGeometryOperationRevisionRef.current = operationRevision;
+        const entry = createFrameGeometryOutboxEntry(
+          combinedOperations,
+          operationRevision,
+        );
+        if (!entry) return false;
+        void journalOutboxEntry(entry);
+        const attempt = tryCallActionKeepalive(
+          "update-design",
+          entry.payload as any,
+        );
+        if (!attempt.accepted) return false;
+        void attempt.completion
+          .then(() => acknowledgeOutboxEntry(entry))
+          .catch(warnChangesWillRetry);
+        return true;
+      }
+      if (dataOperations.length === 0) return true;
+      const nextData = applyDesignDataOperations(
+        designDataJsonRef.current,
+        dataOperations,
+      );
+      designDataJsonRef.current = nextData;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, data: JSON.stringify(nextData) };
+      });
+      return enqueueFrameGeometryDataSave(dataOperations);
+    },
+    [
+      acknowledgeOutboxEntry,
+      boardFileId,
+      createFrameGeometryOutboxEntry,
+      enqueueFrameGeometryDataSave,
+      id,
+      journalOutboxEntry,
+      queryClient,
+      warnChangesWillRetry,
+    ],
+  );
+
+  const flushPendingFrameGeometrySave = useCallback(
+    (keepalive = false) => {
+      if (frameGeometrySaveTimerRef.current !== null) {
+        window.clearTimeout(frameGeometrySaveTimerRef.current);
+        frameGeometrySaveTimerRef.current = null;
+      }
+      const pending = pendingFrameGeometrySaveRef.current;
+      if (!pending) return;
+      if (persistFrameGeometrySave(pending, keepalive)) {
+        pendingFrameGeometrySaveRef.current = null;
+      }
+    },
+    [persistFrameGeometrySave],
+  );
+
   const queueFrameGeometrySave = useCallback(
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
+      pendingFrameGeometrySaveRef.current = {
+        geometryById: cloneCanvasFrameGeometry(geometryById),
+        previousGeometry: cloneCanvasFrameGeometry(
+          getCanvasFrameGeometry(designDataJsonRef.current),
+        ),
+      };
+      const pending = pendingFrameGeometrySaveRef.current;
+      const { geometryById: safeGeometryById } =
+        sanitizeCanvasFrameGeometryForPersist(
+          pending.geometryById,
+          pending.previousGeometry,
+          boardFileId ? [boardFileId] : [],
+        );
+      const dataOperations = buildFrameGeometryDataOperations({
+        previousGeometry: pending.previousGeometry,
+        nextGeometry: safeGeometryById,
+        designData: designDataJsonRef.current,
+      });
+      const combinedOperations = compactDesignDataOperations([
+        ...pendingDesignDataOperations(
+          pendingFrameGeometryOperationsForUnloadRef.current,
+        ),
+        ...dataOperations,
+      ]);
+      if (combinedOperations.length > 0) {
+        const revision = frameGeometryOperationRevisionRef.current + 1;
+        frameGeometryOperationRevisionRef.current = revision;
+        const entry = createFrameGeometryOutboxEntry(
+          combinedOperations,
+          revision,
+        );
+        if (entry) void journalOutboxEntry(entry);
+      }
       if (frameGeometrySaveTimerRef.current !== null) {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
       }
-      frameGeometrySaveTimerRef.current = window.setTimeout(() => {
-        frameGeometrySaveTimerRef.current = null;
-        if (!canEditDesignRef.current) return;
-        // Read the freshest designDataJson from the ref so any concurrent
-        // server writes (e.g. apply-tweaks) that arrived during the 500 ms
-        // debounce window are not overwritten with stale closure data.
-        //
-        // Geometry-persist guard: refuse absurd per-frame geometry (see
-        // sanitizeCanvasFrameGeometryForPersist) so a corrupted transient
-        // zoom basis can never shred the persisted layout. The board frame
-        // is exempt — its surface is a legitimate 131k square.
-        const { geometryById: safeGeometryById } =
-          sanitizeCanvasFrameGeometryForPersist(
-            geometryById,
-            getCanvasFrameGeometry(designDataJsonRef.current),
-            boardFileId ? [boardFileId] : [],
-          );
-        const nextData = {
-          ...designDataJsonRef.current,
-          canvasFrames: safeGeometryById,
-        };
-        updateDesignMutation.mutate(
-          {
-            id,
-            data: JSON.stringify(nextData),
-          } as any,
-          {
-            onError: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            },
-          },
-        );
-      }, 500);
+      frameGeometrySaveTimerRef.current = window.setTimeout(
+        flushPendingFrameGeometrySave,
+        500,
+      );
     },
-    [boardFileId, id, queryClient, updateDesignMutation],
+    [
+      boardFileId,
+      createFrameGeometryOutboxEntry,
+      flushPendingFrameGeometrySave,
+      id,
+      journalOutboxEntry,
+    ],
   );
 
   const writeFrameGeometrySnapshot = useCallback(
@@ -10106,10 +6583,12 @@ export default function DesignEditor() {
       options?: { syncViewportFrameIds?: string[] },
     ) => {
       if (!id || !canEditDesignRef.current) return;
+      const queuedSave = pendingFrameGeometrySaveRef.current;
       if (frameGeometrySaveTimerRef.current !== null) {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
         frameGeometrySaveTimerRef.current = null;
       }
+      pendingFrameGeometrySaveRef.current = null;
       // Geometry-persist guard — same contract as queueFrameGeometrySave:
       // never let absurd frame geometry (a corrupted zoom basis' product)
       // reach canvasFrames or the screenMetadata viewport sync below.
@@ -10120,36 +6599,39 @@ export default function DesignEditor() {
           boardFileId ? [boardFileId] : [],
         );
       const snapshot = cloneCanvasFrameGeometry(safeGeometryById);
-      const baseData = {
-        ...designDataJsonRef.current,
-        canvasFrames: snapshot,
-      };
-      const nextData = options?.syncViewportFrameIds?.length
-        ? withSyncedScreenMetadataViewports(
-            baseData,
-            snapshot,
-            options.syncViewportFrameIds,
-          )
-        : baseData;
+      const queuedOperations = queuedSave
+        ? buildFrameGeometryDataOperations({
+            previousGeometry: queuedSave.previousGeometry,
+            nextGeometry: sanitizeCanvasFrameGeometryForPersist(
+              queuedSave.geometryById,
+              queuedSave.previousGeometry,
+              boardFileId ? [boardFileId] : [],
+            ).geometryById,
+            designData: designDataJsonRef.current,
+          })
+        : [];
+      const dataOperations = compactDesignDataOperations([
+        ...queuedOperations,
+        ...buildFrameGeometryDataOperations({
+          previousGeometry: getCanvasFrameGeometry(designDataJsonRef.current),
+          nextGeometry: snapshot,
+          designData: designDataJsonRef.current,
+          syncViewportFrameIds: options?.syncViewportFrameIds,
+        }),
+      ]);
+      if (dataOperations.length === 0) return;
+      const nextData = applyDesignDataOperations(
+        designDataJsonRef.current,
+        dataOperations,
+      );
+      designDataJsonRef.current = nextData;
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object") return old;
         return { ...old, data: JSON.stringify(nextData) };
       });
-      updateDesignMutation.mutate(
-        {
-          id,
-          data: JSON.stringify(nextData),
-        } as any,
-        {
-          onError: () => {
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-          },
-        },
-      );
+      enqueueFrameGeometryDataSave(dataOperations);
     },
-    [boardFileId, id, queryClient, updateDesignMutation],
+    [boardFileId, enqueueFrameGeometryDataSave, id, queryClient],
   );
 
   const handleGeometryCommit = useCallback(
@@ -10307,23 +6789,48 @@ export default function DesignEditor() {
       // flip the design data to sourceType "fusion" so capability-gated
       // panels (branches, deploy) light up on refresh.
       if (r?.status === "processing" && r?.url) {
-        const nextData = {
-          ...designDataJsonRef.current,
-          sourceType: "fusion",
-          fusionBranchName: r.branchName,
-          fusionUrl: r.url,
-          fusionProjectId: r.projectId,
-        };
-        updateDesignMutation.mutate(
-          { id, data: JSON.stringify(nextData) } as any,
-          {
-            onSuccess: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            },
+        const dataOperations: DesignDataOperation[] = [
+          { op: "set", path: ["sourceType"], value: "fusion" },
+          { op: "set", path: ["fusionUrl"], value: r.url },
+          r.branchName === undefined
+            ? { op: "delete", path: ["fusionBranchName"] }
+            : {
+                op: "set",
+                path: ["fusionBranchName"],
+                value: r.branchName,
+              },
+          r.projectId === undefined
+            ? { op: "delete", path: ["fusionProjectId"] }
+            : {
+                op: "set",
+                path: ["fusionProjectId"],
+                value: r.projectId,
+              },
+        ];
+        const nextData = applyDesignDataOperations(
+          designDataJsonRef.current,
+          dataOperations,
+        );
+        designDataJsonRef.current = nextData;
+        queryClient.setQueryData(
+          ["action", "get-design", { id }],
+          (old: any) => {
+            if (!old || typeof old !== "object") return old;
+            return { ...old, data: JSON.stringify(nextData) };
           },
         );
+        updateDesignMutation.mutate({ id, dataOperations } as any, {
+          onSuccess: () => {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          },
+          onError: () => {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          },
+        });
       } else if (r?.status === "not-configured") {
         // Builder not connected — leave dialog open to show the CTA.
       }
@@ -10451,12 +6958,48 @@ export default function DesignEditor() {
   ]);
 
   useEffect(() => {
-    return () => {
-      if (frameGeometrySaveTimerRef.current !== null) {
-        window.clearTimeout(frameGeometrySaveTimerRef.current);
+    const handlePageHide = () => {
+      const pending = pendingFrameGeometrySaveRef.current;
+      if (!pending) {
+        if (!canEditDesignRef.current) return;
+        const entry = createFrameGeometryOutboxEntry(
+          pendingDesignDataOperations(
+            pendingFrameGeometryOperationsForUnloadRef.current,
+          ),
+          frameGeometryOperationRevisionRef.current,
+        );
+        if (!entry) return;
+        void journalOutboxEntry(entry);
+        const attempt = tryCallActionKeepalive(
+          "update-design",
+          entry.payload as any,
+        );
+        if (!attempt.accepted) return;
+        void attempt.completion
+          .then(() => acknowledgeOutboxEntry(entry))
+          .catch(warnChangesWillRetry);
+        return;
       }
+      // Do not consume the normal pending entry: pagehide can place the page
+      // in bfcache. The keepalive protects a real unload, while a restored
+      // page still gets the ordinary mutation/settlement path.
+      persistFrameGeometrySave(pending, true);
     };
-  }, []);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      // Preserve the final drag/resize snapshot across client-side route or
+      // design changes instead of cancelling the debounce on unmount.
+      flushPendingFrameGeometrySave();
+    };
+  }, [
+    acknowledgeOutboxEntry,
+    createFrameGeometryOutboxEntry,
+    flushPendingFrameGeometrySave,
+    journalOutboxEntry,
+    persistFrameGeometrySave,
+    warnChangesWillRetry,
+  ]);
 
   const defaultActiveFile =
     files.find(
@@ -10472,12 +7015,20 @@ export default function DesignEditor() {
     ) ??
     files[0];
 
-  // Set active file to the primary screen when data loads.
+  // Set active file to the primary screen when data loads, and recover when
+  // the active screen is deleted remotely/by the agent. Leaving a stale id in
+  // state attaches Yjs presence and viewport state to a file that no longer
+  // exists even though the rendered `activeFile` has fallen back visually.
   useEffect(() => {
-    if (defaultActiveFile && !activeFileId) {
-      setActiveFileId(defaultActiveFile.id);
+    const nextActiveFileId = resolveAvailableActiveFileId({
+      activeFileId,
+      availableFileIds: files.map((file) => file.id),
+      defaultFileId: defaultActiveFile?.id,
+    });
+    if (nextActiveFileId !== activeFileId) {
+      setActiveFileId(nextActiveFileId);
     }
-  }, [activeFileId, defaultActiveFile]);
+  }, [activeFileId, defaultActiveFile?.id, files]);
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
@@ -10721,10 +7272,10 @@ export default function DesignEditor() {
     [activeOverviewScreenId, overviewScreens],
   );
   const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
-  const activeScreenBridgeToken =
-    "bridgeToken" in (activeOverviewScreen ?? {}) &&
-    typeof activeOverviewScreen?.bridgeToken === "string"
-      ? activeOverviewScreen.bridgeToken
+  const activeScreenPreviewToken =
+    "previewToken" in (activeOverviewScreen ?? {}) &&
+    typeof activeOverviewScreen?.previewToken === "string"
+      ? activeOverviewScreen.previewToken
       : undefined;
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
@@ -10923,16 +7474,11 @@ export default function DesignEditor() {
       const applyCommandTool = (fallback: DesignTool) => {
         if (!canEditDesign) return;
         const nextTool = effectiveCommandTool ?? fallback;
+        const activation = getDesignToolActivationState(nextTool);
         setActiveTool(nextTool);
-        if (isSingleScreenAnnotationTool(nextTool)) {
-          setMode("annotate");
-          setDrawMode(true);
-          setPinMode(nextTool === "comment");
-          return;
-        }
-        setMode("edit");
-        setDrawMode(false);
-        setPinMode(false);
+        setMode(activation.mode);
+        setDrawMode(activation.drawMode);
+        setPinMode(activation.pinMode);
       };
 
       if (targetFile) {
@@ -11087,8 +7633,8 @@ export default function DesignEditor() {
               // Carry the source screen's screenMetadata entry (sourceType,
               // connectionId, url, path, bridgeUrl, etc.) and its
               // localhostScreens entry (if present) over to the new file id,
-              // keyed the same way frame geometry/viewport metadata already is
-              // (see withSyncedScreenMetadataViewports above).
+              // using path-addressed operations so a peer's metadata for any
+              // other screen cannot be replaced by this duplicate's snapshot.
               const sourceMetadataById = getDesignDataRecord(
                 designDataJsonRef.current,
                 "screenMetadata",
@@ -11099,14 +7645,13 @@ export default function DesignEditor() {
               );
               const sourceType = sourceMetadata.sourceType;
               if (sourceType === "localhost" || sourceType === "fusion") {
-                const nextMetadataById = {
-                  ...sourceMetadataById,
-                  [nextId]: { ...sourceMetadata },
-                };
-                const nextData: Record<string, unknown> = {
-                  ...designDataJsonRef.current,
-                  screenMetadata: nextMetadataById,
-                };
+                const dataOperations: DesignDataOperation[] = [
+                  {
+                    op: "set",
+                    path: ["screenMetadata", nextId],
+                    value: { ...sourceMetadata },
+                  },
+                ];
                 const sourceLocalhostScreensById = getDesignDataRecord(
                   designDataJsonRef.current,
                   "localhostScreens",
@@ -11116,11 +7661,17 @@ export default function DesignEditor() {
                   screenId,
                 );
                 if (Object.keys(sourceLocalhostScreen).length > 0) {
-                  nextData.localhostScreens = {
-                    ...sourceLocalhostScreensById,
-                    [nextId]: { ...sourceLocalhostScreen },
-                  };
+                  dataOperations.push({
+                    op: "set",
+                    path: ["localhostScreens", nextId],
+                    value: { ...sourceLocalhostScreen },
+                  });
                 }
+                const nextData = applyDesignDataOperations(
+                  designDataJsonRef.current,
+                  dataOperations,
+                );
+                designDataJsonRef.current = nextData;
                 queryClient.setQueryData(
                   ["action", "get-design", { id }],
                   (old: any) => {
@@ -11128,16 +7679,13 @@ export default function DesignEditor() {
                     return { ...old, data: JSON.stringify(nextData) };
                   },
                 );
-                updateDesignMutation.mutate(
-                  { id, data: JSON.stringify(nextData) } as any,
-                  {
-                    onError: () => {
-                      queryClient.invalidateQueries({
-                        queryKey: ["action", "get-design"],
-                      });
-                    },
+                updateDesignMutation.mutate({ id, dataOperations } as any, {
+                  onError: () => {
+                    queryClient.invalidateQueries({
+                      queryKey: ["action", "get-design"],
+                    });
                   },
-                );
+                });
               }
             }
             toast.success(t("designEditor.toasts.screenDuplicated"));
@@ -13966,11 +10514,9 @@ export default function DesignEditor() {
       if (options.persist === false) {
         cancelQueuedFileContentSave(fileId);
       } else {
-        saveFileContent({
-          id: fileId,
-          content: nextContent,
-          syncCollab,
-        });
+        saveFileContent(
+          createFileContentSaveRequest(fileId, nextContent, syncCollab),
+        );
       }
     },
     [
@@ -13978,6 +10524,7 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
+      createFileContentSaveRequest,
       files,
       getScreenContent,
       id,
@@ -14431,11 +10978,9 @@ export default function DesignEditor() {
             };
           },
         );
-        saveFileContent({
-          id: targetFile.id,
-          content: nextContent,
-          syncCollab: true,
-        });
+        saveFileContent(
+          createFileContentSaveRequest(targetFile.id, nextContent, true),
+        );
       }
 
       const result = projectedNodeId ?? primitive.nodeId ?? true;
@@ -14458,6 +11003,7 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
+      createFileContentSaveRequest,
       files,
       id,
       isSynced,
@@ -14507,7 +11053,11 @@ export default function DesignEditor() {
     (
       screenId: string,
       nodeId: string,
-      options?: { selectFrame?: boolean; nextTool?: "move" | "pen" },
+      options?: {
+        selectFrame?: boolean;
+        nextTool?: "move" | "pen";
+        preserveActiveTool?: boolean;
+      },
     ) => {
       // B2/B4 fix: stay in overview mode after drawing a primitive.  The user
       // drew a shape on the board — they should remain on the board with the
@@ -14541,7 +11091,9 @@ export default function DesignEditor() {
         setOverviewSelectedScreenIds(
           isBoardTarget || options?.selectFrame === false ? [] : [screenId],
         );
-        setActiveTool(options?.nextTool ?? "move");
+        if (!options?.preserveActiveTool) {
+          setActiveTool(options?.nextTool ?? "move");
+        }
         setMode("edit");
       });
       // viewMode stays at "overview" — no setViewMode("single") call here.
@@ -14569,6 +11121,9 @@ export default function DesignEditor() {
         // for non-board targets) queues begin-text-edit through the
         // bridge-ready one-shot queue AND arms the host keystroke buffer
         // SYNCHRONOUSLY, so typing is captured from the very first keydown.
+        // Activation itself waits until the pointer gesture's trailing click:
+        // focusing during mouseup lets that click blur the empty editable one
+        // frame later, producing the visible caret blink and losing typing.
         // Best-effort only: if the registered bridge still belongs to a
         // different surface, its iframe no-ops on the unknown nodeId while
         // the buffer still swallows destructive shortcuts, and the
@@ -14578,7 +11133,7 @@ export default function DesignEditor() {
         if (typeof window !== "undefined") {
           const beginTextEditNow = (window as any).__designCanvasBeginTextEdit;
           if (typeof beginTextEditNow === "function") {
-            beginTextEditNow(textNodeId);
+            beginTextEditNow(textNodeId, { afterPointerGesture: true });
           }
         }
         const cancel = scheduleBeginTextEditForScreen(
@@ -14650,10 +11205,9 @@ export default function DesignEditor() {
    * same `handleCreatePrimitive`/`handlePrimitiveCreated` pair overview
    * drawing already uses — `createPrimitiveInsertFromSpec` just translates
    * the overlay's screen-content-space spec into the shared
-   * `CanvasPrimitiveInsert` shape first. Always returns the active tool to
-   * "move" afterward (Figma/overview parity) since single-screen pen never
-   * has a multi-click "mid-path" state to preserve (see
-   * createPrimitiveInsertFromSpec's pen doc comment).
+   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active, matching
+   * overview/Figma, unless the overlay is flushing a path because the user
+   * already selected a different tool.
    */
   const handleSingleScreenCreatePrimitive = useCallback(
     (spec: CreatePrimitiveSpec) => {
@@ -14666,6 +11220,8 @@ export default function DesignEditor() {
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
         selectFrame: false,
+        nextTool: spec.tool === "pen" ? "pen" : undefined,
+        preserveActiveTool: spec.preserveActiveTool,
       });
     },
     [activeFile, canEditDesign, handleCreatePrimitive, handlePrimitiveCreated],
@@ -14823,7 +11379,7 @@ export default function DesignEditor() {
     blurActiveDesignEditableTarget();
     flushSync(() => {
       setActiveTool("frame");
-      // Figma parity (F/A): while a single screen is focused, arm the
+      // Figma parity (F): while a single screen is focused, arm the
       // single-screen click-to-place overlay so the frame tool draws a
       // nested container <div> in THIS screen instead of yanking the user
       // out to overview (same pattern as handleTextTool/handleShapeTool).
@@ -15042,13 +11598,29 @@ export default function DesignEditor() {
   }, [activeFile, canEditDesign]);
 
   const handleDrawTool = useCallback(() => {
-    if (!activeFile || !canEditDesign || viewMode === "overview") return;
+    if (!activeFile || !canEditDesign) return;
+    // Y mirrors the comment tool's overview behavior: enter the active screen
+    // and arm annotation drawing in the same view transition. Returning early
+    // in overview made the shortcut look handled while doing nothing.
+    if (viewModeRef.current === "overview") {
+      viewModeRef.current = "single";
+      setActiveFileId(activeFile.id);
+      setScreenZoom(FOCUSED_SCREEN_ZOOM);
+      setViewMode("single");
+      setSelectedElement(null);
+      setHoveredElement(null);
+      setActiveTool("draw");
+      setMode("annotate");
+      setDrawMode(true);
+      setPinMode(false);
+      return;
+    }
     setActiveTool("draw");
     setMode("annotate");
     setSelectedElement(null);
     setDrawMode(true);
     setPinMode(false);
-  }, [activeFile, canEditDesign, viewMode]);
+  }, [activeFile, canEditDesign]);
 
   useEffect(() => {
     if (files.length > 0) resetAgentGenerating();
@@ -15081,6 +11653,16 @@ export default function DesignEditor() {
       return {};
     }
   }, [design?.data]);
+  useLayoutEffect(() => {
+    if (
+      !tweakSaveActive &&
+      !tweakSaveInFlightRef.current &&
+      pendingTweakSaveRef.current === null
+    ) {
+      confirmedTweakSelectionsHashRef.current =
+        tweakSelectionsHash(persistedSelections);
+    }
+  }, [persistedSelections, tweakSaveActive]);
 
   // Tweak values are keyed by tweak id while in the panel, then mapped to
   // CSS-var -> value for the iframe so the design's :root block picks them up.
@@ -15276,13 +11858,63 @@ export default function DesignEditor() {
       ownerId: designSelectionOwnerIdRef.current,
     };
     const persistedKey = JSON.stringify(persistedSelection);
-    if (persistedSelectionStateRef.current !== persistedKey) {
-      persistedSelectionStateRef.current = persistedKey;
+    const { zoom: _zoom, ...persistedContext } = persistedSelection;
+    const persistedContextKey = JSON.stringify(persistedContext);
+    const writePersistedSelection = (pending: {
+      key: string;
+      contextKey: string;
+      value: Record<string, unknown>;
+    }) => {
+      persistedSelectionStateRef.current = pending.key;
+      persistedSelectionContextRef.current = pending.contextKey;
       for (const key of designSelectionStateKeys()) {
-        setClientAppState(key, persistedSelection, {
-          keepalive: true,
-        }).catch(() => {});
+        setClientAppState(key, pending.value, { keepalive: true }).catch(
+          () => {},
+        );
       }
+    };
+    if (persistedSelectionStateRef.current === persistedKey) {
+      // A zoom gesture can return to the last persisted value before its
+      // trailing write fires. Cancel that now-stale queued intermediate.
+      if (persistedSelectionWriteTimerRef.current !== null) {
+        window.clearTimeout(persistedSelectionWriteTimerRef.current);
+        persistedSelectionWriteTimerRef.current = null;
+      }
+      pendingPersistedSelectionWriteRef.current = null;
+    } else if (persistedSelectionContextRef.current !== persistedContextKey) {
+      // Screen/selection/tool/panel changes are agent context and stay
+      // immediate. Only zoom-only churn is coalesced below.
+      if (persistedSelectionWriteTimerRef.current !== null) {
+        window.clearTimeout(persistedSelectionWriteTimerRef.current);
+        persistedSelectionWriteTimerRef.current = null;
+      }
+      pendingPersistedSelectionWriteRef.current = null;
+      writePersistedSelection({
+        key: persistedKey,
+        contextKey: persistedContextKey,
+        value: persistedSelection,
+      });
+    } else if (
+      pendingPersistedSelectionWriteRef.current?.key !== persistedKey
+    ) {
+      // Wheel/pinch zoom can render at 60+ Hz. Writing both scoped and global
+      // application-state keys for every tick creates an avoidable request +
+      // sync-event storm; keep the immediate in-memory context above and
+      // persist only the settled zoom after a short trailing delay.
+      pendingPersistedSelectionWriteRef.current = {
+        key: persistedKey,
+        contextKey: persistedContextKey,
+        value: persistedSelection,
+      };
+      if (persistedSelectionWriteTimerRef.current !== null) {
+        window.clearTimeout(persistedSelectionWriteTimerRef.current);
+      }
+      persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
+        persistedSelectionWriteTimerRef.current = null;
+        const pending = pendingPersistedSelectionWriteRef.current;
+        pendingPersistedSelectionWriteRef.current = null;
+        if (pending) writePersistedSelection(pending);
+      }, DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS);
     }
     const el = document.documentElement;
     el.dataset.designId = id;
@@ -15724,6 +12356,7 @@ export default function DesignEditor() {
       focusDesignInspectorForSelection();
     },
     [
+      activeFile?.id,
       applyFileContentUpdate,
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
@@ -19854,7 +16487,7 @@ export default function DesignEditor() {
     ],
   );
 
-  // Item 4: Figma's Alt+Shift+H/V — distribute the selection evenly along an
+  // Item 4: Figma's Ctrl+Alt+H/V — distribute the selection evenly along an
   // axis. Overview screens are first-class; in-screen layers reuse the same
   // batched-commit machinery as alignment above.
   const handleDistributeSelection = useCallback(
@@ -21211,7 +17844,7 @@ export default function DesignEditor() {
     });
   }, [canEditDesign, handleStylesChange, selectedElement]);
 
-  // Figma's "I" — eyedropper: sample a color from anywhere on screen and
+  // Figma's Ctrl+C — eyedropper: sample a color from anywhere on screen and
   // apply it to the current selection's fill (shape/frame) or text color
   // (text node), via the standard style-commit path. A one-shot action, not
   // a tool — see useDesignHotkeys' onEyedropper doc comment. No-ops with a
@@ -22814,6 +19447,29 @@ export default function DesignEditor() {
       ]),
     [],
   );
+  const selectCodeLayerNodesForHotkey = useCallback(
+    (
+      fileId: string,
+      nodes: CodeLayerNode[],
+      expandedIds: readonly string[] = [],
+    ): boolean => {
+      if (nodes.length === 0) return false;
+      setActiveFileId(fileId);
+      setOverviewSelectedScreenIds([]);
+      setSelectedLayerIdsState(nodes.map((node) => node.id));
+      setSelectedElement(
+        elementInfoFromCodeLayerNode(nodes[nodes.length - 1]!),
+      );
+      setExpandedLayerIds((current) => {
+        const next = new Set(current);
+        next.add(fileId);
+        expandedIds.forEach((expandedId) => next.add(expandedId));
+        return next.size === current.length ? current : Array.from(next);
+      });
+      return true;
+    },
+    [],
+  );
   /**
    * P5/vector-edit entry point. Only reachable while `viewMode === "overview"`
    * — MultiScreenCanvas's `vectorEdit` overlay (the only place this state is
@@ -22858,6 +19514,19 @@ export default function DesignEditor() {
               owner.node.dataAttributes["data-agent-native-node-id"] ??
               owner.node.id;
             scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
+            return;
+          }
+          const childNodes = owner.node.children
+            .map(
+              (childId) => codeLayerOwnerByNodeIdRef.current.get(childId)?.node,
+            )
+            .filter((node): node is CodeLayerNode => Boolean(node));
+          if (
+            selectCodeLayerNodesForHotkey(owner.fileId, childNodes, [
+              owner.node.id,
+            ])
+          ) {
+            return;
           }
         }
       }
@@ -22893,6 +19562,18 @@ export default function DesignEditor() {
           scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
           return;
         }
+        const childNodes = owner.node.children
+          .map(
+            (childId) => codeLayerOwnerByNodeIdRef.current.get(childId)?.node,
+          )
+          .filter((node): node is CodeLayerNode => Boolean(node));
+        if (
+          selectCodeLayerNodesForHotkey(owner.fileId, childNodes, [
+            owner.node.id,
+          ])
+        ) {
+          return;
+        }
       }
     }
     const target = getOverviewEnterTarget({
@@ -22921,6 +19602,7 @@ export default function DesignEditor() {
     enterVectorEditForSelection,
     getProjectionContentForScreen,
     overviewSelectedScreenIds,
+    selectCodeLayerNodesForHotkey,
     selectedLayerIdsState,
     viewMode,
   ]);
@@ -22977,7 +19659,7 @@ export default function DesignEditor() {
     };
   }, []);
 
-  // Item 3 — Tab/Shift+Tab cycles screens in LAYERS-PANEL order, not raw
+  // Current Figma — N/Shift+N cycles frames in LAYERS-PANEL order, not raw
   // `files` order. `files` also includes the board file and non-html support
   // files (e.g. CSS), neither of which is a visible screen a user could tab
   // onto in Figma; `overviewScreens` is the same html+non-board, panel-order
@@ -22997,8 +19679,8 @@ export default function DesignEditor() {
       if (!nextScreen) return;
       setActiveFileId(nextScreen.id);
       setSelectedElement(null);
-      // Figma always recenters the viewport on the newly-selected screen when
-      // tabbing — DesignEditor doesn't track MultiScreenCanvas's live pan/zoom
+      // Figma always recenters the viewport on the newly-selected frame.
+      // DesignEditor doesn't track MultiScreenCanvas's live pan/zoom
       // (see handleZoomToFit's comment), so there's no cheap "already in
       // view" check available here; always follow, with generous padding so
       // the freshly-selected frame doesn't hug the viewport edge.
@@ -23028,13 +19710,64 @@ export default function DesignEditor() {
     ],
   );
 
+  // Current Figma — Tab/Shift+Tab traverse siblings within the selected
+  // layer's parent. Frame navigation has its own N/Shift+N bindings above;
+  // keeping these paths separate prevents Tab from unexpectedly leaving the
+  // layer hierarchy and jumping to another screen.
+  const handleCycleSibling = useCallback(
+    (backwards: boolean) => {
+      const selectedId =
+        selectedLayerIdsState[selectedLayerIdsState.length - 1];
+      if (!selectedId) return;
+      const owner = codeLayerOwnerByNodeIdRef.current.get(selectedId);
+      if (!owner) return;
+      const siblingOrder = findCodeLayerSiblingOrder(owner.tree, selectedId);
+      if (!siblingOrder || siblingOrder.siblingIds.length < 2) return;
+      const nextIndex =
+        (siblingOrder.index +
+          (backwards ? -1 : 1) +
+          siblingOrder.siblingIds.length) %
+        siblingOrder.siblingIds.length;
+      const nextId = siblingOrder.siblingIds[nextIndex];
+      if (!nextId) return;
+      const nextOwner = codeLayerOwnerByNodeIdRef.current.get(nextId);
+      if (!nextOwner || nextOwner.fileId !== owner.fileId) return;
+      selectCodeLayerNodesForHotkey(
+        nextOwner.fileId,
+        [nextOwner.node],
+        collectCodeLayerAncestors(nextOwner.tree, nextId),
+      );
+    },
+    [selectCodeLayerNodesForHotkey, selectedLayerIdsState],
+  );
+
+  // Current Figma — Backslash selects the parent layer. A top-level code
+  // layer has no code-layer parent (its parent is the screen itself), so this
+  // deliberately no-ops there rather than forcing an unexpected view-mode
+  // transition just to approximate screen selection.
+  const handleSelectParentLayer = useCallback(() => {
+    const selectedId = selectedLayerIdsState[selectedLayerIdsState.length - 1];
+    if (!selectedId) return;
+    const owner = codeLayerOwnerByNodeIdRef.current.get(selectedId);
+    if (!owner?.node.parentId) return;
+    const parentOwner = codeLayerOwnerByNodeIdRef.current.get(
+      owner.node.parentId,
+    );
+    if (!parentOwner || parentOwner.fileId !== owner.fileId) return;
+    selectCodeLayerNodesForHotkey(
+      parentOwner.fileId,
+      [parentOwner.node],
+      collectCodeLayerAncestors(parentOwner.tree, parentOwner.node.id),
+    );
+  }, [selectCodeLayerNodesForHotkey, selectedLayerIdsState]);
+
   // L23: Cmd+A in single mode selects all top-level layers of the active
   // screen instead of yanking the user into the screen overview and
   // selecting every screen — that's surprising when the user is focused on
   // editing one screen's layers. Overview-mode Cmd+A keeps its previous
   // "select all screens" behavior.
   const handleSelectAllFrames = useCallback(() => {
-    if (!files.length) return;
+    if (!overviewScreens.length) return;
     if (viewModeRef.current === "single" && activeFile) {
       const projection = buildCodeLayerProjection(getFreshActiveContent());
       const tree = buildCodeLayerTree(projection);
@@ -23055,9 +19788,9 @@ export default function DesignEditor() {
     setActiveTool("move");
     viewModeRef.current = "overview";
     setViewMode("overview");
-    setOverviewSelectedScreenIds(files.map((file) => file.id));
+    setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
     setOverviewSelectAllRequest((request) => request + 1);
-  }, [activeFile, files, getFreshActiveContent]);
+  }, [activeFile, getFreshActiveContent, overviewScreens]);
 
   // L12: shared by Cmd+R and the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,
@@ -23087,6 +19820,23 @@ export default function DesignEditor() {
     );
   }, []);
 
+  const handleShowLayersPanel = useCallback(() => {
+    setUiHidden(false);
+    setActiveLeftPanel("file");
+  }, []);
+
+  const handleShowAssetsPanel = useCallback(() => {
+    setUiHidden(false);
+    setActiveLeftPanel("assets");
+  }, []);
+
+  const handleFindLayers = useCallback(() => {
+    handleShowLayersPanel();
+    // The panel is unmounted while Show/Hide UI is active. Wait for React to
+    // reveal it before asking the existing search control to open and focus.
+    window.requestAnimationFrame(() => layersPanelRef.current?.focusSearch());
+  }, [handleShowLayersPanel]);
+
   useDesignHotkeys({
     enabled: !embedded && !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
@@ -23100,8 +19850,15 @@ export default function DesignEditor() {
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: canEditDesign ? handleHandTool : undefined,
     onCommentTool: canEditDesign ? handlePinToolToggle : undefined,
+    onDrawTool: canEditDesign ? handleDrawTool : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
+    onCopyAsPng:
+      canEditDesign &&
+      (Boolean(selectedElement) ||
+        (viewMode === "overview" && selectedScreenIds.length === 1))
+        ? () => void handleCopyAsPng()
+        : undefined,
     // Not gated on hasCanvasClipboard: this tab may not have copied anything
     // itself yet, but the system clipboard can still carry a marker payload
     // from a copy made in another tab/window (see U4). handlePasteSelection
@@ -23113,7 +19870,6 @@ export default function DesignEditor() {
     onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
     onCopyProps: canEditDesign ? handleCopyProps : undefined,
     onPasteProps: canEditDesign ? handlePasteProps : undefined,
-    onCopyAsCode: handleCopySelection,
     onDuplicate: canEditDesign ? handleDuplicateSelection : undefined,
     onDelete: canEditDesign ? handleDeleteSelection : undefined,
     // L12: Cmd+R (and the context-menu Rename item, both routed through
@@ -23134,6 +19890,13 @@ export default function DesignEditor() {
       setTitleDraft(design?.title ?? "");
       setTitleEditing(true);
     },
+    onFind: initialGenerationChromeLimited ? undefined : handleFindLayers,
+    onShowLayersPanel: initialGenerationChromeLimited
+      ? undefined
+      : handleShowLayersPanel,
+    onShowAssetsPanel: initialGenerationChromeLimited
+      ? undefined
+      : handleShowAssetsPanel,
     onGroup: canEditDesign ? handleGroupSelection : undefined,
     onUngroup: canEditDesign ? handleUngroupSelection : undefined,
     onFrameSelection: canEditDesign ? handleFrameSelection : undefined,
@@ -23170,11 +19933,15 @@ export default function DesignEditor() {
       : undefined,
     onEscape: handleEscapeHotkey,
     onEnter: handleEnterHotkey,
-    onTab: ({ backwards }) => handleCycleFile(backwards),
+    onSelectParent: handleSelectParentLayer,
+    onTab: ({ backwards }) => handleCycleSibling(backwards),
+    onNextFrame: () => handleCycleFile(false),
+    onPreviousFrame: () => handleCycleFile(true),
     onNudge: ({ direction, largeStep }) =>
       handleNudgeSelection(direction, largeStep),
     onZoomIn: handleZoomIn,
     onZoomOut: handleZoomOut,
+    // Current Figma: Cmd+0 returns to 100%.
     onZoomReset: () => setZoom(100),
     onZoomToFit: handleZoomToFit,
     onZoomToSelection: () => {
@@ -23188,8 +19955,6 @@ export default function DesignEditor() {
       // fixed zoom-in behavior for that surface.
       if (selectedElement) setZoom(150);
     },
-    // H2: Shift+0 — zoom to 100% (Figma parity; distinct from Cmd+0 reset).
-    onZoomTo100: () => setZoom(100),
     // H2: Cmd+Alt+K — create component from the current selection.
     onCreateComponent: canEditDesign ? handleCreateComponentHotkey : undefined,
     // H2: plain digit 1-9/0 — set selection opacity. Only supplied while a
@@ -23672,128 +20437,315 @@ export default function DesignEditor() {
     });
   }, [exportZipMutation, fallbackExportName, id, t, triggerBlobDownload]);
 
+  const pngSelectedElements = useMemo(() => {
+    const selectedIds = new Set(selectedLayerIdsState);
+    const projected = activeCodeLayerProjection.nodes
+      .filter((node) => selectedIds.has(node.id))
+      .map(elementInfoFromCodeLayerNode);
+    return projected.length > 0
+      ? projected
+      : selectedElement
+        ? [selectedElement]
+        : [];
+  }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
+
+  const resolvePngCaptureTarget = useCallback(
+    (selectionOnly: boolean) => {
+      let iframe = canvasIframeRef.current;
+      let cropSelection: ElementInfo | readonly ElementInfo[] | null =
+        viewMode === "single"
+          ? pngSelectedElements.length > 0
+            ? pngSelectedElements
+            : selectedElement
+          : null;
+
+      // In overview, Copy as PNG targets the one selected screen instead of
+      // whichever iframe happens to be first in DOM order. The download action
+      // still targets the active screen through canvasIframeRef.
+      if (selectionOnly && viewMode === "overview") {
+        const screenId =
+          selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
+        iframe = screenId
+          ? document.querySelector<HTMLIFrameElement>(
+              `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+            )
+          : null;
+        cropSelection = null;
+      }
+
+      if (!iframe) throw new PngCaptureError("no-preview");
+
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+        if (!doc?.documentElement) doc = null;
+      } catch {
+        doc = null;
+      }
+      if (!doc) {
+        const sourceType =
+          normalizeDesignSourceType(iframe.dataset.designSourceType) ??
+          activeCanvasSourceType;
+        if (sourceType !== "inline") {
+          throw new PngCaptureError("external-preview");
+        }
+        if (!canEditDesign) {
+          throw new PngCaptureError("read-only-preview");
+        }
+        throw new PngCaptureError("no-preview");
+      }
+
+      return { cropSelection, doc, iframe };
+    },
+    [
+      activeCanvasSourceType,
+      canEditDesign,
+      canvasIframeRef,
+      pngSelectedElements,
+      selectedElement,
+      selectedScreenIds,
+      viewMode,
+    ],
+  );
+
+  /** Shared renderer for download and clipboard paths. Keeping capture, clone
+   * sanitization, overlay stripping, scale, and crop in one function prevents
+   * Copy as PNG from drifting visually from the existing PNG export. */
+  const renderPngBlob = useCallback(
+    async ({
+      selectionOnly,
+      settings,
+    }: {
+      selectionOnly: boolean;
+      settings?: Partial<ExportSettingsValue>;
+    }): Promise<Blob> => {
+      const html2canvas = (await import("html2canvas")).default;
+      const exportScale = Math.max(
+        0.1,
+        Math.min(
+          4,
+          settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
+        ),
+      );
+      let outputCanvas: HTMLCanvasElement;
+
+      if (
+        selectionOnly &&
+        viewMode === "overview" &&
+        selectedScreenIds.length > 0
+      ) {
+        const captures = selectedScreenIds
+          .map((screenId, order) => {
+            const iframe = document.querySelector<HTMLIFrameElement>(
+              `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+            );
+            if (!iframe) throw new PngCaptureError("no-preview");
+            let doc: Document | null = null;
+            try {
+              doc = iframe.contentDocument;
+              if (!doc?.documentElement) doc = null;
+            } catch {
+              doc = null;
+            }
+            if (!doc) {
+              const sourceType =
+                normalizeDesignSourceType(iframe.dataset.designSourceType) ??
+                activeCanvasSourceType;
+              if (sourceType !== "inline") {
+                throw new PngCaptureError("external-preview");
+              }
+              if (!canEditDesign) {
+                throw new PngCaptureError("read-only-preview");
+              }
+              throw new PngCaptureError("no-preview");
+            }
+            const screen = overviewScreens.find(
+              (candidate) => candidate.id === screenId,
+            );
+            const geometry = canvasFrameGeometryById[screenId] ?? {};
+            return {
+              doc,
+              frame: {
+                x: geometry.x ?? order * ((screen?.width ?? 1440) + 80),
+                y: geometry.y ?? 0,
+                width: Math.max(
+                  1,
+                  geometry.width ?? screen?.width ?? iframe.clientWidth,
+                ),
+                height: Math.max(
+                  1,
+                  geometry.height ?? screen?.height ?? iframe.clientHeight,
+                ),
+                rotation: geometry.rotation ?? 0,
+              },
+              iframe,
+              order,
+              z: geometry.z ?? order,
+            };
+          })
+          .sort((left, right) => left.z - right.z || left.order - right.order);
+        const bounds = getExportCompositeBounds(
+          captures.map((capture) => capture.frame),
+        );
+        if (!bounds) throw new PngCaptureError("no-preview");
+        outputCanvas = document.createElement("canvas");
+        outputCanvas.width = Math.max(1, Math.ceil(bounds.width * exportScale));
+        outputCanvas.height = Math.max(
+          1,
+          Math.ceil(bounds.height * exportScale),
+        );
+        const context = outputCanvas.getContext("2d");
+        if (!context) throw new PngCaptureError("blob-failed");
+
+        for (const capture of captures) {
+          const rendered = await renderExportDocumentCanvas({
+            doc: capture.doc,
+            iframe: capture.iframe,
+            exportScale,
+            render: html2canvas,
+          });
+          const view = capture.doc.defaultView;
+          const viewportCanvas = cropCanvasToRect(
+            rendered,
+            {
+              x: view?.scrollX ?? 0,
+              y: view?.scrollY ?? 0,
+              width: Math.max(1, capture.iframe.clientWidth),
+              height: Math.max(1, capture.iframe.clientHeight),
+            },
+            exportScale,
+          );
+          const frame = capture.frame;
+          context.save();
+          context.translate(
+            (frame.x + frame.width / 2 - bounds.x) * exportScale,
+            (frame.y + frame.height / 2 - bounds.y) * exportScale,
+          );
+          context.rotate(((frame.rotation ?? 0) * Math.PI) / 180);
+          context.drawImage(
+            viewportCanvas ?? rendered,
+            (-frame.width / 2) * exportScale,
+            (-frame.height / 2) * exportScale,
+            frame.width * exportScale,
+            frame.height * exportScale,
+          );
+          context.restore();
+        }
+      } else {
+        const { cropSelection, doc, iframe } =
+          resolvePngCaptureTarget(selectionOnly);
+        const canvas = await renderExportDocumentCanvas({
+          doc,
+          iframe,
+          exportScale,
+          render: html2canvas,
+        });
+        const cropRect = resolveExportCropRect(doc, cropSelection);
+        // Render the whole page first, then crop, so ancestor backgrounds show
+        // through every selected frame exactly as they do on screen.
+        outputCanvas = cropRect
+          ? (cropCanvasToRect(canvas, cropRect, exportScale) ?? canvas)
+          : canvas;
+      }
+      return await new Promise<Blob>((resolve, reject) => {
+        outputCanvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new PngCaptureError("blob-failed"));
+        }, "image/png");
+      });
+    },
+    [
+      activeCanvasSourceType,
+      canEditDesign,
+      canvasFrameGeometryById,
+      overviewScreens,
+      resolvePngCaptureTarget,
+      selectedScreenIds,
+      viewMode,
+    ],
+  );
+
+  const showPngCaptureError = useCallback(
+    (error: unknown) => {
+      if (error instanceof PngCaptureError) {
+        const key =
+          error.code === "external-preview"
+            ? "designEditor.toasts.pngLivePreviewUnavailable"
+            : error.code === "read-only-preview"
+              ? "designEditor.toasts.pngReadOnlyUnavailable"
+              : error.code === "blob-failed"
+                ? "designEditor.toasts.pngCreateError"
+                : "designEditor.toasts.openScreenPng";
+        toast.error(t(key));
+        return;
+      }
+      console.error("PNG capture failed:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.pngExportError"),
+      );
+    },
+    [t],
+  );
+
   const handleDownloadPng = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
       if (pngExportingRef.current) return;
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      );
-      const doc = iframe?.contentDocument;
-      if (!doc?.documentElement) {
-        toast.error(t("designEditor.toasts.openScreenPng"));
-        return;
-      }
       pngExportingRef.current = true;
       setPngExporting(true);
       try {
-        const html2canvas = (await import("html2canvas")).default;
-        const width = Math.max(
-          doc.documentElement.scrollWidth,
-          doc.body?.scrollWidth ?? 0,
-          iframe?.clientWidth ?? 0,
-        );
-        const height = Math.max(
-          doc.documentElement.scrollHeight,
-          doc.body?.scrollHeight ?? 0,
-          iframe?.clientHeight ?? 0,
-        );
-        const exportScale = Math.max(
-          0.1,
-          Math.min(
-            4,
-            settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
-          ),
-        );
-        // When an element is selected, crop the export to just that frame.
-        const cropRect = resolveExportCropRect(doc, selectedElement);
-        let canvas: HTMLCanvasElement;
-        try {
-          canvas = await html2canvas(doc.documentElement, {
-            width,
-            height,
-            windowWidth: width,
-            windowHeight: height,
-            scale: exportScale,
-            useCORS: true,
-            foreignObjectRendering: true,
-            backgroundColor: null,
-            onclone: (clonedDocument) => {
-              // Sanitize colors first: it aligns source/clone elements by index,
-              // so remove the editor-chrome overlays only afterwards.
-              sanitizeHtml2CanvasClone(doc, clonedDocument);
-              removeEditorChromeOverlays(clonedDocument);
-            },
-          });
-        } catch (primaryError) {
-          console.warn(
-            "PNG export failed with foreignObjectRendering; retrying canvas renderer:",
-            primaryError,
-          );
-          canvas = await html2canvas(doc.documentElement, {
-            width,
-            height,
-            windowWidth: width,
-            windowHeight: height,
-            scale: exportScale,
-            useCORS: true,
-            foreignObjectRendering: false,
-            backgroundColor: null,
-            onclone: (clonedDocument) => {
-              sanitizeHtml2CanvasClone(doc, clonedDocument);
-              removeEditorChromeOverlays(clonedDocument);
-            },
-          });
-        }
-        // Render the whole page first, then crop, so ancestor backgrounds show
-        // through the selected frame exactly as they do on screen.
-        const outputCanvas = cropRect
-          ? (cropCanvasToRect(canvas, cropRect, exportScale) ?? canvas)
-          : canvas;
-        await new Promise<void>((resolve) => {
-          outputCanvas.toBlob((blob) => {
-            try {
-              if (!blob) {
-                toast.error(t("designEditor.toasts.pngCreateError"));
-                return;
-              }
-              triggerBlobDownload(
-                blob,
-                fallbackExportName("png", settings?.suffix),
-              );
-              toast.success(t("designEditor.toasts.pngDownloaded"));
-            } catch (callbackError) {
-              // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
-              // either of which can throw inside this async callback — outside
-              // the outer try/catch. Surface the failure instead of silently
-              // dropping it.
-              console.error(
-                "PNG export failed during download:",
-                callbackError,
-              );
-              toast.error(
-                callbackError instanceof Error
-                  ? callbackError.message
-                  : t("designEditor.toasts.pngSaveError"),
-              );
-            } finally {
-              resolve();
-            }
-          }, "image/png");
-        });
+        const blob = await renderPngBlob({ selectionOnly: false, settings });
+        triggerBlobDownload(blob, fallbackExportName("png", settings?.suffix));
+        toast.success(t("designEditor.toasts.pngDownloaded"));
       } catch (error) {
-        console.error("PNG export failed:", error);
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("designEditor.toasts.pngExportError"),
-        );
+        showPngCaptureError(error);
       } finally {
         pngExportingRef.current = false;
         setPngExporting(false);
       }
     },
-    [fallbackExportName, selectedElement, t, triggerBlobDownload],
+    [
+      fallbackExportName,
+      renderPngBlob,
+      showPngCaptureError,
+      t,
+      triggerBlobDownload,
+    ],
   );
+
+  const handleCopyAsPng = useCallback(async () => {
+    if (pngExportingRef.current) return;
+    if (!canCopyPngToClipboard()) {
+      toast.error(t("designEditor.toasts.pngClipboardUnsupported"));
+      return;
+    }
+
+    pngExportingRef.current = true;
+    setPngExporting(true);
+    try {
+      // Do not await this before clipboard.write: ClipboardItem accepts the
+      // pending Blob representation, preserving the initiating user gesture.
+      const pngBlob = renderPngBlob({ selectionOnly: true });
+      await copyPngPromiseToClipboard(pngBlob);
+      toast.success(t("designEditor.toasts.pngCopied"));
+    } catch (error) {
+      if (error instanceof PngClipboardError) {
+        const key =
+          error.code === "blocked"
+            ? "designEditor.toasts.pngClipboardBlocked"
+            : error.code === "unsupported"
+              ? "designEditor.toasts.pngClipboardUnsupported"
+              : "designEditor.toasts.pngClipboardWriteError";
+        toast.error(t(key));
+      } else {
+        showPngCaptureError(error);
+      }
+    } finally {
+      pngExportingRef.current = false;
+      setPngExporting(false);
+    }
+  }, [renderPngBlob, showPngCaptureError, t]);
 
   const handleDownloadSvg = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
@@ -24413,10 +21365,14 @@ ${serializedHtml}
     [activeCodeLayerTree, hiddenLayerIds, lockedLayerIds],
   );
 
+  const visualScreenFileIds = useMemo(
+    () => new Set(overviewScreens.map((screen) => screen.id)),
+    [overviewScreens],
+  );
   const layerPanelFiles = useMemo<LayersPanelFile[]>(
     () =>
       files
-        .filter((file) => !isBoardFile(file.filename))
+        .filter((file) => visualScreenFileIds.has(file.id))
         .map((file) => ({
           id: file.id,
           name: prettyScreenName(file.filename),
@@ -24429,12 +21385,12 @@ ${serializedHtml}
           hideable: true,
           renamable: true,
         })),
-    [files, hiddenLayerIds, lockedLayerIds],
+    [files, hiddenLayerIds, lockedLayerIds, visualScreenFileIds],
   );
   const overviewLayerPanelFiles = useMemo<LayersPanelFile[]>(
     () =>
       files
-        .filter((file) => !isBoardFile(file.filename))
+        .filter((file) => visualScreenFileIds.has(file.id))
         .map((file) => {
           const model = codeLayerModelByFileId.get(file.id);
           return {
@@ -24455,7 +21411,13 @@ ${serializedHtml}
             ),
           };
         }),
-    [codeLayerModelByFileId, files, hiddenLayerIds, lockedLayerIds],
+    [
+      codeLayerModelByFileId,
+      files,
+      hiddenLayerIds,
+      lockedLayerIds,
+      visualScreenFileIds,
+    ],
   );
 
   // Board objects shown as top-level peer rows in the layers panel, right
@@ -24570,6 +21532,7 @@ ${serializedHtml}
         codeFileId: targetFileId,
         selectionId: selectedUrlSelectionId,
         zoom,
+        tool: activeTool,
       });
       if (nextSearch === location.search) return;
       navigate(
@@ -24584,6 +21547,7 @@ ${serializedHtml}
     [
       activeFile?.id,
       activeFileId,
+      activeTool,
       location.hash,
       location.pathname,
       location.search,
@@ -24688,6 +21652,7 @@ ${serializedHtml}
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection ? initialRouteSelectionId : null),
       zoom,
+      tool: activeTool,
     });
     if (nextSearch === location.search) return;
     // Item 11 (URL sync): `zoom` is a dependency here, and zoom changes
@@ -24726,6 +21691,7 @@ ${serializedHtml}
     activeCodeFile?.fileId,
     activeCodeFile?.path,
     activeLeftPanel,
+    activeTool,
     codeLayerOwnerByNodeId.size,
     files,
     id,
@@ -25499,13 +22465,28 @@ ${serializedHtml}
     activeOverviewScreen?.url,
   ]);
 
+  const activeLocalhostWriteExtension =
+    (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
   /** True when the active localhost screen maps to an HTML/CSS file we can write. */
   const activeLocalhostRouteIsWritable =
     activeScreenIsLocalSource &&
     Boolean(activeLocalhostRelPath) &&
-    LOCALHOST_WRITE_EXTENSIONS.has(
-      (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "",
-    );
+    LOCALHOST_WRITE_EXTENSIONS.has(activeLocalhostWriteExtension);
+  const activeLocalhostSourceSnapshot = activeFile?.id
+    ? liveScreenSnapshotsById[activeFile.id]
+    : undefined;
+  const currentLocalhostPreviewUrl = activeOverviewScreen?.url;
+  const activeLocalhostSourceSnapshotHtml =
+    activeLocalhostSourceSnapshot &&
+    currentLocalhostPreviewUrl &&
+    activeLocalhostSourceSnapshot.url === currentLocalhostPreviewUrl
+      ? activeLocalhostSourceSnapshot.html
+      : undefined;
+  const activeLocalhostSourceWriteContent = resolveLocalhostSourceWriteContent({
+    extension: activeLocalhostWriteExtension,
+    persistedContent: activeContent,
+    liveSnapshotHtml: activeLocalhostSourceSnapshotHtml,
+  });
   /**
    * True when the active localhost screen resolves to a compiled framework
    * route (.jsx/.tsx) — a real local source file exists, but we can't yet
@@ -25516,9 +22497,7 @@ ${serializedHtml}
   const activeLocalhostRouteIsCompiledSource =
     activeScreenIsLocalSource &&
     Boolean(activeLocalhostRelPath) &&
-    LOCALHOST_COMPILED_SOURCE_EXTENSIONS.has(
-      (activeLocalhostRelPath?.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "",
-    );
+    LOCALHOST_COMPILED_SOURCE_EXTENSIONS.has(activeLocalhostWriteExtension);
 
   /**
    * Strip editor-only node-id attributes from HTML source so they are not
@@ -25582,23 +22561,32 @@ ${serializedHtml}
     }
     const relPath = activeLocalhostRelPath;
     const connectionId = activeLocalhostConnectionId;
-    // Snapshot current editor content at call time.
-    const rawContent = latestActiveContentRef.current;
+    // URL-backed Design files persist the route URL in `content`; HTML source
+    // comes from the authenticated snapshot model populated by DesignCanvas.
+    // Fail closed until that source exists so this button can never serialize
+    // a localhost URL and overwrite the user's actual file with it.
+    const ext = (relPath.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
+    const rawContent = resolveLocalhostSourceWriteContent({
+      extension: ext,
+      persistedContent: latestActiveContentRef.current,
+      liveSnapshotHtml: activeLocalhostSourceSnapshotHtml,
+    });
     if (!rawContent) {
       toast.error(NO_LOCALHOST_WRITE_CONTENT_MESSAGE);
       return;
     }
     // Strip editor-only attributes before writing so the on-disk file stays
     // clean.  Only strip for HTML routes; CSS files have no DOM attributes.
-    const ext = (relPath.match(/\.[^.]+$/) ?? [])[0]?.toLowerCase() ?? "";
     const content =
       ext === ".html" || ext === ".htm"
-        ? stripEditorOnlyAttributes(rawContent)
+        ? stripEditorOnlyAttributes(
+            sanitizeLocalhostSourceSnapshotHtml(rawContent),
+          )
         : rawContent;
 
     requestLocalhostWrite({
       files: [relPath],
-      onGranted: ({ bridgeToken, rootPath: grantedRootPath, grantId }) => {
+      onGranted: ({ bridgeToken }) => {
         void (async () => {
           setApplyToSourcePending(true);
           try {
@@ -25655,8 +22643,10 @@ ${serializedHtml}
   }, [
     id,
     canEditDesign,
+    activeFile?.id,
     activeLocalhostConnectionId,
     activeLocalhostRelPath,
+    activeLocalhostSourceSnapshotHtml,
     requestLocalhostWrite,
     t,
   ]);
@@ -25966,12 +22956,12 @@ ${serializedHtml}
       // up as A,C,B relative to the anchor instead of preserving A,B,C,
       // because the two source kinds never interleaved against one another.
       // Fix: classify each dragged id but keep ONE combined list in the
-      // original intent.draggedIds order (already panel-visual order across
-      // the whole panel, per getDraggedLayerIdsForRows/getTreeOrderedLayerIds
-      // — see LP), then iterate that single list once, dispatching each item
-      // through the same-file or cross-file primitive against the shared
-      // running nextDestContent / sourceContentMap state so mixed sequences
-      // interleave in the intended order.
+      // original intent.draggedIds order (already translated from panel order
+      // into DOM order at the LayersPanel callback boundary), then iterate
+      // that single list once, dispatching each item through the same-file or
+      // cross-file primitive against the shared running nextDestContent /
+      // sourceContentMap state so mixed sequences interleave in the intended
+      // order.
       const movedNodeSnapshots = new Map<string, CodeLayerNode>();
       type ClassifiedDrag =
         | { draggedId: string; kind: "same-file" }
@@ -26567,66 +23557,151 @@ ${serializedHtml}
       if (!canEditDesign) return;
       const renamedFile = files.find((file) => file.id === layerId);
       if (renamedFile) {
-        // L11: the panel shows/edits a designer-friendly display name
-        // (prettyScreenName strips the extension and reformats the stem —
-        // "index.html" reads as "Home"), but this rename callback previously
-        // wrote the raw typed text straight into the DB `filename` column
-        // verbatim, silently dropping the real extension (renaming "Home" to
-        // "Dashboard" turned "index.html" into a literal file named
-        // "Dashboard" with no extension at all) and leaving every other
-        // screen's `data-screen="index.html"` prototype links pointing at a
-        // filename that no longer exists.
         const nextFilename = renameFilenamePreservingExtension(
           renamedFile.filename,
           name,
         );
         if (nextFilename === renamedFile.filename) return;
         const previousFilename = renamedFile.filename;
-        updateFileMutation.mutate(
-          { id: layerId, filename: nextFilename } as any,
+        const contentOverrides = serverFiles.flatMap((file) => {
+          const screen = overviewScreens.find(
+            (candidate) => candidate.id === file.id,
+          );
+          if (!screen) return [];
+          const freshContent = getScreenContent(file.id);
+          if (
+            !shouldIncludeScreenRenameContentOverride({
+              fileType: file.fileType,
+              sourceType: resolveOverviewScreenSourceType(
+                screen,
+                designSourceType,
+              ),
+              persistedContent: file.content,
+              freshContent,
+            })
+          ) {
+            return [];
+          }
+          return [
+            {
+              fileId: file.id,
+              content: freshContent,
+              expectedVersionHash: sourceContentHash(file.content),
+            },
+          ];
+        });
+
+        // Rename is one atomic server mutation: it validates uniqueness and
+        // updates the filename plus every exact data-screen reference (self
+        // links included) in one transaction. Apply the filename optimistically
+        // because it does not rebuild iframe content; the committed HTML
+        // snapshots returned below are then patched into live previews/Yjs in
+        // place, avoiding the old rename -> N independent save race and white
+        // flashes from srcdoc reloads.
+        queryClient.setQueryData(
+          ["action", "get-design", { id }],
+          (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: DesignFile) =>
+                file.id === layerId
+                  ? { ...file, filename: nextFilename }
+                  : file,
+              ),
+            };
+          },
+        );
+
+        renameScreenMutation.mutate(
           {
-            onSuccess: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-              // Best-effort, non-transactional reference fix: the rename
-              // itself already committed above, so this sweep runs as a
-              // separate follow-up pass over every OTHER screen's content,
-              // updating data-screen="<old filename>" prototype-navigation
-              // attributes to point at the new filename. If an individual
-              // file's content update below fails/races, the rename still
-              // stands — only that file's stale reference would need a
-              // manual follow-up fix.
-              files.forEach((file) => {
-                if (file.id === layerId) return;
-                const content =
-                  file.id === activeFile?.id
-                    ? getFreshActiveContent()
-                    : file.content;
-                if (!content || !content.includes(previousFilename)) return;
-                const nextFileContent = replaceDataScreenReferences(
-                  content,
-                  previousFilename,
-                  nextFilename,
-                );
-                if (nextFileContent === content) return;
-                // data-screen references are read by the nav bridge at CLICK
-                // time (nav.bridge.ts closest("[data-screen]") lookup), never
-                // resolved at srcdoc build time, so the active file does not
-                // need `refreshPreview: true`'s srcdoc rebuild (white flash)
-                // — the in-place full-document replace applies the rewritten
-                // attributes just as durably (same routing rationale as
-                // getPersistedContentHostSyncOptions' doc comment). NOT the
-                // helper itself: these rewrites are client-authored and MUST
-                // persist — the whole point of the sweep is saving the fixed
-                // references, which the helper's `persist: false` would
-                // cancel.
-                applyFileContentUpdate(file.id, nextFileContent, {
-                  forcePreviewFullDocument: file.id === activeFile?.id,
+            id: layerId,
+            name,
+            requestSource: TAB_ID,
+            contentOverrides,
+          } as any,
+          {
+            onSuccess: (rawResult: unknown) => {
+              const result = rawResult as {
+                filename?: string;
+                files?: Array<{
+                  id: string;
+                  filename: string;
+                  content: string;
+                  updatedAt: string;
+                  contentChanged: boolean;
+                }>;
+              };
+              const committedFiles = Array.isArray(result.files)
+                ? result.files
+                : [];
+              committedFiles.forEach((file) => {
+                if (!file.contentChanged) return;
+                applyFileContentUpdate(file.id, file.content, {
+                  forcePreviewFullDocument: true,
+                  persist: false,
+                  recordHistory: false,
+                  updatedAt: file.updatedAt,
                 });
               });
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (
+                    !old ||
+                    typeof old !== "object" ||
+                    !Array.isArray(old.files)
+                  ) {
+                    return old;
+                  }
+                  const committedById = new Map(
+                    committedFiles.map((file) => [file.id, file]),
+                  );
+                  return {
+                    ...old,
+                    files: old.files.map((file: DesignFile) => {
+                      const committed = committedById.get(file.id);
+                      if (!committed) return file;
+                      return {
+                        ...file,
+                        filename: committed.filename,
+                        content: committed.content,
+                        updatedAt: committed.updatedAt,
+                      };
+                    }),
+                  };
+                },
+              );
             },
             onError: (error) => {
+              // Roll back only this optimistic filename. Do not restore a
+              // whole cached design snapshot because the user or a peer may
+              // have edited content while the mutation was in flight.
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (
+                    !old ||
+                    typeof old !== "object" ||
+                    !Array.isArray(old.files)
+                  ) {
+                    return old;
+                  }
+                  return {
+                    ...old,
+                    files: old.files.map((file: DesignFile) =>
+                      file.id === layerId && file.filename === nextFilename
+                        ? { ...file, filename: previousFilename }
+                        : file,
+                    ),
+                  };
+                },
+              );
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "get-design", { id }],
+              });
               toast.error(
                 error instanceof Error
                   ? error.message
@@ -26664,11 +23739,16 @@ ${serializedHtml}
       applyFileContentUpdate,
       canEditDesign,
       codeLayerOwnerByNodeId,
+      designSourceType,
       files,
       getFreshActiveContent,
+      getScreenContent,
+      id,
+      overviewScreens,
       queryClient,
+      renameScreenMutation,
+      serverFiles,
       t,
-      updateFileMutation,
     ],
   );
 
@@ -26932,9 +24012,9 @@ ${serializedHtml}
         metadata.source ??
         designSourceType;
       const screenBridgeUrl = screen.bridgeUrl;
-      const screenBridgeToken =
-        "bridgeToken" in screen && typeof screen.bridgeToken === "string"
-          ? screen.bridgeToken
+      const screenPreviewToken =
+        "previewToken" in screen && typeof screen.previewToken === "string"
+          ? screen.previewToken
           : undefined;
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const screenContentSignature = getContentSignature(screenContent);
@@ -26999,7 +24079,7 @@ ${serializedHtml}
           deviceFrame="none"
           sourceType={screenSourceType}
           bridgeUrl={screenBridgeUrl}
-          bridgeToken={screenBridgeToken}
+          previewToken={screenPreviewToken}
           externalSnapshotHtml={screenSnapshot}
           onExternalContentSnapshot={(snapshot) =>
             handleScreenExternalContentSnapshot(screen.id, snapshot)
@@ -27031,6 +24111,8 @@ ${serializedHtml}
           interactMode={false}
           readOnly={!canEditDesign}
           scaleMode={screenIsActive && activeTool === "scale"}
+          handToolActive={activeTool === "hand"}
+          spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
           registerRuntimeBridge={screenIsActive}
           selectedSelector={screenIsActive ? selectedCanvasSelector : null}
@@ -27130,17 +24212,22 @@ ${serializedHtml}
       pendingVisualStyleBaselineResetRequest,
       pendingTextRevertRequest,
       pendingStructureAckRequest,
-      getContentSignature,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionDefaultEase,
+      motionDurationMs,
+      inScreenGradientEditTarget,
+      handleInScreenGradientEditChange,
+      statePreviewTarget,
       getEmbeddedFrame,
       overviewCanvasZoom,
       mode,
       canEditDesign,
       activeTool,
+      spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,
       selectedCanvasSelectorCandidates,
@@ -28501,6 +25588,11 @@ ${serializedHtml}
             canCopyAsCode={Boolean(
               selectedElement?.selector || selectedScreenIds.length > 0,
             )}
+            canCopyAsPng={Boolean(
+              canEditDesign &&
+              (selectedElement ||
+                (viewMode === "overview" && selectedScreenIds.length === 1)),
+            )}
             canGroup={canGroup}
             canUngroup={canUngroup}
             canPasteToReplace={
@@ -28589,6 +25681,7 @@ ${serializedHtml}
             onCopyAnimation={handleCopyAnimation}
             onPasteAnimation={handlePasteAnimation}
             onCopyAsCode={handleCopySelection}
+            onCopyAsPng={() => void handleCopyAsPng()}
             onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={
@@ -28643,7 +25736,15 @@ ${serializedHtml}
                           size="sm"
                           variant="outline"
                           className="h-6 gap-1.5 px-2 !text-[11px]"
-                          disabled={applyToSourcePending}
+                          disabled={
+                            applyToSourcePending ||
+                            !activeLocalhostSourceWriteContent
+                          }
+                          title={
+                            activeLocalhostSourceWriteContent
+                              ? undefined
+                              : NO_LOCALHOST_WRITE_CONTENT_MESSAGE
+                          }
                           onClick={handleApplyToSource}
                         >
                           <IconDeviceFloppy className="size-3 shrink-0" />
@@ -28982,7 +26083,7 @@ ${serializedHtml}
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
                         bridgeUrl={activeScreenBridgeUrl}
-                        bridgeToken={activeScreenBridgeToken}
+                        previewToken={activeScreenPreviewToken}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}
                         onExternalContentSnapshot={(snapshot) => {
                           if (!activeFile?.id) return;

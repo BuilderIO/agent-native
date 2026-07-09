@@ -99,7 +99,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  ANTHROPIC_API_KEY  — the LLM key for the default Claude Code backend",
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
-  "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.5) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
+  "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.6-sol) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -4135,7 +4135,7 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
   const model =
     parsed.model ??
     optionalArg(args, "model") ??
-    (agent === "codex" ? "gpt-5.5" : "claude");
+    (agent === "codex" ? "gpt-5.6-sol" : "claude");
   const body: Record<string, unknown> = {
     planId,
     ...(agent === "codex" || agent === "claude" ? { agent } : {}),

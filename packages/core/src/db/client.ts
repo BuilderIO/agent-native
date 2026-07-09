@@ -39,6 +39,16 @@ export interface DbExecConfig {
   d1Binding?: any;
 }
 
+/** Read the request-scoped Cloudflare binding without requiring every
+ * consuming app's TypeScript program to include core's ambient Worker globals. */
+export function getCloudflareD1Binding(): unknown {
+  return (
+    globalThis as typeof globalThis & {
+      __cf_env?: { DB?: unknown };
+    }
+  ).__cf_env?.DB;
+}
+
 // ---------------------------------------------------------------------------
 // Per-app DATABASE_URL resolution
 // ---------------------------------------------------------------------------
@@ -412,7 +422,7 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  const d1 = globalThis.__cf_env?.DB;
+  const d1 = getCloudflareD1Binding();
   if (d1) {
     _dialect = "d1";
     return _dialect;
@@ -1447,7 +1457,7 @@ async function initClient(): Promise<void> {
     {
       url,
       authToken: getDatabaseAuthToken(),
-      d1Binding: dialect === "d1" ? globalThis.__cf_env?.DB : undefined,
+      d1Binding: dialect === "d1" ? getCloudflareD1Binding() : undefined,
     },
     true,
   );

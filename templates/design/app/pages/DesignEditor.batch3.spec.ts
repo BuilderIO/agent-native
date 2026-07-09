@@ -25,8 +25,8 @@ import {
   isDesignEditorDarkTheme,
   defaultCanvasTextColor,
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
-  shouldReplacePreviewAfterVisualStyleCommit,
-} from "./DesignEditor";
+} from "./design-editor/canvas-primitives";
+import { shouldReplacePreviewAfterVisualStyleCommit } from "./design-editor/editor-state";
 
 describe("isDesignEditorDarkTheme (item 2 — canvas-drawn text defaults)", () => {
   afterEach(() => {

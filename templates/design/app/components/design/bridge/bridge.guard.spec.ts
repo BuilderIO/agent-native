@@ -33,6 +33,7 @@ import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -88,6 +89,21 @@ function hydratedEditorChromeBridgeScriptWithTextEditing(): string {
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("bridge-guard"))
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false");
+}
+
+function hydratedEmbeddedCanvasGestureBridgeScript(options?: {
+  wheel?: boolean;
+  forwardSpaceKey?: boolean;
+}): string {
+  return embeddedWheelBridgeScript
+    .replace(
+      "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
+      options?.wheel ? "true" : "false",
+    )
+    .replace(
+      "__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__",
+      options?.forwardSpaceKey ? "true" : "false",
+    );
 }
 
 // ── test 1: no runtime imports ─────────────────────────────────────────────
@@ -222,6 +238,257 @@ describe("generated bridge modules", () => {
     });
   }
 });
+
+it(
+  "embedded canvas gesture bridge preserves app input unless a Figma pan gesture is active",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body>
+    <button id="surface" type="button" style="width:240px;height:160px">App button</button>
+    <input id="typing" />
+    <script>
+      window.__bridgeMessages = [];
+      window.__appPointerDowns = 0;
+      window.addEventListener("message", (event) => {
+        window.__bridgeMessages.push(event.data);
+      });
+      document.querySelector("#surface").addEventListener("pointerdown", () => {
+        window.__appPointerDowns += 1;
+      });
+    </script>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEmbeddedCanvasGestureBridgeScript({
+          forwardSpaceKey: true,
+        }),
+      });
+
+      const surface = page.locator("#surface");
+      const box = await surface.boundingBox();
+      expect(box).not.toBeNull();
+      const centerX = box!.x + box!.width / 2;
+      const centerY = box!.y + box!.height / 2;
+
+      // Ordinary Interact-mode left clicks remain native app interactions.
+      await surface.click();
+      expect(
+        await page.evaluate(() =>
+          Number(
+            (window as Window & { __appPointerDowns?: number })
+              .__appPointerDowns,
+          ),
+        ),
+      ).toBe(1);
+
+      // Middle-button drag is always a canvas pan and never reaches app code.
+      await page.mouse.move(centerX, centerY);
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(centerX + 32, centerY + 18);
+      await page.mouse.up({ button: "middle" });
+      await page.waitForFunction(
+        () =>
+          (
+            (
+              window as Window & {
+                __bridgeMessages?: Array<{ type?: string }>;
+              }
+            ).__bridgeMessages ?? []
+          ).filter((message) => message.type === "embedded-canvas-pan")
+            .length >= 3,
+      );
+      expect(
+        await page.evaluate(() =>
+          Number(
+            (window as Window & { __appPointerDowns?: number })
+              .__appPointerDowns,
+          ),
+        ),
+      ).toBe(1);
+
+      // The host synchronizes hand/Space state in-place; arming it makes a
+      // left drag pan without rebuilding/reloading the iframe document.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "embedded-canvas-pan-mode",
+            leftButtonEnabled: true,
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(0);
+      await page.mouse.move(centerX, centerY);
+      await page.mouse.down();
+      await page.mouse.move(centerX + 24, centerY + 12);
+      await page.mouse.up();
+      expect(
+        await page.evaluate(() =>
+          Number(
+            (window as Window & { __appPointerDowns?: number })
+              .__appPointerDowns,
+          ),
+        ),
+      ).toBe(1);
+
+      // Space stays text inside a real input, but outside typing contexts it
+      // forwards the same keydown/keyup contract DesignEditor already uses.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "embedded-canvas-pan-mode",
+            leftButtonEnabled: false,
+          },
+          "*",
+        );
+      });
+      await page.locator("#typing").focus();
+      await page.keyboard.type(" ");
+      expect(await page.locator("#typing").inputValue()).toBe(" ");
+
+      await surface.focus();
+      await page.keyboard.down("Space");
+      await page.keyboard.up("Space");
+      await page.waitForFunction(() =>
+        (
+          (
+            window as Window & {
+              __bridgeMessages?: Array<{ type?: string }>;
+            }
+          ).__bridgeMessages ?? []
+        ).some((message) => message.type === "design-hotkey-up"),
+      );
+
+      const messages = await page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __bridgeMessages?: Array<Record<string, unknown>>;
+            }
+          ).__bridgeMessages ?? [],
+      );
+      const panMessages = messages.filter(
+        (message) => message.type === "embedded-canvas-pan",
+      );
+      expect(panMessages.map((message) => message.phase)).toEqual([
+        "start",
+        "move",
+        "end",
+        "start",
+        "move",
+        "end",
+      ]);
+      expect(
+        messages.filter((message) => message.type === "design-hotkey"),
+      ).toHaveLength(1);
+      expect(
+        messages.filter((message) => message.type === "design-hotkey-up"),
+      ).toHaveLength(1);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "embedded canvas gesture bridge recovers from host focus loss mid-pan",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 500, height: 400 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <div id="surface" style="width:300px;height:240px"></div>
+        <script>
+          window.__panMessages = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "embedded-canvas-pan") {
+              window.__panMessages.push(event.data);
+            }
+          });
+        </script>
+      </body></html>`);
+      await page.addScriptTag({
+        content: hydratedEmbeddedCanvasGestureBridgeScript(),
+      });
+      const box = await page.locator("#surface").boundingBox();
+      expect(box).not.toBeNull();
+      const x = box!.x + 100;
+      const y = box!.y + 100;
+
+      await page.mouse.move(x, y);
+      await page.mouse.down({ button: "middle" });
+      await page.waitForFunction(() =>
+        (
+          (
+            window as Window & {
+              __panMessages?: Array<{ phase?: string }>;
+            }
+          ).__panMessages ?? []
+        ).some((message) => message.phase === "start"),
+      );
+      // DesignCanvas sends this on the real top-level window blur. The child
+      // must release pointer capture and clear activePointerId even if the
+      // browser omitted pointercancel while the app lost focus.
+      await page.evaluate(() => {
+        window.postMessage({ type: "embedded-canvas-pan-cancel" }, "*");
+      });
+      await page.waitForFunction(() =>
+        (
+          (
+            window as Window & {
+              __panMessages?: Array<{ phase?: string }>;
+            }
+          ).__panMessages ?? []
+        ).some((message) => message.phase === "cancel"),
+      );
+      await page.mouse.up({ button: "middle" });
+
+      // A second drag must start normally; a stale activePointerId used to
+      // make every future pointerdown return early after Cmd+Tab.
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(x + 20, y + 10);
+      await page.mouse.up({ button: "middle" });
+      await page.waitForFunction(
+        () =>
+          (
+            (
+              window as Window & {
+                __panMessages?: Array<{ phase?: string }>;
+              }
+            ).__panMessages ?? []
+          ).filter((message) => message.phase === "start").length === 2,
+      );
+
+      const phases = await page.evaluate(() =>
+        (
+          (
+            window as Window & {
+              __panMessages?: Array<{ phase?: string }>;
+            }
+          ).__panMessages ?? []
+        ).map((message) => message.phase),
+      );
+      expect(phases).toEqual(["start", "cancel", "start", "move", "end"]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 it(
   "editor chrome bridge lets plain wheel scroll the underlying app shell",
@@ -2560,6 +2827,42 @@ describe("editor chrome bridge — text editing session", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
         expect(editingAgain).toBe(true);
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "T25: a forced document replacement cannot collapse to the selected subtree",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { page, pageErrors } = await launchTextEditPage(browser);
+        await beginTextEditOnTarget(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "replace-document-content",
+              content: `<!doctype html><html><body><div id="target" data-agent-native-node-id="target">Hello world</div><div id="duplicate" data-agent-native-node-id="duplicate">Duplicated sibling</div></body></html>`,
+              forceFullDocument: true,
+            },
+            "*",
+          );
+        });
+        await page.waitForTimeout(50);
+
+        const replaced = await page.evaluate(() => ({
+          target: document.querySelector("#target")?.textContent,
+          duplicate: document.querySelector("#duplicate")?.textContent,
+        }));
+        expect(replaced).toEqual({
+          target: "Hello world",
+          duplicate: "Duplicated sibling",
+        });
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();

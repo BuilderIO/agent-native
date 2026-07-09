@@ -4,7 +4,8 @@ import {
 } from "@shared/canvas-math";
 import { describe, expect, it } from "vitest";
 
-import { SURFACE_PADDING, type FrameGeometry } from "./MultiScreenCanvas";
+import { SURFACE_PADDING } from "./multi-screen/overview-layout";
+import type { FrameGeometry } from "./multi-screen/types";
 
 /**
  * Regression coverage for the "black overview canvas" bug: DesignEditor

@@ -1,9 +1,9 @@
 export { DesignCanvas } from "./DesignCanvas";
+export type { MotionTrackWire } from "./design-canvas/motion-types";
 export type {
-  MotionTrackWire,
   IframeHotkeyPayload,
   IframeContextMenuPayload,
-} from "./DesignCanvas";
+} from "./design-canvas/iframe-events";
 export { DeviceFrame } from "./DeviceFrame";
 export { DrawOverlay } from "./DrawOverlay";
 export { EditPanel } from "./EditPanel";

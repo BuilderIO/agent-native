@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getChromeBorderTransition,
-  getDraftPreviewGeometryForTool,
-  getPreviewDeviceFrameGeometry,
-  getSelectionBoxTransition,
   isDirectScreenHoverTarget,
   shouldShowFrameFullViewButton,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/canvas-tools";
+import {
+  getChromeBorderTransition,
+  getSelectionBoxTransition,
+} from "./multi-screen/chrome-transitions";
+import { getDraftPreviewGeometryForTool } from "./multi-screen/draft-primitives";
+import { getPreviewDeviceFrameGeometry } from "./multi-screen/frame-geometry";
 
 describe("MultiScreenCanvas selection chrome transitions", () => {
   it("does not animate selected-frame geometry during normal selection changes", () => {

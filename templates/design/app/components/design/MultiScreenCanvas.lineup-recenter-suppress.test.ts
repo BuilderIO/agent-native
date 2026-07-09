@@ -4,7 +4,7 @@ import {
   isLineupShrinkOnlyChange,
   LINEUP_RECENTER_SUPPRESS_MAX_AGE_MS,
   shouldSuppressLineupRecenter,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/overview-layout";
 
 const arm = (atMs: number, fromCount: number, addedCount = 1) => ({
   atMs,

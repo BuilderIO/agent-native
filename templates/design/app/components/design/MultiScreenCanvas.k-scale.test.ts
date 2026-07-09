@@ -11,11 +11,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  applyDraftGeometry,
-  type DraftPrimitive,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+import { applyDraftGeometry } from "./multi-screen/draft-primitives";
+import type { DraftPrimitive, FrameGeometry } from "./multi-screen/types";
 
 function rectDraft(overrides: Partial<DraftPrimitive> = {}): DraftPrimitive {
   return {

@@ -12,6 +12,7 @@ import {
   getDraggedLayerIdsForRows,
   getLayerSelectionAnchorFromExternalSelection,
   getTreeOrderedLayerIds,
+  mapPanelMoveIntentToDomIntent,
   mapPanelPlacementToDomPlacement,
   nextAutoExpandedIds,
   nextExpandedIdsForSubtree,
@@ -249,6 +250,31 @@ describe("LayersPanel row order convention (L5)", () => {
     expect(mapPanelPlacementToDomPlacement("before")).toBe("after");
     expect(mapPanelPlacementToDomPlacement("after")).toBe("before");
     expect(mapPanelPlacementToDomPlacement("inside")).toBe("inside");
+  });
+
+  it("maps panel move intents into DOM placement and sibling order", () => {
+    expect(
+      mapPanelMoveIntentToDomIntent({
+        draggedIds: ["top-panel-row", "lower-panel-row"],
+        targetId: "anchor",
+        placement: "before",
+      }),
+    ).toEqual({
+      draggedIds: ["lower-panel-row", "top-panel-row"],
+      targetId: "anchor",
+      placement: "after",
+    });
+    expect(
+      mapPanelMoveIntentToDomIntent({
+        draggedIds: ["top-panel-row", "lower-panel-row"],
+        targetId: "container",
+        placement: "inside",
+      }),
+    ).toEqual({
+      draggedIds: ["lower-panel-row", "top-panel-row"],
+      targetId: "container",
+      placement: "inside",
+    });
   });
 });
 

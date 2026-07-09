@@ -53,7 +53,7 @@ import {
   COMPONENT_PROP_PREFIX,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -259,24 +259,8 @@ export default defineAction({
     if (!access) throw new Error("Design not found");
 
     // ── Source type + capability gate ────────────────────────────────────────
-    let rawSourceType: unknown = "inline";
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Default to inline.
-      }
-    }
-
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
 
     // Real-app sources gate on `applyEdit` (bridge write hardening).

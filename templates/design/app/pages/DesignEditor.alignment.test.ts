@@ -2,7 +2,7 @@
  * DesignEditor.alignment.test.ts
  *
  * Figma-parity selection alignment (Alt+A/D/W/S/H/V), distribute
- * (Alt+Shift+H/V), Tidy up (Ctrl+Alt+T), and Shift+A auto-layout inference —
+ * (Ctrl+Alt+H/V), Tidy up (Ctrl+Alt+T), and Shift+A auto-layout inference —
  * pure-logic coverage for the exported helpers DesignEditor.tsx uses to
  * implement those features (see EditPanel's onAlignSelection contract and
  * useDesignHotkeys' onAlignSelection/onDistributeSelection/onTidyUp/
@@ -16,7 +16,7 @@ import {
   computeTidyPositions,
   inferAutoLayoutFromChildren,
   type AlignableRect,
-} from "./DesignEditor";
+} from "./design-editor/layout-operations";
 
 describe("computeAlignedPositions", () => {
   const bounds = { x: 0, y: 0, width: 200, height: 100 };

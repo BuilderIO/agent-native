@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isOsFileDragEvent } from "./DesignCanvas";
+import { isOsFileDragEvent } from "./design-canvas/file-drop";
 
 function dragEventWithTypes(types: string[]) {
   return {

@@ -116,6 +116,7 @@ export function SearchModal({
   const [index, setIndex] = useState<SearchEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const activeResultRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const navigate = useNavigate();
   const { locale } = useLocale();
@@ -155,6 +156,10 @@ export function SearchModal({
   useEffect(() => {
     setActiveIdx(0);
   }, [query]);
+
+  useEffect(() => {
+    activeResultRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, results]);
 
   const go = useCallback(
     (entry: SearchEntry) => {
@@ -281,6 +286,7 @@ export function SearchModal({
               {results.map((entry, i) => (
                 <button
                   key={`${entry.path}-${entry.sectionId}`}
+                  ref={i === activeIdx ? activeResultRef : undefined}
                   onClick={() => go(entry)}
                   onMouseEnter={() => setActiveIdx(i)}
                   className={`flex w-full flex-col gap-1 px-4 py-3 text-start transition ${

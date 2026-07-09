@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
@@ -117,16 +118,6 @@ interface VariantScreen {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function parseJsonRecord(value: string | null | undefined) {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 function slugify(value: string, fallback: string) {
@@ -472,11 +463,6 @@ export default defineAction({
 
     const db = getDb();
     const now = new Date().toISOString();
-    const [design] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
     const existingFiles = await db
       .select()
       .from(schema.designFiles)
@@ -527,62 +513,76 @@ export default defineAction({
     }
 
     const placements = placeVariantScreens(screens);
-    await db.transaction(async (tx) => {
-      const [currentDesign] = await tx
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, designId))
-        .limit(1);
-      const prevData = parseJsonRecord(currentDesign?.data ?? design?.data);
-      const mergedFrames = mergeCanvasFramePlacements({
-        existing: prevData.canvasFrames,
-        placements,
-        resolveFileId: (placement) => placement.fileId,
-      });
-      const previousMetadata = isRecord(prevData.screenMetadata)
-        ? { ...prevData.screenMetadata }
-        : {};
-      const previousVariantSets = isRecord(prevData.designVariantSets)
-        ? { ...prevData.designVariantSets }
-        : {};
-      for (const screen of screens) {
-        previousMetadata[screen.id] = {
-          sourceType: "inline",
-          previewState: "preview",
-          title: screen.label,
-          width: screen.width,
-          height: screen.height,
-          variantSetId,
-          variantId: screen.variantId,
+    await mutateDesignData({
+      designId,
+      mutate: (current, { updatedAt }) => {
+        const mergedFrames = mergeCanvasFramePlacements({
+          existing: current.canvasFrames,
+          placements,
+          resolveFileId: (placement) => placement.fileId,
+        });
+        const previousMetadata = isRecord(current.screenMetadata)
+          ? { ...current.screenMetadata }
+          : {};
+        const previousVariantSets = isRecord(current.designVariantSets)
+          ? { ...current.designVariantSets }
+          : {};
+        for (const screen of screens) {
+          previousMetadata[screen.id] = {
+            sourceType: "inline",
+            previewState: "preview",
+            title: screen.label,
+            width: screen.width,
+            height: screen.height,
+            variantSetId,
+            variantId: screen.variantId,
+          };
+        }
+        previousVariantSets[variantSetId] = {
+          id: variantSetId,
+          prompt: prompt ?? "Pick a direction",
+          createdAt: now,
+          screens: screens.map((screen) => ({
+            id: screen.id,
+            variantId: screen.variantId,
+            label: screen.label,
+            filename: screen.filename,
+            width: screen.width,
+            height: screen.height,
+          })),
         };
-      }
-      previousVariantSets[variantSetId] = {
-        id: variantSetId,
-        prompt: prompt ?? "Pick a direction",
-        createdAt: now,
-        screens: screens.map((screen) => ({
-          id: screen.id,
-          variantId: screen.variantId,
-          label: screen.label,
-          filename: screen.filename,
-          width: screen.width,
-          height: screen.height,
-        })),
-      };
 
-      await tx
-        .update(schema.designs)
-        .set({
-          data: JSON.stringify({
-            ...prevData,
-            canvasFrames: mergedFrames.canvasFrames,
-            screenMetadata: previousMetadata,
-            designVariantSets: previousVariantSets,
-            updatedAt: now,
-          }),
-          updatedAt: now,
-        })
-        .where(eq(schema.designs.id, designId));
+        return {
+          ...current,
+          canvasFrames: mergedFrames.canvasFrames,
+          screenMetadata: previousMetadata,
+          designVariantSets: previousVariantSets,
+          updatedAt,
+        };
+      },
+      isApplied: (current) => {
+        const canvasFrames = isRecord(current.canvasFrames)
+          ? current.canvasFrames
+          : {};
+        const metadata = isRecord(current.screenMetadata)
+          ? current.screenMetadata
+          : {};
+        const variantSets = isRecord(current.designVariantSets)
+          ? current.designVariantSets
+          : {};
+        const set = isRecord(variantSets[variantSetId])
+          ? variantSets[variantSetId]
+          : null;
+        const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
+        return screens.every(
+          (screen) =>
+            isRecord(canvasFrames[screen.id]) &&
+            isRecord(metadata[screen.id]) &&
+            persistedScreens.some(
+              (persisted) => isRecord(persisted) && persisted.id === screen.id,
+            ),
+        );
+      },
     });
 
     await writeAppState("navigate", {

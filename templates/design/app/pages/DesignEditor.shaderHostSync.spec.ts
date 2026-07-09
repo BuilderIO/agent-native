@@ -26,7 +26,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { getPersistedContentHostSyncOptions } from "./DesignEditor";
+import { getPersistedContentHostSyncOptions } from "./design-editor/editor-state";
 
 describe("getPersistedContentHostSyncOptions — shader apply host-sync routing", () => {
   it("routes an active-file apply through the in-place full-document replace", () => {

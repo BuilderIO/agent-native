@@ -70,10 +70,12 @@ describe("open-visual-edit", () => {
       id: "localhost_canonical",
       bridgeUrl: "http://127.0.0.1:7331",
       rootPath: "/tmp/app",
+      bridgeToken: "stored-write-token",
+      previewToken: "stored-preview-token",
     });
     mocks.addLocalhostScreensRun.mockResolvedValue({
       screenCount: 1,
-      screens: [{ id: "screen_1", bridgeToken: "stored_bridge_token" }],
+      screens: [{ id: "screen_1" }],
       placedFrames: [{ fileId: "screen_1" }],
     });
   });
@@ -98,6 +100,7 @@ describe("open-visual-edit", () => {
       expect.objectContaining({
         id: undefined,
         bridgeToken: undefined,
+        previewToken: undefined,
         devServerUrl: "http://localhost:5173",
         rootPath: "/tmp/app",
       }),
@@ -117,6 +120,8 @@ describe("open-visual-edit", () => {
       }),
     );
     expect(result.connectionId).toBe("localhost_canonical");
+    expect(result.bridgeToken).toBe("stored-write-token");
+    expect(result.previewToken).toBe("stored-preview-token");
   });
 
   it("passes an explicit connection id through for follow-up visual-edit calls", async () => {

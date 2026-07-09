@@ -4,19 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function parseDesignData(value: unknown): Record<string, unknown> {
-  if (typeof value !== "string" || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 function pruneKeyedRecord(
@@ -100,30 +91,24 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
 
-    const now = new Date().toISOString();
+    const pruneMetadata = () =>
+      mutateDesignData({
+        designId: file.designId,
+        mutate: (current, { updatedAt }) => ({
+          ...pruneDeletedFileMetadata(current, id),
+          updatedAt,
+        }),
+        isApplied: (current) =>
+          JSON.stringify(pruneDeletedFileMetadata(current, id)) ===
+          JSON.stringify(current),
+      });
 
-    await db.transaction(async (tx) => {
-      const [currentDesign] = await tx
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, file.designId))
-        .limit(1);
-      const nextData = pruneDeletedFileMetadata(
-        parseDesignData(currentDesign?.data),
-        id,
-      );
-
-      await tx.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
-
-      // Update the parent design's board metadata and updatedAt timestamp.
-      await tx
-        .update(schema.designs)
-        .set({
-          data: JSON.stringify({ ...nextData, updatedAt: now }),
-          updatedAt: now,
-        })
-        .where(eq(schema.designs.id, file.designId));
-    });
+    // Prune before deletion so a retry never loses the parent design id, then
+    // prune once more after deletion to close the small window where another
+    // editor could have refreshed metadata for the still-existing file.
+    await pruneMetadata();
+    await db.delete(schema.designFiles).where(eq(schema.designFiles.id, id));
+    await pruneMetadata();
 
     return { id, deleted: true };
   },

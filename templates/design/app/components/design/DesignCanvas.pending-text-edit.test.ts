@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
+  POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
   routePendingTextEditKey,
-} from "./DesignCanvas";
+  schedulePendingTextEditActivation,
+} from "./design-canvas/pending-text-edit";
 
 // Creation-race keystroke routing: while a begin-text-edit command is pending
 // (text element created, bridge session not yet active), host keystrokes are
@@ -91,5 +93,33 @@ describe("routePendingTextEditKey", () => {
     // the end of a slow activation.
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeGreaterThanOrEqual(2000);
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe("schedulePendingTextEditActivation", () => {
+  it("waits for the trailing click task after pointer-created text", () => {
+    const scheduled: Array<() => void> = [];
+    const delays: number[] = [];
+    const activate = vi.fn();
+
+    schedulePendingTextEditActivation(activate, {
+      afterPointerGesture: true,
+      schedule: (callback, delayMs) => {
+        scheduled.push(callback);
+        delays.push(delayMs);
+      },
+    });
+
+    expect(activate).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);
+    expect(delays).toEqual([POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS]);
+    scheduled[0]?.();
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps non-pointer activation synchronous", () => {
+    const activate = vi.fn();
+    schedulePendingTextEditActivation(activate);
+    expect(activate).toHaveBeenCalledOnce();
   });
 });

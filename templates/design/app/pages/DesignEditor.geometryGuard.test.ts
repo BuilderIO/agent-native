@@ -5,7 +5,7 @@ import {
   MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
   sanitizeCanvasFrameGeometryForPersist,
-} from "./DesignEditor";
+} from "./design-editor/geometry-persistence";
 
 /**
  * Frame-geometry persistence guard: while the overview zoom scalar was

@@ -138,11 +138,11 @@ env 또는 로컬 계획에서 값을 사용할 수 있는 경우 비밀/변수
 
 백엔드 외에도 두 개의 저장소 변수가 에이전트 실행 *방법*을 조정합니다.
 
-- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달된 모델을 고정합니다. 예를 들어 Codex의 경우 `gpt-5.5` 또는 Claude 모델 ID입니다. CLI 자체 기본 모델을 사용하려면 설정하지 않은 상태로 두세요.
+- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달된 모델을 고정합니다. 예를 들어 Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. CLI 자체 기본 모델을 사용하려면 설정하지 않은 상태로 두세요.
 - **`VISUAL_RECAP_REASONING`**는 추론 깊이를 `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`로 설정합니다. 이는 Codex 백엔드에 적용됩니다. Claude의 추론은 모델 중심이므로 이 변수는 무시됩니다.
 - **`VISUAL_RECAP_SKILL_SOURCE`**는 프롬프트 최신성을 제어합니다. `auto`/unset은 최신 번들 기술 지침을 사용하고 `repo`는 커밋된 저장소 로컬 `visual-recap` 기술 폴더에 고정합니다.
 
-예를 들어 GPT-5.5를 사용하여 Codex에 대한 요약을 실행하려면 저장소 변수 `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5` 및 `VISUAL_RECAP_REASONING=high`를 설정하세요.
+예를 들어 GPT-5.6 Sol를 사용하여 Codex에 대한 요약을 실행하려면 저장소 변수 `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` 및 `VISUAL_RECAP_REASONING=high`를 설정하세요.
 
 ## 비밀 및 변수
 
@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 비밀. 대신 Codex로 요약을 실행하려면 `VISUAL_RECAP_AGENT=codex`와 함께 설정하세요.                                                                  |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 변수. 코딩 에이전트 백엔드(`claude` 또는 `codex`)를 선택합니다.                                                                                     |
-| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.5` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                              |
+| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                          |
 | `VISUAL_RECAP_REASONING` | 각 모델의 기본값                | 변수입니다. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`. Codex 백엔드에 적용됩니다.                                          |
 | `RECAP_CLI_VERSION`      | `latest`                        | 변수입니다. 워크플로가 설치하는 `@agent-native/core` CLI 버전을 고정합니다. `1.5.0`. [Version pinning](#version-pinning-copy-variant)를 참조하세요. |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 비밀. 다른 출처에서 Plans 앱을 자체 호스팅하는 경우에만 해당됩니다.                                                                                 |

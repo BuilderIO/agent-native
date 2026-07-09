@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
+  getRequestOrgId: () => "org_1",
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -37,6 +38,7 @@ vi.mock("../server/db/index.js", () => ({
       bridgeUrl: "bridgeUrl",
       bridgeToken: "bridgeToken",
       ownerEmail: "ownerEmail",
+      orgId: "orgId",
     },
   },
 }));
@@ -90,6 +92,12 @@ describe("write-local-file", () => {
         headers: expect.objectContaining({
           "X-Bridge-Token": "bridge-token",
         }),
+      }),
+    );
+    expect(mockVerifyWriteGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
       }),
     );
   });

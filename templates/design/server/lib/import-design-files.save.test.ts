@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     data: "{}",
   };
   let existingFiles: Array<Record<string, unknown>> = [];
+  let designData: Record<string, unknown> = {};
 
   const designSelectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
   designSelectChain.from.mockReturnValue(designSelectChain);
@@ -77,6 +78,11 @@ const mocks = vi.hoisted(() => {
     setExistingFiles: (files: Array<Record<string, unknown>>) => {
       existingFiles = files;
     },
+    setDesignData: (next: Record<string, unknown>) => {
+      designData = next;
+    },
+    getDesignData: () => designData,
+    mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     readAppStateForCurrentTab: vi.fn().mockResolvedValue(null),
     seedFromText: vi.fn().mockResolvedValue(undefined),
@@ -121,6 +127,10 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 
+vi.mock("./design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import { saveImportedDesignFiles } from "./import-design-files.js";
 
 describe("saveImportedDesignFiles: node-id annotation", () => {
@@ -131,6 +141,27 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     mocks.setExistingFiles([]);
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.hasCollabState.mockResolvedValue(false);
+    mocks.setDesignData({
+      concurrentSibling: { keep: true },
+      canvasFrames: {
+        existing: { x: 0, y: 0, width: 320, height: 200, z: 0 },
+      },
+    });
+    mocks.mutateDesignData.mockImplementation(
+      async (options: {
+        mutate: (
+          current: Record<string, unknown>,
+          context: { updatedAt: string },
+        ) => Record<string, unknown>;
+        isApplied: (current: Record<string, unknown>) => boolean;
+      }) => {
+        const updatedAt = "2026-07-09T12:00:00.000Z";
+        const next = options.mutate(mocks.getDesignData(), { updatedAt });
+        mocks.setDesignData(next);
+        expect(options.isApplied(next)).toBe(true);
+        return { data: next, updatedAt };
+      },
+    );
   });
 
   it("stamps missing data-agent-native-node-id attributes on imported HTML before persisting", async () => {
@@ -160,6 +191,13 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+    expect(mocks.getDesignData()).toMatchObject({
+      concurrentSibling: { keep: true },
+      sourceMode: "import",
+      canvasFrames: {
+        existing: { x: 0, width: 320 },
+      },
+    });
   });
 
   it("is idempotent: preserves an existing clean id and only fills the missing one", async () => {

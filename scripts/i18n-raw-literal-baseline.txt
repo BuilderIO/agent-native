@@ -6,6 +6,7 @@ templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY 
 templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
+templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
 templates/design/app/components/design/FusionAppBanner.tsx|Push failed
 templates/design/app/components/design/code-workbench/commands.ts|Command failed
@@ -19,6 +20,8 @@ templates/design/app/components/design/code-workbench/search/search-engine.ts|In
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
 templates/design/app/components/design/code-workbench/workspace/types.ts|` or `localhost:
-templates/design/app/pages/DesignEditor.tsx|, primaryInfo?: Pick
+templates/design/app/components/design/multi-screen/screen-content-cache.ts|, existingScreenIds: ReadonlySet
+templates/design/app/components/design/multi-screen/screen-content-cache.ts|, liveScreenIds: ReadonlySet
+templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/DesignEditor.tsx|Migration failed

@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isRadixOverlayOpen } from "./DesignEditor";
+import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 
 function wrapperEl(html: string): Element {
   const container = document.createElement("div");

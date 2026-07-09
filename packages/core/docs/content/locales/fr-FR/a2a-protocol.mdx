@@ -436,6 +436,18 @@ Cette limite est importante car la boucle d'agent accepte les entrées de forme 
 
 La vérification JWT (`verifyA2AToken` dans `server.ts`) accepte les jetons signés soit avec le `A2A_SECRET` global, soit avec un secret d'organisation recherché à partir de SQL via la revendication `org_domain` du jeton, et applique les propres revendications `aud`/`iss` du jeton lorsqu'elles sont présentes.
 
+### Synchronisation du secret d'organisation {#organization-secret-sync}
+
+Le réglage **Organisation → Authentification inter-applications** gère le secret défini au niveau de l'organisation qui authentifie la délégation entre des applications déployées séparément dans la même organisation. Il ne s'agit pas d'un réglage de connexion utilisateur ni de Cross-App SSO. Le secret complète l'`A2A_SECRET` du déploiement : un JWT A2A contenant une revendication `org_domain` peut être vérifié avec le secret de l'organisation correspondante.
+
+Le propriétaire de l'organisation doit attribuer à chaque application participante le même domaine de messagerie autorisé et le même secret défini au niveau de l'organisation :
+
+1. Dans la première application, générez ou révélez le secret dans **Organisation → Authentification inter-applications**.
+2. Dans chaque application supplémentaire, choisissez **Coller le secret d'une autre application** et collez cette valeur. Cette étape manuelle est nécessaire pour la première connexion : une application qui ne possède pas encore le secret ne peut pas vérifier une demande de synchronisation distante.
+3. Une fois que les applications partagent le secret, utilisez **Synchroniser avec les applications** pour envoyer les mises à jour futures aux applications connectées et découvertes. Le résultat signale toute application qui n'a pas pu être mise à jour.
+
+Lorsque vous **Régénérez** le secret, l'interface de réglages le synchronise immédiatement et signe la mise à jour avec le secret précédent afin que les applications déjà connectées puissent vérifier la modification. Si une application manque cette synchronisation, collez-y le nouveau secret manuellement, puis synchronisez à nouveau. Traitez ce secret comme toute autre information d'identification : ne le placez pas dans du code client, des journaux ou une configuration de client tiers.
+
 ## Suites {#continuations}
 
 Lorsqu'un agent appelle un homologue distant A2A qui ne revient pas immédiatement, l'infrastructure interroge `tasks/get` jusqu'à ce que la tâche soit réglée. Ceci est câblé via `A2AClient.sendAndWait`, qui est le mode par défaut utilisé par l'assistant `callAgent()`.

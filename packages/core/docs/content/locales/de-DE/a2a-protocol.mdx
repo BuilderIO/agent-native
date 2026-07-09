@@ -438,6 +438,18 @@ Diese Grenze ist wichtig, da die Agentenschleife Freiformeingaben von einem Remo
 
 Die JWT-Verifizierung (`verifyA2AToken` in `server.ts`) akzeptiert Token, die entweder mit dem globalen `A2A_SECRET` oder einem organisationsweiten Geheimnis signiert sind, das von SQL über den `org_domain`-Anspruch des Tokens gesucht wird, und erzwingt die eigenen `aud`/`iss`-Ansprüche des Tokens, sofern vorhanden.
 
+### Synchronisierung des Organisationsgeheimnisses {#organization-secret-sync}
+
+Die Einstellung **Organisation → App-übergreifende Authentifizierung** verwaltet das organisationsweite Geheimnis, das die Delegation zwischen getrennt bereitgestellten Apps derselben Organisation authentifiziert. Sie ist keine Einstellung für die Benutzeranmeldung oder Cross-App SSO. Das Geheimnis ergänzt das `A2A_SECRET` der Bereitstellung: Ein A2A-JWT mit einem `org_domain`-Claim kann mit dem Geheimnis der passenden Organisation überprüft werden.
+
+Der Organisationsinhaber sollte jeder teilnehmenden App dieselbe zulässige E-Mail-Domain und dasselbe organisationsweite Geheimnis geben:
+
+1. Generieren oder zeigen Sie in der ersten App das Geheimnis unter **Organisation → App-übergreifende Authentifizierung** an.
+2. Wählen Sie in jeder weiteren App **Geheimnis aus einer anderen App einfügen** und fügen Sie diesen Wert ein. Dieser manuelle Schritt ist für die erste Verbindung erforderlich: Eine App, die das Geheimnis noch nicht besitzt, kann eine entfernte Synchronisierungsanfrage nicht überprüfen.
+3. Sobald die Apps das Geheimnis teilen, verwenden Sie **Mit Apps synchronisieren**, um künftige Aktualisierungen an verbundene, erkannte Apps zu senden. Das Ergebnis nennt jede App, die nicht aktualisiert werden konnte.
+
+Wenn Sie das Geheimnis **neu generieren**, synchronisiert die Einstellungsoberfläche es sofort und signiert die Aktualisierung mit dem vorherigen Geheimnis, damit bereits verbundene Apps die Änderung überprüfen können. Falls eine App diese Synchronisierung verpasst, fügen Sie dort das neue Geheimnis manuell ein und synchronisieren Sie erneut. Behandeln Sie dieses Geheimnis wie jede andere Anmeldeinformation: Verwenden Sie es nicht in Client-Code, Protokollen oder einer Client-Konfiguration eines Drittanbieters.
+
 ## Fortsetzungen {#continuations}
 
 Wenn ein Agent einen Remote-A2A-Peer anruft, der nicht sofort zurückkehrt, fragt das Framework `tasks/get` ab, bis die Aufgabe erledigt ist. Dies erfolgt über `A2AClient.sendAndWait`, den Standardmodus, der vom `callAgent()`-Helfer verwendet wird.

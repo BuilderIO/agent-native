@@ -1355,36 +1355,138 @@ export async function refreshDocumentSyncStatus(
       return status;
     }
     // Both sides changed since last sync — mark as conflict so the user can
-    // pick which side wins. Without this, auto-sync silently stalls whenever
-    // the user has unpushed local edits AND Notion also changed, and pulls
-    // never happen. Matches the conflict handling in pull/pushDocumentToNotion.
+    // pick which side wins. Take the same per-document claim used by pull/push
+    // before persisting that state: a save-triggered push can be between its
+    // remote write and baseline update here, making both sides look changed
+    // for a few hundred milliseconds. If that push owns the claim, let it
+    // finish instead of flashing a conflict that it immediately clears.
     if (status.localChanged && status.remoteChanged) {
-      const link = await getSyncLink(documentId, owner);
-      if (link) {
-        await upsertSyncLink({
-          owner,
-          documentId,
-          remotePageId: link.remotePageId,
-          state: "conflict",
-          lastSyncedAt: link.lastSyncedAt,
-          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
-          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
-          lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
-          lastSyncedContentHash: link.lastSyncedContentHash,
-          lastError: null,
-          warnings: parseWarnings(link),
-          hasConflict: true,
-        });
+      if (!(await tryClaimSyncLink(documentId, owner))) return status;
+      try {
+        // The competing push may have finished after the status snapshot but
+        // before this poll acquired the claim. Re-read the local/link state
+        // under the claim so stale change flags cannot recreate the conflict
+        // immediately after that push resolved it.
         const document = await getDocument(documentId, owner);
-        const updatedLink = await getSyncLink(documentId, owner);
-        return buildStatus({
-          connected: true,
-          documentId,
-          link: updatedLink,
-          remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
-          documentUpdatedAt: document.updatedAt,
-          documentContent: document.content,
-        });
+        const link = await getSyncLink(documentId, owner);
+        if (link) {
+          const claimedStatus = buildStatus({
+            connected: true,
+            documentId,
+            link,
+            remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            documentUpdatedAt: document.updatedAt,
+            documentContent: document.content,
+          });
+          if (!claimedStatus.localChanged || !claimedStatus.remoteChanged) {
+            return claimedStatus;
+          }
+          let conflictDocument = document;
+
+          // Notion timestamps are only a cheap candidate signal. Confirm the
+          // remote content against the authoritative hash baseline before
+          // persisting a conflict; our own completed push (or any metadata-only
+          // timestamp bump) can otherwise look like a remote content edit.
+          if (link.lastSyncedContentHash) {
+            const connection = await getNotionConnectionForOwner(owner);
+            if (!connection) return claimedStatus;
+
+            let remotePageContent: Awaited<
+              ReturnType<typeof readNotionPageAsDocument>
+            >;
+            try {
+              remotePageContent = await readNotionPageAsDocument(
+                connection.accessToken,
+                link.remotePageId,
+              );
+            } catch {
+              // Fail closed: an unverified timestamp bump is not enough to
+              // interrupt editing with a conflict warning.
+              return claimedStatus;
+            }
+
+            // Local saves do not take the Notion sync claim, so the editor can
+            // keep writing while the remote content request is in flight.
+            // Classify the conflict against the latest local row.
+            const verifiedDocument = await getDocument(documentId, owner);
+            conflictDocument = verifiedDocument;
+            const baselineHash = link.lastSyncedContentHash;
+            const localHash = hashContent(verifiedDocument.content);
+            const remoteHash = hashContent(remotePageContent.content);
+            const localHashChanged = localHash !== baselineHash;
+            const remoteHashChanged = remoteHash !== baselineHash;
+
+            if (localHash === remoteHash) {
+              await upsertSyncLink({
+                owner,
+                documentId,
+                remotePageId: link.remotePageId,
+                state: "linked",
+                lastSyncedAt: nowIso(),
+                lastPulledRemoteUpdatedAt: remotePageContent.lastEditedTime,
+                lastPushedLocalUpdatedAt: verifiedDocument.updatedAt,
+                lastKnownRemoteUpdatedAt: remotePageContent.lastEditedTime,
+                lastSyncedContentHash: localHash,
+                lastError: null,
+                warnings: remotePageContent.warnings,
+                hasConflict: false,
+              });
+              const convergedLink = await getSyncLink(documentId, owner);
+              return buildStatus({
+                connected: true,
+                documentId,
+                link: convergedLink,
+                remoteUpdatedAt: remotePageContent.lastEditedTime,
+                documentUpdatedAt: verifiedDocument.updatedAt,
+                documentContent: verifiedDocument.content,
+              });
+            }
+
+            if (!localHashChanged || !remoteHashChanged) {
+              if (options?.autoSync && localHashChanged) {
+                return pushDocumentToNotion(owner, documentId, false, {
+                  skipClaim: true,
+                });
+              }
+              if (options?.autoSync && remoteHashChanged) {
+                return pullDocumentFromNotion(owner, documentId, false, {
+                  skipClaim: true,
+                });
+              }
+              return {
+                ...claimedStatus,
+                localChanged: localHashChanged,
+                remoteChanged: remoteHashChanged,
+              };
+            }
+          }
+
+          await upsertSyncLink({
+            owner,
+            documentId,
+            remotePageId: link.remotePageId,
+            state: "conflict",
+            lastSyncedAt: link.lastSyncedAt,
+            lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+            lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+            lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            lastSyncedContentHash: link.lastSyncedContentHash,
+            lastError: null,
+            warnings: parseWarnings(link),
+            hasConflict: true,
+          });
+          const updatedLink = await getSyncLink(documentId, owner);
+          return buildStatus({
+            connected: true,
+            documentId,
+            link: updatedLink,
+            remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            documentUpdatedAt: conflictDocument.updatedAt,
+            documentContent: conflictDocument.content,
+          });
+        }
+      } finally {
+        await releaseSyncLink(documentId, owner);
       }
     }
   }

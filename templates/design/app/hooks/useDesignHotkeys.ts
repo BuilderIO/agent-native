@@ -14,6 +14,7 @@ export type DesignHotkeyTool =
   | "pen"
   | "hand"
   | "comment"
+  | "draw"
   | "scale";
 
 export type DesignHotkeyDirection = "up" | "right" | "down" | "left";
@@ -97,17 +98,26 @@ export interface UseDesignHotkeysProps {
   onPenTool?: DesignHotkeyHandler;
   onHandTool?: DesignHotkeyHandler;
   onCommentTool?: DesignHotkeyHandler;
+  onDrawTool?: DesignHotkeyHandler;
   onScaleTool?: DesignHotkeyHandler;
   onCopy?: DesignHotkeyHandler;
+  /** Figma's Shift+Cmd/Ctrl+C — render the current selection and write it to
+   *  the system clipboard as a real image/png ClipboardItem. */
+  onCopyAsPng?: DesignHotkeyHandler;
   onCut?: DesignHotkeyHandler;
   onPaste?: DesignHotkeyHandler;
   onPasteOver?: DesignHotkeyHandler;
   onCopyProps?: DesignHotkeyHandler;
   onPasteProps?: DesignHotkeyHandler;
-  onCopyAsCode?: DesignHotkeyHandler;
   onDuplicate?: DesignHotkeyHandler;
   onDelete?: DesignHotkeyHandler;
   onRename?: DesignHotkeyHandler;
+  /** Figma's Cmd/Ctrl+F — open and focus the layer search surface. */
+  onFind?: DesignHotkeyHandler;
+  /** Figma's Option/Alt+1 — open the File/Layers navigation panel. */
+  onShowLayersPanel?: DesignHotkeyHandler;
+  /** Figma's Option/Alt+2 — open the Assets navigation panel. */
+  onShowAssetsPanel?: DesignHotkeyHandler;
   onSelectAll?: DesignHotkeyHandler;
   onGroup?: DesignHotkeyHandler;
   onUngroup?: DesignHotkeyHandler;
@@ -122,15 +132,16 @@ export interface UseDesignHotkeysProps {
   onSendToBack?: DesignHotkeyHandler;
   onEscape?: DesignHotkeyHandler;
   onEnter?: DesignHotkeyHandler;
+  onSelectParent?: DesignHotkeyHandler;
   onTab?: DesignHotkeyTabHandler;
+  onNextFrame?: DesignHotkeyHandler;
+  onPreviousFrame?: DesignHotkeyHandler;
   onNudge?: DesignHotkeyNudgeHandler;
   onZoomIn?: DesignHotkeyHandler;
   onZoomOut?: DesignHotkeyHandler;
   onZoomReset?: DesignHotkeyHandler;
   onZoomToFit?: DesignHotkeyHandler;
   onZoomToSelection?: DesignHotkeyHandler;
-  /** Figma's Shift+0 — zoom to 100%. Distinct from onZoomReset (Cmd+0). */
-  onZoomTo100?: DesignHotkeyHandler;
   /** Figma's Cmd+Alt+K — create component from the current selection. */
   onCreateComponent?: DesignHotkeyHandler;
   /**
@@ -155,9 +166,9 @@ export interface UseDesignHotkeysProps {
    *  internal canvas clipboard's contents. */
   onPasteToReplace?: DesignHotkeyHandler;
   /**
-   * Figma's "I" — eyedropper: sample a color from anywhere on screen and
-   * apply it to the current selection. A one-shot action, not a tool (so it
-   * is intentionally NOT in TOOL_SHORTCUTS/onToolChange).
+   * Figma's Control+C on Apple platforms — eyedropper: sample a color from
+   * anywhere on screen and apply it to the current selection. A one-shot
+   * action, not a persistent tool.
    */
   onEyedropper?: DesignHotkeyHandler;
   /**
@@ -168,8 +179,8 @@ export interface UseDesignHotkeysProps {
    */
   onAlignSelection?: DesignHotkeyAlignHandler;
   /**
-   * Figma's Alt+Shift+H / Alt+Shift+V — distribute the selection evenly
-   * along the horizontal/vertical axis (3+ objects; first/last stay put).
+   * Figma's Ctrl+Alt+H / Ctrl+Alt+V — distribute the selection evenly along
+   * the horizontal/vertical axis (3+ objects; first/last stay put).
    */
   onDistributeSelection?: DesignHotkeyDistributeHandler;
   /** Figma's Ctrl+Alt+T (literal Control on every platform, not Cmd) — Tidy
@@ -194,18 +205,15 @@ const TOOL_SHORTCUTS: Record<
 > = {
   v: { tool: "move", handler: "onMoveTool" },
   f: { tool: "frame", handler: "onFrameTool" },
-  // Figma binds BOTH F and A to the frame tool; A is the muscle-memory
-  // favorite. Cmd+A (select all) is unaffected — tool shortcuts only fire
-  // with no modifiers held.
-  a: { tool: "frame", handler: "onFrameTool" },
   r: { tool: "rectangle", handler: "onRectangleTool" },
   o: { tool: "ellipse", handler: "onEllipseTool" },
   l: { tool: "line", handler: "onLineTool" },
   t: { tool: "text", handler: "onTextTool" },
   p: { tool: "pen", handler: "onPenTool" },
   h: { tool: "hand", handler: "onHandTool" },
-  c: { tool: "comment", handler: "onCommentTool" },
   k: { tool: "scale", handler: "onScaleTool" },
+  c: { tool: "comment", handler: "onCommentTool" },
+  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 // H1: shift+key variants of a base tool shortcut (Figma muscle-memory), e.g.
@@ -410,12 +418,6 @@ function handleDesignHotkey(
         props[toolShortcut.handler] as DesignHotkeyHandler | undefined,
       );
     }
-    // Figma's "I" — eyedropper. Deliberately NOT in TOOL_SHORTCUTS: it's a
-    // one-shot sample-and-apply action, not a persistent armed tool (no
-    // onToolChange call, no cursor mode to stay in).
-    if (key === "i") {
-      return run(props.onEyedropper);
-    }
   }
 
   if (event.key in ARROW_DIRECTIONS && !primary && !event.altKey) {
@@ -424,12 +426,16 @@ function handleDesignHotkey(
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") return run(props.onEnter);
+  if (!primary && !event.altKey && !event.shiftKey && key === "\\") {
+    return run(props.onSelectParent);
+  }
   if (
     event.key === "Tab" &&
     props.onTab &&
     // Ignore synthetic (non-trusted) Tab events dispatched by handleIframeHotkey
     // unless they carry the iframe-hotkey marker. This keeps inspector field
-    // tabbing native while allowing real iframe canvas Tab presses to cycle files.
+    // tabbing native while allowing real iframe canvas Tab presses to traverse
+    // layer siblings.
     (event.isTrusted !== false ||
       (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
         .__agentNativeIframeHotkey === true) &&
@@ -444,15 +450,59 @@ function handleDesignHotkey(
     return run(props.onDelete);
   }
 
+  // Current Figma: Cmd+Backspace ungroups. This intentionally differs from
+  // the historical Shift+Cmd+G binding and must be checked after plain
+  // Backspace deletion has been ruled out.
+  if (primary && !event.altKey && !event.shiftKey && key === "Backspace") {
+    return run(props.onUngroup);
+  }
+
   if (primary && key === "z") {
     return event.shiftKey ? run(props.onRedo) : run(props.onUndo);
   }
   if (primary && key === "y") return run(props.onRedo);
-  if (primary && key === "a") return run(props.onSelectAll);
+  // Figma Find uses the operating system's primary modifier, rather than
+  // treating literal Control and Command as interchangeable on macOS. Keep
+  // Ctrl+F available for platform/browser behavior on Apple devices while
+  // routing Cmd+F there and Ctrl+F everywhere else.
+  if (
+    isPlatformPrimaryModifier(event) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    key === "f"
+  ) {
+    return run(props.onFind);
+  }
+  if (primary && !event.altKey && !event.shiftKey && key === "a") {
+    return run(props.onSelectAll);
+  }
   if (primary && key === "x") return run(props.onCut);
+
+  // Current Figma: Ctrl+Alt+H / Ctrl+Alt+V — distribute evenly. These use
+  // literal Control even on macOS, so resolve them before the primary+V
+  // Paste properties family can claim Ctrl+Alt+V.
+  if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
+    if (key === "h") return runDistribute("horizontal");
+    if (key === "v") return runDistribute("vertical");
+  }
+
+  // On macOS Figma reserves literal Control+C for Pick color while Cmd+C
+  // remains Copy. Keep Ctrl+C as Copy on non-Apple platforms, where Ctrl is
+  // the platform's primary modifier and Figma presents platform-specific
+  // shortcuts.
+  if (
+    isApplePlatform() &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    key === "c"
+  ) {
+    return run(props.onEyedropper);
+  }
   if (primary && key === "c") {
     if (event.altKey) return run(props.onCopyProps);
-    if (event.shiftKey) return run(props.onCopyAsCode);
+    if (event.shiftKey) return run(props.onCopyAsPng);
     return run(props.onCopy);
   }
   if (primary && key === "v") {
@@ -468,10 +518,8 @@ function handleDesignHotkey(
     return run(props.onPasteToReplace);
   }
   if (primary && key === "r") return run(props.onRename);
-  // Cmd+Shift+H/L (hide/lock the current selection) must take precedence
-  // over any other h/l handling (e.g. the plain "h" hand-tool shortcut only
-  // fires with no modifiers held, so there's no real conflict, but this is
-  // checked first defensively to guarantee primary+shift+h/l always wins).
+  // Cmd+Shift+H/L (hide/lock the current selection) must take precedence over
+  // the unmodified/shift-only h/l transform and alignment families.
   if (primary && event.shiftKey && key === "h") {
     return run(props.onToggleHidden);
   }
@@ -479,10 +527,11 @@ function handleDesignHotkey(
     return run(props.onToggleLocked);
   }
   if (primary && key === "g") {
-    // Figma: ⇧⌘G is ungroup. ⌥⌘G is a DIFFERENT command — "Frame selection"
-    // (wrap the selection in a frame) — not an ungroup alias.
-    if (event.shiftKey) return run(props.onUngroup);
+    // Figma: ⌥⌘G is "Frame selection". Current Figma ungroups with
+    // Cmd+Backspace, so the historical Shift+Cmd+G binding is deliberately
+    // left unhandled.
     if (event.altKey) return run(props.onFrameSelection);
+    if (event.shiftKey) return false;
     return run(props.onGroup);
   }
 
@@ -515,17 +564,20 @@ function handleDesignHotkey(
   }
 
   const digit = digitFromEvent(event);
+  // Figma navigation tabs use literal Option/Alt, on both platforms. Resolve
+  // these before digit opacity so the physical Digit1/Digit2 keys never leak
+  // into selection styling when Alt is held (including Option-composed keys
+  // such as ¡ on macOS).
+  if (!primary && event.altKey && !event.shiftKey) {
+    if (digit === "1") return run(props.onShowLayersPanel);
+    if (digit === "2") return run(props.onShowAssetsPanel);
+  }
   if (event.shiftKey && !primary && digit === "1") {
     return run(props.onZoomToFit);
   }
   if (event.shiftKey && !primary && digit === "2") {
     return run(props.onZoomToSelection);
   }
-  // H2: Shift+0 — zoom to 100%. Distinct from Cmd+0 (onZoomReset above).
-  if (event.shiftKey && !primary && !event.altKey && digit === "0") {
-    return run(props.onZoomTo100);
-  }
-
   // H2: plain digit 1-9/0 (no modifier) — set selection opacity. Figma maps
   // 1-9 to 10%-90% and 0 to 100%. Only handled when nothing else claimed the
   // digit (e.g. Shift+1/Shift+2 zoom above) and no modifier is held; the
@@ -562,6 +614,12 @@ function handleDesignHotkey(
     return run(props.onSendToBack);
   }
 
+  // Current Figma reserves N / Shift+N for moving to the next / previous
+  // frame. Tab remains layer-sibling traversal and is handled above.
+  if (!primary && !event.altKey && key === "n") {
+    return event.shiftKey ? run(props.onPreviousFrame) : run(props.onNextFrame);
+  }
+
   // H3: Shift+H / Shift+V — flip selection horizontal/vertical. Checked
   // after the primary+shift h/l (hide/lock) branch above so Cmd+Shift+H
   // still wins; h/v aren't in SHIFT_TOOL_SHORTCUTS so there's no real
@@ -579,15 +637,6 @@ function handleDesignHotkey(
     return run(props.onSwapFillStroke);
   }
 
-  // Figma: Alt+Shift+H / Alt+Shift+V — distribute the selection evenly along
-  // the horizontal/vertical axis. Checked BEFORE the plain Alt+H/Alt+V align
-  // bindings below so the shift-held distribute variant always wins over the
-  // no-shift align variant for the same letter.
-  if (!primary && event.altKey && event.shiftKey) {
-    if (key === "h") return runDistribute("horizontal");
-    if (key === "v") return runDistribute("vertical");
-  }
-
   // Figma: Alt+A/D/W/S/H/V — align the selection to left/right/top/bottom/
   // center-h/center-v. Alt-only (no cmd, no shift — shift+h/v are the
   // distribute bindings just above, shift+a is Add auto layout below).
@@ -603,13 +652,18 @@ function handleDesignHotkey(
   // Figma: Ctrl+Alt+T — Tidy up. A rare Figma shortcut that stays literal
   // Control on every platform (never remapped to Cmd on Mac), so this checks
   // event.ctrlKey directly instead of the combined `primary` flag.
-  if (event.ctrlKey && event.altKey && !event.metaKey && key === "t") {
+  if (
+    event.ctrlKey &&
+    event.altKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    key === "t"
+  ) {
     return run(props.onTidyUp);
   }
 
-  // Figma: Shift+A — Add auto layout. Shift-only: plain "a" is the frame-tool
-  // shortcut (TOOL_SHORTCUTS, no-modifier only) and SHIFT_TOOL_SHORTCUTS has
-  // no "a" entry, so this can't shadow either.
+  // Figma: Shift+A — Add auto layout. Plain A is intentionally unbound in
+  // current Figma, so this shift-only command cannot shadow another tool.
   if (!primary && !event.altKey && event.shiftKey && key === "a") {
     return run(props.onAddAutoLayout);
   }
@@ -667,6 +721,24 @@ const ALT_CODE_KEYS: Record<string, string> = {
   BracketRight: "]",
   BracketLeft: "[",
 };
+
+function isApplePlatform() {
+  if (typeof navigator === "undefined") return false;
+  const userAgentDataPlatform = (
+    navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    }
+  ).userAgentData?.platform;
+  return /Mac|iPhone|iPad|iPod/i.test(
+    userAgentDataPlatform || navigator.platform || "",
+  );
+}
+
+function isPlatformPrimaryModifier(event: KeyboardEvent) {
+  return isApplePlatform()
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey;
+}
 
 function normalizedKey(event: KeyboardEvent) {
   if (event.key === " ") return "space";
