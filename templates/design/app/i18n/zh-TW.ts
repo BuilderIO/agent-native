@@ -662,6 +662,8 @@ const messages = {
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
       auditRunFailed: "無法執行設計稽核",
+      tweakConflict: "微調設定已在其他地方變更。請重新整理設計後再試一次。",
+      tweakSaveNotDurable: "微調設定尚未儲存。請保持此分頁開啟並再試一次。",
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",

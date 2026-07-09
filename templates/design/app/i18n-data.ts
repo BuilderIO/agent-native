@@ -12288,6 +12288,12 @@ export const messagesByLocale = {
           languageDescription: "选择 Design 的界面语言。",
           languageLabel: "界面语言",
         },
+        designEditor: {
+          toasts: {
+            tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
+            tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
+          },
+        },
         pages: {
           presentEmpty: "没有可演示的内容",
           presentBackToEditor: "返回编辑器",
@@ -12349,6 +12355,14 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Elige el idioma de la interfaz de Design.",
           languageLabel: "Idioma de la interfaz",
+        },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "Los ajustes cambiaron en otro lugar. Actualiza el diseño antes de intentarlo de nuevo.",
+            tweakSaveNotDurable:
+              "Los ajustes aún no se han guardado. Mantén esta pestaña abierta e inténtalo de nuevo.",
+          },
         },
         pages: {
           presentEmpty: "No hay contenido para presentar",
@@ -12413,6 +12427,14 @@ export const messagesByLocale = {
           languageDescription: "Choisissez la langue de l'interface de Design.",
           languageLabel: "Langue de l'interface",
         },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "Les réglages ont été modifiés ailleurs. Actualisez le design avant de réessayer.",
+            tweakSaveNotDurable:
+              "Les réglages ne sont pas encore enregistrés. Gardez cet onglet ouvert et réessayez.",
+          },
+        },
         pages: {
           presentEmpty: "Aucun contenu à présenter",
           presentBackToEditor: "Retour à l’éditeur",
@@ -12476,6 +12498,14 @@ export const messagesByLocale = {
           languageDescription: "Wähle die Oberflächensprache für Design.",
           languageLabel: "Oberflächensprache",
         },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "Die Anpassungen wurden an anderer Stelle geändert. Aktualisiere das Design, bevor du es erneut versuchst.",
+            tweakSaveNotDurable:
+              "Die Anpassungen sind noch nicht gespeichert. Lass diesen Tab geöffnet und versuche es erneut.",
+          },
+        },
         pages: {
           presentEmpty: "Keine Inhalte zum Präsentieren",
           presentBackToEditor: "Zurück zum Editor",
@@ -12538,6 +12568,14 @@ export const messagesByLocale = {
           languageTitle: "言語",
           languageDescription: "Design のインターフェース言語を選択します。",
           languageLabel: "インターフェース言語",
+        },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "調整内容が別の場所で変更されました。デザインを更新してからもう一度お試しください。",
+            tweakSaveNotDurable:
+              "調整内容はまだ保存されていません。このタブを開いたまま、もう一度お試しください。",
+          },
         },
         pages: {
           presentEmpty: "プレゼンするコンテンツがありません",
@@ -12603,6 +12641,14 @@ export const messagesByLocale = {
           languageDescription: "Design의 인터페이스 언어를 선택하세요.",
           languageLabel: "인터페이스 언어",
         },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
+            tweakSaveNotDurable:
+              "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
+          },
+        },
         pages: {
           presentEmpty: "발표할 콘텐츠가 없습니다",
           presentBackToEditor: "편집기로 돌아가기",
@@ -12664,6 +12710,14 @@ export const messagesByLocale = {
           languageTitle: "Idioma",
           languageDescription: "Escolha o idioma da interface do Design.",
           languageLabel: "Idioma da interface",
+        },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "Os ajustes foram alterados em outro lugar. Atualize o design antes de tentar novamente.",
+            tweakSaveNotDurable:
+              "Os ajustes ainda não foram salvos. Mantenha esta aba aberta e tente novamente.",
+          },
         },
         pages: {
           presentEmpty: "Nenhum conteúdo para apresentar",
@@ -12728,6 +12782,14 @@ export const messagesByLocale = {
           languageDescription: "Design की interface भाषा चुनें।",
           languageLabel: "इंटरफ़ेस भाषा",
         },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
+            tweakSaveNotDurable:
+              "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
+          },
+        },
         pages: {
           presentEmpty: "प्रस्तुत करने के लिए कोई सामग्री नहीं",
           presentBackToEditor: "संपादक पर वापस जाएं",
@@ -12790,6 +12852,14 @@ export const messagesByLocale = {
           languageTitle: "اللغة",
           languageDescription: "اختر لغة واجهة Design.",
           languageLabel: "لغة الواجهة",
+        },
+        designEditor: {
+          toasts: {
+            tweakConflict:
+              "تم تغيير التعديلات في مكان آخر. حدّث التصميم قبل المحاولة مرة أخرى.",
+            tweakSaveNotDurable:
+              "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
+          },
         },
         pages: {
           presentEmpty: "لا يوجد محتوى للعرض",
