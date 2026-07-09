@@ -377,9 +377,7 @@ export function useMeetingTranscription({
         };
 
         // Resume the engine that initial start settled on (no fallback here —
-        // the engine choice was already made below). Keep voice processing
-        // off: AEC/ducking on the shared mic can make Zoom/Meet callers hear
-        // the local user at a whisper while Clips is transcribed.
+        // the engine choice was already made below).
         const startAudio = async () => {
           await restartTranscriptionEngine(
             session.engine,
@@ -388,7 +386,6 @@ export function useMeetingTranscription({
               label: selectedMicLabel,
             },
             true,
-            false,
           );
         };
 
@@ -559,9 +556,6 @@ export function useMeetingTranscription({
 
         session.engine = await startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
-          // Match clip recordings: VoiceProcessingIO AEC/ducking on the shared
-          // mic can tank live meeting volume for remote participants.
-          voiceProcessing: false,
         });
 
         await invoke("silence_detector_start", {
