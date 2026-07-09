@@ -38,7 +38,9 @@ interface TranscriptionStatusPayload {
 
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
-const NOTIFICATION_WINDOW_WIDTH = 440;
+// Card is up to 440px wide; the extra width leaves room for the drop shadow
+// (~32px each side) so it isn't clipped by the transparent window edges.
+const NOTIFICATION_WINDOW_WIDTH = 504;
 const NOTIFICATION_COLLAPSED_HEIGHT = 120;
 const NOTIFICATION_MENU_HEIGHT = 224;
 

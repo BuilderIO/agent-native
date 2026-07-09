@@ -16,10 +16,13 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-const NOTIFICATION_W_LOGICAL: u32 = 440;
+// Window is wider than the 440px card so the card's drop shadow (~32px each
+// side) renders inside the transparent window instead of being clipped. The
+// right margin is pulled in to keep the card near the top-right corner.
+const NOTIFICATION_W_LOGICAL: u32 = 504;
 const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
-const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
 
 #[derive(Default)]
 pub struct MeetingNotificationState(pub Mutex<Option<Value>>);

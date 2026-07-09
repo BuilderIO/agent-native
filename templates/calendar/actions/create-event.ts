@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
@@ -191,7 +194,10 @@ export default defineAction({
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: args.addGoogleMeet,
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet: args.addGoogleMeet,
+        addZoom: args.addZoom,
+      }),
       sendUpdates: args.sendUpdates ?? (attendees?.length ? "all" : undefined),
     });
     if (result.id) {

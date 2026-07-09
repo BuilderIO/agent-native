@@ -87,6 +87,12 @@ pnpm action create-event \
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
 
+When attendees are invited and no video link/provider is supplied, Calendar
+automatically adds a Google Meet link by default. Pass `--addGoogleMeet=false`
+only when the user explicitly wants no video conferencing. If the user provides
+a Zoom/Meet/Teams link in the location or description, or asks for
+`--addZoom=true`, do not add Google Meet too.
+
 Native Google Calendar status events are supported:
 
 ```bash

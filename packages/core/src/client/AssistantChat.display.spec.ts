@@ -187,6 +187,174 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([repeatedCall]);
   });
 
+  it("drops reconnect tool repeats during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_live",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const handoffDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_reconnect",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [handoffDuplicate],
+        persistedMessages,
+        { suppressToolRepeats: true },
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops ahead reconnect tool copies during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_live",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const completedOverlay = {
+      type: "tool-call" as const,
+      toolCallId: "tc_reconnect",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [completedOverlay],
+        persistedMessages,
+        { suppressToolRepeats: true },
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops a reconnect activity spinner already rendered as a live tool card", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    // Reconnect overlay spinner: no args yet (no fingerprint) and a reader-local
+    // id that never matches the server-scoped id above.
+    const spinnerDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_0",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [spinnerDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a reconnect spinner for a tool not yet rendered", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const newToolSpinner = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "web-search",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [newToolSpinner],
+        persistedMessages,
+      ),
+    ).toEqual([newToolSpinner]);
+  });
+
+  it("keeps a completed reconnect tool copy ahead of a live spinner outside handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    // Overlay is strictly ahead (completed) of the rendered spinner and has a
+    // fingerprint, so the name fallback must not hide it when not in handoff.
+    const completedOverlay = {
+      type: "tool-call" as const,
+      toolCallId: "tc_0",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [completedOverlay],
+        persistedMessages,
+      ),
+    ).toEqual([completedOverlay]);
+  });
+
   it("drops stale pending tool-call copies inside the reconnect snapshot", () => {
     const stalePending = {
       type: "tool-call" as const,
@@ -520,6 +688,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     expect(source).toMatch(
       /reconnectContent\.length === 0 &&\s+reconnectActivityContent\.length > 0/,
     );
+    expect(source).toContain("Do not memoize this on `messages` identity");
   });
 });
 
@@ -1125,9 +1294,8 @@ describe("adapter reconnect handoff", () => {
     });
     expect(source).toContain("adapterHandoffPending");
     expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toContain(
-      "dedupeReconnectContentAgainstMessages(reconnectContent, messages)",
-    );
+    expect(source).toContain("suppressToolRepeats: adapterHandoffPending");
+    expect(source).toContain("Do not memoize this on `messages` identity");
     expect(source).toMatch(
       /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
     );

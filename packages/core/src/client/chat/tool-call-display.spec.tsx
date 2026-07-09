@@ -14,6 +14,7 @@ import {
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
+  toolInputPayload,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
@@ -366,6 +367,14 @@ describe("ToolCallDisplay native renderers", () => {
       "Raw slack_read_thread tool call output",
     );
     expect(document.body.textContent).toContain("messages");
+  });
+
+  it("syntax highlights run-code source as JavaScript", () => {
+    const payload = toolInputPayload("run-code", {
+      code: "const answer = 42;\nconsole.log(answer);",
+    });
+
+    expect(payload?.lang).toBe("javascript");
   });
 
   it("shows a compact repeat count for coalesced tool rows", () => {

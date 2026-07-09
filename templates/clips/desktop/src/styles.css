@@ -3621,7 +3621,9 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  padding: 8px;
+  /* Extra horizontal room so the card's drop shadow isn't clipped by the
+     transparent window edges (shadow blur is ~30px). */
+  padding: 12px 32px;
   background: transparent;
   pointer-events: none;
 }
@@ -3835,23 +3837,25 @@ body[data-clips-route="recording-pill"] #root {
 
 .meeting-notification-close {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
+  top: -8px;
+  left: -8px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(28, 30, 38, 0.98);
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  z-index: 6;
 }
 
 .meeting-notification-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(48, 50, 60, 0.98);
   color: white;
 }
 

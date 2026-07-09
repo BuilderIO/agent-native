@@ -1,7 +1,7 @@
 /**
  * Demo mode gate.
  *
- * Demo mode replaces real names, email addresses, and numbers in every action
+ * Demo mode replaces email addresses and numbers in every action
  * result with deterministic fake data — for both the UI and what the agent
  * sees — while preserving IDs, dates, URLs, and structure so the app keeps
  * working. The redaction WALK (see ./redact.ts) is expensive on large

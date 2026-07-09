@@ -674,9 +674,19 @@ function toolCallFingerprintFromContentPart(part: unknown): string | null {
   return `${name}\u0000${argsText}`;
 }
 
+function toolCallNameFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolName?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolName === "string" && candidate.toolName
+    ? candidate.toolName
+    : null;
+}
+
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
   byId: Map<string, { rank: number }>;
   latestAssistantByFingerprint: Map<string, { rank: number }>;
+  latestAssistantByName: Map<string, { rank: number }>;
 } {
   const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
@@ -695,22 +705,31 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
   }
 
   const latestAssistantByFingerprint = new Map<string, { rank: number }>();
+  const latestAssistantByName = new Map<string, { rank: number }>();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
   const latestContent = latestMessage?.content;
   if (latestMessage?.role === "assistant" && Array.isArray(latestContent)) {
     for (const part of latestContent) {
-      const fingerprint = toolCallFingerprintFromContentPart(part);
-      if (!fingerprint) continue;
       const rank = toolCallProgressRank(part);
-      const existing = latestAssistantByFingerprint.get(fingerprint);
-      latestAssistantByFingerprint.set(fingerprint, {
-        rank: Math.max(existing?.rank ?? 0, rank),
-      });
+      const fingerprint = toolCallFingerprintFromContentPart(part);
+      if (fingerprint) {
+        const existing = latestAssistantByFingerprint.get(fingerprint);
+        latestAssistantByFingerprint.set(fingerprint, {
+          rank: Math.max(existing?.rank ?? 0, rank),
+        });
+      }
+      const name = toolCallNameFromContentPart(part);
+      if (name) {
+        const existing = latestAssistantByName.get(name);
+        latestAssistantByName.set(name, {
+          rank: Math.max(existing?.rank ?? 0, rank),
+        });
+      }
     }
   }
 
-  return { byId, latestAssistantByFingerprint };
+  return { byId, latestAssistantByFingerprint, latestAssistantByName };
 }
 
 function assistantTextFromContent(content: unknown): string {
@@ -798,29 +817,37 @@ function trimReconnectTextAlreadyRendered(
 export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],
+  options?: { suppressToolRepeats?: boolean },
 ): ContentPart[] {
   if (content.length === 0) return content;
   const snapshotDeduped = dedupePendingToolCallReplaysWithinContent(content);
   let changed = snapshotDeduped !== content;
   if (messages.length === 0) return changed ? snapshotDeduped : content;
-  const { byId, latestAssistantByFingerprint } =
+  const { byId, latestAssistantByFingerprint, latestAssistantByName } =
     collectRenderedToolCallStates(messages);
   const renderedAssistantText = latestRenderedAssistantText(messages);
   if (
     byId.size === 0 &&
     latestAssistantByFingerprint.size === 0 &&
+    latestAssistantByName.size === 0 &&
     !renderedAssistantText
   ) {
     return changed ? snapshotDeduped : content;
   }
 
   const filtered =
-    byId.size > 0 || latestAssistantByFingerprint.size > 0
+    byId.size > 0 ||
+    latestAssistantByFingerprint.size > 0 ||
+    latestAssistantByName.size > 0
       ? snapshotDeduped.filter((part) => {
           const reconnectRank = toolCallProgressRank(part);
           const id = toolCallIdFromContentPart(part);
           const existing = id ? byId.get(id) : undefined;
           if (existing) {
+            if (options?.suppressToolRepeats) {
+              changed = true;
+              return false;
+            }
             // Keep reconnect copies that are strictly ahead of the rendered
             // message (e.g. completed overlay vs lagging pending thread data).
             // Same-or-behind ranks are duplicates and should stay hidden.
@@ -842,13 +869,46 @@ export function dedupeReconnectContentAgainstMessages(
             : undefined;
           const isCompletedRepeat =
             reconnectRank >= 4 && latestByFingerprint?.rank === 4;
+          const keepCompletedRepeat =
+            isCompletedRepeat && !options?.suppressToolRepeats;
+          if (latestByFingerprint && options?.suppressToolRepeats) {
+            changed = true;
+            return false;
+          }
           if (
             latestByFingerprint &&
-            !isCompletedRepeat &&
+            !keepCompletedRepeat &&
             reconnectRank <= latestByFingerprint.rank
           ) {
             changed = true;
             return false;
+          }
+          // Activity / arg-less fallback. A reconnect spinner (activity===true)
+          // or a pending tool whose args have not materialized yet has no
+          // fingerprint, and its reader-local id (`tc_N`) never matches the
+          // server-scoped id (`${runId}:tc_N`) rendered in the message, so it
+          // slips past BOTH checks above and paints a second card beside the
+          // live one ("one spinning, one static"). Suppress it only when the
+          // latest assistant message renders the same tool that is ITSELF still
+          // pending (rank < 4) at an equal-or-greater rank: a spinner alongside
+          // a live pending card is the same in-flight call seen by two readers.
+          // If the rendered same-name tool is already completed, a fresh spinner
+          // is more likely a genuinely repeated call, so it must stay visible
+          // (an empty-args fingerprint would over-match — see the completed
+          // repeat cases below).
+          if (!fingerprint) {
+            const name = toolCallNameFromContentPart(part);
+            const latestByName = name
+              ? latestAssistantByName.get(name)
+              : undefined;
+            if (
+              latestByName &&
+              latestByName.rank < 4 &&
+              reconnectRank <= latestByName.rank
+            ) {
+              changed = true;
+              return false;
+            }
           }
           return true;
         })
@@ -3328,8 +3388,9 @@ const AssistantChatInner = forwardRef<
       return;
     }
     const stillNeeded =
-      dedupeReconnectContentAgainstMessages(reconnectContent, messages).length >
-      0;
+      dedupeReconnectContentAgainstMessages(reconnectContent, messages, {
+        suppressToolRepeats: true,
+      }).length > 0;
     if (!stillNeeded) {
       setReconnectContent([]);
       setAdapterHandoffPending(false);
@@ -3888,9 +3949,13 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
-  const visibleReconnectContent = useMemo(
-    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
-    [messages, reconnectContent],
+  // Do not memoize this on `messages` identity. assistant-ui can update the
+  // live assistant message content in place while streaming, and the reconnect
+  // overlay must hide as soon as that live message has caught up.
+  const visibleReconnectContent = dedupeReconnectContentAgainstMessages(
+    reconnectContent,
+    messages,
+    { suppressToolRepeats: adapterHandoffPending },
   );
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
