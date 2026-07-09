@@ -27,6 +27,9 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 - Use category-tagged references. Blog heroes should prefer `hero`; diagrams
   should prefer `diagram`; product imagery should include `product` and `logo`
   references.
+- Imported external images with `status: "reference"` are valid generation
+  inputs. Use their returned asset IDs in preset reference fills or reference
+  boards the same way you would use uploaded reference assets.
 - Keep reference sets small and deterministic. Prefer anchors listed in
   `assetLibraries.settings.canonicalStyleAssetIds` and assets marked
   `assets.metadata.isStyleAnchor` before sampling other relevant references.

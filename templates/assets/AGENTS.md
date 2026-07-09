@@ -24,6 +24,8 @@ Detailed library, generation, image, embed, and engine rules live in
 - Use the configured generation/engine path for image and asset work. Do not add
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
+- Ingest external brand or blog imagery with `import-asset-from-url`, then pin
+  the returned asset to preset reference boards or set it as the canonical logo.
 - Use `view-screen` when the active library, selected asset, picker, generation,
   or embed target is unclear. The human Library surface is `/library` for
   cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
