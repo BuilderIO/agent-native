@@ -307,6 +307,8 @@ const messages = {
       deleteProperty: "刪除屬性",
       deletePropertyDescription:
         '這將從該工作區中的每個檔案中刪除"{{name}}"及其值。',
+      deletePropertyDescriptionPrefix: '這將從該工作區中的每個檔案中刪除"',
+      deletePropertyDescriptionSuffix: '"及其值。',
       deletePropertyQuestion: "刪除屬性？",
       duplicateProperty: "重複的屬性",
       editEndDate: "編輯 {{name}} 結束日期",

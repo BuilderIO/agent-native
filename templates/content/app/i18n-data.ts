@@ -1958,6 +1958,9 @@ const editorPropertiesMessages = {
   deleteProperty: "Delete property",
   deletePropertyDescription:
     'This removes "{{name}}" and its values from every document in this workspace.',
+  deletePropertyDescriptionPrefix: 'This removes "',
+  deletePropertyDescriptionSuffix:
+    '" and its values from every document in this workspace.',
   deletePropertyQuestion: "Delete property?",
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
@@ -4978,6 +4981,8 @@ const editorMessagesByLocale = {
       deleteProperty: "删除属性",
       deletePropertyDescription:
         '这将从该工作区中的每个文档中删除"{{name}}"及其值。',
+      deletePropertyDescriptionPrefix: '这将从该工作区中的每个文档中删除"',
+      deletePropertyDescriptionSuffix: '"及其值。',
       deletePropertyQuestion: "删除属性？",
       duplicateProperty: "重复的属性",
       editEndDate: "编辑 {{name}} 结束日期",
@@ -5304,6 +5309,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eliminar propiedad",
       deletePropertyDescription:
         'Esto elimina "{{name}}" y sus valores de todos los documentos de este espacio de trabajo.',
+      deletePropertyDescriptionPrefix: 'Esto elimina "',
+      deletePropertyDescriptionSuffix:
+        '" y sus valores de todos los documentos de este espacio de trabajo.',
       deletePropertyQuestion: "¿Eliminar propiedad?",
       duplicateProperty: "Propiedad duplicada",
       editEndDate: "Editar fecha de finalización de {{name}}",
@@ -5641,6 +5649,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Supprimer la propriété",
       deletePropertyDescription:
         "Cela supprime « {{name}} » et ses valeurs de chaque document de cet espace de travail.",
+      deletePropertyDescriptionPrefix: "Cela supprime « ",
+      deletePropertyDescriptionSuffix:
+        " » et ses valeurs de chaque document de cet espace de travail.",
       deletePropertyQuestion: "Supprimer la propriété ?",
       duplicateProperty: "Propriété en double",
       editEndDate: "Modifier la date de fin de {{name}}",
@@ -5978,6 +5989,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eigenschaft löschen",
       deletePropertyDescription:
         'Dadurch werden „{{name}}" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
+      deletePropertyDescriptionPrefix: "Dadurch werden „",
+      deletePropertyDescriptionSuffix:
+        '" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
       deletePropertyQuestion: "Eigenschaft löschen?",
       duplicateProperty: "Doppelte Eigenschaft",
       editEndDate: "{{name}}-Enddatum bearbeiten",
@@ -6315,6 +6329,9 @@ const editorMessagesByLocale = {
       deleteProperty: "プロパティの削除",
       deletePropertyDescription:
         "これにより、このワークスペース内のすべてのドキュメントから「{{name}}」とその値が削除されます。",
+      deletePropertyDescriptionPrefix:
+        "これにより、このワークスペース内のすべてのドキュメントから「",
+      deletePropertyDescriptionSuffix: "」とその値が削除されます。",
       deletePropertyQuestion: "プロパティを削除しますか?",
       duplicateProperty: "重複したプロパティ",
       editEndDate: "{{name}} の終了日を編集",
@@ -6645,6 +6662,9 @@ const editorMessagesByLocale = {
       deleteProperty: "속성 삭제",
       deletePropertyDescription:
         '이렇게 하면 이 작업공간의 모든 문서에서 "{{name}}"와 해당 값이 제거됩니다.',
+      deletePropertyDescriptionPrefix:
+        '이렇게 하면 이 작업공간의 모든 문서에서 "',
+      deletePropertyDescriptionSuffix: '"와 해당 값이 제거됩니다.',
       deletePropertyQuestion: "속성을 삭제하시겠습니까?",
       duplicateProperty: "중복된 속성",
       editEndDate: "{{name}} 종료일 수정",
@@ -6978,6 +6998,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Excluir propriedade",
       deletePropertyDescription:
         'Isso remove "{{name}}" e seus valores de todos os documentos nesta área de trabalho.',
+      deletePropertyDescriptionPrefix: 'Isso remove "',
+      deletePropertyDescriptionSuffix:
+        '" e seus valores de todos os documentos nesta área de trabalho.',
       deletePropertyQuestion: "Excluir propriedade?",
       duplicateProperty: "Propriedade duplicada",
       editEndDate: "Editar data de término do {{name}}",
@@ -7311,6 +7334,8 @@ const editorMessagesByLocale = {
       deleteProperty: "संपत्ति हटाएं",
       deletePropertyDescription:
         'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "{{name}}" और उसके मानों को हटा देता है।',
+      deletePropertyDescriptionPrefix: 'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "',
+      deletePropertyDescriptionSuffix: '" और उसके मानों को हटा देता है।',
       deletePropertyQuestion: "संपत्ति हटाएं?",
       duplicateProperty: "डुप्लिकेट संपत्ति",
       editEndDate: "{{name}} समाप्ति तिथि संपादित करें",
@@ -7638,6 +7663,9 @@ const editorMessagesByLocale = {
       deleteProperty: "حذف الممتلكات",
       deletePropertyDescription:
         'يؤدي هذا إلى إزالة "{{name}}" وقيمه من كل مستند في مساحة العمل هذه.',
+      deletePropertyDescriptionPrefix: 'يؤدي هذا إلى إزالة "',
+      deletePropertyDescriptionSuffix:
+        '" وقيمه من كل مستند في مساحة العمل هذه.',
       deletePropertyQuestion: "هل تريد حذف الخاصية؟",
       duplicateProperty: "خاصية مكررة",
       editEndDate: "تحرير تاريخ انتهاء {{name}}",
