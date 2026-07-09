@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.4
+
+### Patch Changes
+
+- 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
+
 ## 0.92.3
 
 ### Patch Changes
