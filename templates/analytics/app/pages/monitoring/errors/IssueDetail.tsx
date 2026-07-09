@@ -463,7 +463,7 @@ function StackFrameRow({
         frame.inApp ? "bg-background" : "bg-muted/20 text-muted-foreground",
       )}
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-muted/40 font-mono text-[11px] text-muted-foreground">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/35 font-mono text-[11px] text-muted-foreground">
         {index + 1}
       </span>
       <div className="min-w-0">
@@ -481,7 +481,7 @@ function StackFrameRow({
           </span>
         </div>
         {frame.raw ? (
-          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/30 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <pre className="mt-2 overflow-x-auto rounded-md bg-muted/25 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
             {frame.raw}
           </pre>
         ) : null}
@@ -508,13 +508,8 @@ function SourceContextBlock({
 }: {
   lines: NonNullable<ParsedStackFrame["sourceContext"]>;
 }) {
-  const t = useErrorsT();
-
   return (
-    <div className="mt-3 overflow-hidden rounded-md border bg-background/60">
-      <div className="border-b bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {t.sourceContext}
-      </div>
+    <div className="mt-2 overflow-hidden rounded-md bg-muted/20">
       <div className="overflow-x-auto font-mono text-[11px] leading-relaxed">
         {lines.map((line) => (
           <div
@@ -522,16 +517,14 @@ function SourceContextBlock({
             className={cn(
               "grid min-w-max grid-cols-[3rem_1fr]",
               line.highlight
-                ? "bg-primary/10 text-foreground"
+                ? "bg-rose-500/10 text-foreground"
                 : "text-muted-foreground",
             )}
           >
             <span
               className={cn(
-                "select-none border-e px-2 py-0.5 text-end",
-                line.highlight
-                  ? "border-primary/20 text-primary"
-                  : "border-border/60",
+                "select-none px-2 py-0.5 text-end",
+                line.highlight ? "text-rose-300" : "text-muted-foreground/70",
               )}
             >
               {line.line}

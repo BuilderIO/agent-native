@@ -515,7 +515,7 @@ export default function Settings() {
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-3xl">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share dashboards and data sources with your colleagues."

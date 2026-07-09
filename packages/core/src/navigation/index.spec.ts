@@ -18,7 +18,7 @@ describe("navigation kit helpers", () => {
     );
     expect(buildSettingsRoute("what's new")).toBe("/settings#whats-new");
     expect(buildStandardAppRoute("team", { teamInSettings: true })).toBe(
-      "/settings#team",
+      "/settings#organization",
     );
   });
 

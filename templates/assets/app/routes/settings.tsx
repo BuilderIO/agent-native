@@ -142,7 +142,7 @@ export default function SettingsPage() {
           </div>
         }
         team={
-          <div className="mx-auto w-full max-w-2xl">
+          <div className="mx-auto w-full max-w-3xl">
             <TeamPage
               showTitle={false}
               createOrgDescription={t("team.createOrgDescription")}

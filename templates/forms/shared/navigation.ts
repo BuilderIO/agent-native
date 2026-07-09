@@ -73,7 +73,7 @@ export function formsRoutePath(target: FormsNavigationTarget): string | null {
         ? `/response-insights?formId=${encodeURIComponent(formId)}`
         : "/response-insights";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     case "extensions":
       return "/extensions";
     case "form-preview":
