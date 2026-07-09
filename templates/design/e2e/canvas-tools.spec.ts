@@ -439,7 +439,8 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
     process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type(text);
-  await page.keyboard.press("Enter");
+  // Figma text editing: Enter inserts a line break; Escape exits and commits.
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
 }
 
@@ -787,7 +788,7 @@ test("double-click existing text starts inline editing and stays open (overview)
   const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAll);
   await page.keyboard.type("Edited Inline");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
   await expect
     .poll(
       async () =>
