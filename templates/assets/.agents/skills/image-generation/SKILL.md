@@ -59,6 +59,26 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   `generate-image-batch` / `refine-image`. The design team uses the audit log
   to review quality by app, library, model, prompt, and lineage.
 
+## Preset-first Generation
+
+- Before any ad-hoc generation for a brand kit, call
+  `list-generation-presets` and scan titles/descriptions/categories for a
+  use-case match. A preset encodes the designer's format, model, layout, and
+  reference board; using it is always better than improvising.
+- If one preset clearly matches: use its `presetId`; do not restate its saved
+  aspect ratio/size/model/tier. If several plausibly match: pick the best and
+  state which one you used; do not ask the user to choose.
+- Match named people/products/backdrops in the request to the preset's
+  reference board entry labels in `settings.presetReferences`. Fill required
+  variable entries via `presetReferenceFills`: search the library for assets of
+  those people first; ask the user for photos only when none exist. Never skip a
+  required entry.
+- Route exact visible copy such as event titles, dates, and times to
+  `embeddedText` per the existing text rules; keep the creative direction in
+  `prompt`.
+- If nothing matches: generate ad-hoc, say that no preset fit, and mention a
+  preset could be created for this recurring use case.
+
 ## Prompting
 
 - Treat references as evidence, not decoration.

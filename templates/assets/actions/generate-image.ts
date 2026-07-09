@@ -78,7 +78,7 @@ const presetReferenceFillSchema = z.object({
 
 export default defineAction({
   description:
-    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z
       .string()

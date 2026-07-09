@@ -30,7 +30,7 @@ const presetReferenceFillSchema = z.object({
 
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
