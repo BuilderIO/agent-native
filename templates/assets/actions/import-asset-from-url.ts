@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { IMAGE_CATEGORIES } from "../shared/api.js";
+import type { ImageCategory } from "../shared/api.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
 import {
   hasAllowedSignature,
@@ -24,6 +26,20 @@ const IMPORTABLE_REFERENCE_ROLES = [
 
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_REDIRECTS = 3;
+
+// Mirrors the upload route's category↔role mapping so imported references
+// appear in the same category-filtered views as uploaded equivalents.
+const DEFAULT_CATEGORY_BY_ROLE: Record<
+  (typeof IMPORTABLE_REFERENCE_ROLES)[number],
+  ImageCategory
+> = {
+  style_reference: "style-only",
+  subject_reference: "other",
+  product_reference: "product",
+  background_reference: "other",
+  logo_reference: "logo",
+  diagram_reference: "diagram",
+};
 
 function normalizedImageMimeType(contentType: string | null): string {
   return contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -114,7 +130,7 @@ async function fetchImageBytes(url: string): Promise<{
     response = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
-      { maxRedirects: MAX_REDIRECTS },
+      { maxRedirects: MAX_REDIRECTS, httpsOnly: true },
     );
   } catch {
     throw new Error("Could not fetch that URL.");
@@ -148,6 +164,12 @@ export default defineAction({
     libraryId: z.string(),
     url: z.string().url(),
     role: z.enum(IMPORTABLE_REFERENCE_ROLES).default("style_reference"),
+    category: z
+      .enum(IMAGE_CATEGORIES)
+      .optional()
+      .describe(
+        "Deliverable category for filtered views (e.g. hero, campaign). Defaults to the category matching the chosen role.",
+      ),
     collectionId: z.string().nullable().optional(),
     folderId: z.string().nullable().optional(),
     title: z.string().max(200).optional(),
@@ -157,6 +179,7 @@ export default defineAction({
     libraryId,
     url,
     role,
+    category,
     collectionId,
     folderId,
     title,
@@ -180,6 +203,7 @@ export default defineAction({
       mimeType,
       mediaType: "image",
       role,
+      category: category ?? DEFAULT_CATEGORY_BY_ROLE[role],
       status: "reference",
       title: title ?? null,
       description: description ?? null,

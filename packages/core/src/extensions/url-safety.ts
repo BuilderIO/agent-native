@@ -247,17 +247,26 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
  * Throws an Error whose message starts with "SSRF blocked:" when a target
  * (initial or via redirect) resolves to a private/internal address, or when the
  * redirect limit is exceeded. Otherwise returns the final Response.
+ *
+ * `httpsOnly` extends the per-hop validation to the URL scheme: redirects are
+ * followed only to `https:` targets, so an HTTPS-only caller cannot be
+ * downgraded to plain HTTP by a 30x from the (untrusted) origin.
  */
 export async function ssrfSafeFetch(
   url: string,
   init: RequestInit = {},
-  options: { maxRedirects?: number } = {},
+  options: { maxRedirects?: number; httpsOnly?: boolean } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (options.httpsOnly && new URL(currentUrl).protocol !== "https:") {
+      throw new Error(
+        `SSRF blocked: refusing to fetch non-HTTPS address (${currentUrl})`,
+      );
+    }
     if (await isBlockedExtensionUrlWithDns(currentUrl)) {
       throw new Error(
         `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,

@@ -97,7 +97,10 @@ belongs in a brand kit, such as a blog hero, product shot, logo, campaign image,
 or diagram. Choose the narrowest reference `role` (`style_reference`,
 `subject_reference`, `product_reference`, `background_reference`,
 `logo_reference`, or `diagram_reference`) and preserve a useful title or
-description when known.
+description when known. The deliverable `category` defaults to match the role
+(logo → `logo`, product → `product`, diagram → `diagram`); pass an explicit
+`category` such as `hero` or `campaign` when the image belongs in one of those
+filtered views.
 
 For a blog-to-brand-kit workflow: inspect the page, pick the strongest image
 URLs, import each URL into the target `libraryId`, then wire the returned

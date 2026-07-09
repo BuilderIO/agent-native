@@ -72,7 +72,8 @@ describe("import-asset-from-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     assertAccessMock.mockResolvedValue(undefined);
-    ssrfSafeFetchMock.mockResolvedValue(
+    // Fresh Response per call — a Response body stream can only be read once.
+    ssrfSafeFetchMock.mockImplementation(async () =>
       response(pngBytes, {
         "content-type": "image/png; charset=utf-8",
         "content-length": String(pngBytes.byteLength),
@@ -110,7 +111,7 @@ describe("import-asset-from-url", () => {
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "https://cdn.example.test/blog-hero.png",
       { signal: expect.any(AbortSignal) },
-      { maxRedirects: 3 },
+      { maxRedirects: 3, httpsOnly: true },
     );
     expect(createAssetFromBufferMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,6 +121,7 @@ describe("import-asset-from-url", () => {
         mimeType: "image/png",
         mediaType: "image",
         role: "style_reference",
+        category: "style-only",
         status: "reference",
         title: "Blog hero",
         description: "Imported from the launch post.",
@@ -245,7 +247,29 @@ describe("import-asset-from-url", () => {
         collectionId: "collection-1",
         folderId: "folder-1",
         role: "logo_reference",
+        category: "logo",
       }),
+    );
+  });
+
+  it("defaults the category from the role and honors explicit overrides", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      url: "https://example.test/diagram.png",
+      role: "diagram_reference",
+    });
+    expect(createAssetFromBufferMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: "diagram" }),
+    );
+
+    await action.run({
+      libraryId: "lib-1",
+      url: "https://example.test/hero.png",
+      role: "style_reference",
+      category: "hero",
+    });
+    expect(createAssetFromBufferMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ role: "style_reference", category: "hero" }),
     );
   });
 });
