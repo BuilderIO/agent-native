@@ -8,6 +8,8 @@ export type DesignSaveActionName =
 export interface DesignSaveOutboxEntry {
   key: string;
   designId: string;
+  /** Prevents a later signed-in user on the same browser from replaying it. */
+  actorScope: string;
   actionName: DesignSaveActionName;
   resourceId: string;
   operationSource: string;
@@ -19,7 +21,7 @@ export interface DesignSaveOutboxEntry {
 export interface DesignSaveOutboxStorage {
   putLatest(entry: DesignSaveOutboxEntry): Promise<void>;
   deleteIfRevision(entry: DesignSaveOutboxEntry): Promise<boolean>;
-  list(designId: string): Promise<DesignSaveOutboxEntry[]>;
+  list(designId: string, actorScope: string): Promise<DesignSaveOutboxEntry[]>;
   pruneOlderThan(updatedAt: number): Promise<number>;
 }
 
@@ -153,7 +155,7 @@ const indexedDbStorage: DesignSaveOutboxStorage = {
     });
   },
 
-  async list(designId) {
+  async list(designId, actorScope) {
     const database = await openDatabase();
     return await new Promise<DesignSaveOutboxEntry[]>((resolve, reject) => {
       const transaction = database.transaction(ENTRY_STORE, "readonly");
@@ -163,9 +165,9 @@ const indexedDbStorage: DesignSaveOutboxStorage = {
         .getAll(designId);
       let entries: DesignSaveOutboxEntry[] = [];
       request.onsuccess = () => {
-        entries = (request.result as DesignSaveOutboxEntry[]).sort(
-          (left, right) => left.updatedAt - right.updatedAt,
-        );
+        entries = (request.result as DesignSaveOutboxEntry[])
+          .filter((entry) => entry.actorScope === actorScope)
+          .sort((left, right) => left.updatedAt - right.updatedAt);
       };
       request.onerror = () => transaction.abort();
       transaction.oncomplete = () => resolve(entries);
@@ -208,12 +210,14 @@ const indexedDbStorage: DesignSaveOutboxStorage = {
 
 export function designSaveOutboxKey(input: {
   designId: string;
+  actorScope: string;
   actionName: DesignSaveActionName;
   resourceId: string;
   operationSource: string;
 }): string {
   return [
     input.designId,
+    input.actorScope,
     input.actionName,
     input.resourceId,
     input.operationSource,
@@ -224,6 +228,7 @@ export function designSaveOutboxKey(input: {
 
 export function createDesignSaveOutboxEntry(input: {
   designId: string;
+  actorScope: string;
   actionName: DesignSaveActionName;
   resourceId: string;
   operationSource: string;
@@ -261,6 +266,7 @@ export async function discardDesignSaveOutboxEntry(
 
 async function drainEntries(
   designId: string,
+  actorScope: string,
   invokeAction: (
     actionName: DesignSaveActionName,
     payload: Record<string, unknown>,
@@ -268,7 +274,7 @@ async function drainEntries(
   storage: DesignSaveOutboxStorage,
 ): Promise<DrainDesignSaveOutboxResult> {
   const result: DrainDesignSaveOutboxResult = { saved: [], failed: [] };
-  for (const entry of await storage.list(designId)) {
+  for (const entry of await storage.list(designId, actorScope)) {
     try {
       if (
         entry.actionName === "update-file" &&
@@ -306,6 +312,7 @@ async function drainEntries(
 
 export async function drainDesignSaveOutbox(options: {
   designId: string;
+  actorScope: string;
   invokeAction?: (
     actionName: DesignSaveActionName,
     payload: Record<string, unknown>,
@@ -323,7 +330,8 @@ export async function drainDesignSaveOutbox(options: {
       )(actionName, payload));
   const storage = options.storage ?? indexedDbStorage;
   await storage.pruneOlderThan(Date.now() - DESIGN_SAVE_OUTBOX_RETENTION_MS);
-  const run = () => drainEntries(options.designId, invokeAction, storage);
+  const run = () =>
+    drainEntries(options.designId, options.actorScope, invokeAction, storage);
   const lockManager =
     typeof navigator === "undefined"
       ? undefined

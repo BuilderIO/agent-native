@@ -38,9 +38,15 @@ class MemoryOutboxStorage implements DesignSaveOutboxStorage {
     return true;
   }
 
-  async list(designId: string): Promise<DesignSaveOutboxEntry[]> {
+  async list(
+    designId: string,
+    actorScope: string,
+  ): Promise<DesignSaveOutboxEntry[]> {
     return [...this.entries.values()]
-      .filter((entry) => entry.designId === designId)
+      .filter(
+        (entry) =>
+          entry.designId === designId && entry.actorScope === actorScope,
+      )
       .sort((left, right) => left.updatedAt - right.updatedAt)
       .map((entry) => structuredClone(entry));
   }
@@ -59,6 +65,7 @@ class MemoryOutboxStorage implements DesignSaveOutboxStorage {
 function fileEntry(revision: number, content = `revision-${revision}`) {
   return createDesignSaveOutboxEntry({
     designId: "design-1",
+    actorScope: "user-1",
     actionName: "update-file",
     resourceId: "file-1",
     operationSource: "editor-session-1",
@@ -79,7 +86,9 @@ describe("design save outbox", () => {
     await journalDesignSaveOutboxEntry(fileEntry(3), storage);
     await journalDesignSaveOutboxEntry(fileEntry(2), storage);
 
-    expect((await storage.list("design-1"))[0]?.operationRevision).toBe(3);
+    expect(
+      (await storage.list("design-1", "user-1"))[0]?.operationRevision,
+    ).toBe(3);
   });
 
   it("does not let a stale acknowledgement delete a newer edit", async () => {
@@ -92,7 +101,9 @@ describe("design save outbox", () => {
     await expect(
       acknowledgeDesignSaveOutboxEntry(stale, storage),
     ).resolves.toBe(false);
-    expect((await storage.list("design-1"))[0]?.operationRevision).toBe(2);
+    expect(
+      (await storage.list("design-1", "user-1"))[0]?.operationRevision,
+    ).toBe(2);
   });
 
   it("does not let a stale cancellation discard a newer queued edit", async () => {
@@ -105,7 +116,9 @@ describe("design save outbox", () => {
     await expect(
       discardDesignSaveOutboxEntry(cancelled, storage),
     ).resolves.toBe(false);
-    expect((await storage.list("design-1"))[0]?.operationRevision).toBe(5);
+    expect(
+      (await storage.list("design-1", "user-1"))[0]?.operationRevision,
+    ).toBe(5);
   });
 
   it("replays an HTML payload larger than keepalive limits after reload", async () => {
@@ -116,6 +129,7 @@ describe("design save outbox", () => {
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
+      actorScope: "user-1",
       invokeAction,
       storage,
     });
@@ -126,7 +140,7 @@ describe("design save outbox", () => {
       "update-file",
       expect.objectContaining({ content }),
     );
-    expect(await storage.list("design-1")).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
   });
 
   it("retains conflicts and other failures for a later retry", async () => {
@@ -138,12 +152,13 @@ describe("design save outbox", () => {
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
+      actorScope: "user-1",
       invokeAction: vi.fn().mockRejectedValue(conflict),
       storage,
     });
 
     expect(result.failed).toHaveLength(1);
-    expect(await storage.list("design-1")).toHaveLength(1);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
   it("never replays an unguarded live-collaboration mirror", async () => {
@@ -155,13 +170,14 @@ describe("design save outbox", () => {
 
     const result = await drainDesignSaveOutbox({
       designId: "design-1",
+      actorScope: "user-1",
       invokeAction,
       storage,
     });
 
     expect(result.failed).toHaveLength(1);
     expect(invokeAction).not.toHaveBeenCalled();
-    expect(await storage.list("design-1")).toHaveLength(1);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
   it("prunes abandoned sessions after 30 days without touching fresh edits", async () => {
@@ -178,12 +194,30 @@ describe("design save outbox", () => {
 
     await drainDesignSaveOutbox({
       designId: "design-1",
+      actorScope: "user-1",
       invokeAction: vi.fn().mockRejectedValue(new Error("offline")),
       storage,
     });
 
-    const remaining = await storage.list("design-1");
+    const remaining = await storage.list("design-1", "user-1");
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.operationRevision).toBe(2);
+  });
+
+  it("never replays another signed-in user's queued changes", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(fileEntry(1), storage);
+    const invokeAction = vi.fn();
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-2",
+      invokeAction,
+      storage,
+    });
+
+    expect(result).toEqual({ saved: [], failed: [] });
+    expect(invokeAction).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 });

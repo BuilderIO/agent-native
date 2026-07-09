@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
+  POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
@@ -98,15 +99,20 @@ describe("routePendingTextEditKey", () => {
 describe("schedulePendingTextEditActivation", () => {
   it("waits for the trailing click task after pointer-created text", () => {
     const scheduled: Array<() => void> = [];
+    const delays: number[] = [];
     const activate = vi.fn();
 
     schedulePendingTextEditActivation(activate, {
       afterPointerGesture: true,
-      schedule: (callback) => scheduled.push(callback),
+      schedule: (callback, delayMs) => {
+        scheduled.push(callback);
+        delays.push(delayMs);
+      },
     });
 
     expect(activate).not.toHaveBeenCalled();
     expect(scheduled).toHaveLength(1);
+    expect(delays).toEqual([POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS]);
     scheduled[0]?.();
     expect(activate).toHaveBeenCalledOnce();
   });

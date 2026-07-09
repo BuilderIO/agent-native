@@ -16,7 +16,7 @@ export function schedulePendingTextEditActivation(
   activate: () => void,
   options: {
     afterPointerGesture?: boolean;
-    schedule?: (callback: () => void) => void;
+    schedule?: (callback: () => void, delayMs: number) => void;
   } = {},
 ): void {
   if (!options.afterPointerGesture) {
@@ -25,8 +25,9 @@ export function schedulePendingTextEditActivation(
   }
   const schedule =
     options.schedule ??
-    ((callback: () => void) => window.setTimeout(callback, 0));
-  schedule(activate);
+    ((callback: () => void, delayMs: number) =>
+      window.setTimeout(callback, delayMs));
+  schedule(activate, POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS);
 }
 
 export function routePendingTextEditKey(event: {
@@ -53,3 +54,9 @@ export function routePendingTextEditKey(event: {
 }
 
 export const PENDING_TEXT_EDIT_TIMEOUT_MS = 3000;
+
+// Overview creation patches the target iframe document after persistence.
+// Waiting through that bounded replacement avoids opening an edit session in
+// the outgoing DOM (visible caret blink, then lost focus). Keystrokes remain
+// lossless because DesignCanvas arms its pending buffer before scheduling.
+export const POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS = 300;

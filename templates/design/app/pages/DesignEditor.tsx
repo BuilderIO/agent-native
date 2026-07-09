@@ -199,6 +199,7 @@ import type {
   IframeHotkeyPayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -2434,7 +2435,16 @@ function scheduleBeginTextEditForScreen(
     timers.forEach((timer) => window.clearTimeout(timer));
     onExhausted?.(status);
   };
-  const delays = [180, 300, 600, 900, 1200, 1800, 2400, 3200, 4200];
+  const delays = [
+    POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
+    600,
+    900,
+    1200,
+    1800,
+    2400,
+    3200,
+    4200,
+  ];
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
@@ -4918,6 +4928,7 @@ function DesignEditor() {
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
   const sessionResolved = !sessionLoading;
+  const designSaveActorScope = session?.userId ?? "anonymous";
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -4969,7 +4980,7 @@ function DesignEditor() {
 
   // Data fetching
   useEffect(() => {
-    if (!id) return;
+    if (!id || !sessionResolved) return;
     const pending = readPendingGeneration(id);
     if (!pending) {
       setHasPendingGeneration(false);
@@ -5254,7 +5265,10 @@ function DesignEditor() {
     let disposed = false;
     const drain = async () => {
       try {
-        const result = await drainDesignSaveOutbox({ designId: id });
+        const result = await drainDesignSaveOutbox({
+          designId: id,
+          actorScope: designSaveActorScope,
+        });
         if (disposed) return;
         if (result.saved.length > 0) {
           queryClient.invalidateQueries({
@@ -5275,7 +5289,13 @@ function DesignEditor() {
       window.removeEventListener("online", handleRetryOpportunity);
       window.removeEventListener("pageshow", handleRetryOpportunity);
     };
-  }, [id, queryClient, warnChangesWillRetry]);
+  }, [
+    designSaveActorScope,
+    id,
+    queryClient,
+    sessionResolved,
+    warnChangesWillRetry,
+  ]);
 
   const createFileContentSaveRequest = useCallback(
     (
@@ -5308,6 +5328,7 @@ function DesignEditor() {
       if (!id) return null;
       return createDesignSaveOutboxEntry({
         designId: id,
+        actorScope: designSaveActorScope,
         actionName: "update-file",
         resourceId: pending.id,
         operationSource: pending.operationSource,
@@ -5322,7 +5343,7 @@ function DesignEditor() {
         },
       });
     },
-    [id],
+    [designSaveActorScope, id],
   );
 
   const cancelQueuedFileContentSave = useCallback(
@@ -5630,6 +5651,7 @@ function DesignEditor() {
       if (!id) return null;
       return createDesignSaveOutboxEntry({
         designId: id,
+        actorScope: designSaveActorScope,
         actionName: "apply-tweaks",
         resourceId: id,
         operationSource: TAB_ID,
@@ -5640,7 +5662,7 @@ function DesignEditor() {
         },
       });
     },
-    [id],
+    [designSaveActorScope, id],
   );
   const persistTweakSave = useCallback(
     (pending: { selections: TweakSelections; revision: number }) => {
@@ -6204,6 +6226,7 @@ function DesignEditor() {
       if (compacted.length === 0) return null;
       return createDesignSaveOutboxEntry({
         designId: id,
+        actorScope: designSaveActorScope,
         actionName: "update-design",
         resourceId: id,
         operationSource: TAB_ID,
@@ -6216,7 +6239,7 @@ function DesignEditor() {
         },
       });
     },
-    [id],
+    [designSaveActorScope, id],
   );
 
   const enqueueFrameGeometryDataSave = useCallback(
