@@ -57,7 +57,7 @@ describe("dashboard report sweep", () => {
     mocks.sendDashboardReportSubscription.mockReset();
   });
 
-  it("marks a report sent without a screenshot as successful delivery", async () => {
+  it("marks an unexpected no-screenshot result as degraded", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockResolvedValue({
@@ -70,33 +70,34 @@ describe("dashboard report sweep", () => {
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub);
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Subscription sub_1 sent without a screenshot:",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
+      requireScreenshot: true,
+    });
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
-      "success",
+      "error",
+      "Dashboard screenshot unavailable: dashboard render timed out",
     );
   });
 
-  it("marks delivery as failed when the email send throws", async () => {
+  it("requires a screenshot for scheduled report delivery", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockRejectedValue(
-      new Error("Email provider rejected the message"),
+      new Error("Dashboard screenshot unavailable: chromium died"),
     );
 
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub);
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
+      requireScreenshot: true,
+    });
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "error",
-      "Email provider rejected the message",
+      "Dashboard screenshot unavailable: chromium died",
     );
   });
 });
