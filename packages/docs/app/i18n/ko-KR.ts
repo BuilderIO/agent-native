@@ -407,6 +407,8 @@ const koKR = {
     copyCommand: "복사 명령",
     copyCode: "코드 복사",
     tryIt: "사용해 보기",
+    customizeIt: "맞춤 설정",
+    editOnline: "온라인에서 편집",
     runLocally: "로컬에서 실행",
     viewDocs: "문서 보기",
     source: "소스",

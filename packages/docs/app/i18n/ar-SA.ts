@@ -405,6 +405,8 @@ const arSA = {
     copyCommand: "أمر النسخ",
     copyCode: "نسخ الرمز",
     tryIt: "جرّب",
+    customizeIt: "خصّصه",
+    editOnline: "التعديل عبر الإنترنت",
     runLocally: "شغّل محليًا",
     viewDocs: "عرض المستندات",
     source: "المصدر",
