@@ -140,17 +140,17 @@ function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
 function isServerlessRuntime(): boolean {
   return Boolean(
     process.env.NETLIFY ||
-      process.env.VERCEL ||
-      process.env.AWS_LAMBDA_FUNCTION_NAME ||
-      process.env.AWS_EXECUTION_ENV ||
-      process.env.LAMBDA_TASK_ROOT ||
-      process.env.FUNCTION_NAME,
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.AWS_EXECUTION_ENV ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.FUNCTION_NAME,
   );
 }
 
 function agentNativeAnalyticsFlushesImmediately(): boolean {
-  const mode = process.env.AGENT_NATIVE_ANALYTICS_FLUSH_MODE?.trim()
-    .toLowerCase();
+  const mode =
+    process.env.AGENT_NATIVE_ANALYTICS_FLUSH_MODE?.trim().toLowerCase();
   if (mode === "batch") return false;
   if (mode === "immediate") return true;
   return isServerlessRuntime();
