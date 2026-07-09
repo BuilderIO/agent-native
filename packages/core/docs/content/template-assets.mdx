@@ -102,6 +102,129 @@ Live demo: [assets.agent-native.com](https://assets.agent-native.com).
 4. **Use the asset elsewhere.** Copy the export, embed the picker in another
    app, or let another agent call Assets over A2A.
 
+## The preset-driven workflow
+
+Assets produces its best, most repeatable results when work is split into two
+jobs that need very different skills:
+
+1. **Designing the recipe** — slow, craft-heavy, done once per use case. A
+   designer works with the agent to build a **generation preset**: the rules,
+   references, locked-in model, and a prompt template that has been QA'd until
+   it reliably produces on-brand output.
+2. **Running the recipe** — fast and repeatable. A marketer pastes a campaign
+   brief, tags the preset, and gets a finished, brand-safe asset without
+   touching model settings, aspect ratios, masks, or prompt wording.
+
+A preset is the contract between these two people. The designer encodes taste
+and technical judgment once; everyone else inherits it on every generation.
+Think of presets as the design system for AI-generated assets: a raw prompt is
+a throwaway that drifts every time it is retyped, while a preset is durable,
+shared, and carries the decisions (model, aspect ratio, text and reference
+rules, logo handling, fixed layout) that actually determine whether the output
+is usable.
+
+### Designers: build one preset per use case
+
+Create a separate preset for each repeatable format rather than one generic
+"social post" preset that tries to do everything. Specific presets give the
+model clearer rules and produce better output. Good examples:
+
+- LinkedIn ad
+- Webinar announcement
+- Event speaker card
+- Podcast guest card
+- Customer story quote card
+- Blog hero
+- Blog body diagram
+
+The primary way to build one is **conversationally**: describe the use case to
+the agent and let it create the preset and fill in sensible defaults — model,
+aspect ratio and size, a first prompt template, and text/reference/logo
+policies — then refine in the same conversation ("make it darker", "tighten the
+text policy", "try a square variant"). Because that reasoning shows up directly
+in the defaults the agent picks, run this design conversation on the strongest
+available model.
+
+Each preset locks down:
+
+| Setting | What it controls |
+| --- | --- |
+| Prompt template | The QA'd creative recipe, with slots for the campaign brief |
+| Model | The right image engine for this job (see below) |
+| Aspect ratio + size | Output format for the target channel |
+| Text policy | Whether and how literal copy is rendered vs suppressed |
+| Reference policy | Which brand references anchor the look |
+| Logo | Composites the library's canonical logo pixel-perfect after generation, so the model never redraws it |
+| Skeleton / mask | A fixed brand plate the subject is composited or inpainted into, for locked layouts |
+
+### Choosing the model per preset
+
+Pick the model in the preset so downstream users never have to:
+
+- **A general high-quality image model** for hero images, rich scenes, and
+  complex compositions, when you need broad aspect-ratio flexibility.
+- **A fast image model** for high-volume social where turnaround matters more
+  than maximum polish.
+- **gpt-image-2** for customer-facing, text-heavy, and identity-sensitive work.
+  It renders crisp literal copy inside the image, and it is the engine used for
+  **mask inpainting** into a fixed layout.
+- **gpt-image-1** for transparent **cutout** subjects that are composited onto a
+  brand plate afterward.
+
+When a use case has a **fixed brand frame** that must survive every generation
+(a webinar template with a locked header and logo, an ad plate with a reserved
+product area), build a preset skeleton: upload the background plate, choose
+gpt-image-2, and optionally add a same-size mask. **Opaque areas are preserved,
+transparent areas are editable**, so the logo, framing, and existing copy come
+back untouched while only the art region changes. Note that gpt-image edits are
+guided semantic rewrites, not pixel-only patches, so the prompt should still
+describe the whole intended image and restate what must not change.
+
+### QA the prompt until it is reliable
+
+The model, references, and skeleton set the stage, but the prompt template is
+what turns a brief into a consistently good asset. Have the agent generate
+several candidates against realistic briefs and tighten the template until it
+holds. Techniques worth baking in:
+
+- **Structure the prompt in a fixed order**: scene, subject, key details,
+  constraints. Name the intended use so the model picks the right polish level.
+- **For literal copy, be surgical**: put exact text in quotes or ALL CAPS,
+  specify font, size, color, and placement, and for tricky brand names spell
+  them out. Ask for the text exactly once with no extra characters.
+- **For skeleton or inpainting presets, restate the invariants every run**:
+  "change only the center region, preserve the header, logo, and framing."
+
+Before handing a preset to the wider team, run realistic QA generations
+(including briefs you did not write) and confirm it: follows the use case,
+respects the mask, preserves fixed text and logos, avoids inventing extra
+headlines or badges, uses references correctly, places the subject in the right
+region, handles short and long briefs, and still holds up after a refinement.
+
+### Everyone else: paste the brief, tag the preset, generate
+
+Once a preset exists, running it is three moves: paste the campaign brief, tag
+the preset with `@`, and generate. The tagged preset injects its full aesthetic
+brief into the agent, and the saved model, format, tier, logo, and skeleton all
+apply automatically.
+
+```text
+Create a LinkedIn ad for our webinar on AI landing pages.
+Audience: B2B marketing teams.
+Message: launch campaign pages faster while staying on brand.
+CTA: Register now.
+
+@Webinar Announcement
+```
+
+No model picking, no aspect-ratio math, no mask files, no prompt engineering.
+Rule of thumb: designers own the preset, everyone else owns the brief. If a
+user finds themselves choosing models, masks, or layout rules during normal
+use, the preset is not specific enough yet.
+
+For deeper prompting guidance on the underlying models, see OpenAI's
+[GPT Image prompting guide](https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide).
+
 ## Useful prompts
 
 - "Generate three blog hero options using the Acme product references."

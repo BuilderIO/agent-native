@@ -395,17 +395,37 @@ export default defineAction({
           .join("\n")
       : "";
     let references: ReferenceForGeneration[];
+    const baseReferenceLimit =
+      args.intent !== "restyle" &&
+      preset?.referencePolicy === "explicit" &&
+      !args.referenceAssetIds?.length
+        ? 0
+        : DEFAULT_GENERATION_REFERENCE_LIMIT;
     if (useSkeletonInpaint) {
-      references = skeletonInpaint?.references ?? [];
+      const guidanceReferences =
+        baseReferenceLimit > 0 || args.referenceAssetIds?.length
+          ? await selectReferences({
+              libraryId: args.libraryId,
+              collectionId: resolvedCollectionId,
+              categories: resolvedCategories,
+              referenceAssetIds: args.referenceAssetIds,
+              excludeAssetIds: skeletonReferenceExclusionIds,
+              sourceAssetId: args.sourceAssetId,
+              subjectAssetId: args.subjectAssetId,
+              intent: args.intent,
+              limit: baseReferenceLimit,
+            })
+          : [];
+      const inpaintReferences = skeletonInpaint?.references ?? [];
+      const [plateReference, ...maskReferences] = inpaintReferences;
+      references = [
+        ...(plateReference ? [plateReference] : []),
+        ...guidanceReferences,
+        ...maskReferences,
+      ];
     } else {
       const backgroundPlateReference =
         backgroundPlateReferenceForSkeleton(skeletonAssets);
-      const baseReferenceLimit =
-        args.intent !== "restyle" &&
-        preset?.referencePolicy === "explicit" &&
-        !args.referenceAssetIds?.length
-          ? 0
-          : DEFAULT_GENERATION_REFERENCE_LIMIT;
       const referenceLimit =
         backgroundPlateReference && baseReferenceLimit > 0
           ? baseReferenceLimit + 1

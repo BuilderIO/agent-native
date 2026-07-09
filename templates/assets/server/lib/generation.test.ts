@@ -367,6 +367,12 @@ describe("generateWithManagedImageProvider", () => {
             data: Buffer.from("plate").toString("base64"),
           },
           {
+            id: "style-1",
+            role: "style_reference",
+            mimeType: "image/png",
+            data: Buffer.from("style").toString("base64"),
+          },
+          {
             id: "plate-1:mask",
             role: "mask",
             mimeType: "image/png",
@@ -399,6 +405,10 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         id: "plate-1",
         role: "source",
+      }),
+      expect.objectContaining({
+        id: "style-1",
+        role: "style",
       }),
       expect.objectContaining({
         id: "plate-1:mask",
