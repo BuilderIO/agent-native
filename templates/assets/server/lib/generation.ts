@@ -16,6 +16,7 @@ import type {
   ImageModel,
   ImageQualityTier,
   ImageSize,
+  PresetReferenceRole,
   StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
@@ -29,7 +30,13 @@ export interface ReferenceForGeneration {
   category?: string;
   mimeType: string;
   data: string;
-  selectionReason?: "subject" | "source" | "anchor" | "scored" | "explicit";
+  selectionReason?:
+    | "subject"
+    | "source"
+    | "anchor"
+    | "scored"
+    | "explicit"
+    | `preset-ref:${string}`;
 }
 
 // Keep automatic reference context compact for Gemini. Explicit
@@ -56,6 +63,7 @@ export interface GenerateProviderInput {
   collectionId?: string | null;
   source?: "chat" | "ui" | "a2a";
   callerAppId?: string;
+  hasBoardReferences?: boolean;
 }
 
 export interface GenerateProviderOutput {
@@ -645,6 +653,7 @@ export async function generateWithManagedImageProvider(
     if (
       shouldFallback &&
       input.mode !== "edit" &&
+      !(input.hasBoardReferences && input.model.startsWith("gpt-")) &&
       (await isManualImageGenerationConfigured())
     ) {
       logGeneration("builder.fallback_to_manual", {
@@ -939,8 +948,29 @@ async function generateWithManualImageProvider(
         "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
     });
   }
+  // Board-reference runs on gpt-* models must not reroute into the Gemini
+  // fallback: Gemini rejects GPT model ids, which would surface a cryptic
+  // provider error instead of this setup guidance.
+  if (input.hasBoardReferences && input.model.startsWith("gpt-")) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
+  }
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
+  }
+  if (input.hasBoardReferences) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
     throw new FeatureNotConfiguredError({
@@ -957,6 +987,15 @@ async function generateWithManualImageProvider(
 export async function generateWithOpenAI(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  if (input.hasBoardReferences) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
+  }
   const startedAt = Date.now();
   const model = openAIImageModelForInput(input.model);
   logGeneration("openai.request", {
@@ -1211,6 +1250,12 @@ export function compilePrompt(input: {
   category?: ImageCategory;
   intent?: GenerationIntent;
   styleStrength?: StyleStrength;
+  referenceBoard?: Array<{
+    label: string;
+    role: PresetReferenceRole;
+    count: number;
+    description?: string;
+  }>;
 }): string {
   const style = input.styleBrief;
   const intent = input.intent ?? "generate";
@@ -1257,6 +1302,7 @@ export function compilePrompt(input: {
         : input.referenceCount > 0
           ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, background references define fixed composition plates/layout only, mask references define editable regions only, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source/background/mask references must not override the library style brief or custom instructions.`
           : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+  const referenceBoardBlock = formatReferenceBoardBlock(input.referenceBoard);
 
   if (intent === "edit") {
     const editTypographyInstruction =
@@ -1270,6 +1316,7 @@ export function compilePrompt(input: {
     return `Edit the attached image for the "${input.libraryTitle}" asset library.
 
 ${referenceInstruction}
+${referenceBoardBlock}
 ${editTypographyInstruction}
 
 Make only this change:
@@ -1282,6 +1329,7 @@ ${editConstraint}`;
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
 
 ${referenceInstruction}
+${referenceBoardBlock}
 
 Style brief:
 ${style.description || "Infer the style from the references."}${palette}
@@ -1298,6 +1346,39 @@ ${textInstruction}
 
 User request:
 ${input.prompt}`;
+}
+
+function formatReferenceBoardBlock(
+  entries?: Array<{
+    label: string;
+    role: PresetReferenceRole;
+    count: number;
+    description?: string;
+  }>,
+): string {
+  const visibleEntries = (entries ?? []).filter((entry) => entry.count > 0);
+  if (!visibleEntries.length) return "";
+  const lines = visibleEntries.map((entry) => {
+    const description =
+      entry.description?.trim() || presetReferenceRoleDefault(entry.role);
+    return `- "${entry.label}" (${entry.count} image(s), role: ${entry.role}): ${description}`;
+  });
+  return `\nPreset reference board attached to this run:\n${lines.join("\n")}`;
+}
+
+function presetReferenceRoleDefault(role: PresetReferenceRole): string {
+  switch (role) {
+    case "subject":
+      return "This is the actual person/object for this piece. Render them faithfully and recognizably; do not replace them with a generic subject.";
+    case "style":
+      return "Match this visual style; do not copy its content.";
+    case "product":
+      return "Reproduce this product accurately; do not invent variants.";
+    case "background":
+      return "Use as fixed backdrop/setting context only; do not treat it as a subject.";
+    case "composition":
+      return "Imitate this image's layout, arrangement, and framing; do not copy its content or style.";
+  }
 }
 
 function hasEmbeddedText(value?: string | null): boolean {
@@ -1568,7 +1649,7 @@ export function compareReferenceCandidates(
   );
 }
 
-async function loadReferenceData(
+export async function loadReferenceData(
   selected: Array<{
     id: string;
     role: string;

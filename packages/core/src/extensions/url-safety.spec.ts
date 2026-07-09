@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   isBlockedExtensionUrl,
   isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
 } from "./url-safety.js";
 
 describe("isBlockedExtensionUrl", () => {
@@ -76,5 +77,56 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     );
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
+  });
+});
+
+describe("ssrfSafeFetch httpsOnly", () => {
+  // Public IP literals skip the DNS lookup, so these tests stay offline.
+  const httpsOrigin = "https://93.184.216.34/image.png";
+  const httpOrigin = "http://93.184.216.34/image.png";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a non-HTTPS initial URL before any request is sent", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      ssrfSafeFetch(httpOrigin, {}, { httpsOnly: true }),
+    ).rejects.toThrow(/SSRF blocked: refusing to fetch non-HTTPS/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an HTTPS→HTTP redirect downgrade before following it", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { location: httpOrigin } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {}, { httpsOnly: true }),
+    ).rejects.toThrow(/SSRF blocked: refusing to fetch non-HTTPS/);
+    // Only the initial HTTPS request went out; the HTTP hop was never fetched.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(httpsOrigin);
+  });
+
+  it("still follows HTTP redirects when httpsOnly is not set", async () => {
+    const redirectResponse = new Response("moved", {
+      status: 302,
+      headers: { location: httpOrigin },
+    });
+    const fetchMock = vi.fn(async (url: string) =>
+      url === httpsOrigin
+        ? redirectResponse
+        : new Response("ok", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await ssrfSafeFetch(httpsOrigin);
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The followed hop's body must be drained so its connection is released.
+    expect(redirectResponse.bodyUsed).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import type { GenerateProviderInput } from "./generation.js";
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const googleGenerateContentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => {
   class FeatureNotConfiguredError extends Error {
@@ -43,6 +44,16 @@ vi.mock("@agent-native/core/server", () => {
     resolveSecret: resolveSecretMock,
   };
 });
+
+vi.mock("@google/genai", () => ({
+  GoogleGenAI: vi.fn(function GoogleGenAI() {
+    return {
+      models: {
+        generateContent: googleGenerateContentMock,
+      },
+    };
+  }),
+}));
 
 const baseInput: GenerateProviderInput = {
   prompt: "A clean product hero image",
@@ -231,6 +242,143 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("fails loudly when board references would use manual OpenAI fallback", async () => {
+    vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        hasBoardReferences: true,
+        references: [
+          {
+            id: "steve-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from("steve").toString("base64"),
+            selectionReason: "preset-ref:steve",
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        message: expect.stringContaining("manual OpenAI fallback cannot pass"),
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
+    vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "GEMINI_API_KEY" ? "gemini-test" : null,
+    );
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        hasBoardReferences: true,
+        references: [
+          {
+            id: "steve-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from("steve").toString("base64"),
+            selectionReason: "preset-ref:steve",
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        message: expect.stringContaining("manual OpenAI fallback cannot pass"),
+      }),
+    );
+    expect(googleGenerateContentMock).not.toHaveBeenCalled();
+  });
+
+  it("passes board references through the manual Gemini fallback", async () => {
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "GEMINI_API_KEY" ? "gemini-test" : null,
+    );
+    googleGenerateContentMock.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from([6, 7, 8]).toString("base64"),
+                  mimeType: "image/png",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        hasBoardReferences: true,
+        references: [
+          {
+            id: "steve-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from("steve").toString("base64"),
+            selectionReason: "preset-ref:steve",
+          },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        image: Buffer.from([6, 7, 8]),
+        provider: "gemini",
+      }),
+    );
+    expect(googleGenerateContentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contents: expect.arrayContaining([
+          expect.objectContaining({
+            inlineData: expect.objectContaining({
+              data: Buffer.from("steve").toString("base64"),
+            }),
+          }),
+        ]),
+      }),
+    );
+  });
+
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,
@@ -367,6 +515,12 @@ describe("generateWithManagedImageProvider", () => {
             data: Buffer.from("plate").toString("base64"),
           },
           {
+            id: "style-1",
+            role: "style_reference",
+            mimeType: "image/png",
+            data: Buffer.from("style").toString("base64"),
+          },
+          {
             id: "plate-1:mask",
             role: "mask",
             mimeType: "image/png",
@@ -399,6 +553,10 @@ describe("generateWithManagedImageProvider", () => {
       expect.objectContaining({
         id: "plate-1",
         role: "source",
+      }),
+      expect.objectContaining({
+        id: "style-1",
+        role: "style",
       }),
       expect.objectContaining({
         id: "plate-1:mask",
@@ -517,6 +675,42 @@ describe("generateWithManagedImageProvider", () => {
         name: "BuilderImageGenerationError",
         message: expect.stringContaining(
           "manual OpenAI or Gemini fallback cannot pass image-edit masks",
+        ),
+      }),
+    );
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+      "https://api.openai.com/v1/images/generations",
+    );
+  });
+
+  it("does not fallback to manual OpenAI for gpt board-reference Builder failures", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = mockBuilderFailure(429, {
+      error: { message: "Rate limited" },
+    });
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        model: "gpt-image-2",
+        hasBoardReferences: true,
+        references: [
+          {
+            id: "steve-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from([1]).toString("base64"),
+            selectionReason: "preset-ref:steve",
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "BuilderImageGenerationError",
+        message: expect.stringContaining(
+          "Builder-managed image generation is rate limited",
         ),
       }),
     );
@@ -922,6 +1116,39 @@ describe("compilePrompt", () => {
     );
     expect(prompt).toContain("case: ALL CAPS headlines");
     expect(prompt).toContain("Keep copy compact and premium.");
+  });
+
+  it("adds preset reference board descriptions and role defaults", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "Clean editorial product photography.",
+      },
+      prompt: "Livestream announcement with two speakers",
+      referenceCount: 3,
+      includeLogo: false,
+      referenceBoard: [
+        {
+          label: "Steve",
+          role: "subject",
+          count: 2,
+          description: "This is Steve, our usual host. Render him faithfully.",
+        },
+        {
+          label: "Past poster",
+          role: "composition",
+          count: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("Preset reference board attached to this run:");
+    expect(prompt).toContain(
+      '- "Steve" (2 image(s), role: subject): This is Steve, our usual host. Render him faithfully.',
+    );
+    expect(prompt).toContain(
+      '- "Past poster" (1 image(s), role: composition): Imitate this image\'s layout, arrangement, and framing; do not copy its content or style.',
+    );
   });
 });
 

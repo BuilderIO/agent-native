@@ -27,6 +27,9 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 - Use category-tagged references. Blog heroes should prefer `hero`; diagrams
   should prefer `diagram`; product imagery should include `product` and `logo`
   references.
+- Imported external images with `status: "reference"` are valid generation
+  inputs. Use their returned asset IDs in preset reference fills or reference
+  boards the same way you would use uploaded reference assets.
 - Keep reference sets small and deterministic. Prefer anchors listed in
   `assetLibraries.settings.canonicalStyleAssetIds` and assets marked
   `assets.metadata.isStyleAnchor` before sampling other relevant references.
@@ -59,12 +62,44 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   `generate-image-batch` / `refine-image`. The design team uses the audit log
   to review quality by app, library, model, prompt, and lineage.
 
+## Preset-first Generation
+
+- Before any ad-hoc generation for a brand kit, call
+  `list-generation-presets` and scan titles/descriptions/categories for a
+  use-case match. A preset encodes the designer's format, model, layout, and
+  reference board; using it is always better than improvising.
+- If one preset clearly matches: use its `presetId`; do not restate its saved
+  aspect ratio/size/model/tier. If several plausibly match: pick the best and
+  state which one you used; do not ask the user to choose.
+- Match named people/products/backdrops in the request to the preset's
+  reference board entry labels in `settings.presetReferences`. Fill required
+  variable entries via `presetReferenceFills`: search the library for assets of
+  those people first; ask the user for photos only when none exist. Never skip a
+  required entry.
+- Route exact visible copy such as event titles, dates, and times to
+  `embeddedText` per the existing text rules; keep the creative direction in
+  `prompt`.
+- If nothing matches: generate ad-hoc, say that no preset fit, and mention a
+  preset could be created for this recurring use case.
+
 ## Prompting
 
 - Treat references as evidence, not decoration.
 - Let the server choose references unless the user named exact assets. Automatic
   generation uses up to 6 relevant current references, seeded by canonical
   style anchors; explicit `referenceAssetIds` are preserved.
+- Preset reference boards live on tagged presets as named entries such as a
+  usual host, product, backdrop, style sample, or per-event speaker. Fixed
+  entries attach automatically. Variable entries may be replaced for a run with
+  `presetReferenceFills`; each fill REPLACES that entry's pinned images rather
+  than appending. Required variable entries block generation until you provide
+  at least one image.
+- When a tagged preset brief names required variable references, collect the
+  needed images from the user's attachments or the library and pass
+  `presetReferenceFills: [{ referenceId, assetIds }]` to `generate-image` or
+  `generate-image-batch`. Board images are additive to brand style references.
+  User-uploaded per-event people/photos should be uploaded as content images
+  (`subject` intent/role), not as reusable brand style references.
 - If a collection's style feels underspecified, call `analyze-collection-style`
   and use its vision brand analysis for palette, composition, lighting, subject
   treatment, typography policy, and constraints.
