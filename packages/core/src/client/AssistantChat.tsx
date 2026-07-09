@@ -722,7 +722,12 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
   const latestAssistantByFingerprint = new Map<string, { rank: number }>();
   const latestAssistantByName = new Map<
     string,
-    { rank: number; ids: Set<string> }
+    {
+      rank: number;
+      ids: Set<string>;
+      pendingIds: Set<string>;
+      pendingRank: number;
+    }
   >();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
