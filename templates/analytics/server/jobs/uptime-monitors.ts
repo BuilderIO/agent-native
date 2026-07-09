@@ -51,6 +51,7 @@ export async function runDueMonitorsOnce(
     ownerEmail?: string;
     orgId?: string | null;
     limit?: number;
+    source?: "netlify-scheduled" | "in-process";
   } = {},
 ): Promise<UptimeSweepResult> {
   if (running) {
@@ -94,7 +95,10 @@ export async function runDueMonitorsOnce(
         const claimed = await claimMonitorRun(monitor);
         if (!claimed) continue;
         processed++;
-        const outcome = await runMonitorCheck(monitor, { allowPrivateHosts });
+        const outcome = await runMonitorCheck(monitor, {
+          allowPrivateHosts,
+          source: options.source,
+        });
         await recordMonitorResult(monitor, outcome);
         await evaluateAndNotifyMonitor(monitor, outcome, {
           email: monitor.ownerEmail,

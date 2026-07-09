@@ -1234,6 +1234,11 @@ const runAnalyticsMigrations = runMigrations(
       `,
       },
     },
+    {
+      version: 116,
+      name: "uptime-monitor-check-diagnostics",
+      sql: `ALTER TABLE monitor_check_results ADD COLUMN IF NOT EXISTS diagnostics TEXT NOT NULL DEFAULT '{}'`,
+    },
   ],
   { table: "analytics_migrations" },
 );

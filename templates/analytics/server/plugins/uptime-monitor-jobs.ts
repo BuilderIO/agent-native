@@ -54,7 +54,7 @@ export default function registerUptimeMonitorJobs(): void {
 
   const ms = intervalMs();
   setInterval(() => {
-    runDueMonitorsOnce().catch((err) =>
+    runDueMonitorsOnce({ source: "in-process" }).catch((err) =>
       console.error("[uptime-monitors] interval failed:", err),
     );
   }, ms);

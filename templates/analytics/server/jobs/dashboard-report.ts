@@ -46,13 +46,9 @@ export async function runDashboardReportsOnce(): Promise<{
             userEmail: sub.ownerEmail,
             orgId: sub.orgId ?? undefined,
           },
-          () =>
-            sendDashboardReportSubscription(sub, { requireScreenshot: true }),
+          () => sendDashboardReportSubscription(sub),
         );
-        if (result.screenshotAttached) {
-          await markDashboardReportResult(sub, "success");
-        } else {
-          failed++;
+        if (!result.screenshotAttached) {
           const message = result.screenshotError
             ? `Dashboard screenshot unavailable: ${result.screenshotError}`
             : "Dashboard screenshot unavailable";
@@ -60,8 +56,8 @@ export async function runDashboardReportsOnce(): Promise<{
             `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
             message,
           );
-          await markDashboardReportResult(sub, "error", message);
         }
+        await markDashboardReportResult(sub, "success");
       } catch (err: any) {
         failed++;
         const message = err?.message ?? String(err);
