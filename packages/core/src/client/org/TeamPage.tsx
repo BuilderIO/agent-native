@@ -1,4 +1,12 @@
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@agent-native/toolkit/ui/table";
+import {
   IconUserPlus,
   IconTrash,
   IconCrown,
@@ -301,12 +309,22 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
   );
 }
 
+interface MemberListItem {
+  email: string;
+  role: string;
+}
+
+interface PendingInviteListItem {
+  id: string;
+  email: string;
+  role: string;
+}
+
 function MembersCard() {
   const t = useT();
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
   const { data: invitationsData } = useOrgInvitations();
-  const removeMember = useRemoveMember();
   const switchOrg = useSwitchOrg();
 
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -320,108 +338,62 @@ function MembersCard() {
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/10">
-            <IconUsersGroup className="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />
-            <div className="text-xs text-muted-foreground">
-              {t("org.memberCount", { count: members.length })} ·{" "}
-              {t("org.youAreRole", { role: org.role })}
+    <div className="space-y-4">
+      <section className="rounded-lg border border-border bg-card p-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600/10">
+              <IconUsersGroup className="h-5 w-5 text-blue-600" />
             </div>
-          </div>
-        </div>
-        {hasMultipleOrgs && (
-          <select
-            value={org.orgId ?? ""}
-            onChange={(e) => switchOrg.mutate(e.target.value || null)}
-            disabled={switchOrg.isPending}
-            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs"
-          >
-            {org.orgs.map((o) => (
-              <option key={o.orgId} value={o.orgId}>
-                {o.orgName}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      <div className="grid gap-5 border-t border-border pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
-        <div className="min-w-0 space-y-4">
-          <div className="space-y-1">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-              {t("org.members")}
-            </div>
-            {isLoadingMembers && members.length === 0 && (
-              <>
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between py-1.5 px-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="h-3.5 rounded bg-muted animate-pulse"
-                        style={{ width: `${140 + i * 30}px` }}
-                      />
-                      <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-            {members.map((m) => (
-              <MemberRow
-                key={m.email}
-                email={m.email}
-                role={m.role}
-                isCurrentUser={m.email === org.email}
-                currentUserRole={org.role ?? null}
+            <div className="min-w-0">
+              <OrgNameDisplay
+                name={org.orgName ?? ""}
+                canEdit={isOwnerOrAdmin}
               />
-            ))}
-            {pendingInvites.map((inv) => (
-              <div
-                key={inv.id}
-                className="flex items-center justify-between gap-2 py-1.5 px-2 opacity-60"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm">{inv.email}</span>
-                  <RoleIcon role={inv.role} />
-                  <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    Invited{inv.role === "admin" ? " · admin" : ""}
-                  </span>
-                </div>
+              <div className="text-xs text-muted-foreground">
+                {t("org.memberCount", { count: members.length })} ·{" "}
+                {t("org.youAreRole", { role: org.role })}
               </div>
-            ))}
-          </div>
-
-          {isOwnerOrAdmin && (
-            <div className="border-t border-border pt-3">
-              {!showInviteForm ? (
-                <button
-                  type="button"
-                  onClick={() => setShowInviteForm(true)}
-                  className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-                >
-                  <IconUserPlus className="h-3.5 w-3.5" />
-                  Invite members
-                </button>
-              ) : (
-                <BulkInviteForm
-                  currentUserRole={org.role}
-                  onClose={() => setShowInviteForm(false)}
-                />
-              )}
             </div>
+          </div>
+          {hasMultipleOrgs && (
+            <select
+              value={org.orgId ?? ""}
+              onChange={(e) => switchOrg.mutate(e.target.value || null)}
+              disabled={switchOrg.isPending}
+              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
+            >
+              {org.orgs.map((o) => (
+                <option key={o.orgId} value={o.orgId}>
+                  {o.orgName}
+                </option>
+              ))}
+            </select>
           )}
         </div>
 
         {isOwnerOrAdmin && (
-          <div className="min-w-0 space-y-3 border-t border-border pt-3 lg:border-s lg:border-t-0 lg:ps-5 lg:pt-0">
+          <div className="border-t border-border pt-4">
+            {!showInviteForm ? (
+              <button
+                type="button"
+                onClick={() => setShowInviteForm(true)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+              >
+                <IconUserPlus className="h-3.5 w-3.5" />
+                {t("org.inviteMembers")}
+              </button>
+            ) : (
+              <BulkInviteForm
+                currentUserRole={org.role}
+                onClose={() => setShowInviteForm(false)}
+              />
+            )}
+          </div>
+        )}
+
+        {isOwnerOrAdmin && (
+          <div className="grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
             <DomainSettingsSection
               domain={org.allowedDomain}
               ownerEmail={org.email}
@@ -430,11 +402,131 @@ function MembersCard() {
             {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
           </div>
         )}
-      </div>
 
-      <ErrorText error={removeMember.error} />
-      <ErrorText error={switchOrg.error} />
+        <ErrorText error={switchOrg.error} />
+      </section>
+
+      <MembersTableCard
+        members={members}
+        pendingInvites={pendingInvites}
+        isLoadingMembers={isLoadingMembers}
+        currentUserEmail={org.email}
+        currentUserRole={org.role ?? null}
+      />
+    </div>
+  );
+}
+
+function MembersTableCard({
+  members,
+  pendingInvites,
+  isLoadingMembers,
+  currentUserEmail,
+  currentUserRole,
+}: {
+  members: MemberListItem[];
+  pendingInvites: PendingInviteListItem[];
+  isLoadingMembers: boolean;
+  currentUserEmail: string;
+  currentUserRole: string | null;
+}) {
+  const t = useT();
+
+  return (
+    <section className="rounded-lg border border-border bg-card">
+      <div className="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-medium">{t("org.members")}</h3>
+          <p className="text-xs text-muted-foreground">
+            {t("org.memberCount", { count: members.length })}
+          </p>
+        </div>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t("org.member")}</TableHead>
+            <TableHead>{t("org.role")}</TableHead>
+            <TableHead>{t("org.status")}</TableHead>
+            <TableHead className="text-end">{t("org.actions")}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoadingMembers && members.length === 0 ? (
+            [0, 1, 2].map((i) => (
+              <TableRow key={i}>
+                <TableCell colSpan={4}>
+                  <div
+                    className="h-3.5 rounded bg-muted animate-pulse"
+                    style={{ width: `${180 + i * 48}px` }}
+                  />
+                </TableCell>
+              </TableRow>
+            ))
+          ) : members.length === 0 && pendingInvites.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={4}
+                className="py-8 text-center text-sm text-muted-foreground"
+              >
+                {t("org.noMembers")}
+              </TableCell>
+            </TableRow>
+          ) : (
+            <>
+              {members.map((m) => (
+                <MemberRow
+                  key={m.email}
+                  email={m.email}
+                  role={m.role}
+                  isCurrentUser={m.email === currentUserEmail}
+                  currentUserRole={currentUserRole}
+                />
+              ))}
+              {pendingInvites.map((inv) => (
+                <PendingInviteRow key={inv.id} invite={inv} />
+              ))}
+            </>
+          )}
+        </TableBody>
+      </Table>
     </section>
+  );
+}
+
+function roleLabel(role: string, t: ReturnType<typeof useT>) {
+  if (role === "owner") return t("org.owner");
+  if (role === "admin") return t("org.admin");
+  return t("org.member");
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const t = useT();
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+      <RoleIcon role={role} />
+      {roleLabel(role, t)}
+    </span>
+  );
+}
+
+function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
+  const t = useT();
+  return (
+    <TableRow className="opacity-70">
+      <TableCell className="min-w-56">
+        <span className="truncate text-sm">{invite.email}</span>
+      </TableCell>
+      <TableCell>
+        <RoleBadge role={invite.role} />
+      </TableCell>
+      <TableCell>
+        <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          {t("org.invited")}
+        </span>
+      </TableCell>
+      <TableCell className="text-end text-muted-foreground">-</TableCell>
+    </TableRow>
   );
 }
 
@@ -465,99 +557,104 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded hover:bg-accent/30">
-      <div className="flex min-w-0 items-center gap-2">
+    <TableRow>
+      <TableCell className="min-w-56">
         <span className="truncate text-sm">{email}</span>
-        <RoleIcon role={role} />
-        {isCurrentUser && (
+      </TableCell>
+      <TableCell>
+        <RoleBadge role={role} />
+      </TableCell>
+      <TableCell>
+        {isCurrentUser ? (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {t("org.you")}
           </span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
         )}
-        {role === "admin" && (
-          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-blue-600">
-            {t("org.admin")}
-          </span>
-        )}
-      </div>
-      {canManage && (
-        <div className="flex shrink-0 items-center gap-1">
-          {editing ? (
-            <select
-              autoFocus
-              value={role}
-              onChange={(e) => {
-                const next = e.target.value === "admin" ? "admin" : "member";
-                if (next !== role) {
-                  changeRole.mutate(
-                    { email, role: next },
-                    { onSuccess: () => setEditing(false) },
-                  );
-                } else {
-                  setEditing(false);
-                }
-              }}
-              onBlur={() => setEditing(false)}
-              disabled={changeRole.isPending}
-              className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
-            >
-              <option value="member">{t("org.member")}</option>
-              <option value="admin">{t("org.admin")}</option>
-            </select>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
+      </TableCell>
+      <TableCell>
+        {canManage ? (
+          <div className="flex shrink-0 items-center justify-end gap-1">
+            {editing ? (
+              <select
+                autoFocus
+                value={role}
+                onChange={(e) => {
+                  const next = e.target.value === "admin" ? "admin" : "member";
+                  if (next !== role) {
+                    changeRole.mutate(
+                      { email, role: next },
+                      { onSuccess: () => setEditing(false) },
+                    );
+                  } else {
+                    setEditing(false);
+                  }
+                }}
+                onBlur={() => setEditing(false)}
+                disabled={changeRole.isPending}
+                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+              >
+                <option value="member">{t("org.member")}</option>
+                <option value="admin">{t("org.admin")}</option>
+              </select>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPencil className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("org.changeRole")}</TooltipContent>
+              </Tooltip>
+            )}
+            {confirmingRemove ? (
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => setEditing(true)}
-                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setConfirmingRemove(false)}
+                  className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
-                  <IconPencil className="h-3.5 w-3.5" />
+                  {t("org.cancel")}
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("org.changeRole")}</TooltipContent>
-            </Tooltip>
-          )}
-          {confirmingRemove ? (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setConfirmingRemove(false)}
-                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                {t("org.cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={removeMember.isPending}
-                onClick={() =>
-                  removeMember.mutate(email, {
-                    onSettled: () => setConfirmingRemove(false),
-                  })
-                }
-                className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
-              >
-                {t("org.remove")}
-              </button>
-            </div>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
                 <button
                   type="button"
                   disabled={removeMember.isPending}
-                  onClick={() => setConfirmingRemove(true)}
-                  className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                  onClick={() =>
+                    removeMember.mutate(email, {
+                      onSettled: () => setConfirmingRemove(false),
+                    })
+                  }
+                  className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
                 >
-                  <IconTrash className="h-3.5 w-3.5" />
+                  {t("org.remove")}
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("org.removeMember")}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      )}
-    </div>
+              </div>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={removeMember.isPending}
+                    onClick={() => setConfirmingRemove(true)}
+                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("org.removeMember")}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <div className="text-end text-muted-foreground">-</div>
+        )}
+      </TableCell>
+    </TableRow>
   );
 }
 

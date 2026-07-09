@@ -16,9 +16,21 @@ declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
 }
 
-function platformSchedulerOwnsMonitors(): boolean {
+function isProductionServerlessRuntime(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
   return (
     process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT) ||
+    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    process.env.VERCEL === "1"
+  );
+}
+
+function platformSchedulerOwnsMonitors(): boolean {
+  return (
+    isProductionServerlessRuntime() ||
     globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ === true
   );
 }
@@ -44,7 +56,7 @@ export default function registerUptimeMonitorJobs(): void {
     if (!skippingLogged) {
       console.log(
         platformSchedulerOwnsMonitors()
-          ? "[uptime-monitors] Skipping in-process cron because the platform scheduler owns monitor sweeps."
+          ? "[uptime-monitors] Skipping in-process cron because production serverless runtimes rely on scheduled/background monitor sweeps."
           : "[uptime-monitors] Skipping background cron (set UPTIME_MONITOR_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
       );
       skippingLogged = true;

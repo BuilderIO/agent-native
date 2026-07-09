@@ -6,6 +6,46 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
 
+function stubMobileViewport(isMobile: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(max-width: 767px)" ? isMobile : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
+function runAnimationFramesImmediately() {
+  vi.stubGlobal(
+    "requestAnimationFrame",
+    vi.fn((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    }),
+  );
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+}
+
+function captureAnimationFrame() {
+  let frame: FrameRequestCallback | null = null;
+  vi.stubGlobal(
+    "requestAnimationFrame",
+    vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    }),
+  );
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  return () => frame?.(0);
+}
+
 describe("SettingsTabsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -23,6 +63,69 @@ describe("SettingsTabsPage", () => {
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
+  });
+
+  it("focuses the settings search on desktop entry", () => {
+    stubMobileViewport(false);
+    runAnimationFramesImmediately();
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(document.activeElement).toBe(searchInput);
+  });
+
+  it("does not focus the settings search on mobile entry", () => {
+    stubMobileViewport(true);
+    runAnimationFramesImmediately();
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(document.activeElement).not.toBe(searchInput);
+  });
+
+  it("does not steal focus from settings controls during entry", () => {
+    stubMobileViewport(false);
+    const runFrame = captureAnimationFrame();
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    const teamTab =
+      container.querySelector<HTMLButtonElement>("#settings-tab-team");
+    expect(teamTab).not.toBeNull();
+
+    act(() => {
+      teamTab!.focus();
+      runFrame();
+    });
+
+    expect(document.activeElement).toBe(teamTab);
   });
 
   it("opens the team tab from the hash and avoids rendering a settings title", () => {
