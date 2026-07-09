@@ -1,7 +1,7 @@
 /**
- * <DemoModeSection /> — toggle that replaces emails and numbers with
- * realistic fake data everywhere (UI + what the agent sees) while preserving
- * IDs and structure so the app keeps working.
+ * <DemoModeSection /> — toggle that replaces contact/free-text names, emails,
+ * and numbers with realistic fake data everywhere (UI + what the agent sees)
+ * while preserving labels, IDs, and structure so the app keeps working.
  *
  * The toggle is stored in application_state under `demo-mode`
  * (`{ enabled: boolean }`) and written via `PUT
@@ -87,9 +87,9 @@ export function DemoModeSection() {
           Enable demo mode
         </div>
         <p className="text-[10px] text-muted-foreground mt-0.5">
-          Replace emails and numbers with realistic fake data everywhere — in
-          the UI and what the agent sees. IDs and structure are preserved so the
-          app keeps working.
+          Replace contact/free-text names, emails, and numbers with realistic
+          fake data everywhere — in the UI and what the agent sees. Labels, IDs,
+          and structure are preserved so the app keeps working.
         </p>
         {forced && (
           <p className="text-[10px] text-muted-foreground mt-0.5">

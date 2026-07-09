@@ -683,10 +683,17 @@ function toolCallNameFromContentPart(part: unknown): string | null {
     : null;
 }
 
+function toolCallIdsRepresentSameLocalCall(
+  renderedId: string,
+  reconnectId: string,
+): boolean {
+  return renderedId === reconnectId || renderedId.endsWith(`:${reconnectId}`);
+}
+
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
   byId: Map<string, { rank: number }>;
   latestAssistantByFingerprint: Map<string, { rank: number }>;
-  latestAssistantByName: Map<string, { rank: number }>;
+  latestAssistantByName: Map<string, { rank: number; ids: Set<string> }>;
 } {
   const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
@@ -705,7 +712,10 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
   }
 
   const latestAssistantByFingerprint = new Map<string, { rank: number }>();
-  const latestAssistantByName = new Map<string, { rank: number }>();
+  const latestAssistantByName = new Map<
+    string,
+    { rank: number; ids: Set<string> }
+  >();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
   const latestContent = latestMessage?.content;
@@ -722,8 +732,12 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
       const name = toolCallNameFromContentPart(part);
       if (name) {
         const existing = latestAssistantByName.get(name);
+        const id = toolCallIdFromContentPart(part);
+        const ids = new Set(existing?.ids);
+        if (id) ids.add(id);
         latestAssistantByName.set(name, {
           rank: Math.max(existing?.rank ?? 0, rank),
+          ids,
         });
       }
     }
@@ -901,8 +915,15 @@ export function dedupeReconnectContentAgainstMessages(
             const latestByName = name
               ? latestAssistantByName.get(name)
               : undefined;
+            const matchesRenderedLocalId =
+              id && latestByName
+                ? Array.from(latestByName.ids).some((renderedId) =>
+                    toolCallIdsRepresentSameLocalCall(renderedId, id),
+                  )
+                : false;
             if (
               latestByName &&
+              matchesRenderedLocalId &&
               latestByName.rank < 4 &&
               reconnectRank <= latestByName.rank
             ) {

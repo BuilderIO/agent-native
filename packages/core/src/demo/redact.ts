@@ -1,7 +1,7 @@
 /**
  * Pure, dependency-free, deterministic demo-mode redactor.
  *
- * Replaces sensitive values (emails and free numbers) with stable fake
+ * Replaces sensitive values (names, emails, and free numbers) with stable fake
  * substitutes so a demo looks coherent — the same input always maps to the
  * same fake. Crucially, it NEVER rewrites identifiers, structural tokens, or
  * timestamps: under-redaction is safe, corrupting an ID is not. The string
@@ -242,6 +242,15 @@ const LAST_NAMES: readonly string[] = [
  * Fake value generators (deterministic in value + salt)
  * ------------------------------------------------------------------ */
 
+function fakeName(original: string, salt: string): string {
+  return memoFake("name", original, salt, () => {
+    const rng = seededRng(`name:${original}`, salt);
+    const first = pick(rng, FIRST_NAMES);
+    const last = pick(rng, LAST_NAMES);
+    return `${first} ${last}`;
+  });
+}
+
 // Realistic-looking but safe stand-in domains: real consumer providers (the
 // local part is fake, so no real mailbox is implied) plus the canonical
 // reserved fictional-company domains (Contoso/Fabrikam/Northwind), which read
@@ -475,6 +484,10 @@ function unprotect(text: string, restore: Map<string, string>): string {
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
+// 2+ capitalized words (each starts uppercase, allows internal lowercase /
+// apostrophes / hyphens). Single-letter middle initials allowed: `Sarah J Connor`.
+const FULL_NAME_RE = /\b[A-Z][a-zA-Z'’-]*(?:\s+[A-Z](?:[a-zA-Z'’-]*)?){1,3}\b/g;
+
 // A standalone numeric token: optional currency + sign, digits with optional
 // comma grouping and a single optional decimal part. Bounded so it is NOT
 // adjacent to a letter (placeholders already removed letter-mixed tokens, but
@@ -484,6 +497,10 @@ const NUMBER_RE =
 
 function transformEmails(text: string, salt: string): string {
   return text.replace(EMAIL_RE, (match) => fakeEmail(match, salt));
+}
+
+function transformNames(text: string, salt: string): string {
+  return text.replace(FULL_NAME_RE, (match) => fakeName(match, salt));
 }
 
 function isProbablyYear(digits: string): boolean {
@@ -530,15 +547,23 @@ function transformNumbers(text: string, salt: string): string {
  * Public: string redactor
  * ------------------------------------------------------------------ */
 
-export function redactDemoString(text: string, opts?: RedactOptions): string {
+function redactDemoStringInternal(
+  text: string,
+  salt: string,
+  redactNames: boolean,
+): string {
   if (typeof text !== "string" || text.length === 0) return text;
-  const salt = opts?.salt ?? "";
 
   const { text: masked, restore } = protect(text);
   let out = masked;
   out = transformEmails(out, salt);
+  if (redactNames) out = transformNames(out, salt);
   out = transformNumbers(out, salt);
   return unprotect(out, restore);
+}
+
+export function redactDemoString(text: string, opts?: RedactOptions): string {
+  return redactDemoStringInternal(text, opts?.salt ?? "", true);
 }
 
 /* ------------------------------------------------------------------ *
@@ -555,6 +580,11 @@ export function redactDemoString(text: string, opts?: RedactOptions): string {
 const PROTECTED_KEY_RE =
   /^id$|(^|_)id$|Id$|Ids$|uuid|guid|slug|token|secret|password|passwd|apikey|api_key|hash|sha\d*|etag|cursor|nonce|sessionid|messageid|threadid|nodeid|(^|_)key$|keyid|(^|_)ref$|url$|uri$|href$|src$|path$|filename$|mimetype|mime|^sql$|sql$|query|expression|formula|^code$|createdat|updatedat|deletedat|expiresat|timestamp|.+at$|.+_at$/i;
 
+// UI labels and chart/dashboard titles often look like person names ("Maya
+// Davis (First-party)", "Clicks by Henry Moore") but are structural labels. Keep
+// them stable while still redacting free-text and contact-style person fields.
+const LABEL_TEXT_KEY_RE = /^(name|title|label)$/i;
+
 const MAX_DEPTH = 64;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -565,8 +595,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function redactDemoStringWithSalt(text: string, salt: string): string {
-  return redactDemoString(text, { salt });
+function redactDemoStringWithSalt(
+  text: string,
+  salt: string,
+  redactNames: boolean,
+): string {
+  return redactDemoStringInternal(text, salt, redactNames);
 }
 
 function redactNumberLeaf(value: number, salt: string): number {
@@ -586,6 +620,7 @@ function walk(
   salt: string,
   depth: number,
   seen: WeakSet<object>,
+  redactNames: boolean,
 ): unknown {
   if (depth > MAX_DEPTH) return value;
 
@@ -594,7 +629,7 @@ function walk(
   const t = typeof value;
 
   if (t === "string") {
-    return redactDemoStringWithSalt(value as string, salt);
+    return redactDemoStringWithSalt(value as string, salt, redactNames);
   }
 
   if (t === "number") {
@@ -610,7 +645,9 @@ function walk(
   if (Array.isArray(value)) {
     if (seen.has(value)) return value;
     seen.add(value);
-    const out = value.map((item) => walk(item, salt, depth + 1, seen));
+    const out = value.map((item) =>
+      walk(item, salt, depth + 1, seen, redactNames),
+    );
     seen.delete(value);
     return out;
   }
@@ -629,14 +666,20 @@ function walk(
         ) {
           // Still recurse into nested structures, but the protected key does
           // not transform its own leaf value.
-          out[key] = walk(entry, salt, depth + 1, seen);
+          out[key] = walk(entry, salt, depth + 1, seen, redactNames);
         } else {
           // Leaf under a protected key: pass through completely untouched.
           out[key] = entry;
         }
         continue;
       }
-      out[key] = walk(entry, salt, depth + 1, seen);
+      out[key] = walk(
+        entry,
+        salt,
+        depth + 1,
+        seen,
+        !LABEL_TEXT_KEY_RE.test(key),
+      );
     }
     seen.delete(value);
     return out;
@@ -648,7 +691,7 @@ function walk(
 
 export function redactDemoData<T>(value: T, opts?: RedactOptions): T {
   const salt = opts?.salt ?? "";
-  return walk(value, salt, 0, new WeakSet<object>()) as T;
+  return walk(value, salt, 0, new WeakSet<object>(), true) as T;
 }
 
 /**

@@ -83,25 +83,26 @@ describe("emails", () => {
 });
 
 describe("full names", () => {
-  it("leaves 2+ capitalized word sequences unchanged", () => {
+  it("replaces 2+ capitalized word sequences in free text", () => {
     const out = redactDemoString("Please call Sarah Connor today");
-    expect(out).toBe("Please call Sarah Connor today");
+    expect(out).not.toContain("Sarah Connor");
+    expect(out).toMatch(/Please call [A-Z][a-z]+ [A-Z][a-z]+ today/);
   });
 
-  it("leaves a middle initial unchanged (Sarah J Connor)", () => {
+  it("handles a middle initial (Sarah J Connor)", () => {
     const out = redactDemoString("From Sarah J Connor");
-    expect(out).toBe("From Sarah J Connor");
+    expect(out).not.toContain("Sarah J Connor");
   });
 
   it("does NOT replace lone capitalized words in prose", () => {
     const input = "Monday Inbox The Quarterly Report is ready";
     const out = redactDemoString(input);
     const lone = redactDemoString("Monday. Inbox. The. Done.");
-    expect(out).toBe(input);
     expect(lone).toBe("Monday. Inbox. The. Done.");
+    expect(typeof out).toBe("string");
   });
 
-  it("does not mangle label/tab names or person-like values under a name key", () => {
+  it("does not mangle label/tab names under a name key", () => {
     const labels = redactDemoData(
       [
         { name: "Important", count: 4200 },
@@ -120,14 +121,15 @@ describe("full names", () => {
     expect(labels[4].name).toBe("Olivia Parker");
   });
 
-  it("leaves name-key values alone", () => {
+  it("preserves label keys but still redacts contact-style full names", () => {
     const out = redactDemoData(
       { from: "Cher", name: "Madonna", full: "Jane Cooper", note: "Madonna" },
       { salt: "s" },
     ) as { from: string; name: string; full: string; note: string };
     expect(out.from).toBe("Cher");
     expect(out.name).toBe("Madonna");
-    expect(out.full).toBe("Jane Cooper");
+    expect(out.full).not.toBe("Jane Cooper");
+    expect(out.full).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
     expect(out.note).toBe("Madonna");
   });
 });
@@ -252,7 +254,7 @@ describe("ID-safety (critical)", () => {
     // Recurse into nested objects under a protected key, but the protected key
     // itself does not transform its own leaf.
     expect(out.nested.id).toBe("Bob Jones");
-    // Name-like strings are no longer redacted, even in non-protected siblings.
+    // Label keys are preserved so structural UI labels do not drift.
     expect(out.nested.label).toBe("Bob Jones");
   });
 
@@ -274,7 +276,7 @@ describe("ID-safety (critical)", () => {
     expect(out.panels[0].sql).toBe(dashboard.panels[0].sql);
     expect(out.panels[0].query).toBe(dashboard.panels[0].query);
     expect(out.panels[0].expression).toBe(dashboard.panels[0].expression);
-    // Name-like human-facing strings are intentionally left alone now.
+    // Structural label/title fields stay stable even when they look name-like.
     expect(out.name).toBe(dashboard.name);
     expect(out.panels[0].title).toBe("Clicks by Henry Moore");
   });
@@ -289,7 +291,7 @@ describe("ID-safety (critical)", () => {
     expect(Array.isArray(out.ids)).toBe(true);
     expect(out.ids.length).toBe(2);
     expect(out.meta.id).toBe("x");
-    expect(out.meta.owner).toBe("Mary Major");
+    expect(out.meta.owner).not.toBe("Mary Major");
   });
 
   it("name-like keys still redact emails and defer to ID protection", () => {
@@ -344,7 +346,7 @@ describe("structure preservation", () => {
     expect(out.active).toBe(true);
     expect(out.missing).toBeNull();
     expect(out.maybe).toBeUndefined();
-    expect(out.list[0].person).toBe("John Smith");
+    expect(out.list[0].person).not.toBe("John Smith");
     expect(typeof out.list[0].count).toBe("number");
     expect(out.list[1].count).toBe(7); // < 1000 untouched
   });

@@ -288,6 +288,35 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([]);
   });
 
+  it("keeps a later same-name reconnect spinner with a different local id", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const laterSpinner = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([laterSpinner], persistedMessages),
+    ).toEqual([laterSpinner]);
+  });
+
   it("keeps a reconnect spinner for a tool not yet rendered", () => {
     const persistedMessages = [
       {
