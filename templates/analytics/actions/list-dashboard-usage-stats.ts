@@ -72,15 +72,55 @@ function dashboardPanelCount(row: {
   return Array.isArray(panels) ? panels.length : 0;
 }
 
-function dashboardIdFromPath(path: string | null): string | null {
-  if (!path) return null;
-  const match = path.match(/^\/(?:dashboards|adhoc)\/([^/?#]+)/);
+export function dashboardIdFromPath(path: string | null): string | null {
+  const pathname = path ?? "";
+  const match = pathname.match(/^\/(?:dashboards|adhoc)\/([^/?#]+)/);
   if (!match) return null;
+  if (match[1] === "explorer-dashboard") {
+    return null;
+  }
   try {
     return decodeURIComponent(match[1]);
   } catch {
     return match[1];
   }
+}
+
+export function dashboardIdFromEventLocation(
+  path: string | null,
+  url: string | null,
+): string | null {
+  const direct = dashboardIdFromPath(path);
+  if (direct) return direct;
+  const raw = url || path;
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw, "https://analytics.local");
+    if (
+      parsed.pathname === "/dashboards/explorer-dashboard" ||
+      parsed.pathname === "/adhoc/explorer-dashboard"
+    ) {
+      const id = parsed.searchParams.get("id");
+      return id && id.trim() ? id : null;
+    }
+  } catch {
+    // Fall through to regex below for malformed relative strings.
+  }
+  const match = raw.match(
+    /^\/(?:dashboards|adhoc)\/explorer-dashboard(?:\?[^#]*)?\bid=([^&#]+)/,
+  );
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1].replace(/\+/g, " "));
+  } catch {
+    return match[1];
+  }
+}
+
+function dashboardUrl(row: { id: string; kind: string }): string {
+  return row.kind === "explorer"
+    ? `/dashboards/explorer-dashboard?id=${encodeURIComponent(row.id)}`
+    : `/dashboards/${encodeURIComponent(row.id)}`;
 }
 
 export default defineAction({
@@ -143,6 +183,7 @@ export default defineAction({
     const eventRows = await db
       .select({
         path: schema.analyticsEvents.path,
+        url: schema.analyticsEvents.url,
         eventName: schema.analyticsEvents.eventName,
         count: sql<number>`count(*)`,
         uniqueUsers: sql<number>`count(distinct coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, '')))`,
@@ -160,7 +201,11 @@ export default defineAction({
           ),
         ),
       )
-      .groupBy(schema.analyticsEvents.path, schema.analyticsEvents.eventName);
+      .groupBy(
+        schema.analyticsEvents.path,
+        schema.analyticsEvents.url,
+        schema.analyticsEvents.eventName,
+      );
 
     const eventsByDashboard = new Map<
       string,
@@ -173,12 +218,13 @@ export default defineAction({
     >();
     for (const row of eventRows as Array<{
       path: string | null;
+      url: string | null;
       eventName: string;
       count: unknown;
       uniqueUsers: unknown;
       lastSeenAt: string | null;
     }>) {
-      const dashboardId = dashboardIdFromPath(row.path);
+      const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
       if (!dashboardId || !dashboardIds.has(dashboardId)) continue;
       const current = eventsByDashboard.get(dashboardId) ?? {
         viewCount: 0,
@@ -239,10 +285,7 @@ export default defineAction({
           lastViewedAt: events.lastViewedAt,
           lastSavedViewAt: savedViews.lastSavedViewAt,
           panelCount: dashboardPanelCount(row),
-          url:
-            row.kind === "explorer"
-              ? `/adhoc/${row.id}`
-              : `/dashboards/${row.id}`,
+          url: dashboardUrl(row),
         };
       })
       .sort((a, b) => {

@@ -77,7 +77,7 @@ function isPostgresRuntime(runtime?: DbAdminRuntime): boolean {
 
 function isPreviewableLargeColumn(column: DbAdminColumn): boolean {
   const type = column.type.toLowerCase();
-  return /\b(text|char|varchar|character|json|xml|clob)\b/.test(type);
+  return /\b(text|char|varchar|character|jsonb?|xml|clob)\b/.test(type);
 }
 
 function markLargeValuePreviewColumns(
@@ -146,6 +146,30 @@ function countTruncatedResultCells(rows: Record<string, unknown>[]): number {
     }
   }
   return truncatedCells;
+}
+
+function containsLargeCellPreview(value: unknown): boolean {
+  if (typeof value === "string") return value.endsWith(LARGE_CELL_SUFFIX);
+  if (Array.isArray(value)) return value.some(containsLargeCellPreview);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(
+      containsLargeCellPreview,
+    );
+  }
+  return false;
+}
+
+function assertNoLargeCellPreviewMutation(
+  row: Record<string, unknown>,
+  context: string,
+): void {
+  for (const [column, value] of Object.entries(row)) {
+    if (containsLargeCellPreview(value)) {
+      throw new Error(
+        `Refusing to ${context} with previewed large-cell value in column "${column}". Reload the row with includeLargeCells=true before saving.`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +606,7 @@ function buildInsert(
   if (cols.length === 0) {
     throw new Error("Cannot insert an empty row");
   }
+  assertNoLargeCellPreviewMutation(row, "insert");
   cols.forEach((c) => assertIdent(c, "column name"));
   const sql = `INSERT INTO ${quoteIdent(table)} (${cols
     .map(quoteIdent)
@@ -600,6 +625,8 @@ function buildUpdate(
   if (whereCols.length === 0) {
     throw new Error("Update requires a non-empty where clause");
   }
+  assertNoLargeCellPreviewMutation(set, "update");
+  assertNoLargeCellPreviewMutation(where, "match rows");
   setCols.forEach((c) => assertIdent(c, "column name"));
   whereCols.forEach((c) => assertIdent(c, "column name"));
   const setSql = setCols.map((c) => `${quoteIdent(c)} = ?`).join(", ");
@@ -619,6 +646,7 @@ function buildDelete(
   if (whereCols.length === 0) {
     throw new Error("Delete requires a non-empty where clause");
   }
+  assertNoLargeCellPreviewMutation(where, "delete");
   whereCols.forEach((c) => assertIdent(c, "column name"));
   const whereSql = whereCols.map((c) => `${quoteIdent(c)} = ?`).join(" AND ");
   const sql = `DELETE FROM ${quoteIdent(table)} WHERE ${whereSql}`;

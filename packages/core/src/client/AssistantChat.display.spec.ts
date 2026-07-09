@@ -988,6 +988,23 @@ describe("server thread snapshot caching", () => {
     expect(restoreSource).toContain("shouldCacheServerSnapshot");
     expect(restoreSource).toContain("shouldImportServerThreadData");
     expect(restoreSource).toContain("writeCachedThreadSnapshot");
+    expect(restoreSource).toContain("shouldCacheServerSnapshot = false");
+  });
+
+  it("does not apply queued messages from a rejected server snapshot", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const importThreadData = useCallback");
+    const end = source.indexOf("const refreshThreadFromServer = useCallback");
+    const importSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(importSource).toContain("shouldImport = false");
+    expect(importSource).toContain(
+      "if (settled && Array.isArray(repo?.queuedMessages))",
+    );
   });
 });
 

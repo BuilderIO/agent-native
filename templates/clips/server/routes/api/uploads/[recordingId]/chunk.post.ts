@@ -53,6 +53,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../../../../lib/video-storage.js";
@@ -280,6 +281,15 @@ export default defineEventHandler(async (event: H3Event) => {
         ok: false,
         error: STORAGE_SETUP_REQUIRED_REASON,
         storageSetupRequired: true,
+      };
+    }
+    if (!allowsSqlRecordingChunkScratch()) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error:
+          "Recording upload storage is configured, but this upload did not start a resumable storage session. Refresh and start the recording again.",
+        storageSetupRequired: false,
       };
     }
 

@@ -266,17 +266,27 @@ function compactDiffLines(
 }
 
 function ExtensionUnavailableState({ status }: { status?: number }) {
-  const accessDenied = status === 401 || status === 403;
+  const sessionExpired = status === 401;
+  const accessDenied = status === 403;
+  const unavailable = status === 404;
+  const title = sessionExpired
+    ? "Session expired"
+    : accessDenied
+      ? "Extension is not shared"
+      : unavailable
+        ? "Extension is unavailable"
+        : "Extension not found";
+  const message = sessionExpired
+    ? "Sign in again to view this extension."
+    : accessDenied
+      ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
+      : "This extension may not be shared with you, may have been deleted, or is not available to your account.";
   return (
     <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 p-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 text-center shadow-sm">
-        <p className="text-sm font-semibold text-foreground">
-          {accessDenied ? "Extension is not shared" : "Extension not found"}
-        </p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          {accessDenied
-            ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
-            : "This extension may have been deleted, moved, or is not available to your account."}
+          {message}
         </p>
         <Link
           to="/extensions"
@@ -1099,6 +1109,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const {
     data: extension,
     error: extensionError,
+    failureReason: extensionFailureReason,
     isFetching,
     isLoading,
   } = useQuery<Extension>({
@@ -1107,6 +1118,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
+      if (res.status === 401) {
+        throw extensionLoadError(401, "Session expired");
+      }
       if (res.status === 404) {
         throw extensionLoadError(404, "Extension not found");
       }
@@ -1120,6 +1134,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     },
     retry: shouldRetryExtensionLoad,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    refetchOnMount: "always",
   });
 
   toolRef.current = extension ?? null;
@@ -1158,6 +1173,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark);
   }, [extension, isDark]);
+  const unavailableStatus = extensionLoadErrorStatus(
+    extensionError ?? extensionFailureReason,
+  );
+  const latestFetchDenied =
+    unavailableStatus === 401 ||
+    unavailableStatus === 403 ||
+    unavailableStatus === 404;
 
   useEffect(() => {
     setIframeReady(false);
@@ -1215,9 +1237,8 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     );
   }
 
-  if (!extension) {
-    const status = extensionLoadErrorStatus(extensionError);
-    return <ExtensionUnavailableState status={status} />;
+  if (latestFetchDenied || !extension) {
+    return <ExtensionUnavailableState status={unavailableStatus} />;
   }
 
   const isLocalExtension = extension.source?.mode === "local-files";

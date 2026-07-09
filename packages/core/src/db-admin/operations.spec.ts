@@ -230,6 +230,58 @@ describe("getRows", () => {
     expect(full.rows[0].payload).toBe("x".repeat(20_000));
     expect(full.truncatedCells).toBe(0);
   });
+
+  it("marks jsonb columns as large-value previewable", async () => {
+    const { ops } = await loadOps();
+    const runtime = {
+      dialect: "postgres" as const,
+      db: {
+        execute: vi.fn(async (query: any) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          if (sql.includes("information_schema.tables")) {
+            return { rows: [{ type: "BASE TABLE" }] };
+          }
+          if (sql.includes("information_schema.columns")) {
+            return {
+              rows: [
+                {
+                  name: "id",
+                  type: "text",
+                  nullable: 0,
+                  dflt: null,
+                },
+                {
+                  name: "payload",
+                  type: "jsonb",
+                  nullable: 1,
+                  dflt: null,
+                },
+              ],
+            };
+          }
+          if (sql.includes("table_constraints")) return { rows: [] };
+          if (sql.includes("pg_indexes")) return { rows: [] };
+          if (sql.includes("COUNT(*)")) return { rows: [{ c: 1 }] };
+          if (sql.includes("SELECT"))
+            return { rows: [{ id: "1", payload: "{}" }] };
+          return { rows: [] };
+        }),
+      },
+    };
+
+    const result = await ops.getRows(
+      "audit_log",
+      { page: 1, pageSize: 10 },
+      runtime,
+    );
+
+    expect(
+      result.columns.find((column) => column.name === "payload"),
+    ).toMatchObject({ largeValuePreview: true });
+    expect((runtime.db.execute as any).mock.calls.at(-1)?.[0].sql).toContain(
+      'CAST("payload" AS TEXT)',
+    );
+  });
 });
 
 describe("applyMutations", () => {
@@ -292,6 +344,21 @@ describe("applyMutations", () => {
         updates: [{ where: {}, set: { name: "X" } }],
       }),
     ).rejects.toThrow(/where/i);
+  });
+
+  it("rejects previewed large-cell values in mutations", async () => {
+    const { ops } = await loadOps();
+    const preview = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+    });
+    const payload = String(preview.rows[0].payload);
+
+    await expect(
+      ops.applyMutations("logs", {
+        updates: [{ where: { id: 1 }, set: { payload } }],
+      }),
+    ).rejects.toThrow(/previewed large-cell value/i);
   });
 });
 

@@ -16,6 +16,9 @@ function cellToCSV(value: unknown): string {
   } else {
     str = String(value);
   }
+  // Spreadsheet apps treat leading =, +, -, and @ as formulas. Prefix with an
+  // apostrophe so exported CSV opens as literal text instead of executing.
+  if (/^[=+\-@]/.test(str)) str = `'${str}`;
   // Quote when the value contains a comma, quote, CR, or LF. Escape embedded
   // double-quotes by doubling them (RFC 4180).
   if (/[",\r\n]/.test(str)) {

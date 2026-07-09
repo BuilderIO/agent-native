@@ -100,7 +100,8 @@ export function useDbAdminAgentSync({
   }, [enabled, table, mode]);
 
   useEffect(() => {
-    if (!enabled || !table) {
+    if (!enabled) return;
+    if (!table) {
       removeAgentChatContextItem({
         key: TABLE_CONTEXT_KEY,
         openSidebar: false,

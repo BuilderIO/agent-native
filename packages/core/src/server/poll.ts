@@ -471,6 +471,16 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 type ChangeVisibility = "visible" | "hidden" | "pending";
+type ChangeReadResult = {
+  version: number;
+  events: ChangeEvent[];
+  /**
+   * True when the returned version is an intentional cursor stop, not the
+   * source high-water mark. This happens when access is still pending or when a
+   * durable page hit the read limit and more rows may remain unread.
+   */
+  cursorLimited?: boolean;
+};
 
 /**
  * Decide whether a poll/SSE change event should be delivered to a user.
@@ -697,7 +707,7 @@ export function getChangesSinceForUser(
   since: number,
   userEmail: string,
   orgId: string | undefined,
-): { version: number; events: ChangeEvent[] } {
+): ChangeReadResult {
   if (since >= _version) {
     return { version: _version, events: [] };
   }
@@ -712,7 +722,7 @@ export function getChangesSinceForUser(
     }
     if (visibility === "pending") {
       version = Math.max(since, event.version - 1);
-      break;
+      return { version, events, cursorLimited: true };
     }
   }
   return { version, events };
@@ -722,7 +732,7 @@ async function getDurableChangesSinceForUser(
   since: number,
   userEmail: string,
   orgId: string | undefined,
-): Promise<{ version: number; events: ChangeEvent[] }> {
+): Promise<ChangeReadResult> {
   if (since <= 0 || !(await ensureSyncEventsTable())) {
     return { version: _version, events: [] };
   }
@@ -734,9 +744,11 @@ async function getDurableChangesSinceForUser(
     });
     const events: ChangeEvent[] = [];
     let version = Math.max(_version, since);
+    let lastDurableVersion = since;
 
     for (const row of result.rows) {
       const rawVersion = timestampValue(row.version);
+      if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
       if (rawVersion > version) version = rawVersion;
       let event: ChangeEvent | null = null;
       try {
@@ -766,8 +778,17 @@ async function getDurableChangesSinceForUser(
         return {
           version: Math.max(since, event.version - 1),
           events,
+          cursorLimited: true,
         };
       }
+    }
+
+    if (result.rows.length >= DURABLE_READ_LIMIT) {
+      return {
+        version: Math.max(since, lastDurableVersion),
+        events,
+        cursorLimited: true,
+      };
     }
 
     return { version, events };
@@ -793,9 +814,20 @@ async function getCombinedChangesSinceForUser(
   const events = Array.from(byVersion.values()).sort(
     (a, b) => a.version - b.version,
   );
+  const limitedVersions = [memory, durable]
+    .filter((result) => result.cursorLimited)
+    .map((result) => result.version);
   return {
-    version: Math.max(memory.version, durable.version, since),
-    events,
+    version:
+      limitedVersions.length > 0
+        ? Math.min(...limitedVersions)
+        : Math.max(memory.version, durable.version, since),
+    events:
+      limitedVersions.length > 0
+        ? events.filter(
+            (event) => event.version <= Math.min(...limitedVersions),
+          )
+        : events,
   };
 }
 

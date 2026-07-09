@@ -383,6 +383,7 @@ export default function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const selectedConnectionId = searchParams.get("db");
+  const isAdminView = view === "dashboards" || view === "database";
 
   function setView(next: AgentAdminView) {
     const params = new URLSearchParams(searchParams);
@@ -411,7 +412,7 @@ export default function AgentsPage() {
     );
   }
 
-  if (!canManageOrg) {
+  if (!canManageOrg && isAdminView) {
     return (
       <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-center px-4 py-5 lg:px-6">
         <div className="max-w-sm rounded-lg border bg-background p-6 text-center">
@@ -442,22 +443,24 @@ export default function AgentsPage() {
           <Button variant="outline" size="sm" asChild>
             <Link to="/catalog">{t("agents.openCatalog")}</Link>
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm">
-                {t("agents.advanced")}
-                <IconChevronDown className="ms-1 h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{t("agents.advanced")}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setView("database")}>
-                <IconDatabase className="me-2 h-4 w-4" />
-                {t("agents.database")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {canManageOrg ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary" size="sm">
+                  {t("agents.advanced")}
+                  <IconChevronDown className="ms-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>{t("agents.advanced")}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setView("database")}>
+                  <IconDatabase className="me-2 h-4 w-4" />
+                  {t("agents.database")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
 
@@ -475,20 +478,22 @@ export default function AgentsPage() {
           <IconActivity className="h-4 w-4" />
           {t("agents.monitoring")}
         </button>
-        <button
-          type="button"
-          onClick={() => setView("dashboards")}
-          className={cn(
-            "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
-            view === "dashboards"
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
-          )}
-        >
-          <IconChartBar className="h-4 w-4" />
-          {t("agents.dashboardUsage")}
-        </button>
-        {view === "database" && (
+        {canManageOrg ? (
+          <button
+            type="button"
+            onClick={() => setView("dashboards")}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              view === "dashboards"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <IconChartBar className="h-4 w-4" />
+            {t("agents.dashboardUsage")}
+          </button>
+        ) : null}
+        {canManageOrg && view === "database" && (
           <button
             type="button"
             onClick={() => setView("database")}

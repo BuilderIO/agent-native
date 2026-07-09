@@ -1894,7 +1894,9 @@ const AssistantChatInner = forwardRef<
             repo,
           );
         } catch {
-          shouldImport = true;
+          // If the runtime/export comparison itself fails, do not fail open by
+          // importing a server snapshot that may be stale relative to local UI.
+          shouldImport = false;
         }
         if (shouldImport) {
           if (options?.markTitleGenerated) {
@@ -1907,7 +1909,7 @@ const AssistantChatInner = forwardRef<
           settled = false;
         }
       }
-      if (Array.isArray(repo?.queuedMessages)) {
+      if (settled && Array.isArray(repo?.queuedMessages)) {
         const incomingQueue = repo.queuedMessages as QueuedMessage[];
         const incomingSerialized = JSON.stringify(incomingQueue);
         const currentSerialized = JSON.stringify(queuedMessagesRef.current);
@@ -2528,7 +2530,7 @@ const AssistantChatInner = forwardRef<
                     repo,
                   );
                 } catch {
-                  shouldCacheServerSnapshot = true;
+                  shouldCacheServerSnapshot = false;
                 }
                 if (shouldCacheServerSnapshot) {
                   const { title, preview } = extractThreadMeta(repo);
