@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.92.1
+
+### Patch Changes
+
+- 1d13434: Allow extension iframes to trigger user-initiated downloads and add CSV export to standard data table widgets.
+- 1d13434: Remove the GitHub icon from the free and open source badge on public booking pages.
+- 1d13434: Make framework polling cheaper with durable sync events, remove Dispatch's short app-list polling intervals, preview large DB admin cells by default to avoid accidental blob transfers, and require configured file storage for binary resource uploads instead of storing base64 blobs in SQL.
+- 1d13434: Stage database-admin table selections as agent chat context chips and selected-object application state so users can ask the agent about the active table.
+- 1d13434: Show a clear unavailable state for shared extension links that the viewer cannot access, instead of leaving the standalone extension page looking blank.
+- 1d13434: Filter known browser and extension noise from first-party error auto-capture while preserving real app fetch failures.
+- 1d13434: Recover stale background chat runs instead of surfacing them as terminal failures, and keep chat handoffs from restoring stale server snapshots over fresher completed replies.
+- 1d13434: Fix durable polling cursors, DB admin large-cell safeguards, extension unavailable states, and stale chat snapshot handling.
+- 1d13434: Show organization access controls alongside long team member lists when the Team settings surface has enough width.
+
 ## 0.92.0
 
 ### Minor Changes

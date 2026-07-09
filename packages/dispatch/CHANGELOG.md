@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.13
+
+### Patch Changes
+
+- 1d13434: Make framework polling cheaper with durable sync events, remove Dispatch's short app-list polling intervals, preview large DB admin cells by default to avoid accidental blob transfers, and require configured file storage for binary resource uploads instead of storing base64 blobs in SQL.
+
 ## 0.13.12
 
 ### Patch Changes
