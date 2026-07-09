@@ -28,11 +28,7 @@ function addCurrentModel(
   currentModel?: string,
 ): string[] {
   const next = [...models];
-  if (
-    engineName === currentEngineName &&
-    currentModel &&
-    !next.includes(currentModel)
-  ) {
+  if (engineName === currentEngineName && currentModel && next.length === 0) {
     next.unshift(currentModel);
   }
   return next;

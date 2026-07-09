@@ -577,6 +577,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   if (
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_timeout" ||
+    code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||

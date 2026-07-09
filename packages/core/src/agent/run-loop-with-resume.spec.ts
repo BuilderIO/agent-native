@@ -90,6 +90,17 @@ describe("isResumableEngineError", () => {
     }
   });
 
+  it("recognizes Anthropic bare 'Connection error.' as resumable", () => {
+    expect(isResumableEngineError(new Error("Connection error."))).toBe(true);
+    expect(
+      isResumableEngineError(
+        new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("recognizes raw transport errors by message", () => {
     const cases = [
       "socket hang up",

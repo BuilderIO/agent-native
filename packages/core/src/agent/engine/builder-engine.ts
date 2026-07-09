@@ -645,10 +645,18 @@ async function* parseJsonlStream(
             const isCredentialAuthError =
               Boolean(explicitErrMsg) &&
               isBuilderCredentialAuthError(String(errMsg));
+            // Anthropic's bare "Connection error." often arrives here with no
+            // gateway code. Tag it as a network error so in-run retries and
+            // run-level resume treat it as transient instead of terminal.
+            const isProviderConnectionError =
+              typeof explicitErrMsg === "string" &&
+              isProviderConnectionErrorMessage(String(explicitErrMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
-              : (gatewayErrCode ??
-                (!explicitErrMsg ? "builder_gateway_error" : undefined));
+              : isProviderConnectionError
+                ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
+                : (gatewayErrCode ??
+                  (!explicitErrMsg ? "builder_gateway_error" : undefined));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
@@ -987,11 +995,18 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
+    // Anthropic SDK's APIConnectionError default ("Connection error.") is
+    // often forwarded by the Builder gateway as a stop event with no code.
+    text.includes("connection error") ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
     text.includes("terminated")
   );
+}
+
+function isProviderConnectionErrorMessage(message: string): boolean {
+  return message.trim().toLowerCase() === "connection error.";
 }
 
 function captureBuilderGatewayTransportError(

@@ -692,6 +692,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("socket hang up");
   });
 
+  it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Connection error.",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe("Connection error.");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {

@@ -16,6 +16,7 @@ import {
   resetBuilderWaitlistRateLimitForTests,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
+  normalizeAgentEngineStatusModel,
   runDbHealthProbe,
   AVATAR_RASTER_MIME,
   resolveAvatarEmailParam,
@@ -77,6 +78,21 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("RESEND_API_KEY");
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
+  });
+});
+
+describe("normalizeAgentEngineStatusModel", () => {
+  it("normalizes removed model ids before reporting current status", () => {
+    expect(
+      normalizeAgentEngineStatusModel(
+        {
+          name: "builder",
+          defaultModel: "claude-sonnet-5",
+          supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5"],
+        },
+        "claude-opus-4-7",
+      ),
+    ).toBe("claude-opus-4-8");
   });
 });
 

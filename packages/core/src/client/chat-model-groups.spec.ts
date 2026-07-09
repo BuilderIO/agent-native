@@ -135,7 +135,7 @@ describe("buildChatModelGroups", () => {
     });
   });
 
-  it("keeps the current engine visible without marking missing credentials configured", () => {
+  it("keeps the current engine visible without re-adding unsupported current models", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:anthropic",
       currentModel: "claude-fable-5",
@@ -153,7 +153,31 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:anthropic",
         label: "Claude",
-        models: ["claude-fable-5", "claude-sonnet-5"],
+        models: ["claude-sonnet-5"],
+        configured: false,
+      },
+    ]);
+  });
+
+  it("keeps custom current models visible for engines without a curated model list", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "custom",
+      currentModel: "custom/provider-model",
+      engines: [
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: [],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "custom",
+        label: "Custom",
+        models: ["custom/provider-model"],
         configured: false,
       },
     ]);

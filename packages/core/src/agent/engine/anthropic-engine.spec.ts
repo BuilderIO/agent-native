@@ -308,6 +308,51 @@ describe("createAnthropicEngine", () => {
     vi.doUnmock("@anthropic-ai/sdk");
   });
 
+  it("tags Anthropic APIConnectionError as provider_network_error", async () => {
+    class MockConnectionError extends Error {
+      constructor() {
+        super("Connection error.");
+        this.name = "APIConnectionError";
+      }
+    }
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {
+        throw new MockConnectionError();
+      },
+      finalMessage: vi.fn(),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
+    }));
+
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate({ apiKey: "test" });
+    const opts: EngineStreamOptions = {
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "Test",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    };
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const e of engine.stream(opts)) events.push(e);
+    }).rejects.toThrow("Connection error.");
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.error).toBe("Connection error.");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
   it("stream emits stop with error when API key is missing", async () => {
     const engine = createAnthropicEngine({});
     const opts: EngineStreamOptions = {
