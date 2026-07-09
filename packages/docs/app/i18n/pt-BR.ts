@@ -406,6 +406,8 @@ const ptBR = {
     copyCommand: "Comando copiar",
     copyCode: "Copiar código",
     tryIt: "Experimentar",
+    customizeIt: "Personalizar",
+    editOnline: "Editar online",
     runLocally: "Executar localmente",
     viewDocs: "Ver docs",
     source: "Fonte",

@@ -122,6 +122,16 @@ function uniqueAttendees(attendees: AttendeeRecipient[]) {
   return Array.from(byEmail.values());
 }
 
+function buildVideoProviderPatch(
+  provider: VideoProvider,
+  explicitChoice: boolean,
+): { addGoogleMeet?: boolean; addZoom?: boolean } {
+  if (provider === "google_meet")
+    return { addGoogleMeet: true, addZoom: false };
+  if (provider === "zoom") return { addGoogleMeet: false, addZoom: true };
+  return explicitChoice ? { addGoogleMeet: false, addZoom: false } : {};
+}
+
 function dateTimePartsInTimezone(value: string, timezone: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -240,6 +250,7 @@ export function CreateEventPopover({
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
+  const [videoProviderTouched, setVideoProviderTouched] = useState(false);
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const timedOnlyStatus =
@@ -304,6 +315,9 @@ export function CreateEventPopover({
       setVideoProvider(
         draft.addGoogleMeet ? "google_meet" : draft.addZoom ? "zoom" : "none",
       );
+      setVideoProviderTouched(
+        draft.addGoogleMeet !== undefined || draft.addZoom !== undefined,
+      );
       setAttendees(
         uniqueAttendees(
           (draft.attendees ?? []).map((attendee) => ({
@@ -335,6 +349,7 @@ export function CreateEventPopover({
     setAttachments([createAttachmentDraft()]);
     setWorkingLocationType("customLocation");
     setVideoProvider("none");
+    setVideoProviderTouched(false);
     setAttendees([]);
   }, [
     open,
@@ -403,8 +418,7 @@ export function CreateEventPopover({
               ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
       accountEmail: draft?.accountEmail,
       workingLocationType,
       workingLocationLabel:
@@ -449,6 +463,7 @@ export function CreateEventPopover({
     attachments,
     attendees,
     videoProvider,
+    videoProviderTouched,
     workingLocationType,
     timedOnlyStatus,
     onDraftChange,
@@ -647,8 +662,6 @@ export function CreateEventPopover({
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
       ...statusPatch,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
       color: colorId ? getGoogleEventColorHex(colorId) : undefined,
       colorId,
       attachments:
@@ -663,6 +676,7 @@ export function CreateEventPopover({
               ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
     };
 
     onOpenChange(false);
@@ -979,9 +993,10 @@ export function CreateEventPopover({
               </Label>
               <Select
                 value={videoProvider}
-                onValueChange={(value) =>
-                  setVideoProvider(value as VideoProvider)
-                }
+                onValueChange={(value) => {
+                  setVideoProvider(value as VideoProvider);
+                  setVideoProviderTouched(true);
+                }}
               >
                 <SelectTrigger
                   id="event-video-provider"

@@ -236,9 +236,12 @@ details live in `.agents/skills/`.
   `run-monitor-check`, `delete-monitor`. Checks/alerting run server-side in
   `server/lib/uptime-monitors.ts` (sweep job `server/jobs/uptime-monitors.ts`,
   scheduler `server/plugins/uptime-monitor-jobs.ts`) over
-  `server/db/schema-monitoring.ts`. Deep links: list `?view=uptime`, detail
-  `?view=uptime&monitor=<id>`, create `?view=uptime&monitor=new`, edit
-  `?view=uptime&monitor=<id>&edit=1`. See `docs/uptime-monitoring.md`.
+  `server/db/schema-monitoring.ts`. Production serverless/Netlify-style
+  runtimes skip the in-process interval scheduler and rely on the generated
+  scheduled/background worker or external cron instead. Deep links: list
+  `?view=uptime`, detail `?view=uptime&monitor=<id>`, create
+  `?view=uptime&monitor=new`, edit `?view=uptime&monitor=<id>&edit=1`. See
+  `docs/uptime-monitoring.md`.
 - Status pages (`app/pages/monitoring/uptime/status-pages/**`) are a config
   sub-view under Uptime that bundle chosen monitors under a public
   `/status/<slug>` page. Actions: `list-status-pages`, `get-status-page`,

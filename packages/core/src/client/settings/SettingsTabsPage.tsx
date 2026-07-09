@@ -9,6 +9,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -151,6 +152,17 @@ function updateHashForTab(tabId: string) {
   window.history.pushState(null, "", `${pathname}${search}${hash}`);
 }
 
+function isEditableElement(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const tagName = element.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    element.isContentEditable
+  );
+}
+
 export function SettingsTabsPage({
   general,
   team,
@@ -171,6 +183,9 @@ export function SettingsTabsPage({
   value,
   onValueChange,
 }: SettingsTabsPageProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const autoFocusedSearchRef = useRef(false);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -253,6 +268,37 @@ export function SettingsTabsPage({
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [isControlled, tabs]);
+
+  useEffect(() => {
+    if (!enableSearch || autoFocusedSearchRef.current) return;
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+    if (window.matchMedia("(max-width: 767px)").matches) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      autoFocusedSearchRef.current = true;
+      const input = searchInputRef.current;
+      if (!input) return;
+
+      const activeElement = document.activeElement;
+      const activeInsideSettings =
+        !!activeElement && rootRef.current?.contains(activeElement);
+      if (
+        activeElement !== input &&
+        (isEditableElement(activeElement) || activeInsideSettings)
+      ) {
+        return;
+      }
+
+      input.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [enableSearch]);
 
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
@@ -338,6 +384,7 @@ export function SettingsTabsPage({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "flex h-full min-h-0 w-full flex-col overflow-hidden bg-background sm:flex-row",
         className,
@@ -345,7 +392,7 @@ export function SettingsTabsPage({
     >
       <div
         className={cn(
-          "flex shrink-0 flex-col gap-2 border-b border-border bg-background p-2 sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:border-b-0 sm:border-e sm:p-3",
+          "flex shrink-0 flex-col gap-2 bg-background p-2 sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:p-3",
           navClassName,
         )}
       >
@@ -353,6 +400,7 @@ export function SettingsTabsPage({
           <div className="relative sm:mb-1">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
+              ref={searchInputRef}
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}

@@ -399,6 +399,8 @@ const messages = {
     copyCommand: "複製指令",
     copyCode: "複製程式碼",
     tryIt: "試用",
+    customizeIt: "自訂",
+    editOnline: "線上編輯",
     runLocally: "本機執行",
     viewDocs: "檢視檔案",
     source: "來源",

@@ -1095,6 +1095,7 @@ export async function createEvent(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.comment ? { comment: a.comment } : {}),
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : {}),
     }));
   }

@@ -401,6 +401,8 @@ const zhCN = {
     copyCommand: "复制命令",
     copyCode: "复制代码",
     tryIt: "试用",
+    customizeIt: "自定义",
+    editOnline: "在线编辑",
     runLocally: "本地运行",
     viewDocs: "查看文档",
     source: "来源",

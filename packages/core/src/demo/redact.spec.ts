@@ -26,7 +26,7 @@ describe("determinism", () => {
   });
 
   it("different salt produces different output", () => {
-    const input = "Reach out to Sarah Connor";
+    const input = "Reach out to sarah.connor@acme.com";
     const a = redactDemoString(input, { salt: "alpha" });
     const b = redactDemoString(input, { salt: "beta" });
     expect(a).not.toBe(b);
@@ -34,14 +34,14 @@ describe("determinism", () => {
 
   it("repeated value maps consistently within one redactDemoData call", () => {
     const input = {
-      a: { from: "Acme Corp" },
-      b: { from: "Acme Corp" },
-      c: { author: "Acme Corp" },
+      a: { from: "sarah.connor@acme.com" },
+      b: { from: "sarah.connor@acme.com" },
+      c: { author: "sarah.connor@acme.com" },
     };
     const out = redactDemoData(input, { salt: "s" }) as typeof input;
     expect(out.a.from).toBe(out.b.from);
     expect(out.a.from).toBe(out.c.author);
-    expect(out.a.from).not.toBe("Acme Corp");
+    expect(out.a.from).not.toBe("sarah.connor@acme.com");
   });
 
   it("repeated number maps consistently across a chart and a summary", () => {
@@ -56,10 +56,10 @@ describe("determinism", () => {
 
   it("is process-independent for a fixed salt (regression on stable hash)", () => {
     // Stability check: the same literal should not vary run to run.
-    const first = redactDemoString("Jane Doe", { salt: "fixed" });
-    const second = redactDemoString("Jane Doe", { salt: "fixed" });
+    const first = redactDemoString("jane.doe@acme.com", { salt: "fixed" });
+    const second = redactDemoString("jane.doe@acme.com", { salt: "fixed" });
     expect(first).toBe(second);
-    expect(first).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    expect(first).toMatch(/^[a-z0-9._]+@[a-z0-9.-]+\.[a-z]{2,}$/);
   });
 });
 
@@ -83,7 +83,7 @@ describe("emails", () => {
 });
 
 describe("full names", () => {
-  it("replaces 2+ capitalized word sequences", () => {
+  it("replaces 2+ capitalized word sequences in free text", () => {
     const out = redactDemoString("Please call Sarah Connor today");
     expect(out).not.toContain("Sarah Connor");
     expect(out).toMatch(/Please call [A-Z][a-z]+ [A-Z][a-z]+ today/);
@@ -97,21 +97,19 @@ describe("full names", () => {
   it("does NOT replace lone capitalized words in prose", () => {
     const input = "Monday Inbox The Quarterly Report is ready";
     const out = redactDemoString(input);
-    // "Monday" / "Inbox" / "The" alone must survive; multi-word runs may not,
-    // so assert the standalone-at-sentence-start words individually.
     const lone = redactDemoString("Monday. Inbox. The. Done.");
     expect(lone).toBe("Monday. Inbox. The. Done.");
     expect(typeof out).toBe("string");
   });
 
-  it("does not mangle label/tab names under a name key", () => {
+  it("preserves structural labels but redacts standalone person-name values", () => {
     const labels = redactDemoData(
       [
         { name: "Important", count: 4200 },
         { name: "Automated notifications" },
         { name: "Note to Self" },
         { name: "Other" },
-        { name: "Olivia Parker" }, // a real person name still gets faked
+        { name: "Olivia Parker" },
       ],
       { salt: "s" },
     ) as Array<{ name: string; count?: number }>;
@@ -124,18 +122,15 @@ describe("full names", () => {
     expect(labels[4].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
   });
 
-  it("leaves single-token name-key values alone; still fakes 2+ word names", () => {
+  it("preserves label keys but still redacts contact-style full names", () => {
     const out = redactDemoData(
       { from: "Cher", name: "Madonna", full: "Jane Cooper", note: "Madonna" },
       { salt: "s" },
     ) as { from: string; name: string; full: string; note: string };
-    // Single first name under a name key — user explicitly OK keeping these.
     expect(out.from).toBe("Cher");
     expect(out.name).toBe("Madonna");
-    // A genuine 2-word name under a name key is still faked.
     expect(out.full).not.toBe("Jane Cooper");
     expect(out.full).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
-    // Single capitalized word in a non-name field stays.
     expect(out.note).toBe("Madonna");
   });
 });
@@ -260,11 +255,11 @@ describe("ID-safety (critical)", () => {
     // Recurse into nested objects under a protected key, but the protected key
     // itself does not transform its own leaf.
     expect(out.nested.id).toBe("Bob Jones");
-    // A non-protected sibling at the nested level IS still redacted.
+    // Contact-shaped label/name leaves still redact person names.
     expect(out.nested.label).not.toBe("Bob Jones");
   });
 
-  it("never rewrites SQL/query/code keys (chart titles still faked)", () => {
+  it("never rewrites SQL/query/code keys or chart titles", () => {
     const dashboard = {
       name: "Maya Davis (First-party)",
       panels: [
@@ -282,9 +277,9 @@ describe("ID-safety (critical)", () => {
     expect(out.panels[0].sql).toBe(dashboard.panels[0].sql);
     expect(out.panels[0].query).toBe(dashboard.panels[0].query);
     expect(out.panels[0].expression).toBe(dashboard.panels[0].expression);
-    // But human-facing strings are still redacted.
-    expect(out.name).not.toBe(dashboard.name);
-    expect(out.panels[0].title).not.toBe("Clicks by Henry Moore");
+    // Structural label/title fields stay stable even when they look name-like.
+    expect(out.name).toBe(dashboard.name);
+    expect(out.panels[0].title).toBe("Clicks by Henry Moore");
   });
 
   it("recurses into arrays/objects under protected keys", () => {
@@ -293,16 +288,14 @@ describe("ID-safety (critical)", () => {
       meta: { id: "x", owner: "Mary Major" },
     };
     const out = redactDemoData(input, { salt: "s" }) as typeof input;
-    // Array under protected key: entries are NOT name-coerced (no name key),
-    // and a two-word run inside prose would be redacted, so just assert it
-    // still recursed (array preserved) and the id-ish strings are safe-ish.
+    // Array under protected key is still recursed/preserved.
     expect(Array.isArray(out.ids)).toBe(true);
     expect(out.ids.length).toBe(2);
     expect(out.meta.id).toBe("x");
     expect(out.meta.owner).not.toBe("Mary Major");
   });
 
-  it("name-key coercion still defers to ID protection", () => {
+  it("name-like keys still redact emails and defer to ID protection", () => {
     const out = redactDemoData(
       { name: NANOID, from: UUID, sender: "jane.doe@acme.com" },
       { salt: "s" },
@@ -314,10 +307,10 @@ describe("ID-safety (critical)", () => {
     expect(out.sender).toMatch(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
   });
 
-  it("is stable across edits: produced names/emails round-trip unchanged", () => {
+  it("is stable across edits: produced emails round-trip unchanged", () => {
     // Simulate the real scenario: data is redacted for display → the user
     // edits the (now fake) draft → it autosaves → it's refetched and
-    // redacted again. Names/emails must NOT drift on the round-trip.
+    // redacted again. Emails must NOT drift on the round-trip.
     const real = {
       from: "Jane Cooper",
       to: "jane.cooper@acme.com",

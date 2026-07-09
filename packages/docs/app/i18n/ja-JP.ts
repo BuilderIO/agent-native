@@ -407,6 +407,8 @@ const jaJP = {
     copyCommand: "コピーコマンド",
     copyCode: "コードをコピーする",
     tryIt: "試す",
+    customizeIt: "カスタマイズ",
+    editOnline: "オンラインで編集",
     runLocally: "ローカルで実行",
     viewDocs: "ドキュメントを見る",
     source: "ソース",

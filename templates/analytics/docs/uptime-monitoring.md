@@ -122,6 +122,11 @@ external cron with `UPTIME_MONITORS_CRON_SECRET`. Both paths run
 monitors whose interval has elapsed, checks them, records results, opens/resolves
 incidents, and prunes old check results.
 
+Production serverless function runtimes skip the in-process interval scheduler
+even when `UPTIME_MONITOR_JOBS=1`, because the function may freeze or time out
+mid-sweep. Use the generated scheduled/background worker or an external cron
+calling `/api/uptime-monitors/run` for production serverless checks.
+
 Environment flags (mirrors the analytics alert job):
 
 | flag                                                   | effect                                                                                           |

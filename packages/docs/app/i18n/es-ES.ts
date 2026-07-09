@@ -407,6 +407,8 @@ const esES = {
     copyCommand: "comando copiar",
     copyCode: "Copiar código",
     tryIt: "Probar",
+    customizeIt: "Personalizar",
+    editOnline: "Editar en línea",
     runLocally: "Ejecutar localmente",
     viewDocs: "Ver docs",
     source: "Fuente",

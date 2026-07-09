@@ -16,7 +16,10 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../lib/event-guest-notifications.js";
-import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../lib/event-video-conferencing.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -287,7 +290,11 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: addGoogleMeet === true,
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet:
+          typeof addGoogleMeet === "boolean" ? addGoogleMeet : undefined,
+        addZoom: addZoom === true,
+      }),
     });
     if (result.id) {
       calEvent.id = `google-${result.id}`;

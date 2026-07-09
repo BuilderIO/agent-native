@@ -158,6 +158,12 @@ function inferToolTextLanguage(
   const keyName = (key ?? "").toLowerCase();
   const tool = (toolName ?? "").toLowerCase();
   if (
+    keyName === "code" &&
+    (tool.includes("run-code") || tool.includes("run_code"))
+  ) {
+    return "javascript";
+  }
+  if (
     keyName === "sql" ||
     keyName.endsWith("sql") ||
     keyName === "query" ||
@@ -352,7 +358,7 @@ function ToolOutputPopover({
         side="bottom"
         sideOffset={6}
         collisionPadding={12}
-        className="flex w-[min(calc(100vw-2rem),760px)] flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[min(calc(100vh-2rem),var(--radix-popover-content-available-height,75vh))] w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,760px),760px)] flex-col gap-0 overflow-hidden p-0"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="truncate text-sm font-medium">{title}</div>
@@ -365,11 +371,11 @@ function ToolOutputPopover({
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <div className="p-3">
+        <div className="min-h-0 flex-1 overflow-hidden p-3">
           <SimpleCodeViewer
             text={payload.text}
             lang={payload.lang}
-            maxHeightClass="max-h-[75vh]"
+            maxHeightClass="max-h-[min(70vh,calc(var(--radix-popover-content-available-height,75vh)-4.5rem))]"
           />
         </div>
       </PopoverContent>

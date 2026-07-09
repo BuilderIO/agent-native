@@ -406,6 +406,8 @@ const hiIN = {
     copyCommand: "आदेश कॉपी करें",
     copyCode: "कोड कॉपी करें",
     tryIt: "आज़माएँ",
+    customizeIt: "कस्टमाइज़ करें",
+    editOnline: "ऑनलाइन संपादित करें",
     runLocally: "स्थानीय रूप से चलाएँ",
     viewDocs: "डॉक्स देखें",
     source: "स्रोत",

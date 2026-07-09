@@ -52,6 +52,8 @@ const enUS = {
     copyCommand: "Copy command",
     copyCode: "Copy code",
     tryIt: "Try It",
+    customizeIt: "Customize It",
+    editOnline: "Edit Online",
     runLocally: "Run Locally",
     viewDocs: "View Docs",
     source: "Source",
