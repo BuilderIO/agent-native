@@ -559,8 +559,10 @@ import {
 } from "./design-editor/selection-state";
 import {
   getDesignToolActivationState,
+  getMoveGroupToolPresentation,
   getSingleScreenCreationTool,
   isSingleScreenAnnotationTool,
+  MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignTool,
 } from "./design-editor/tool-state";
 import {
@@ -3288,6 +3290,13 @@ function DesignBottomToolbar({
   const activeShapeOption =
     shapeOptions.find((option) => option.key === activeShape) ??
     shapeOptions[0]!;
+  const activeMoveGroupTool = getMoveGroupToolPresentation(activeTool);
+  const handleActiveMoveGroupTool =
+    activeMoveGroupTool.tool === "hand"
+      ? onHand
+      : activeMoveGroupTool.tool === "scale"
+        ? onScale
+        : onMove;
   const tools: Array<{
     key: string;
     active: boolean;
@@ -3304,7 +3313,10 @@ function DesignBottomToolbar({
         (activeTool === "move" && mode === "edit") ||
         activeTool === "hand" ||
         activeTool === "scale",
-      label: t("designEditor.tools.move"),
+      // The parent button represents the active move-group sub-tool. Expose
+      // that same identity to assistive technology and the tooltip instead of
+      // announcing every H/K activation as the Move tool.
+      label: t(activeMoveGroupTool.labelKey),
       // Mirror the active sub-tool icon so the parent button is always
       // informative about the currently selected move-group tool.
       icon:
@@ -3315,13 +3327,16 @@ function DesignBottomToolbar({
         ) : (
           <IconPointer className="size-[18px]" />
         ),
-      onClick: onMove,
+      // Keep the primary action aligned with the icon/label it presents. A
+      // Hand or Scale button should remain Hand or Scale when clicked rather
+      // than silently switching back to Move.
+      onClick: handleActiveMoveGroupTool,
       options: [
         {
           key: "move",
           label: t("designEditor.tools.move"),
           icon: <IconPointer className="size-4" />,
-          shortcut: "V",
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.move.shortcut,
           active: activeTool === "move" && mode === "edit",
           onSelect: onMove,
         },
@@ -3329,6 +3344,7 @@ function DesignBottomToolbar({
           key: "hand",
           label: t("designEditor.tools.hand"),
           icon: <IconHandStop className="size-4" />,
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut,
           active: activeTool === "hand",
           onSelect: onHand,
         },
@@ -3336,6 +3352,7 @@ function DesignBottomToolbar({
           key: "scale",
           label: t("designEditor.tools.scale"),
           icon: <IconScale className="size-4" />,
+          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut,
           active: activeTool === "scale",
           onSelect: onScale,
         },

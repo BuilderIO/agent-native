@@ -87,7 +87,10 @@ import {
   shouldIncludeScreenRenameContentOverride,
   shouldMirrorSelectedElementToAgentChat,
 } from "./design-editor/selection-state";
-import { getDesignToolActivationState } from "./design-editor/tool-state";
+import {
+  getDesignToolActivationState,
+  getMoveGroupToolPresentation,
+} from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
   it("uses the explicit overview screen selection while in overview", () => {
@@ -151,6 +154,34 @@ describe("DesignEditor command tool activation", () => {
       mode: "edit",
       drawMode: false,
       pinMode: false,
+    });
+  });
+});
+
+describe("DesignEditor move-group toolbar presentation", () => {
+  it("projects Hand and Scale with their Figma shortcut labels", () => {
+    expect(getMoveGroupToolPresentation("hand")).toEqual({
+      tool: "hand",
+      labelKey: "designEditor.tools.hand",
+      shortcut: "H",
+    });
+    expect(getMoveGroupToolPresentation("scale")).toEqual({
+      tool: "scale",
+      labelKey: "designEditor.tools.scale",
+      shortcut: "K",
+    });
+  });
+
+  it("projects other tools through the default Move group presentation", () => {
+    expect(getMoveGroupToolPresentation("move")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
+    });
+    expect(getMoveGroupToolPresentation("pen")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
     });
   });
 });

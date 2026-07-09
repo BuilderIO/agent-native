@@ -708,6 +708,47 @@ test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
   );
 });
 
+test("Hand and Scale shortcuts project the active move-group tool", async ({
+  page,
+}) => {
+  await page.keyboard.press("h");
+  await expect(toolButton(page, "Hand")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolButton(page, "Move")).toHaveCount(0);
+
+  // The primary button shows Hand, so clicking it must keep Hand selected.
+  await toolButton(page, "Hand").click();
+  await expect(toolButton(page, "Hand")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.getByRole("button", { name: "Hand options" }).click();
+  await expect(
+    page.getByRole("menuitem").filter({ hasText: "Hand" }),
+  ).toHaveText(/HandH$/);
+  await expect(
+    page.getByRole("menuitem").filter({ hasText: "Scale" }),
+  ).toHaveText(/ScaleK$/);
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("k");
+  await expect(toolButton(page, "Scale")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolButton(page, "Hand")).toHaveCount(0);
+
+  // The primary button shows Scale, so clicking it must keep Scale selected.
+  await toolButton(page, "Scale").click();
+  await expect(toolButton(page, "Scale")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
 async function textEditingCount(page: Page): Promise<number> {
   return page
     .locator("iframe[data-design-preview-iframe]")

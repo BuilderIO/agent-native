@@ -2,6 +2,32 @@ import type { CreationTool } from "@/components/design/design-canvas/creation";
 
 import type { DesignTool, EditorMode } from "./types";
 
+export const MOVE_GROUP_TOOL_PRESENTATIONS = {
+  move: {
+    labelKey: "designEditor.tools.move",
+    shortcut: "V",
+  },
+  hand: {
+    labelKey: "designEditor.tools.hand",
+    shortcut: "H",
+  },
+  scale: {
+    labelKey: "designEditor.tools.scale",
+    shortcut: "K",
+  },
+} as const;
+
+export type MoveGroupTool = keyof typeof MOVE_GROUP_TOOL_PRESENTATIONS;
+
+export function getMoveGroupToolPresentation(activeTool: DesignTool) {
+  const moveGroupTool: MoveGroupTool =
+    activeTool === "hand" || activeTool === "scale" ? activeTool : "move";
+  return {
+    tool: moveGroupTool,
+    ...MOVE_GROUP_TOOL_PRESENTATIONS[moveGroupTool],
+  };
+}
+
 const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
   "move",
   "frame",

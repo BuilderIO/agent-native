@@ -35,6 +35,17 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  it("projects the active move-group sub-tool through the toolbar", () => {
+    expect(editorSource).toContain("label: t(activeMoveGroupTool.labelKey)");
+    expect(editorSource).toContain("onClick: handleActiveMoveGroupTool");
+    expect(editorSource).toContain(
+      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut",
+    );
+    expect(editorSource).toContain(
+      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut",
+    );
+  });
+
   it("keeps support files out of the visual screen layer list and Cmd+A", () => {
     expect(editorSource).toContain(
       "new Set(overviewScreens.map((screen) => screen.id))",
