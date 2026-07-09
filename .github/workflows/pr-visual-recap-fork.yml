@@ -10,10 +10,11 @@ name: PR Visual Recap (fork, trusted + label-gated)
 #
 # SECURITY MODEL:
 #   - Trigger: pull_request_target (has access to base-repo secrets).
-#   - Gate condition: PR is from a fork AND either the author association is
-#     trusted (`OWNER`, `MEMBER`, or `COLLABORATOR`) OR this event is a fresh
-#     `recap` label application. Non-fork PRs are excluded — the main workflow
-#     covers them.
+#   - Gate condition: PR is from a fork AND either the author is an active
+#     member of the base repository owner organization, has write-level access
+#     to the base repository, the author association is trusted (`OWNER`,
+#     `MEMBER`, or `COLLABORATOR`), OR this event is a fresh `recap` label
+#     application. Non-fork PRs are excluded — the main workflow covers them.
 #   - NO fork code is checked out or executed. We checkout only the BASE
 #     repository at the base ref. The diff is obtained by fetching the fork
 #     head ref as a remote ref (safe — fetching commits is not executing them)
@@ -83,11 +84,12 @@ jobs:
               reasons.push('not a fork PR — handled by pr-visual-recap.yml');
             }
 
-            // Trusted members/collaborators can run automatically, even from
-            // personal forks. Outside contributors need a fresh `recap` label
-            // event for this head SHA; a stale label left on the PR is not
-            // enough after a new push.
+            // Trusted org members/collaborators can run automatically, even
+            // from personal forks. Outside contributors need a fresh `recap`
+            // label event for this head SHA; a stale label left on the PR is
+            // not enough after a new push.
             const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const authorLogin = (pr && pr.user && pr.user.login || '').toLowerCase();
             let association = (pr && pr.author_association || '').toUpperCase();
             const seenAssociations = [];
             const recordAssociation = (value) => {
@@ -123,9 +125,49 @@ jobs:
                 core.warning(`Could not fetch PR author_association via API (${e.message}); continuing with other association signals`);
               }
             }
-            const isTrustedAuthor = seenAssociations.some((value) => trustedAssociations.includes(value));
-            association = seenAssociations.find((value) => trustedAssociations.includes(value)) || association;
-            core.info(`PR author association: ${seenAssociations.join(', ') || 'empty'} (trusted=${isTrustedAuthor})`);
+            let isOrgMember = false;
+            let hasTrustedRepoPermission = false;
+            let repoPermission = '';
+            if (authorLogin && context.repo.owner) {
+              try {
+                const { data: membership } = await github.rest.orgs.getMembershipForUser({
+                  org: context.repo.owner,
+                  username: authorLogin,
+                });
+                const state = (membership && membership.state || '').toLowerCase();
+                const role = (membership && membership.role || 'member').toLowerCase();
+                isOrgMember = state === 'active';
+                if (isOrgMember) {
+                  core.info(`PR author ${authorLogin} is an active ${context.repo.owner} org ${role}.`);
+                }
+              } catch (e) {
+                if (e.status === 404) {
+                  core.info(`PR author ${authorLogin} is not an active ${context.repo.owner} org member according to GitHub API.`);
+                } else {
+                  core.warning(`Could not verify ${context.repo.owner} org membership for ${authorLogin} (${e.message}); continuing with association signals`);
+                }
+              }
+              try {
+                const { data: permissions } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: authorLogin,
+                });
+                repoPermission = (permissions && permissions.permission || '').toLowerCase();
+                hasTrustedRepoPermission = ['admin', 'maintain', 'write'].includes(repoPermission);
+                core.info(`PR author ${authorLogin} repository permission: ${repoPermission || 'none'} (trusted=${hasTrustedRepoPermission}).`);
+              } catch (e) {
+                if (e.status === 404) {
+                  core.info(`PR author ${authorLogin} has no explicit ${context.repo.owner}/${context.repo.repo} collaborator permission according to GitHub API.`);
+                } else {
+                  core.warning(`Could not verify ${context.repo.owner}/${context.repo.repo} permission for ${authorLogin} (${e.message}); continuing with association signals`);
+                }
+              }
+            }
+            const hasTrustedAssociation = seenAssociations.some((value) => trustedAssociations.includes(value));
+            const isTrustedAuthor = isOrgMember || hasTrustedRepoPermission || hasTrustedAssociation;
+            association = seenAssociations.find((value) => trustedAssociations.includes(value)) || (isOrgMember ? 'MEMBER' : association);
+            core.info(`PR author association: ${seenAssociations.join(', ') || 'empty'}; orgMember=${isOrgMember}; repoPermission=${repoPermission || 'unknown'} (trusted=${isTrustedAuthor})`);
             const eventLabel = context.payload.label && context.payload.label.name;
             const labels = (pr && pr.labels || []).map((l) => l.name);
             const hasRecapLabel = labels.includes('recap');
@@ -136,7 +178,7 @@ jobs:
 
             if (pr && pr.draft) reasons.push('draft PR');
 
-            const login = (pr && pr.user && pr.user.login || '').toLowerCase();
+            const login = authorLogin;
             const botAuthors = ['dependabot[bot]', 'dependabot', 'renovate[bot]', 'renovate'];
             if (botAuthors.includes(login)) reasons.push(`bot author (${login})`);
             if (pr && pr.user && pr.user.type === 'Bot') reasons.push('bot author (type=Bot)');

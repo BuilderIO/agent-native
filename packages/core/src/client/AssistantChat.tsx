@@ -2142,6 +2142,25 @@ const AssistantChatInner = forwardRef<
         return false;
       }
 
+      // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
+      // (e.g. repeated stale_run at "Contacting model") produces a new runId
+      // every few seconds; each call here used to OVERWRITE the single-slot
+      // refs below without tearing down the prior closure, leaving its
+      // watchdog (1s) + idleCheck (1s) + thread poll (2s) + SSE retry loop all
+      // running. 4-5 stacked generations = a ~20 req/s request storm that
+      // hammers the same Neon pool the server needs for heartbeats, deepening
+      // the DB saturation that causes the failures in the first place. Abort
+      // the prior generation's AbortController so its stream loop exits and its
+      // `finally` clears every interval before we start a fresh one.
+      if (reconnectAbortRef.current) {
+        try {
+          reconnectAbortRef.current.abort();
+        } catch {
+          // Already aborted / detached — nothing to unwind.
+        }
+        reconnectAbortRef.current = null;
+      }
+
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       reconnectTailOnlyRef.current = afterSeq > 0;
@@ -2237,6 +2256,19 @@ const AssistantChatInner = forwardRef<
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
         const preparingActionState: PreparingActionState = {};
+        // Exponential backoff for the reattach retry loop. A run that is
+        // "active" server-side but producing no stream (the exact stuck state
+        // that triggers a reconnect) would otherwise re-fetch /runs/:id/events
+        // every ~250ms — several req/s per generation. Back off 250ms → 5s so a
+        // genuinely stuck run stops hammering the server; reset the moment real
+        // progress streams in (see the onSeq callback) so a recovering run
+        // re-tightens immediately.
+        let reconnectRetryCount = 0;
+        const backoffRetryDelay = () => {
+          const ms = Math.min(250 * 2 ** reconnectRetryCount, 5000);
+          reconnectRetryCount += 1;
+          return new Promise((resolve) => window.setTimeout(resolve, ms));
+        };
         const sameRunStillActive = async (): Promise<
           "active" | "inactive" | "unknown"
         > => {
@@ -2287,7 +2319,7 @@ const AssistantChatInner = forwardRef<
             if (!sseRes.ok || !sseRes.body) {
               const activeState = await sameRunStillActive();
               if (activeState !== "inactive") {
-                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                await backoffRetryDelay();
                 continue;
               }
               break;
@@ -2313,6 +2345,7 @@ const AssistantChatInner = forwardRef<
                 scheduleUpdate,
                 (seq) => {
                   markReconnectProgress();
+                  reconnectRetryCount = 0;
                   updateActiveRunSeq(seq);
                 },
                 { preparingActionState },
@@ -2331,9 +2364,7 @@ const AssistantChatInner = forwardRef<
                 }
                 const activeState = await sameRunStillActive();
                 if (activeState !== "inactive") {
-                  await new Promise((resolve) =>
-                    window.setTimeout(resolve, 250),
-                  );
+                  await backoffRetryDelay();
                   continue;
                 }
               }
