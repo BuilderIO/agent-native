@@ -17,6 +17,7 @@ import { memo, useState, useMemo } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { cn } from "@/lib/utils";
 
 import { EventCard } from "./EventCard";
@@ -185,7 +186,12 @@ export const MonthView = memo(function MonthView({
           return (
             <div
               key={dayKey}
-              onClick={() => onDateSelect(day)}
+              data-calendar-create-surface="true"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                if (shouldSuppressAfterPopoverClose()) return;
+                onDateSelect(day);
+              }}
               onDragOver={(e) => handleDragOver(e, dayKey)}
               onDragEnter={(e) => {
                 e.preventDefault();
