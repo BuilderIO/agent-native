@@ -28,8 +28,8 @@ Each check runs on the server (`server/lib/uptime-monitors.ts`):
    only the HTTP request (headers / redirect chain).
 3. Measure latency from the HTTP response headers. If a body assertion is
    configured, read up to **512 KB** of the response body (skipped for `HEAD`)
-   after clearing the abort timer so a slow body cannot be mislabeled as a
-   request timeout.
+   with a bounded body-read timer after clearing the request abort timer, so a
+   slow body cannot be mislabeled as a request timeout or hang indefinitely.
 4. Evaluate the **status matcher** and every **assertion**.
 5. Classify the result:
    - `up` — status matches and all assertions pass.

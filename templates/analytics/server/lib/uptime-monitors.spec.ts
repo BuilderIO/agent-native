@@ -335,11 +335,13 @@ describe("runMonitorCheck response body reads", () => {
   };
 
   it("skips response body reads when no body assertion needs them", async () => {
+    const cancel = vi.fn(async () => {});
     globalThis.fetch = vi.fn(async () => {
       return {
         status: 200,
         headers: new Headers(),
         body: {
+          cancel,
           getReader() {
             throw new Error("body should not be read");
           },
@@ -352,6 +354,7 @@ describe("runMonitorCheck response body reads", () => {
     expect(outcome.status).toBe("up");
     expect(outcome.ok).toBe(true);
     expect(outcome.statusCode).toBe(200);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   it("reads response bodies when body assertions are configured", async () => {
@@ -389,6 +392,51 @@ describe("runMonitorCheck response body reads", () => {
 
     expect(outcome.status).toBe("down");
     expect(outcome.error).toContain("Body is missing expected text");
+  });
+
+  it("bounds body assertion reads after headers arrive", async () => {
+    let releaseRead:
+      | ((value: { done: boolean; value?: Uint8Array }) => void)
+      | null = null;
+    const cancel = vi.fn(async () => {
+      releaseRead?.({ done: true });
+    });
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        status: 200,
+        headers: new Headers(),
+        body: {
+          getReader() {
+            return {
+              read() {
+                return new Promise<{ done: boolean; value?: Uint8Array }>(
+                  (resolve) => {
+                    releaseRead = resolve;
+                  },
+                );
+              },
+              cancel,
+            };
+          },
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const outcome = await runMonitorCheck(
+      {
+        ...base,
+        timeoutMs: 1000,
+        assertions: [{ type: "body_contains", value: "ok" }],
+      },
+      { allowPrivateHosts: true },
+    );
+
+    expect(outcome.status).toBe("down");
+    expect(outcome.statusCode).toBe(200);
+    expect(outcome.error).toContain(
+      "Response body read timed out after 1000ms",
+    );
+    expect(cancel).toHaveBeenCalled();
   });
 });
 

@@ -763,6 +763,7 @@ async function safeMonitorFetch(
     if (opts.followRedirects && isRedirect) {
       const location = response.headers.get("location");
       if (!location) return response;
+      await cancelResponseBody(response);
       currentUrl = new URL(location, currentUrl).href;
       continue;
     }
@@ -773,17 +774,50 @@ async function safeMonitorFetch(
   );
 }
 
-async function readCappedText(res: Response, cap: number): Promise<string> {
+async function cancelResponseBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function readCappedText(
+  res: Response,
+  cap: number,
+  timeoutMs?: number,
+): Promise<{ text: string; timedOut: boolean }> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const body = res.body;
   if (!body) {
     try {
-      const text = await res.text();
-      return text.length > cap ? text.slice(0, cap) : text;
+      const text =
+        timeoutMs && timeoutMs > 0
+          ? await Promise.race([
+              res.text(),
+              new Promise<string>((resolve) => {
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  resolve("");
+                }, timeoutMs);
+              }),
+            ])
+          : await res.text();
+      return { text: text.length > cap ? text.slice(0, cap) : text, timedOut };
     } catch {
-      return "";
+      return { text: "", timedOut };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   const reader = body.getReader();
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      void reader.cancel().catch(() => {});
+    }, timeoutMs);
+  }
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -798,6 +832,7 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
   } catch {
     // Partial body is fine for text assertions.
   } finally {
+    if (timer) clearTimeout(timer);
     try {
       await reader.cancel();
     } catch {
@@ -814,7 +849,10 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
     merged.set(slice, offset);
     offset += slice.length;
   }
-  return new TextDecoder("utf-8", { fatal: false }).decode(merged);
+  return {
+    text: new TextDecoder("utf-8", { fatal: false }).decode(merged),
+    timedOut,
+  };
 }
 
 function headersToObject(headers: Headers): Record<string, string> {
@@ -957,10 +995,21 @@ export async function runMonitorCheck(
     const latencyMs = Date.now() - start;
     const statusCode = response.status;
     const headers = headersToObject(response.headers);
-    const bodyText =
-      method !== "HEAD" && needsResponseBody(assertions)
-        ? await readCappedText(response, MAX_RESPONSE_BODY_BYTES)
-        : "";
+    let bodyText = "";
+    let bodyReadError: string | null = null;
+    if (method !== "HEAD" && needsResponseBody(assertions)) {
+      const body = await readCappedText(
+        response,
+        MAX_RESPONSE_BODY_BYTES,
+        timeoutMs,
+      );
+      bodyText = body.text;
+      if (body.timedOut) {
+        bodyReadError = `Response body read timed out after ${timeoutMs}ms`;
+      }
+    } else {
+      await cancelResponseBody(response);
+    }
 
     const outcome = evaluateCheck({
       statusCode,
@@ -970,17 +1019,19 @@ export async function runMonitorCheck(
       matcher,
       assertions,
     });
+    const failedAssertions = bodyReadError
+      ? [...outcome.failedAssertions, bodyReadError]
+      : outcome.failedAssertions;
+    const status = bodyReadError ? "down" : outcome.status;
 
     return {
       checkedAt,
       statusCode,
       latencyMs,
-      status: outcome.status,
-      ok: outcome.ok,
-      failedAssertions: outcome.failedAssertions,
-      error: outcome.failedAssertions.length
-        ? outcome.failedAssertions.join("; ")
-        : null,
+      status,
+      ok: status === "up" && outcome.ok,
+      failedAssertions,
+      error: failedAssertions.length ? failedAssertions.join("; ") : null,
     };
   } catch (err) {
     const message =
