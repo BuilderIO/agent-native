@@ -20,7 +20,9 @@ are shareable and the agent can deep-link a monitor.
 Each check runs on the server (`server/lib/uptime-monitors.ts`):
 
 1. Run SSRF setup (dispatcher + DNS private-address check) **outside** the
-   request timeout budget.
+   request timeout budget. The connect-time dispatcher is built once and reused
+   across checks (HTTP keep-alive), so latency reflects the real request round
+   trip instead of a fresh DNS + TCP + TLS handshake on every probe.
 2. Fetch the monitor's `url` with the configured `method`, headers, and body,
    through that SSRF-safe path, with an `AbortController` timeout that covers
    only the HTTP request (headers / redirect chain).

@@ -684,13 +684,30 @@ export function evaluateCheck(params: EvaluateCheckParams): {
 // SSRF-safe fetch + probe
 // ---------------------------------------------------------------------------
 
+// A single SSRF-safe dispatcher (undici Agent) is reused across every probe.
+// Building a fresh Agent per check disabled HTTP keep-alive — each check paid a
+// cold DNS + TCP + TLS handshake, inflating the recorded latency well above the
+// site's real response time (and occasionally spiking near the timeout) — and
+// leaked Agents, which are never closed. The connect-time private-IP guard runs
+// on every new socket, so reuse keeps the exact same SSRF protection.
+// `undefined` = not built yet; the resolved value may be `null` on runtimes
+// without undici / node:dns, in which case callers fall back to plain `fetch`.
+let sharedSsrfDispatcherPromise: Promise<unknown | null> | undefined;
+
+function getSharedSsrfDispatcher(): Promise<unknown | null> {
+  if (!sharedSsrfDispatcherPromise) {
+    sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch(() => null);
+  }
+  return sharedSsrfDispatcherPromise;
+}
+
 async function prepareMonitorFetch(
   url: string,
   opts: { allowPrivateHosts: boolean },
 ): Promise<{ dispatcher: unknown | undefined }> {
   const dispatcher = opts.allowPrivateHosts
     ? undefined
-    : ((await createSsrfSafeDispatcher()) ?? undefined);
+    : ((await getSharedSsrfDispatcher()) ?? undefined);
 
   if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
     throw new Error(
@@ -719,7 +736,7 @@ async function safeMonitorFetch(
       ? opts.dispatcher
       : opts.allowPrivateHosts
         ? undefined
-        : ((await createSsrfSafeDispatcher()) ?? undefined);
+        : ((await getSharedSsrfDispatcher()) ?? undefined);
 
   let currentUrl = url;
   const maxHops = opts.followRedirects ? opts.maxRedirects : 0;
