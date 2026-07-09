@@ -63,11 +63,11 @@ iframe-backed screens on the infinite canvas.
 The live-edit bridge is unlocked by a shared secret (the "bridge token") that
 must match on two sides: the local bridge process, and the user's connection row
 in Design (which the browser reads to authorize `/live-edit-bridge`,
-`/read-file`, `/write-file`). Get them to match by letting the **authenticated**
-`open-visual-edit` action mint the token, then starting the bridge with it. This
-is the only ordering that works for the remote-MCP flow — the bridge can't push
-its own token to the server without a CLI auth token, so the server mints
-instead and the bridge adopts.
+`/read-file`, `/write-file`). Get them to match by letting the
+**authenticated** `open-visual-edit` action mint the token, then starting the
+bridge with it. This is the only ordering that works for the remote-MCP flow —
+the bridge cannot push its own token to the server without a CLI auth token, so
+the server mints instead and the bridge adopts.
 
 From the target app repo, make sure its dev server is running, then:
 
@@ -81,20 +81,18 @@ This prints the manifest (routes + capabilities). Parse it to build
 `routeManifest` for the next step. (Skip this if the user already gave explicit
 paths/URLs to place.)
 
-**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`. The
-server mints one, stores it on the user's connection row, copies it into the
+**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
+The server mints one, stores it on the user's connection row, copies it into the
 placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
 
-**3. Start the persistent bridge adopting that token:**
+**3. Start the persistent bridge adopting that token** (single line; prefer the
+env var so the secret does not appear in `ps`):
 
 ```bash
-AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" \
-  npx @agent-native/core@latest design connect \
-  --url http://localhost:5173 --root . --daemon
+AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
 ```
 
-(Equivalently, pass `--bridge-token <token>`. Prefer the env var so the secret
-does not appear in `ps`.) This starts a detached bridge on
+(Equivalently, pass `--bridge-token <token>`.) This starts a detached bridge on
 `http://127.0.0.1:7331`, adopts the server-minted token — so bridge and row
 agree and live-edit authorizes with no self-registration — and stays alive after
 the command exits.
@@ -105,9 +103,9 @@ For a manual health/manifest check on the running bridge:
 curl http://127.0.0.1:7331/manifest.json
 ```
 
-Only use `--json` for the step-1 route probe. Never use `--json`, `--once`, or
-`--dry-run` for the durable step-3 bridge: they print the manifest and exit, so
-Design falls back to a non-editable live iframe.
+Only use `--json` for the step-1 route probe. Never use `--json`, `--once`,
+or `--dry-run` for the durable step-3 bridge: they print the manifest and exit,
+so Design falls back to a non-editable live iframe.
 
 ## Action Flow
 
@@ -120,8 +118,8 @@ a tokenized URL that may be shadowed by an existing session.
 
 Call it BEFORE starting the durable bridge (step 3 above): it does not contact
 the bridge, so the bridge need not be running yet, and you need its returned
-`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken` on
-the call so the server mints one.
+`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken`
+on the call so the server mints one.
 
 ```bash
 pnpm action open-visual-edit '{
@@ -135,10 +133,11 @@ pnpm action open-visual-edit '{
 ```
 
 The action returns `designId`, `connectionId`, `bridgeToken`, `screens`,
-`urlPath`, and `openUrl`. Keep `designId`/`connectionId` in the chat context for
-follow-ups, and pass `bridgeToken` to `design connect` (step 3) to start the
-bridge. On follow-up calls reusing an existing `connectionId`, the same token is
-returned (it is minted once and reused), so the running bridge stays valid.
+`urlPath`, and `openUrl`. Keep `designId`/`connectionId` in the chat context
+for follow-ups, and pass `bridgeToken` to `design connect` (step 3) to start
+the bridge. On follow-up calls reusing an existing `connectionId`, the same
+token is returned (it is minted once and reused), so the running bridge stays
+valid.
 
 For a numbered flow the user describes in chat, keep the labels and order:
 
