@@ -137,6 +137,39 @@ describe("sync-builder-starter-manifest", () => {
   );
 
   it(
+    "preserves starter-pinned toolkit instead of canonical latest",
+    () => {
+      const { packageJson: canonical } =
+        generateStandaloneChatManifest(repoRoot);
+      expect(
+        (canonical.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("latest");
+
+      const merged = mergeStarterManifest(
+        {
+          dependencies: {
+            "@agent-native/core": "0.92.5",
+            "@agent-native/toolkit": "0.4.4",
+          },
+        },
+        canonical,
+      );
+
+      expect(
+        (merged.dependencies as Record<string, string>)["@agent-native/core"],
+      ).toBe("0.92.5");
+      expect(
+        (merged.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("0.4.4");
+    },
+    STARTER_MANIFEST_TIMEOUT_MS,
+  );
+
+  it(
     "preserves starter-only manifest fields not present in templates/chat",
     () => {
       const { packageJson: canonical } =

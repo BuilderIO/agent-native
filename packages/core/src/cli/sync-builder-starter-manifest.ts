@@ -198,7 +198,7 @@ export function mergeStarterManifest(
   merged.dependencies = mergePackageJsonRecords(
     canonicalPackageJson.dependencies as Record<string, string> | undefined,
     starterPackageJson.dependencies as Record<string, string> | undefined,
-    ["@agent-native/core"],
+    ["@agent-native/core", "@agent-native/toolkit"],
   );
   merged.devDependencies = mergePackageJsonRecords(
     canonicalPackageJson.devDependencies as Record<string, string> | undefined,
