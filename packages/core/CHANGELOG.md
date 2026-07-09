@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.2
+
+### Patch Changes
+
+- 5df1506: Notification emails no longer include raw metadata JSON in the message body.
+
 ## 0.92.1
 
 ### Patch Changes
