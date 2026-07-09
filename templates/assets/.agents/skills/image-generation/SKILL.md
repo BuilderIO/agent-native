@@ -65,6 +65,18 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 - Let the server choose references unless the user named exact assets. Automatic
   generation uses up to 6 relevant current references, seeded by canonical
   style anchors; explicit `referenceAssetIds` are preserved.
+- Preset reference boards live on tagged presets as named entries such as a
+  usual host, product, backdrop, style sample, or per-event speaker. Fixed
+  entries attach automatically. Variable entries may be replaced for a run with
+  `presetReferenceFills`; each fill REPLACES that entry's pinned images rather
+  than appending. Required variable entries block generation until you provide
+  at least one image.
+- When a tagged preset brief names required variable references, collect the
+  needed images from the user's attachments or the library and pass
+  `presetReferenceFills: [{ referenceId, assetIds }]` to `generate-image` or
+  `generate-image-batch`. Board images are additive to brand style references.
+  User-uploaded per-event people/photos should be uploaded as content images
+  (`subject` intent/role), not as reusable brand style references.
 - If a collection's style feels underspecified, call `analyze-collection-style`
   and use its vision brand analysis for palette, composition, lighting, subject
   treatment, typography policy, and constraints.

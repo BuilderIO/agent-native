@@ -46,6 +46,8 @@ vi.mock("../server/db/index.js", () => ({
       libraryId: "assets.libraryId",
       width: "assets.width",
       height: "assets.height",
+      mimeType: "assets.mimeType",
+      status: "assets.status",
     },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
@@ -134,6 +136,196 @@ describe("generation preset includeLogo option", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("validates preset reference board settings", () => {
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          {
+            id: "steve",
+            label: "Steve",
+            role: "subject",
+            assetIds: ["a"],
+            variable: false,
+            required: false,
+          },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          {
+            id: "dupe",
+            label: "One",
+            role: "style",
+            assetIds: [],
+            variable: true,
+            required: false,
+          },
+          {
+            id: "dupe",
+            label: "Two",
+            role: "style",
+            assetIds: [],
+            variable: true,
+            required: false,
+          },
+        ],
+      }),
+    ).toThrow("Reference entry ids must be unique.");
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          {
+            id: "fixed",
+            label: "Fixed",
+            role: "style",
+            assetIds: [],
+            variable: false,
+            required: true,
+          },
+        ],
+      }),
+    ).toThrow(
+      "A required fixed reference needs at least one image. Pin images or mark it as variable.",
+    );
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          {
+            id: "one",
+            label: "One",
+            role: "style",
+            assetIds: ["a", "b", "c", "d"],
+            variable: false,
+            required: false,
+          },
+          {
+            id: "two",
+            label: "Two",
+            role: "product",
+            assetIds: ["e", "f", "g", "h"],
+            variable: false,
+            required: false,
+          },
+          {
+            id: "three",
+            label: "Three",
+            role: "background",
+            assetIds: ["i"],
+            variable: false,
+            required: false,
+          },
+        ],
+      }),
+    ).toThrow("The reference board may attach at most 8 images total.");
+    expect(() =>
+      generationPresetSettingsSchema.parse({
+        presetReferences: [
+          {
+            id: "one",
+            label: "One",
+            role: "subject",
+            assetIds: ["a", "b", "c", "d"],
+            variable: false,
+            required: false,
+          },
+          {
+            id: "two",
+            label: "Two",
+            role: "subject",
+            assetIds: ["e"],
+            variable: false,
+            required: false,
+          },
+        ],
+      }),
+    ).toThrow("Subject reference entries may attach at most 4 images total.");
+  });
+
+  it("rejects preset reference images outside this asset library on create", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "ref-1",
+              libraryId: "other-lib",
+              mimeType: "image/png",
+              status: "reference",
+            },
+          ]),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+
+    await expect(
+      createPresetAction.run({
+        libraryId: "lib-1",
+        title: "Board preset",
+        settings: {
+          presetReferences: [
+            {
+              id: "steve",
+              label: "Steve",
+              role: "subject",
+              assetIds: ["ref-1"],
+              variable: false,
+              required: false,
+            },
+          ],
+        },
+      } as any),
+    ).rejects.toThrow(
+      "Reference board images must be images in this asset library.",
+    );
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects subject reference entries on gemini-2.5-flash-image", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "ref-1",
+              libraryId: "lib-1",
+              mimeType: "image/png",
+              status: "reference",
+            },
+          ]),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+
+    await expect(
+      createPresetAction.run({
+        libraryId: "lib-1",
+        title: "Board preset",
+        model: "gemini-2.5-flash-image",
+        settings: {
+          presetReferences: [
+            {
+              id: "steve",
+              label: "Steve",
+              role: "subject",
+              assetIds: ["ref-1"],
+              variable: false,
+              required: false,
+            },
+          ],
+        },
+      } as any),
+    ).rejects.toThrow(
+      "Subject reference entries need a model with character consistency.",
+    );
+    expect(insertValues).not.toHaveBeenCalled();
   });
 
   it("rejects skeleton masks that do not match the plate dimensions on update", async () => {

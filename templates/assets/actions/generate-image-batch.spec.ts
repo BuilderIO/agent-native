@@ -179,6 +179,35 @@ describe("generate-image-batch", () => {
     );
   });
 
+  it("forwards preset reference fills to every slot", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      presetId: "preset-1",
+      presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
+      slots: [
+        { slotId: "slot-1", prompt: "First" },
+        { slotId: "slot-2", prompt: "Second" },
+      ],
+    });
+
+    expect(generateImageRunMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        slotId: "slot-1",
+        presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
+      }),
+      undefined,
+    );
+    expect(generateImageRunMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        slotId: "slot-2",
+        presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
+      }),
+      undefined,
+    );
+  });
+
   it("forwards the agent run context to each single-image generation", async () => {
     await action.run(
       {

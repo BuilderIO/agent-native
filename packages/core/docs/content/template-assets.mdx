@@ -154,6 +154,7 @@ Each preset locks down:
 | Aspect ratio + size | Output format for the target channel |
 | Text policy | Whether and how literal copy is rendered vs suppressed |
 | Reference policy | Which brand references anchor the look |
+| Reference board | Named fixed or per-run visual references, such as a usual host, guest speaker, product, backdrop, or composition cue |
 | Logo | Composites the library's canonical logo pixel-perfect after generation, so the model never redraws it |
 | Skeleton / mask | A fixed brand plate the subject is composited or inpainted into, for locked layouts |
 
@@ -179,6 +180,21 @@ transparent areas are editable**, so the logo, framing, and existing copy come
 back untouched while only the art region changes. Note that gpt-image edits are
 guided semantic rewrites, not pixel-only patches, so the prompt should still
 describe the whole intended image and restate what must not change.
+
+Use the **reference board** when a preset needs annotated visual inputs that
+ride along with each run. Each board entry names one thing — a person, product,
+style, background, or composition example — and can pin up to four images plus a
+plain-language description. Fixed entries attach automatically. Variable
+entries can be replaced per run with `presetReferenceFills`, and required
+variable entries block generation until the agent supplies images from user
+attachments or the library.
+
+For example, a Webinar Announcement preset might use a skeleton plate and mask
+for the locked event chrome, a fixed "Steve" subject entry for the usual host,
+and a required variable "Guest speaker" entry for each event. Use a
+`background` entry for setting context. Use a `composition` entry for layout
+inspiration from a past poster; exact placement belongs in the skeleton plate,
+not a reference image.
 
 ### QA the prompt until it is reliable
 

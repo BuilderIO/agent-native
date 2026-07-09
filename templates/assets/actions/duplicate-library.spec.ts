@@ -172,7 +172,19 @@ describe("duplicate-library", () => {
       model: "gemini-3.1-flash-image",
       textPolicy: "",
       referencePolicy: "auto",
-      settings: JSON.stringify({ pinnedAssetId: "asset-ref" }),
+      settings: JSON.stringify({
+        pinnedAssetId: "asset-ref",
+        presetReferences: [
+          {
+            id: "steve",
+            label: "Steve",
+            role: "subject",
+            assetIds: ["asset-ref", "asset-saved"],
+            variable: false,
+            required: false,
+          },
+        ],
+      }),
       sortOrder: 3,
     };
     const referenceAsset = {
@@ -256,6 +268,14 @@ describe("duplicate-library", () => {
       id: "copy-preset",
       libraryId: "copy-lib",
       collectionId: "copy-collection",
+    });
+    expect(JSON.parse(result.generationPresets[0].settings)).toMatchObject({
+      presetReferences: [
+        {
+          id: "steve",
+          assetIds: ["copy-reference", "copy-saved"],
+        },
+      ],
     });
     expect(result.assets[0]).toMatchObject({
       id: "copy-reference",
