@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 
 import { fmt, useErrorsT } from "./i18n";
 import type {
+  ErrorBreadcrumb,
   ErrorEventDetail,
-  ErrorIssueDetail,
   ErrorIssueSummary,
   IssueStatus,
   ParsedStackFrame,
@@ -47,7 +47,7 @@ export function IssueDetail({
   const t = useErrorsT();
   const statusLabel = useStatusLabel();
 
-  const { data, isLoading, error } = useActionQuery<ErrorIssueDetail>(
+  const { data, isLoading, error } = useActionQuery(
     "get-error-issue",
     { id: issueId },
     { staleTime: 10_000 },
@@ -158,6 +158,7 @@ export function IssueDetail({
       </div>
 
       {issue ? <OverviewGrid issue={issue} latest={latest} /> : null}
+      {latest ? <LatestOccurrenceCard event={latest} /> : null}
 
       {isLoading && !latest ? (
         <Card>
@@ -174,6 +175,79 @@ export function IssueDetail({
         </>
       )}
     </div>
+  );
+}
+
+function hasEntries(value: Record<string, unknown>): boolean {
+  return Object.keys(value).length > 0;
+}
+
+function JsonBlock({ value }: { value: Record<string, unknown> }) {
+  return (
+    <pre className="mt-2 max-h-52 overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed text-foreground">
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  );
+}
+
+function LatestOccurrenceCard({ event }: { event: ErrorEventDetail }) {
+  const t = useErrorsT();
+  const details: Array<{ label: string; value: string }> = [
+    {
+      label: t.occurrenceTime,
+      value: formatDateTime(event.occurredAt),
+    },
+    {
+      label: t.handled,
+      value: event.handled ? t.handled : t.unhandled,
+    },
+  ];
+  if (event.url) details.push({ label: t.url, value: event.url });
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-4">
+        <div className="text-sm font-medium">{t.latestOccurrence}</div>
+        {event.message ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {t.message}
+            </div>
+            <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 p-3 font-mono text-xs text-foreground">
+              {event.message}
+            </p>
+          </div>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {details.map((item) => (
+            <div key={item.label} className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {item.label}
+              </div>
+              <div className="mt-0.5 truncate text-sm text-foreground">
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+        {hasEntries(event.tags) ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {t.tags}
+            </div>
+            <JsonBlock value={event.tags} />
+          </div>
+        ) : null}
+        {hasEntries(event.extra) ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {t.additionalData}
+            </div>
+            <JsonBlock value={event.extra} />
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -274,9 +348,29 @@ function StackFrameRow({ frame }: { frame: ParsedStackFrame }) {
   );
 }
 
+function normalizeBreadcrumb(value: unknown): ErrorBreadcrumb | null {
+  if (typeof value === "string" && value.trim()) {
+    return { message: value.trim() };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  const record = value as Record<string, unknown>;
+  const timestamp =
+    typeof record.timestamp === "string" ? record.timestamp : undefined;
+  const category =
+    typeof record.category === "string" ? record.category : undefined;
+  const message =
+    typeof record.message === "string" ? record.message : undefined;
+
+  if (!timestamp && !category && !message) return null;
+  return { timestamp, category, message };
+}
+
 function BreadcrumbsCard({ event }: { event?: ErrorEventDetail }) {
   const t = useErrorsT();
-  const crumbs = event?.breadcrumbs ?? [];
+  const crumbs = (event?.breadcrumbs ?? [])
+    .map(normalizeBreadcrumb)
+    .filter((crumb): crumb is ErrorBreadcrumb => Boolean(crumb));
 
   return (
     <Card>

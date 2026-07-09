@@ -9,6 +9,10 @@ Detailed retrieval, capture, connector, and feature rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use Brain actions for ingestion, search, retrieval, distillation, capture,
   review, and connector work. Do not bypass access checks or ownable scopes.

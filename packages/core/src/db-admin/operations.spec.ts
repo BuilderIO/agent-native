@@ -51,6 +51,12 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
        FOREIGN KEY (author_id) REFERENCES authors(id)
      )`,
   );
+  await db.execute(
+    `CREATE TABLE logs (
+       id INTEGER PRIMARY KEY,
+       payload TEXT NOT NULL
+     )`,
+  );
   await db.execute(`CREATE UNIQUE INDEX idx_authors_email ON authors(email)`);
   await db.execute(`CREATE VIEW author_book_counts AS
        SELECT a.id AS author_id, COUNT(b.id) AS books
@@ -71,6 +77,10 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
       args: [i, `Book ${i}`, (i % 2) + 1, i * 10],
     });
   }
+  await db.execute({
+    sql: `INSERT INTO logs (id, payload) VALUES (?, ?)`,
+    args: [1, "x".repeat(20_000)],
+  });
 
   return { ops, dbUrl };
 }
@@ -195,6 +205,31 @@ describe("getRows", () => {
 
     expect(eq.columns.some((c) => c.name === "title")).toBe(true);
   });
+
+  it("previews large text cells unless explicitly requested", async () => {
+    const { ops } = await loadOps();
+
+    const preview = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+    });
+    expect(preview.rows[0].payload).toEqual(
+      expect.stringContaining("db-admin truncated large cell"),
+    );
+    expect(String(preview.rows[0].payload).length).toBeLessThan(17_000);
+    expect(preview.truncatedCells).toBe(1);
+    expect(preview.columns.find((c) => c.name === "payload")).toMatchObject({
+      largeValuePreview: true,
+    });
+
+    const full = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+      includeLargeCells: true,
+    });
+    expect(full.rows[0].payload).toBe("x".repeat(20_000));
+    expect(full.truncatedCells).toBe(0);
+  });
 });
 
 describe("applyMutations", () => {
@@ -284,6 +319,17 @@ describe("runSql", () => {
     );
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].author_id).toBe(2);
+  });
+
+  it("truncates large cells in arbitrary SQL results", async () => {
+    const { ops } = await loadOps();
+    const result = await ops.runSql("SELECT payload FROM logs", undefined, {});
+
+    expect(result.truncatedCells).toBe(1);
+    expect(result.rows[0].payload).toEqual(
+      expect.stringContaining("db-admin truncated large cell"),
+    );
+    expect(String(result.rows[0].payload).length).toBeLessThan(17_000);
   });
 
   it("throws needsConfirm for destructive statements without confirmation", async () => {

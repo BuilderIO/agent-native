@@ -261,6 +261,30 @@ function compactDiffLines(
   return result;
 }
 
+function ExtensionUnavailableState({ status }: { status?: number }) {
+  const accessDenied = status === 401 || status === 403;
+  return (
+    <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 p-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 text-center shadow-sm">
+        <p className="text-sm font-semibold text-foreground">
+          {accessDenied ? "Extension is not shared" : "Extension not found"}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {accessDenied
+            ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
+            : "This extension may have been deleted, moved, or is not available to your account."}
+        </p>
+        <Link
+          to="/extensions"
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          Back to extensions
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function diffLineClass(line: CompactDiffLine): string {
   switch (line.type) {
     case "insert":
@@ -1189,11 +1213,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
 
   if (!extension) {
     const status = extensionLoadErrorStatus(extensionError);
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {status === 403 ? "Extension access denied" : "Extension not found"}
-      </div>
-    );
+    return <ExtensionUnavailableState status={status} />;
   }
 
   const isLocalExtension = extension.source?.mode === "local-files";

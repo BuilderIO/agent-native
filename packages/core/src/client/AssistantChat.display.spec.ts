@@ -972,6 +972,25 @@ describe("waitForThreadRunToClear", () => {
   });
 });
 
+describe("server thread snapshot caching", () => {
+  it("does not cache an initial server fetch that the runtime rejected as stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("if (data.threadData) {");
+    const end = source.indexOf(
+      "// Also skip title generation if thread already has a title",
+    );
+    const restoreSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(restoreSource).toContain("shouldCacheServerSnapshot");
+    expect(restoreSource).toContain("shouldImportServerThreadData");
+    expect(restoreSource).toContain("writeCachedThreadSnapshot");
+  });
+});
+
 describe("reconnectProgressTimedOut", () => {
   const threshold = 90_000;
 

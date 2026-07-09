@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { uploadFile } from "@agent-native/core/file-upload";
 import { streamFile, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
   readRawBody,
   getRouterParam,
+  sendRedirect,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
@@ -82,11 +84,27 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
     try {
       fs.writeFileSync(filePath, body);
     } catch {
+      const uploaded = await uploadFile({
+        data: body instanceof Uint8Array ? body : new Uint8Array(body),
+        filename: originalName,
+        mimeType,
+        ownerEmail: session.email,
+        recordAsset: false,
+      });
+      if (!uploaded?.url) {
+        setResponseStatus(event, 503);
+        return {
+          error:
+            "File storage is not configured. Connect Builder.io or another upload provider before attaching files in hosted environments.",
+          storageSetupRequired: true,
+        };
+      }
       await putStoredUpload(session.email, {
         ...payload,
-        dataBase64: Buffer.from(body).toString("base64"),
+        url: uploaded.url,
         createdAt: Date.now(),
       });
+      return { ...payload, url: uploaded.url, provider: uploaded.provider };
     }
 
     return payload;
@@ -117,6 +135,13 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     if (!stored) {
       setResponseStatus(event, 404);
       return { error: "File not found" };
+    }
+    if (stored.url) {
+      return sendRedirect(event, stored.url, 302);
+    }
+    if (!stored.dataBase64) {
+      setResponseStatus(event, 404);
+      return { error: "File data not found" };
     }
 
     setResponseHeader(event, "Content-Type", stored.mimeType);

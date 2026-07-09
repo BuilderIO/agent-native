@@ -9,6 +9,10 @@ details live in `.agents/skills/`.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
@@ -84,15 +88,18 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
-- `/agents` is the Analytics home for core agent-admin surfaces. The default
-  Monitoring view embeds the shared observability dashboard for traces,
-  conversations, evals, experiments, and feedback. The Advanced menu opens
-  `/agents?view=database`, where organization owners/admins can connect other
-  agent-native app databases and use the shared database admin tool for table
-  browsing, row editing, and SQL inspection. This surface is for connected
-  target app databases, not broad access to all Analytics data. Keep future
-  agent-admin additions inside this route instead of adding many top-level
-  sidebar tabs.
+- `/agents` is the Analytics home for admin surfaces. The default Monitoring
+  view embeds the shared observability dashboard for traces, conversations,
+  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
+  admins ask about dashboard created/modified dates, owners, last tracked
+  modifier, views, engagements, saved views, or cleanup candidates. The
+  Advanced menu opens `/agents?view=database`, where organization owners/admins
+  can connect other agent-native app databases and use the shared database admin
+  tool for table browsing, row editing, and SQL inspection. This database
+  surface is for connected target app databases, not broad access to all
+  Analytics data. Keep future admin additions inside this route instead of
+  adding many top-level sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -146,7 +153,9 @@ details live in `.agents/skills/`.
   `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL`. Configure
   optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with existing
   `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule
-  `emailRecipients` or the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  `emailRecipients` or the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`. Saving
+  explicit `emailRecipients` also remembers them as the current user's defaults
+  for the next alert rule created in Settings.
   Netlify builds emit an alert cron trigger plus background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
@@ -163,9 +172,9 @@ details live in `.agents/skills/`.
   `view="catalog"` for the template catalog, `view="sessions"` for session
   replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
   `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
-  public status pages, or error triage, and `view="agents"` /
-  `agentsView="database"` with optional `dbAdminConnectionId` for agent
-  monitoring or connected app database admin.
+  public status pages, or error triage, and `view="agents"` with
+  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
+  dashboard usage or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay

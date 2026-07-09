@@ -92,6 +92,8 @@ interface AnalyticsAlertRule {
   severity: AlertSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   enabled: boolean;
   lastEvaluatedAt: string | null;
   lastTriggeredAt: string | null;
@@ -106,6 +108,10 @@ interface RunAlertsResult {
   triggered: number;
   failed: number;
   remaining: number;
+}
+
+interface AlertRuleDefaults {
+  emailRecipients: string[];
 }
 
 interface AlertRuleFormState {
@@ -124,11 +130,14 @@ interface AlertRuleFormState {
   channels: Record<KnownChannel, boolean>;
   customChannels: string;
   emailRecipients: string;
+  slackWebhookUrl: string;
+  webhookUrl: string;
 }
 
 const KNOWN_CHANNELS = ["inbox", "email", "slack", "webhook"] as const;
 
-function emptyAlertForm(): AlertRuleFormState {
+function emptyAlertForm(defaults?: AlertRuleDefaults | null): AlertRuleFormState {
+  const emailRecipients = defaults?.emailRecipients ?? [];
   return {
     name: "",
     description: "",
@@ -143,12 +152,14 @@ function emptyAlertForm(): AlertRuleFormState {
     enabled: true,
     channels: {
       inbox: true,
-      email: false,
+      email: emailRecipients.length > 0,
       slack: false,
       webhook: false,
     },
     customChannels: "",
-    emailRecipients: "",
+    emailRecipients: emailRecipients.join("\n"),
+    slackWebhookUrl: "",
+    webhookUrl: "",
   };
 }
 
@@ -180,6 +191,8 @@ function formFromRule(rule: AnalyticsAlertRule): AlertRuleFormState {
     },
     customChannels: customChannels.join(", "),
     emailRecipients: rule.emailRecipients.join("\n"),
+    slackWebhookUrl: rule.slackWebhookUrl ?? "",
+    webhookUrl: rule.webhookUrl ?? "",
   };
 }
 
@@ -193,6 +206,15 @@ function splitList(value: string): string[] {
 function parseInteger(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function formatDate(value: string | null, fallback: string): string {
@@ -237,6 +259,8 @@ function payloadFromRule(
     severity: rule.severity,
     channels: rule.channels,
     emailRecipients: rule.emailRecipients,
+    slackWebhookUrl: rule.slackWebhookUrl,
+    webhookUrl: rule.webhookUrl,
     enabled: rule.enabled,
     ...overrides,
   };
@@ -265,6 +289,11 @@ export function AlertRulesSettingsCard() {
     undefined,
     { staleTime: 10_000 },
   );
+  const { data: alertDefaults } = useActionQuery<AlertRuleDefaults>(
+    "get-analytics-alert-rule-defaults",
+    undefined,
+    { staleTime: 10_000 },
+  );
   const saveRule = useActionMutation("save-analytics-alert-rule");
   const deleteRule = useActionMutation("delete-analytics-alert-rule");
   const runAlerts = useActionMutation("run-analytics-alerts");
@@ -276,7 +305,14 @@ export function AlertRulesSettingsCard() {
     await queryClient.invalidateQueries({
       queryKey: ["action", "list-analytics-alert-rules"],
     });
+    await queryClient.invalidateQueries({
+      queryKey: ["action", "get-analytics-alert-rule-defaults"],
+    });
     await refetch();
+  }
+
+  function startCreateAlert() {
+    setEditing(emptyAlertForm(alertDefaults));
   }
 
   async function handleSave() {
@@ -304,6 +340,22 @@ export function AlertRulesSettingsCard() {
       toast.error(t("settings.alertChannelRequired"));
       return;
     }
+    if (
+      editing.channels.slack &&
+      editing.slackWebhookUrl.trim() &&
+      !isHttpUrl(editing.slackWebhookUrl.trim())
+    ) {
+      toast.error(t("settings.alertSlackWebhookUrlInvalid"));
+      return;
+    }
+    if (
+      editing.channels.webhook &&
+      editing.webhookUrl.trim() &&
+      !isHttpUrl(editing.webhookUrl.trim())
+    ) {
+      toast.error(t("settings.alertWebhookUrlInvalid"));
+      return;
+    }
 
     try {
       await saveRule.mutateAsync({
@@ -323,6 +375,10 @@ export function AlertRulesSettingsCard() {
         severity: editing.severity,
         channels,
         emailRecipients: splitList(editing.emailRecipients),
+        slackWebhookUrl: editing.channels.slack
+          ? editing.slackWebhookUrl.trim()
+          : null,
+        webhookUrl: editing.channels.webhook ? editing.webhookUrl.trim() : null,
         enabled: editing.enabled,
       });
       setEditing(null);
@@ -425,7 +481,7 @@ export function AlertRulesSettingsCard() {
               <Button
                 type="button"
                 size="sm"
-                onClick={() => setEditing(emptyAlertForm())}
+                onClick={startCreateAlert}
               >
                 <IconPlus className="size-3.5" />
                 {t("settings.alertNew")}
@@ -455,7 +511,7 @@ export function AlertRulesSettingsCard() {
                 type="button"
                 size="sm"
                 className="mt-4"
-                onClick={() => setEditing(emptyAlertForm())}
+                onClick={startCreateAlert}
               >
                 <IconPlus className="size-3.5" />
                 {t("settings.alertNew")}
@@ -852,6 +908,44 @@ function AlertRuleDialog({
               ))}
             </div>
           </div>
+
+          {form.channels.slack ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="alert-slack-webhook-url">
+                {t("settings.alertSlackWebhookUrl")}
+              </Label>
+              <Input
+                id="alert-slack-webhook-url"
+                type="url"
+                value={form.slackWebhookUrl}
+                onChange={(event) =>
+                  setField("slackWebhookUrl", event.target.value)
+                }
+                placeholder={t("settings.alertSlackWebhookUrlPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.alertSlackWebhookUrlHint")}
+              </p>
+            </div>
+          ) : null}
+
+          {form.channels.webhook ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="alert-webhook-url">
+                {t("settings.alertWebhookUrl")}
+              </Label>
+              <Input
+                id="alert-webhook-url"
+                type="url"
+                value={form.webhookUrl}
+                onChange={(event) => setField("webhookUrl", event.target.value)}
+                placeholder={t("settings.alertWebhookUrlPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.alertWebhookUrlHint")}
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="alert-custom-channels">

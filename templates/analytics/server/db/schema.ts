@@ -38,6 +38,8 @@ export const dashboards = table("dashboards", {
   /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  /** Last authenticated user who changed dashboard metadata/config, if tracked. */
+  updatedBy: text("updated_by"),
   ...ownableColumns(),
 });
 
@@ -209,6 +211,10 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
     .default("warning"),
   channels: text("channels").notNull().default('["inbox"]'),
   emailRecipients: text("email_recipients").notNull().default("[]"),
+  /** Optional per-rule Slack incoming webhook URL (overrides workspace env). */
+  slackWebhookUrl: text("slack_webhook_url"),
+  /** Optional per-rule generic webhook URL (overrides workspace env). */
+  webhookUrl: text("webhook_url"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   lastEvaluatedAt: text("last_evaluated_at"),
   lastTriggeredAt: text("last_triggered_at"),

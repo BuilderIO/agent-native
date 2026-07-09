@@ -580,16 +580,16 @@ function abandonedReplayMinutes(): number {
   );
 }
 
-function productionInlineFallbackAllowed(): boolean {
+function inlineReplayFallbackAllowed(): boolean {
   if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK === "1";
+  return false;
 }
 
 function warnInlineReplayFallback(): void {
   if (inlineReplayFallbackWarned) return;
   inlineReplayFallbackWarned = true;
   console.warn(
-    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is intended only for local/dev use.",
+    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is for local/dev use only.",
   );
 }
 
@@ -619,9 +619,9 @@ async function storeReplayChunkBlob(
     },
   });
   if (!handle) {
-    if (!productionInlineFallbackAllowed()) {
+    if (!inlineReplayFallbackAllowed()) {
       throw replayError(
-        "Session replay blob storage is required in production. Configure a private blob provider or set ANALYTICS_SESSION_REPLAY_SQL_FALLBACK=1 for a capped temporary fallback.",
+        "Session replay blob storage is required in production. Configure a private blob provider before enabling full snapshot playback.",
         503,
       );
     }

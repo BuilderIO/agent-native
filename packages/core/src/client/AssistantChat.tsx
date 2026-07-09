@@ -2521,18 +2521,29 @@ const AssistantChatInner = forwardRef<
                 markTitleGenerated: true,
               });
               if (repo) {
-                const { title, preview } = extractThreadMeta(repo);
-                writeCachedThreadSnapshot(apiUrl, threadId, {
-                  threadData:
-                    typeof data.threadData === "string"
-                      ? data.threadData
-                      : JSON.stringify(data.threadData),
-                  title: data.title || title,
-                  preview,
-                  messageCount: Array.isArray(repo.messages)
-                    ? repo.messages.length
-                    : 0,
-                });
+                let shouldCacheServerSnapshot = true;
+                try {
+                  shouldCacheServerSnapshot = shouldImportServerThreadData(
+                    normalizeThreadRepository(threadRuntime.export()),
+                    repo,
+                  );
+                } catch {
+                  shouldCacheServerSnapshot = true;
+                }
+                if (shouldCacheServerSnapshot) {
+                  const { title, preview } = extractThreadMeta(repo);
+                  writeCachedThreadSnapshot(apiUrl, threadId, {
+                    threadData:
+                      typeof data.threadData === "string"
+                        ? data.threadData
+                        : JSON.stringify(data.threadData),
+                    title: data.title || title,
+                    preview,
+                    messageCount: Array.isArray(repo.messages)
+                      ? repo.messages.length
+                      : 0,
+                  });
+                }
               }
             }
             // Also skip title generation if thread already has a title

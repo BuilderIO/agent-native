@@ -5257,6 +5257,107 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("self-POSTs a bounded continuation when a background run is reaped stale", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    let activePollCount = 0;
+    const staleError = {
+      type: "error",
+      error:
+        "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+      errorCode: "stale_run",
+      recoverable: true,
+      details:
+        "The run heartbeat stopped while the run was still marked running.",
+    };
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? backgroundSseResponse(
+              [{ type: "text", text: "Partial " }, staleError],
+              "run-bg-stale",
+            )
+          : sseResponse(
+              [{ type: "text", text: "finished" }, { type: "done" }],
+              "run-bg-stale-retry",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        activePollCount += 1;
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-stale",
+          threadId: "thread-bg-stale",
+          turnId: "turn-bg-stale",
+          status: "errored",
+          dispatchMode: "background-processing",
+          terminalReason: "stale_run",
+          heartbeatAt: Date.now() - 120_000,
+          lastProgressAt: Date.now() - 120_000,
+        });
+      }
+      if (url.includes("/runs/run-bg-stale/events")) {
+        return sseResponse([staleError], "run-bg-stale");
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-stale",
+      threadId: "thread-bg-stale",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "finish the stale background run" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(activePollCount).toBeGreaterThanOrEqual(2);
+    expect(postCount).toBe(2);
+    const secondPostBody = JSON.parse(
+      fetchSpy.mock.calls.find(
+        ([url, init]) =>
+          url === "/_agent-native/agent-chat" &&
+          init?.method === "POST" &&
+          JSON.parse(init.body as string).internalContinuation === true,
+      )?.[1]?.body as string,
+    );
+    expect(secondPostBody.message).toContain("Continue");
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Partial finished");
+  });
+
   it("surfaces a terminal error when a background run goes idle with no successor", async () => {
     // If the server-chained successor never appears (lost handoff that even
     // the server sweep failed to resurface), the follow loop must end the

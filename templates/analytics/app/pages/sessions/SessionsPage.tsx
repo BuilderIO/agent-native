@@ -278,11 +278,7 @@ export default function SessionsPage() {
                       </span>
                       <span className="analytics-session-app-meta min-w-0 text-left">
                         <span className="analytics-session-badges flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                          <span>
-                            {t("sessions.pageCountCompact", {
-                              count: formatNumber(recording.pageCount),
-                            })}
-                          </span>
+                          <span>{formatPageCount(recording.pageCount, t)}</span>
                           {recording.errorCount > 0 ? (
                             <span className="font-medium text-destructive">
                               {t("sessions.errorCount", {
@@ -665,6 +661,16 @@ export function formatSessionDuration(ms: number | null): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
+}
+
+function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
+  const count = Math.max(0, Math.round(value || 0));
+  if (count === 1) {
+    return t("sessions.pageCountCompactSingular", {
+      count: formatNumber(count),
+    });
+  }
+  return t("sessions.pageCountCompact", { count: formatNumber(count) });
 }
 
 function stableHash(value: string): number {

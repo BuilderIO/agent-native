@@ -23,13 +23,9 @@ export function meta() {
 export default function WorkspaceAppRoute() {
   const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    {
-      refetchInterval: 2_000,
-    },
-  );
+  const { data: apps = [], isLoading } = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,

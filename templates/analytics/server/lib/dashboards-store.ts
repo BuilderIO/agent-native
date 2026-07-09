@@ -44,6 +44,7 @@ export interface DashboardRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  updatedBy: string | null;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
   /** ISO timestamp set when the dashboard is hidden from default navigation. */
@@ -157,6 +158,7 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
     hiddenBy: row.hiddenBy ?? null,
@@ -208,6 +210,7 @@ async function migrateDashboardFromSettings(
       visibility,
       createdAt,
       updatedAt,
+      updatedBy: ownerEmail,
     })
     .onConflictDoNothing();
   // guard:allow-unscoped — read-after-write of the row just inserted above
@@ -411,6 +414,7 @@ export async function upsertDashboard(
         title,
         config: JSON.stringify(config),
         updatedAt: nowIso(),
+        updatedBy: ctx.email,
       })
       .where(eq(schema.dashboards.id, id));
   } else {
@@ -422,6 +426,7 @@ export async function upsertDashboard(
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
       visibility: "private",
+      updatedBy: ctx.email,
     });
   }
   const [row] = await db
@@ -462,7 +467,7 @@ export async function archiveDashboard(
   const now = nowIso();
   await db
     .update(schema.dashboards)
-    .set({ archivedAt: now, updatedAt: now })
+    .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.email })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -495,7 +500,7 @@ export async function unarchiveDashboard(
   const db = getDb() as any;
   await db
     .update(schema.dashboards)
-    .set({ archivedAt: null, updatedAt: nowIso() })
+    .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -533,7 +538,12 @@ export async function hideDashboard(
   const now = nowIso();
   await db
     .update(schema.dashboards)
-    .set({ hiddenAt: now, hiddenBy: ctx.email, updatedAt: now })
+    .set({
+      hiddenAt: now,
+      hiddenBy: ctx.email,
+      updatedAt: now,
+      updatedBy: ctx.email,
+    })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -572,6 +582,7 @@ export async function unhideDashboard(
     hiddenAt: null,
     hiddenBy: null,
     updatedAt: now,
+    updatedBy: ctx.email,
   };
   if (!existing.ownerEmail) {
     patch.ownerEmail = ctx.email;

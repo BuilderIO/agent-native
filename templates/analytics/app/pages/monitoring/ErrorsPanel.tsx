@@ -59,17 +59,14 @@ export function ErrorsPanel() {
     [status, debouncedSearch],
   );
 
-  const { data, isLoading, isFetching, error, refetch } = useActionQuery<
-    ErrorIssueSummary[]
-  >("list-error-issues", queryArgs, { staleTime: 10_000 });
-
-  const resolveIssue = useActionMutation<
-    { id: string; status: IssueStatus; assignee: string | null },
-    { id: string; status: IssueStatus }
-  >("resolve-error-issue");
-  const sendTest = useActionMutation<{ issueId: string }, { message?: string }>(
-    "capture-test-error",
+  const { data, isLoading, isFetching, error, refetch } = useActionQuery(
+    "list-error-issues",
+    queryArgs,
+    { staleTime: 10_000 },
   );
+
+  const resolveIssue = useActionMutation("resolve-error-issue");
+  const sendTest = useActionMutation("capture-test-error");
 
   const issues = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 

@@ -107,6 +107,8 @@ export function createExtensionsHandler() {
   });
 }
 
+const MAX_EXTENSION_DATA_BYTES = 1024 * 1024;
+
 function normalizeExtensionUserEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -544,6 +546,14 @@ async function handleExtensionDataUpsert(
   const itemId = String(body.id || randomUUID());
   const data =
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
+  if (Buffer.byteLength(data, "utf8") > MAX_EXTENSION_DATA_BYTES) {
+    setResponseStatus(event, 413);
+    return {
+      error:
+        "Extension data is too large for SQL storage. Store large files, base64, or blobs in file storage and save only a URL or handle.",
+      maxBytes: MAX_EXTENSION_DATA_BYTES,
+    };
+  }
   const now = new Date().toISOString();
   const scope = body.scope === "org" ? "org" : "user";
   const orgId = getRequestOrgId();

@@ -13,7 +13,9 @@ metadata:
 
 ## Rule
 
-All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+
+Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables. Local SQLite-only dev fallbacks may exist for tiny assets, but they must be capped, documented as dev-only, and kept off hot list/read paths.
 
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
@@ -136,6 +138,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
+- Use `uploadFile()` or `putPrivateBlob()` for large files/blob data and store only URLs, ids, or handles in SQL
 - Use core DB scripts (`db-schema`, `db-query`, `db-exec`, `db-patch`) for ad-hoc database operations
 - Use `db-exec --statements` instead of several separate `db-exec` calls for related writes; it is faster and rolls back the whole batch if one statement fails
 - Reach for `db-patch` instead of `db-exec UPDATE` whenever you're making a small change to a large text/JSON column — it's much cheaper on tokens
@@ -146,6 +149,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Don't store app state in localStorage, sessionStorage, or cookies (except for UI-only preferences like sidebar width)
 - Don't keep state only in memory (server variables, global stores)
 - Don't use Redis or any external state store for app data
+- Don't store large files, base64 blobs, `data:` URLs, screenshots, videos, audio, PDFs, ZIPs, or session replay chunks directly in SQL rows, `application_state`, `settings`, or `resources`
 - Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
 - Don't write SQLite-only or Postgres-only SQL in app code
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder

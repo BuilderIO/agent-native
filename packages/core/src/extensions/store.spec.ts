@@ -21,6 +21,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -75,6 +77,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -114,6 +118,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -152,6 +158,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -215,6 +223,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -283,6 +293,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -355,6 +367,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -412,6 +426,8 @@ describe("extensions/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));

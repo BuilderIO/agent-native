@@ -173,6 +173,31 @@ describe("ExtensionViewer MCP embeds", () => {
     });
   });
 
+  it("shows a clear unavailable state when the extension is not shared", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Forbidden" }, { status: 403 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is not shared");
+    });
+    expect(container.textContent).toContain(
+      "Ask the owner to share it with your organization",
+    );
+    expect(container.textContent).toContain("Back to extensions");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
   it("places the more menu before Share and omits the notifications bell", async () => {
     await renderViewer();
 

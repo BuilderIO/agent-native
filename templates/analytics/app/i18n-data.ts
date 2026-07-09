@@ -17,6 +17,7 @@ const enUS = {
     monitoring: "Monitoring",
     monitoringUptime: "Uptime",
     monitoringErrors: "Errors",
+    admin: "Admin",
     agents: "Agents",
     templateCatalog: "Catalog",
     dashboards: "Dashboards",
@@ -263,6 +264,14 @@ const enUS = {
     alertChannels: "Channels",
     alertCustomChannels: "Additional channels",
     alertCustomChannelsPlaceholder: "pagerduty, opsgenie",
+    alertSlackWebhookUrl: "Slack webhook URL",
+    alertSlackWebhookUrlPlaceholder: "https://hooks.slack.com/services/...",
+    alertSlackWebhookUrlHint:
+      "Leave blank to use the workspace default, if configured.",
+    alertWebhookUrl: "Webhook URL",
+    alertWebhookUrlPlaceholder: "https://example.com/webhook",
+    alertWebhookUrlHint:
+      "Leave blank to use the workspace default, if configured.",
     alertEmailRecipients: "Email recipients",
     alertEmailRecipientsPlaceholder: "analytics@example.com, ops@example.com",
     alertEnabled: "Enabled",
@@ -272,6 +281,8 @@ const enUS = {
     alertFiltersInvalid: "Invalid filters JSON: {{message}}",
     alertNameRequired: "Add an alert name.",
     alertChannelRequired: "Select at least one notification channel.",
+    alertSlackWebhookUrlInvalid: "Enter a valid Slack webhook http(s) URL.",
+    alertWebhookUrlInvalid: "Enter a valid webhook http(s) URL.",
     alertSaved: "Alert rule saved.",
     alertSaveFailed: "Couldn't save alert rule: {{message}}",
     alertEnabledToast: "Alert enabled.",
@@ -353,7 +364,7 @@ const enUS = {
     dataSources: "Data Sources - Analytics",
     sessions: "Sessions - Analytics",
     monitoring: "Monitoring - Analytics",
-    agents: "Agents - Analytics",
+    agents: "Admin - Analytics",
     session: "Session Replay - Analytics",
     tool: "Tool - Analytics",
     extensions: "Extensions - Analytics",
@@ -367,12 +378,44 @@ const enUS = {
     embeddedContent: "Embedded content",
   },
   agents: {
-    title: "Agents",
+    title: "Admin",
     description:
-      "Monitor agent runs, evals, experiments, feedback, and connected app databases that admins can inspect behind the scenes.",
+      "Monitor agent runs, dashboard usage, evals, experiments, feedback, and connected app databases that admins can inspect behind the scenes.",
     monitoring: "Monitoring",
     monitoringDescription:
       "Core observability stays here: runs, traces, evals, experiments, and feedback. Install the LLM observability dashboard from the catalog when you want first-party token, latency, and cost charts.",
+    dashboardUsage: "Dashboard Usage",
+    dashboardUsageTitle: "Dashboard usage",
+    dashboardUsageDescription:
+      "Audit dashboard lifecycle, traffic, engagement, and ownership across the active organization. Existing dashboards only show a modifier after they are changed with updated attribution.",
+    dashboardUsageTotal: "Dashboards",
+    dashboardUsageActive: "{{count}} active",
+    dashboardUsageViews: "Views",
+    dashboardUsageTop: "Top: {{name}}",
+    dashboardUsageEngagements: "Engagements",
+    dashboardUsageEngagementsHint: "Non-pageview events plus saved views",
+    dashboardUsageStale: "No views",
+    dashboardUsageStaleHint: "Active dashboards without tracked views",
+    dashboardUsageDashboard: "Dashboard",
+    dashboardUsageOwner: "Owner",
+    dashboardUsageUsers: "Users",
+    dashboardUsageModified: "Modified",
+    dashboardUsageCreated: "Created",
+    dashboardUsageState: "State",
+    dashboardUsagePanels: "{{count}} panels",
+    dashboardUsageSavedViews: "{{count}} saved views",
+    dashboardUsageHidden: "Hidden",
+    dashboardUsageArchived: "Archived",
+    dashboardUsageEmpty: "No dashboards yet",
+    dashboardUsageEmptyDescription:
+      "Dashboards created in this organization will appear here with usage and cleanup signals.",
+    adminOnlyTitle: "Admin access required",
+    adminOnlyDescription:
+      "Only organization owners and admins can open Analytics admin tools.",
+    notTracked: "Not tracked",
+    visibilityprivate: "Private",
+    visibilityorg: "Shared with org",
+    visibilitypublic: "Public",
     advanced: "Advanced",
     database: "App Databases",
     openCatalog: "Open catalog",
@@ -959,6 +1002,7 @@ const enUS = {
     allTime: "All time",
     showing: "{{count}} sessions",
     eventCountCompact: "{{count}} events",
+    pageCountCompactSingular: "{{count}} page",
     pageCountCompact: "{{count}} pages",
     truncated: "Showing the first replay events only.",
     session: "Session",
@@ -10659,6 +10703,379 @@ const translatedSessionDevToolsTranslations = {
 
 for (const [locale, overrides] of Object.entries(
   translatedSessionDevToolsTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
+
+const translatedDashboardAdminTranslations = {
+  "zh-CN": {
+    navigation: {
+      admin: "管理",
+    },
+    agents: {
+      dashboardUsage: "仪表板使用情况",
+      dashboardUsageTitle: "仪表板使用情况",
+      dashboardUsageDescription:
+        "审计当前组织中的仪表板生命周期、流量、互动和所有权。现有仪表板只有在启用更新归因后再次修改，才会显示修改人。",
+      dashboardUsageTotal: "仪表板",
+      dashboardUsageActive: "{{count}} 个活跃",
+      dashboardUsageViews: "浏览量",
+      dashboardUsageTop: "最高：{{name}}",
+      dashboardUsageEngagements: "互动",
+      dashboardUsageEngagementsHint: "非页面浏览事件加已保存视图",
+      dashboardUsageStale: "无浏览",
+      dashboardUsageStaleHint: "没有已跟踪浏览量的活跃仪表板",
+      dashboardUsageDashboard: "仪表板",
+      dashboardUsageOwner: "所有者",
+      dashboardUsageUsers: "用户",
+      dashboardUsageModified: "修改时间",
+      dashboardUsageCreated: "创建时间",
+      dashboardUsageState: "状态",
+      dashboardUsagePanels: "{{count}} 个面板",
+      dashboardUsageSavedViews: "{{count}} 个已保存视图",
+      dashboardUsageHidden: "已隐藏",
+      dashboardUsageArchived: "已归档",
+      dashboardUsageEmpty: "还没有仪表板",
+      dashboardUsageEmptyDescription:
+        "此组织中创建的仪表板会在这里显示使用情况和清理信号。",
+      adminOnlyTitle: "需要管理员权限",
+      adminOnlyDescription:
+        "只有组织所有者和管理员可以打开 Analytics 管理工具。",
+      notTracked: "未跟踪",
+      visibilityprivate: "私有",
+      visibilityorg: "与组织共享",
+      visibilitypublic: "公开",
+    },
+  },
+  "es-ES": {
+    navigation: {
+      admin: "Administración",
+    },
+    agents: {
+      dashboardUsage: "Uso de paneles",
+      dashboardUsageTitle: "Uso de paneles",
+      dashboardUsageDescription:
+        "Audita el ciclo de vida, el tráfico, la interacción y la propiedad de los paneles en la organización activa. Los paneles existentes solo mostrarán quién los modificó después de cambiarse con atribución actualizada.",
+      dashboardUsageTotal: "Paneles",
+      dashboardUsageActive: "{{count}} activos",
+      dashboardUsageViews: "Vistas",
+      dashboardUsageTop: "Principal: {{name}}",
+      dashboardUsageEngagements: "Interacciones",
+      dashboardUsageEngagementsHint:
+        "Eventos que no son pageview más vistas guardadas",
+      dashboardUsageStale: "Sin vistas",
+      dashboardUsageStaleHint: "Paneles activos sin vistas registradas",
+      dashboardUsageDashboard: "Panel",
+      dashboardUsageOwner: "Propietario",
+      dashboardUsageUsers: "Usuarios",
+      dashboardUsageModified: "Modificado",
+      dashboardUsageCreated: "Creado",
+      dashboardUsageState: "Estado",
+      dashboardUsagePanels: "{{count}} paneles",
+      dashboardUsageSavedViews: "{{count}} vistas guardadas",
+      dashboardUsageHidden: "Oculto",
+      dashboardUsageArchived: "Archivado",
+      dashboardUsageEmpty: "Aún no hay paneles",
+      dashboardUsageEmptyDescription:
+        "Los paneles creados en esta organización aparecerán aquí con señales de uso y limpieza.",
+      adminOnlyTitle: "Se requiere acceso de administrador",
+      adminOnlyDescription:
+        "Solo los propietarios y administradores de la organización pueden abrir las herramientas de administración de Analytics.",
+      notTracked: "No registrado",
+      visibilityprivate: "Privado",
+      visibilityorg: "Compartido con la organización",
+      visibilitypublic: "Público",
+    },
+  },
+  "fr-FR": {
+    navigation: {
+      admin: "Admin",
+    },
+    agents: {
+      dashboardUsage: "Utilisation des tableaux de bord",
+      dashboardUsageTitle: "Utilisation des tableaux de bord",
+      dashboardUsageDescription:
+        "Auditez le cycle de vie, le trafic, l'engagement et la propriété des tableaux de bord dans l'organisation active. Les tableaux de bord existants n'affichent un modificateur qu'après une modification avec attribution mise à jour.",
+      dashboardUsageTotal: "Tableaux de bord",
+      dashboardUsageActive: "{{count}} actifs",
+      dashboardUsageViews: "Vues",
+      dashboardUsageTop: "Meilleur : {{name}}",
+      dashboardUsageEngagements: "Engagements",
+      dashboardUsageEngagementsHint:
+        "Événements hors pageview plus vues enregistrées",
+      dashboardUsageStale: "Aucune vue",
+      dashboardUsageStaleHint: "Tableaux de bord actifs sans vues suivies",
+      dashboardUsageDashboard: "Tableau de bord",
+      dashboardUsageOwner: "Propriétaire",
+      dashboardUsageUsers: "Utilisateurs",
+      dashboardUsageModified: "Modifié",
+      dashboardUsageCreated: "Créé",
+      dashboardUsageState: "État",
+      dashboardUsagePanels: "{{count}} panneaux",
+      dashboardUsageSavedViews: "{{count}} vues enregistrées",
+      dashboardUsageHidden: "Masqué",
+      dashboardUsageArchived: "Archivé",
+      dashboardUsageEmpty: "Aucun tableau de bord pour l'instant",
+      dashboardUsageEmptyDescription:
+        "Les tableaux de bord créés dans cette organisation apparaîtront ici avec les signaux d'utilisation et de nettoyage.",
+      adminOnlyTitle: "Accès administrateur requis",
+      adminOnlyDescription:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent ouvrir les outils d'administration Analytics.",
+      notTracked: "Non suivi",
+      visibilityprivate: "Privé",
+      visibilityorg: "Partagé avec l'organisation",
+      visibilitypublic: "Public",
+    },
+  },
+  "de-DE": {
+    navigation: {
+      admin: "Admin",
+    },
+    agents: {
+      dashboardUsage: "Dashboard-Nutzung",
+      dashboardUsageTitle: "Dashboard-Nutzung",
+      dashboardUsageDescription:
+        "Prüfe Lebenszyklus, Traffic, Engagement und Besitz von Dashboards in der aktiven Organisation. Bestehende Dashboards zeigen einen Bearbeiter erst nach einer Änderung mit aktualisierter Zuordnung.",
+      dashboardUsageTotal: "Dashboards",
+      dashboardUsageActive: "{{count}} aktiv",
+      dashboardUsageViews: "Aufrufe",
+      dashboardUsageTop: "Top: {{name}}",
+      dashboardUsageEngagements: "Interaktionen",
+      dashboardUsageEngagementsHint:
+        "Nicht-Pageview-Ereignisse plus gespeicherte Ansichten",
+      dashboardUsageStale: "Keine Aufrufe",
+      dashboardUsageStaleHint: "Aktive Dashboards ohne erfasste Aufrufe",
+      dashboardUsageDashboard: "Dashboard",
+      dashboardUsageOwner: "Besitzer",
+      dashboardUsageUsers: "Benutzer",
+      dashboardUsageModified: "Geändert",
+      dashboardUsageCreated: "Erstellt",
+      dashboardUsageState: "Status",
+      dashboardUsagePanels: "{{count}} Panels",
+      dashboardUsageSavedViews: "{{count}} gespeicherte Ansichten",
+      dashboardUsageHidden: "Ausgeblendet",
+      dashboardUsageArchived: "Archiviert",
+      dashboardUsageEmpty: "Noch keine Dashboards",
+      dashboardUsageEmptyDescription:
+        "In dieser Organisation erstellte Dashboards erscheinen hier mit Nutzungs- und Aufräumsignalen.",
+      adminOnlyTitle: "Adminzugriff erforderlich",
+      adminOnlyDescription:
+        "Nur Organisationsinhaber und Administratoren können Analytics-Admin-Tools öffnen.",
+      notTracked: "Nicht erfasst",
+      visibilityprivate: "Privat",
+      visibilityorg: "Mit Organisation geteilt",
+      visibilitypublic: "Öffentlich",
+    },
+  },
+  "ja-JP": {
+    navigation: {
+      admin: "管理",
+    },
+    agents: {
+      dashboardUsage: "ダッシュボード使用状況",
+      dashboardUsageTitle: "ダッシュボード使用状況",
+      dashboardUsageDescription:
+        "アクティブな組織全体で、ダッシュボードのライフサイクル、トラフィック、エンゲージメント、所有者を監査します。既存のダッシュボードは、更新の帰属が記録された後に変更されると編集者が表示されます。",
+      dashboardUsageTotal: "ダッシュボード",
+      dashboardUsageActive: "{{count}} 件がアクティブ",
+      dashboardUsageViews: "閲覧数",
+      dashboardUsageTop: "トップ：{{name}}",
+      dashboardUsageEngagements: "エンゲージメント",
+      dashboardUsageEngagementsHint:
+        "ページビュー以外のイベントと保存済みビュー",
+      dashboardUsageStale: "閲覧なし",
+      dashboardUsageStaleHint: "追跡された閲覧がないアクティブなダッシュボード",
+      dashboardUsageDashboard: "ダッシュボード",
+      dashboardUsageOwner: "所有者",
+      dashboardUsageUsers: "ユーザー",
+      dashboardUsageModified: "更新日",
+      dashboardUsageCreated: "作成日",
+      dashboardUsageState: "状態",
+      dashboardUsagePanels: "{{count}} パネル",
+      dashboardUsageSavedViews: "{{count}} 件の保存済みビュー",
+      dashboardUsageHidden: "非表示",
+      dashboardUsageArchived: "アーカイブ済み",
+      dashboardUsageEmpty: "まだダッシュボードがありません",
+      dashboardUsageEmptyDescription:
+        "この組織で作成されたダッシュボードは、使用状況と整理のシグナルとともにここに表示されます。",
+      adminOnlyTitle: "管理者アクセスが必要です",
+      adminOnlyDescription:
+        "組織の所有者と管理者のみが Analytics 管理ツールを開けます。",
+      notTracked: "未追跡",
+      visibilityprivate: "非公開",
+      visibilityorg: "組織と共有",
+      visibilitypublic: "公開",
+    },
+  },
+  "ko-KR": {
+    navigation: {
+      admin: "관리",
+    },
+    agents: {
+      dashboardUsage: "대시보드 사용량",
+      dashboardUsageTitle: "대시보드 사용량",
+      dashboardUsageDescription:
+        "활성 조직 전체의 대시보드 수명 주기, 트래픽, 참여도, 소유권을 감사합니다. 기존 대시보드는 업데이트 귀속이 적용된 뒤 변경되어야 수정자가 표시됩니다.",
+      dashboardUsageTotal: "대시보드",
+      dashboardUsageActive: "{{count}}개 활성",
+      dashboardUsageViews: "조회수",
+      dashboardUsageTop: "상위: {{name}}",
+      dashboardUsageEngagements: "참여",
+      dashboardUsageEngagementsHint: "페이지뷰 외 이벤트와 저장된 보기",
+      dashboardUsageStale: "조회 없음",
+      dashboardUsageStaleHint: "추적된 조회가 없는 활성 대시보드",
+      dashboardUsageDashboard: "대시보드",
+      dashboardUsageOwner: "소유자",
+      dashboardUsageUsers: "사용자",
+      dashboardUsageModified: "수정됨",
+      dashboardUsageCreated: "생성됨",
+      dashboardUsageState: "상태",
+      dashboardUsagePanels: "{{count}}개 패널",
+      dashboardUsageSavedViews: "{{count}}개 저장된 보기",
+      dashboardUsageHidden: "숨김",
+      dashboardUsageArchived: "보관됨",
+      dashboardUsageEmpty: "아직 대시보드가 없습니다",
+      dashboardUsageEmptyDescription:
+        "이 조직에서 생성된 대시보드는 사용량 및 정리 신호와 함께 여기에 표시됩니다.",
+      adminOnlyTitle: "관리자 권한 필요",
+      adminOnlyDescription:
+        "조직 소유자와 관리자만 Analytics 관리 도구를 열 수 있습니다.",
+      notTracked: "추적 안 됨",
+      visibilityprivate: "비공개",
+      visibilityorg: "조직과 공유됨",
+      visibilitypublic: "공개",
+    },
+  },
+  "pt-BR": {
+    navigation: {
+      admin: "Administração",
+    },
+    agents: {
+      dashboardUsage: "Uso dos painéis",
+      dashboardUsageTitle: "Uso dos painéis",
+      dashboardUsageDescription:
+        "Audite ciclo de vida, tráfego, engajamento e propriedade dos painéis na organização ativa. Painéis existentes só mostram quem modificou depois de uma alteração com atribuição atualizada.",
+      dashboardUsageTotal: "Painéis",
+      dashboardUsageActive: "{{count}} ativos",
+      dashboardUsageViews: "Visualizações",
+      dashboardUsageTop: "Principal: {{name}}",
+      dashboardUsageEngagements: "Engajamentos",
+      dashboardUsageEngagementsHint:
+        "Eventos que não são pageview mais visualizações salvas",
+      dashboardUsageStale: "Sem visualizações",
+      dashboardUsageStaleHint: "Painéis ativos sem visualizações rastreadas",
+      dashboardUsageDashboard: "Painel",
+      dashboardUsageOwner: "Proprietário",
+      dashboardUsageUsers: "Usuários",
+      dashboardUsageModified: "Modificado",
+      dashboardUsageCreated: "Criado",
+      dashboardUsageState: "Estado",
+      dashboardUsagePanels: "{{count}} painéis",
+      dashboardUsageSavedViews: "{{count}} visualizações salvas",
+      dashboardUsageHidden: "Oculto",
+      dashboardUsageArchived: "Arquivado",
+      dashboardUsageEmpty: "Ainda não há painéis",
+      dashboardUsageEmptyDescription:
+        "Painéis criados nesta organização aparecerão aqui com sinais de uso e limpeza.",
+      adminOnlyTitle: "Acesso de administrador necessário",
+      adminOnlyDescription:
+        "Somente proprietários e administradores da organização podem abrir as ferramentas administrativas do Analytics.",
+      notTracked: "Não rastreado",
+      visibilityprivate: "Privado",
+      visibilityorg: "Compartilhado com a organização",
+      visibilitypublic: "Público",
+    },
+  },
+  "hi-IN": {
+    navigation: {
+      admin: "एडमिन",
+    },
+    agents: {
+      dashboardUsage: "डैशबोर्ड उपयोग",
+      dashboardUsageTitle: "डैशबोर्ड उपयोग",
+      dashboardUsageDescription:
+        "सक्रिय संगठन में डैशबोर्ड lifecycle, traffic, engagement, और ownership का audit करें। मौजूदा dashboards में modifier तभी दिखेगा जब वे updated attribution के साथ बदले जाएँगे।",
+      dashboardUsageTotal: "डैशबोर्ड",
+      dashboardUsageActive: "{{count}} सक्रिय",
+      dashboardUsageViews: "व्यू",
+      dashboardUsageTop: "शीर्ष: {{name}}",
+      dashboardUsageEngagements: "एंगेजमेंट",
+      dashboardUsageEngagementsHint: "Non-pageview events और saved views",
+      dashboardUsageStale: "कोई व्यू नहीं",
+      dashboardUsageStaleHint: "Tracked views के बिना सक्रिय dashboards",
+      dashboardUsageDashboard: "डैशबोर्ड",
+      dashboardUsageOwner: "स्वामी",
+      dashboardUsageUsers: "यूज़र",
+      dashboardUsageModified: "संशोधित",
+      dashboardUsageCreated: "बनाया गया",
+      dashboardUsageState: "स्थिति",
+      dashboardUsagePanels: "{{count}} पैनल",
+      dashboardUsageSavedViews: "{{count}} saved views",
+      dashboardUsageHidden: "छिपा हुआ",
+      dashboardUsageArchived: "आर्काइव किया गया",
+      dashboardUsageEmpty: "अभी कोई डैशबोर्ड नहीं",
+      dashboardUsageEmptyDescription:
+        "इस संगठन में बनाए गए dashboards usage और cleanup signals के साथ यहाँ दिखेंगे।",
+      adminOnlyTitle: "एडमिन access आवश्यक है",
+      adminOnlyDescription:
+        "केवल organization owners और admins Analytics admin tools खोल सकते हैं।",
+      notTracked: "ट्रैक नहीं किया गया",
+      visibilityprivate: "निजी",
+      visibilityorg: "संगठन के साथ साझा",
+      visibilitypublic: "सार्वजनिक",
+    },
+  },
+  "ar-SA": {
+    navigation: {
+      admin: "الإدارة",
+    },
+    agents: {
+      dashboardUsage: "استخدام لوحات المعلومات",
+      dashboardUsageTitle: "استخدام لوحات المعلومات",
+      dashboardUsageDescription:
+        "راجع دورة حياة لوحات المعلومات وحركة المرور والتفاعل والملكية عبر المؤسسة النشطة. لا تعرض اللوحات الحالية آخر معدّل إلا بعد تغييرها مع تفعيل الإسناد المحدّث.",
+      dashboardUsageTotal: "لوحات المعلومات",
+      dashboardUsageActive: "{{count}} نشطة",
+      dashboardUsageViews: "المشاهدات",
+      dashboardUsageTop: "الأعلى: {{name}}",
+      dashboardUsageEngagements: "التفاعلات",
+      dashboardUsageEngagementsHint:
+        "أحداث غير pageview بالإضافة إلى طرق العرض المحفوظة",
+      dashboardUsageStale: "بلا مشاهدات",
+      dashboardUsageStaleHint: "لوحات نشطة بلا مشاهدات متتبعة",
+      dashboardUsageDashboard: "لوحة المعلومات",
+      dashboardUsageOwner: "المالك",
+      dashboardUsageUsers: "المستخدمون",
+      dashboardUsageModified: "عُدّلت",
+      dashboardUsageCreated: "أُنشئت",
+      dashboardUsageState: "الحالة",
+      dashboardUsagePanels: "{{count}} لوحات",
+      dashboardUsageSavedViews: "{{count}} طرق عرض محفوظة",
+      dashboardUsageHidden: "مخفية",
+      dashboardUsageArchived: "مؤرشفة",
+      dashboardUsageEmpty: "لا توجد لوحات معلومات بعد",
+      dashboardUsageEmptyDescription:
+        "ستظهر لوحات المعلومات التي تُنشأ في هذه المؤسسة هنا مع إشارات الاستخدام والتنظيف.",
+      adminOnlyTitle: "مطلوب وصول مسؤول",
+      adminOnlyDescription:
+        "يمكن لمالكي المؤسسة والمسؤولين فقط فتح أدوات إدارة Analytics.",
+      notTracked: "غير متتبع",
+      visibilityprivate: "خاص",
+      visibilityorg: "مشترك مع المؤسسة",
+      visibilitypublic: "عام",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedDashboardAdminTranslations,
 ) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
   const messages = messagesByLocale[locale];
   if (!messages) continue;

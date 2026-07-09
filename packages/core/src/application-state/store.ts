@@ -1,5 +1,6 @@
 import {
   getDbExec,
+  isLocalDatabase,
   isConnectionError,
   isPostgres,
   intType,
@@ -10,6 +11,7 @@ import type { StoreWriteOptions } from "../settings/store.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
+const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
 // Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
 // literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
@@ -123,11 +125,20 @@ export async function appStatePut(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
+  const serialized = JSON.stringify(value);
+  if (
+    !isLocalDatabase() &&
+    Buffer.byteLength(serialized, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
+  ) {
+    throw new Error(
+      `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
+    );
+  }
   await client.execute({
     sql: isPostgres()
       ? `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
       : `INSERT OR REPLACE INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
-    args: [sessionId, key, JSON.stringify(value), Date.now()],
+    args: [sessionId, key, serialized, Date.now()],
   });
   emitAppStateChange(key, options?.requestSource, sessionId);
 }

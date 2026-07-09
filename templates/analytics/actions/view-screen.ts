@@ -426,6 +426,20 @@ export default defineAction({
           ],
         },
         {
+          id: "dashboards",
+          label: "Dashboard Usage",
+          path: "/agents?view=dashboards",
+          adminOnly: true,
+          action: "list-dashboard-usage-stats",
+          includes: [
+            "dashboard created and modified dates",
+            "last tracked modifier",
+            "view and engagement counts",
+            "saved view counts",
+            "hidden and archived state",
+          ],
+        },
+        {
           id: "database",
           label: "App Databases",
           path: "/agents?view=database",
@@ -439,6 +453,9 @@ export default defineAction({
           ],
         },
       ];
+      if (screen.agentsView === "dashboards") {
+        screen.dashboardUsageStatsAction = "list-dashboard-usage-stats";
+      }
       const email = getRequestUserEmail();
       if (email) {
         const orgId = getRequestOrgId() || null;

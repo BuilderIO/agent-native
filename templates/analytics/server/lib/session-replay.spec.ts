@@ -827,7 +827,7 @@ describe("session replay ingest parsing", () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalFallback = process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
     process.env.NODE_ENV = "production";
-    delete process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
+    process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK = "1";
     putPrivateBlobMock.mockResolvedValue(null);
     const recording = {
       id: "sr_empty",

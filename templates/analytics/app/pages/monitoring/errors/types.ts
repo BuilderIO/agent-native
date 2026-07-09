@@ -57,7 +57,7 @@ export interface ErrorEventDetail {
   environment: string | null;
   tags: Record<string, unknown>;
   extra: Record<string, unknown>;
-  breadcrumbs: ErrorBreadcrumb[];
+  breadcrumbs: unknown[];
   occurredAt: string;
 }
 

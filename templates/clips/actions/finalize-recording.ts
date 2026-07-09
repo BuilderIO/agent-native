@@ -483,8 +483,9 @@ export default defineAction({
     // server-side half of the 70 GB memory leak — each failed finalize
     // orphaned one recording's worth of chunks, and with base64 overhead
     // a 30-minute recording is ~1.5 GB per corpse. Missing storage is the
-    // exception: those chunks stay recoverable until the user connects a
-    // provider and this action runs again.
+    // exception: local-dev storage gaps can keep chunks recoverable until the
+    // user connects a provider and this action runs again. Hosted SQL must
+    // never retain scratch video blobs.
     let chunkKeysToPurge: string[] = [];
     try {
       const [existing] = await db
@@ -1123,7 +1124,12 @@ export default defineAction({
       try {
         await verifyServedMediaUrl(upload.url);
       } catch (err) {
-        chunkKeysToPurge = [];
+        if (!requiresConfiguredVideoStorage()) {
+          // Local dev can keep scratch chunks so the user can retry after fixing
+          // a local storage/server issue. Hosted SQL must not keep video blobs in
+          // application_state after a provider returned an unservable URL.
+          chunkKeysToPurge = [];
+        }
         const failureReason = err instanceof Error ? err.message : String(err);
         await failStoredButUnservableRecording({
           id,

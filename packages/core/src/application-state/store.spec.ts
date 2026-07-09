@@ -21,11 +21,13 @@ const rawClient = {
 
 const emitAppStateChange = vi.fn();
 const emitAppStateDelete = vi.fn();
+const dbMockState = vi.hoisted(() => ({ localDatabase: true }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
   intType: () => "INTEGER",
   isConnectionError: () => false,
+  isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));
 
@@ -53,6 +55,7 @@ beforeEach(() => {
 afterEach(() => {
   sqlite.close();
   vi.clearAllMocks();
+  dbMockState.localDatabase = true;
 });
 
 describe("application-state store", () => {
@@ -113,5 +116,13 @@ describe("application-state store", () => {
       undefined,
       SESSION,
     );
+  });
+
+  it("rejects oversized hosted application_state values", async () => {
+    dbMockState.localDatabase = false;
+
+    await expect(
+      appStatePut(SESSION, "huge", { data: "x".repeat(1024 * 1024 + 1) }),
+    ).rejects.toThrow(/too large for hosted SQL storage/);
   });
 });
