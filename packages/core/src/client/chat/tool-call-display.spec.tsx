@@ -329,7 +329,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector("button")?.className).toContain("w-full");
   });
 
-  it("expands inputs inline and opens output in a modal", () => {
+  it("expands inputs inline and opens output in a popover", () => {
     act(() => {
       root.render(
         <ToolCallDisplay

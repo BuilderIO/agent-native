@@ -485,11 +485,14 @@ async function* parseJsonlStream(
   let pendingText = "";
   let pendingThinking: { text: string; signature?: string } | null = null;
 
-  const flushPending = () => {
+  const flushPendingText = () => {
     if (pendingText) {
       parts.push({ type: "text", text: pendingText });
       pendingText = "";
     }
+  };
+
+  const flushPendingThinking = () => {
     if (pendingThinking) {
       parts.push({
         type: "thinking",
@@ -500,6 +503,11 @@ async function* parseJsonlStream(
       });
       pendingThinking = null;
     }
+  };
+
+  const flushPending = () => {
+    flushPendingText();
+    flushPendingThinking();
   };
 
   try {
@@ -527,13 +535,16 @@ async function* parseJsonlStream(
       switch (event.type) {
         case "text-delta": {
           const text = event.text ?? "";
+          flushPendingThinking();
           pendingText += text;
           yield { type: "text-delta", text };
           break;
         }
 
-        case "thinking-delta": {
+        case "thinking-delta":
+        case "reasoning-delta": {
           const text = event.text ?? "";
+          flushPendingText();
           if (!pendingThinking) pendingThinking = { text: "" };
           pendingThinking.text += text;
           if (event.signature) pendingThinking.signature = event.signature;

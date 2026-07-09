@@ -1053,6 +1053,39 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it("normalizes gateway reasoning deltas into thinking events and final content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "reasoning-delta", text: "Check the schema. " },
+          { type: "reasoning-delta", text: "Then answer.", signature: "sig-1" },
+          { type: "text-delta", text: "Done." },
+          { type: "stop", reason: "end_turn" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "thinking-delta")).toEqual([
+      { type: "thinking-delta", text: "Check the schema. " },
+      { type: "thinking-delta", text: "Then answer.", signature: "sig-1" },
+    ]);
+    expect(events).toContainEqual({
+      type: "assistant-content",
+      parts: [
+        {
+          type: "thinking",
+          text: "Check the schema. Then answer.",
+          signature: "sig-1",
+        },
+        { type: "text", text: "Done." },
+      ],
+    });
+  });
+
   it("surfaces invalid JSONL lines as a stop-error", async () => {
     const body = "not a json\n";
     const stream = new ReadableStream<Uint8Array>({

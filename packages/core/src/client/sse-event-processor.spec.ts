@@ -3044,7 +3044,7 @@ describe("SSE thinking / reasoning events", () => {
     await readSSEStreamRaw(
       eventsStream([
         { type: "thinking", text: "First, " },
-        { type: "thinking", text: "check the schema." },
+        { type: "reasoning", text: "check the schema." },
         { type: "text", text: "Here is the answer." },
         { type: "done" },
       ]),

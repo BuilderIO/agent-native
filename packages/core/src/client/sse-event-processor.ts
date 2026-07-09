@@ -963,7 +963,7 @@ export function processEvent(
     };
   }
 
-  if (ev.type === "thinking") {
+  if (ev.type === "thinking" || ev.type === "reasoning") {
     // Model chain-of-thought. Coalesce consecutive deltas into one reasoning
     // part so the UI can render a single collapsible "Thinking" cell.
     const delta = ev.text ?? "";
