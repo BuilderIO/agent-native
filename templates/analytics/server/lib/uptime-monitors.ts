@@ -34,6 +34,7 @@ import {
   count,
   desc,
   eq,
+  gt,
   gte,
   isNull,
   lte,
@@ -985,7 +986,7 @@ export async function runMonitorCheck(
       maxRedirects: MAX_REDIRECT_HOPS,
       allowPrivateHosts,
       dispatcher,
-      initialDnsChecked: true,
+      initialDnsChecked: Boolean(dispatcher),
     });
 
     // Stop the abort timer as soon as headers arrive so a slow/optional body
@@ -1654,6 +1655,29 @@ async function recentlyResolvedWithinCooldown(
   return now.getTime() - resolved < monitor.cooldownMinutes * 60 * 1000;
 }
 
+async function getFailureStreakStartedAt(
+  monitor: Monitor,
+  ctx: AccessCtx,
+  fallback: string,
+): Promise<string> {
+  const db = getDb() as any;
+  const table = schema.monitorCheckResults;
+  const clauses: any[] = [
+    resultsOwnerWhere(ctx),
+    eq(table.monitorId, monitor.id),
+    eq(table.ok, false),
+  ];
+  if (monitor.lastSuccessAt)
+    clauses.push(gt(table.checkedAt, monitor.lastSuccessAt));
+  const [row] = await db
+    .select({ checkedAt: table.checkedAt })
+    .from(table)
+    .where(and(...clauses))
+    .orderBy(asc(table.checkedAt))
+    .limit(1);
+  return row?.checkedAt ?? fallback;
+}
+
 async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
   const host = hostFromUrl(monitor.url);
   const label = outcome.status === "degraded" ? "degraded" : "down";
@@ -1788,8 +1812,8 @@ export async function evaluateAndNotifyMonitor(
     }
     const incidentId = randomUUID();
     const startedAt =
-      nextChecksFailed > 1 && monitor.lastCheckedAt
-        ? monitor.lastCheckedAt
+      nextChecksFailed > 1
+        ? await getFailureStreakStartedAt(monitor, ctx, outcome.checkedAt)
         : outcome.checkedAt;
     await db.insert(schema.monitorIncidents).values({
       id: incidentId,
