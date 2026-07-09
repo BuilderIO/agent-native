@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyTweakSaveFailure,
@@ -6,6 +6,7 @@ import {
   createQueuedTweakSave,
   rebaseTweakSaveForSend,
   retainLatestFailedTweakSave,
+  sendJournaledTweakSaveKeepalive,
 } from "./tweak-save";
 
 describe("tweak save ordering", () => {
@@ -75,5 +76,56 @@ describe("tweak save ordering", () => {
         true,
       ),
     ).toBe("conflict");
+  });
+
+  it("waits for a durable journal before starting the unload keepalive", async () => {
+    let resolveJournal!: (journaled: boolean) => void;
+    const journal = () =>
+      new Promise<boolean>((resolve) => {
+        resolveJournal = resolve;
+      });
+    const send = vi.fn(() => ({
+      accepted: true as const,
+      completion: Promise.resolve(),
+    }));
+    const acknowledge = vi.fn(async () => {});
+    const keepalive = sendJournaledTweakSaveKeepalive({
+      journal,
+      send,
+      acknowledge,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    resolveJournal(true);
+    await expect(keepalive).resolves.toBe(true);
+    expect(send).toHaveBeenCalledOnce();
+    expect(acknowledge).toHaveBeenCalledOnce();
+
+    await expect(
+      sendJournaledTweakSaveKeepalive({
+        journal: async () => false,
+        send,
+        acknowledge,
+      }),
+    ).resolves.toBe(false);
+    expect(send).toHaveBeenCalledOnce();
+    expect(acknowledge).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the durable retry unacknowledged when keepalive fails", async () => {
+    const acknowledge = vi.fn(async () => {});
+
+    await expect(
+      sendJournaledTweakSaveKeepalive({
+        journal: async () => true,
+        send: () => ({
+          accepted: true,
+          completion: Promise.reject(new Error("offline")),
+        }),
+        acknowledge,
+      }),
+    ).rejects.toThrow("offline");
+
+    expect(acknowledge).not.toHaveBeenCalled();
   });
 });

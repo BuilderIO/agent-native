@@ -49,6 +49,26 @@ export function clearCompletedTweakSave(
   return queued?.revision === completedRevision ? null : queued;
 }
 
+type TweakSaveKeepaliveAttempt =
+  | { accepted: true; completion: Promise<unknown> }
+  | { accepted: false; completion: null };
+
+export async function sendJournaledTweakSaveKeepalive(options: {
+  journal: () => Promise<boolean>;
+  send: () => TweakSaveKeepaliveAttempt;
+  acknowledge: () => Promise<unknown>;
+}): Promise<boolean> {
+  // Pagehide may freeze the document at any await boundary. Establish the
+  // durable retry entry first so either the keepalive finishes or a later
+  // editor session can replay the exact same operation.
+  if (!(await options.journal())) return false;
+  const attempt = options.send();
+  if (!attempt.accepted) return false;
+  await attempt.completion;
+  await options.acknowledge();
+  return true;
+}
+
 export type TweakSaveFailureKind =
   | "conflict"
   | "durable-retry"

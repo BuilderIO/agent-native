@@ -75,12 +75,19 @@ function dashboardContext(
   return lines.join("\n");
 }
 
-async function deleteSelectedObjectIfOwned() {
+async function deleteSelectedObjectIfOwned(dashboardId: string) {
   try {
     const current = await readClientAppState<Record<string, unknown>>(
       SELECTED_OBJECT_STATE_KEY,
     );
     if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== TAB_ID) return;
+    const selectedDashboardId =
+      current.type === "dashboard"
+        ? current.id
+        : current.type === "dashboard-panel"
+          ? current.dashboardId
+          : null;
+    if (selectedDashboardId !== dashboardId) return;
     await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
       keepalive: true,
       requestSource: TAB_ID,
@@ -241,7 +248,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned();
+      deleteSelectedObjectIfOwned(id);
     };
   }, [id]);
 

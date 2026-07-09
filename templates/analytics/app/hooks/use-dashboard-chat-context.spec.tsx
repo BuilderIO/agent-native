@@ -111,6 +111,49 @@ describe("useDashboardChatContext", () => {
     expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "dashboard",
+      {
+        type: "dashboard",
+        id: "dash-2",
+        __agentNativeSelectedObjectSource: TAB_ID,
+      },
+    ],
+    [
+      "dashboard panel",
+      {
+        type: "dashboard-panel",
+        dashboardId: "dash-2",
+        panelId: "panel-2",
+        __agentNativeSelectedObjectSource: TAB_ID,
+      },
+    ],
+  ])(
+    "does not let old dashboard cleanup clear the next page's %s selection",
+    async (_selectionKind, currentSelection) => {
+      let resolveRead!: (value: Record<string, unknown>) => void;
+      clientMocks.readClientAppState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRead = resolve;
+          }) as any,
+      );
+
+      await act(async () => {
+        root.render(<Harness id="dash-1" />);
+      });
+      await act(async () => {
+        root.render(<Harness id="dash-2" />);
+      });
+      await act(async () => {
+        resolveRead(currentSelection);
+      });
+
+      expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
+    },
+  );
+
   it("stages a selected panel for chat and app state", async () => {
     await act(async () => {
       root.render(<PanelHarness />);

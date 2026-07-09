@@ -571,6 +571,7 @@ import {
   createQueuedTweakSave,
   rebaseTweakSaveForSend,
   retainLatestFailedTweakSave,
+  sendJournaledTweakSaveKeepalive,
   type PendingTweakSave,
 } from "./design-editor/tweak-save";
 import {
@@ -5870,15 +5871,12 @@ function DesignEditor() {
       // mutation still settles state and confirms persistence.
       const entry = createTweakSaveOutboxEntry(pending);
       if (!entry) return;
-      void journalTweakOutboxEntry(entry);
-      const attempt = tryCallActionKeepalive(
-        "apply-tweaks",
-        entry.payload as any,
-      );
-      if (!attempt.accepted) return;
-      void attempt.completion
-        .then(() => acknowledgeOutboxEntry(entry))
-        .catch(() => {});
+      void sendJournaledTweakSaveKeepalive({
+        journal: () => journalTweakOutboxEntry(entry),
+        send: () =>
+          tryCallActionKeepalive("apply-tweaks", entry.payload as any),
+        acknowledge: () => acknowledgeOutboxEntry(entry),
+      }).catch(() => {});
     };
     const handleOnline = () => {
       if (pendingTweakSaveRef.current && !tweakSaveInFlightRef.current) {
