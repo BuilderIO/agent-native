@@ -129,6 +129,12 @@ Si tanto el UI como el agente necesitan hacer algo, defina una acción en lugar 
 
 Utilice rutas `/api/*` personalizadas solo cuando necesite un protocolo en forma de ruta o un comportamiento binario/de transmisión. Ver [Actions](/docs/actions).
 
+### Aplicaciones solo API {#api-only-apps}
+
+No necesita un servidor Express solo porque la aplicación sea solo API. Una aplicación Agent Native ya incluye un servidor Nitro/H3, y `defineAction()` es la superficie API predeterminada. Defina las operaciones en `actions/`; el marco monta cada action en `/_agent-native/actions/<name>` con validación de esquema y contexto de solicitud.
+
+Use la opción `http` de la action para dar forma al acceso HTTP directo: las actions son `POST` de forma predeterminada, `http: { method: "GET" | "PUT" | "DELETE" }` cambia el verbo, y `http: false` deja una action fuera de HTTP. Use `server/routes/api/*` solo para necesidades con forma de ruta o protocolo: cargas de archivos, streaming/SSE, webhooks, devoluciones de llamada OAuth, páginas públicas o una forma REST externa que no pueda representarse limpiamente como una action. No cree rutas `/api/*` que principalmente envuelvan o reexporten actions.
+
 ## Completación de texto de una sola vez {#complete-text}
 
 La mayor parte del trabajo de IA debe realizarse a través del chat del agente para que los usuarios puedan verlo, dirigirlo y auditarlo

@@ -117,14 +117,23 @@ export async function upsertAwarenessRow(
 export async function deleteAwarenessRow(
   docId: string,
   clientId: number,
+  maxLastSeen?: number,
 ): Promise<void> {
   try {
     await ensureTable();
     const client = getDbExec();
-    await client.execute({
-      sql: `DELETE FROM _collab_awareness WHERE doc_id = ? AND client_id = ?`,
-      args: [docId, clientId],
-    });
+    if (maxLastSeen == null) {
+      await client.execute({
+        sql: `DELETE FROM _collab_awareness WHERE doc_id = ? AND client_id = ?`,
+        args: [docId, clientId],
+      });
+    } else {
+      await client.execute({
+        sql: `DELETE FROM _collab_awareness
+              WHERE doc_id = ? AND client_id = ? AND last_seen <= ?`,
+        args: [docId, clientId, maxLastSeen],
+      });
+    }
     _lastWrites.delete(writeKey(docId, clientId));
   } catch {
     // Best-effort.

@@ -278,7 +278,7 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       // Keep materialized in-flight tool cards across retry clears so persisted
       // thread rebuilds match the live SSE processor and avoid hide→show flicker.
       const isEphemeral =
-        part.activity === true ||
+        (part as { activity?: boolean }).activity === true ||
         part.argsText === "" ||
         Object.keys(part.args ?? {}).length === 0;
       if (isEphemeral) content.splice(index, 1);
