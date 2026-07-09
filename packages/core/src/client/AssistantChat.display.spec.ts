@@ -317,6 +317,46 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([laterSpinner]);
   });
 
+  it("drops a same-name reconnect spinner when a matching pending call is rendered beside a completed call", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 2"}',
+            args: { sql: "select 2" },
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps a reconnect spinner for a tool not yet rendered", () => {
     const persistedMessages = [
       {

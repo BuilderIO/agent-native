@@ -587,6 +587,21 @@ const LABEL_TEXT_KEY_RE = /^(name|title|label)$/i;
 
 const MAX_DEPTH = 64;
 
+function isStandalonePersonNameLabel(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /^[A-Z][a-zA-Z'’-]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-zA-Z'’-]+$/.test(
+    trimmed,
+  );
+}
+
+function shouldRedactNamesForChild(key: string, entry: unknown): boolean {
+  if (!LABEL_TEXT_KEY_RE.test(key)) return true;
+  // Preserve structural labels/titles, but do not let common contact-shaped
+  // fields like `{ name: "Olivia Parker" }` leak real person names.
+  return typeof entry === "string" ? isStandalonePersonNameLabel(entry) : true;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return false;
@@ -678,7 +693,7 @@ function walk(
         salt,
         depth + 1,
         seen,
-        !LABEL_TEXT_KEY_RE.test(key),
+        redactNames && shouldRedactNamesForChild(key, entry),
       );
     }
     seen.delete(value);

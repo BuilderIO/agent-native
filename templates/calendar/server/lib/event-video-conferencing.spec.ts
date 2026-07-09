@@ -73,5 +73,11 @@ describe("calendar event video conferencing defaults", () => {
         description: "Join here: https://teams.microsoft.com/l/meetup-join/123",
       }),
     ).toBe(false);
+    expect(
+      shouldAutoAddGoogleMeet({
+        attendees: [{ email: "guest@example.com" }],
+        description: "Join Webex: https://acme.webex.com/meet/sarah",
+      }),
+    ).toBe(false);
   });
 });

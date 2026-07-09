@@ -693,7 +693,15 @@ function toolCallIdsRepresentSameLocalCall(
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
   byId: Map<string, { rank: number }>;
   latestAssistantByFingerprint: Map<string, { rank: number }>;
-  latestAssistantByName: Map<string, { rank: number; ids: Set<string> }>;
+  latestAssistantByName: Map<
+    string,
+    {
+      rank: number;
+      ids: Set<string>;
+      pendingIds: Set<string>;
+      pendingRank: number;
+    }
+  >;
 } {
   const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
@@ -734,10 +742,17 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
         const existing = latestAssistantByName.get(name);
         const id = toolCallIdFromContentPart(part);
         const ids = new Set(existing?.ids);
+        const pendingIds = new Set(existing?.pendingIds);
         if (id) ids.add(id);
+        if (id && rank < 4) pendingIds.add(id);
         latestAssistantByName.set(name, {
           rank: Math.max(existing?.rank ?? 0, rank),
           ids,
+          pendingIds,
+          pendingRank:
+            rank < 4
+              ? Math.max(existing?.pendingRank ?? 0, rank)
+              : (existing?.pendingRank ?? 0),
         });
       }
     }
@@ -921,11 +936,17 @@ export function dedupeReconnectContentAgainstMessages(
                     toolCallIdsRepresentSameLocalCall(renderedId, id),
                   )
                 : false;
+            const matchesRenderedPendingLocalId =
+              id && latestByName
+                ? Array.from(latestByName.pendingIds).some((renderedId) =>
+                    toolCallIdsRepresentSameLocalCall(renderedId, id),
+                  )
+                : false;
             if (
               latestByName &&
               matchesRenderedLocalId &&
-              latestByName.rank < 4 &&
-              reconnectRank <= latestByName.rank
+              matchesRenderedPendingLocalId &&
+              reconnectRank <= latestByName.pendingRank
             ) {
               changed = true;
               return false;

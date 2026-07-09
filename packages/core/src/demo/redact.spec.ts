@@ -102,7 +102,7 @@ describe("full names", () => {
     expect(typeof out).toBe("string");
   });
 
-  it("does not mangle label/tab names under a name key", () => {
+  it("preserves structural labels but redacts standalone person-name values", () => {
     const labels = redactDemoData(
       [
         { name: "Important", count: 4200 },
@@ -118,7 +118,8 @@ describe("full names", () => {
     expect(labels[1].name).toBe("Automated notifications");
     expect(labels[2].name).toBe("Note to Self");
     expect(labels[3].name).toBe("Other");
-    expect(labels[4].name).toBe("Olivia Parker");
+    expect(labels[4].name).not.toBe("Olivia Parker");
+    expect(labels[4].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
   });
 
   it("preserves label keys but still redacts contact-style full names", () => {
@@ -254,8 +255,8 @@ describe("ID-safety (critical)", () => {
     // Recurse into nested objects under a protected key, but the protected key
     // itself does not transform its own leaf.
     expect(out.nested.id).toBe("Bob Jones");
-    // Label keys are preserved so structural UI labels do not drift.
-    expect(out.nested.label).toBe("Bob Jones");
+    // Contact-shaped label/name leaves still redact person names.
+    expect(out.nested.label).not.toBe("Bob Jones");
   });
 
   it("never rewrites SQL/query/code keys or chart titles", () => {
