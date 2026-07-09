@@ -203,6 +203,7 @@ const MAX_REDIRECT_HOPS = 5;
 const MONITOR_RUNNING_STALE_MS = 5 * 60 * 1000;
 const DEFAULT_RESULT_RETENTION_DAYS = 30;
 const DEFAULT_MONITOR_LIMIT_PER_OWNER = 100;
+export const DEFAULT_MONITOR_TIMEOUT_MS = 10_000;
 const MAX_REQUEST_HEADER_COUNT = 20;
 const MAX_REQUEST_HEADER_NAME_LENGTH = 128;
 const MAX_REQUEST_HEADER_VALUE_BYTES = 2048;
@@ -822,7 +823,7 @@ export async function runMonitorCheck(
     monitor.timeoutMs,
     MIN_TIMEOUT_MS,
     MAX_TIMEOUT_MS,
-    15000,
+    DEFAULT_MONITOR_TIMEOUT_MS,
   );
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const start = Date.now();
@@ -925,7 +926,7 @@ function rowToMonitor(row: any): Monitor {
     ),
     requestBody: row.requestBody ?? null,
     intervalSeconds: Number(row.intervalSeconds ?? 300),
-    timeoutMs: Number(row.timeoutMs ?? 15000),
+    timeoutMs: Number(row.timeoutMs ?? DEFAULT_MONITOR_TIMEOUT_MS),
     expectedStatus: normalizeStatusMatcher(
       safeJsonParse<unknown>(row.expectedStatus, null),
     ),
@@ -1155,10 +1156,10 @@ export async function saveMonitor(
     300,
   );
   const timeoutMs = clampInt(
-    input.timeoutMs ?? 15000,
+    input.timeoutMs ?? DEFAULT_MONITOR_TIMEOUT_MS,
     MIN_TIMEOUT_MS,
     MAX_TIMEOUT_MS,
-    15000,
+    DEFAULT_MONITOR_TIMEOUT_MS,
   );
   const expectedStatus = normalizeStatusMatcher(input.expectedStatus);
   const assertions = normalizeAssertions(input.assertions);

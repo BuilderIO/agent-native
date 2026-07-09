@@ -8,11 +8,7 @@ import {
   LOOM_START_MS_QUERY_PARAM,
   loomEmbedUrlWithTimestamp,
 } from "@shared/loom";
-import {
-  IconBolt,
-  IconPlayerPlay,
-  IconPlayerSkipForward,
-} from "@tabler/icons-react";
+import { IconBolt, IconPlayerPlay } from "@tabler/icons-react";
 import {
   forwardRef,
   useCallback,
@@ -51,11 +47,7 @@ import { cn } from "@/lib/utils";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
-import {
-  PLAYER_SEEK_STEP_MS,
-  PlayerControls,
-  SPEED_OPTIONS,
-} from "./player-controls";
+import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -571,6 +563,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
+    const activateVideoSurface = useCallback(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      if (!v.paused || isPlaying) {
+        pauseVideo();
+      } else {
+        requestPlay();
+      }
+      bumpControls();
+    }, [bumpControls, isPlaying, pauseVideo, requestPlay]);
+
     const handlePlayerPointerDown = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
         if (
@@ -607,10 +610,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         e.preventDefault();
         suppressNextClickRef.current = true;
-        togglePlayback();
-        bumpControls();
+        activateVideoSurface();
       },
-      [bumpControls, isLoomEmbed, togglePlayback],
+      [activateVideoSurface, isLoomEmbed],
     );
 
     const handlePlayerPointerCancel = useCallback(
@@ -1109,10 +1111,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             suppressNextClickRef.current = false;
             return;
           }
-          // Clicking the video toggles play — but not when clicking controls.
+          // Clicking the video surface toggles playback, but actual controls
+          // keep their own behavior.
           if (isPlayerUiTarget(e.target)) return;
           if (isLoomEmbed) return;
-          togglePlayback();
+          activateVideoSurface();
         }}
       >
         {isLoomEmbed && loomIframeSrc ? (
@@ -1397,7 +1400,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               requestPlay();
             }}
             onSpeedChange={applySpeed}
-            onSeekRelative={seekByMs}
             menuPortalContainer={fullscreenMenuContainer}
           />
         ) : null}
@@ -1442,7 +1444,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {/* Controls */}
         {!hideChrome && !isLoomEmbed ? (
           <div
-            data-player-ui
             className={cn(
               "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
               showControls ? "opacity-100" : "opacity-0 pointer-events-none",
@@ -1511,7 +1512,6 @@ function CenterPlaybackOverlay({
   playError,
   onPlay,
   onSpeedChange,
-  onSeekRelative,
   menuPortalContainer,
 }: {
   mode: "loading" | "ready";
@@ -1521,7 +1521,6 @@ function CenterPlaybackOverlay({
   playError: string | null;
   onPlay: () => void;
   onSpeedChange: (rate: number) => void;
-  onSeekRelative: (deltaMs: number) => void;
   menuPortalContainer?: HTMLElement | null;
 }) {
   const t = useT();
@@ -1546,30 +1545,18 @@ function CenterPlaybackOverlay({
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-[clamp(0.75rem,4cqw,1.5rem)]">
-              <CenterSeekButton
-                direction="back"
-                ariaLabel="Back 15 seconds"
-                onClick={() => onSeekRelative(-PLAYER_SEEK_STEP_MS)}
-              />
-              <button
-                data-player-ui
-                type="button"
-                aria-label={t("videoPlayer.playClip")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPlay();
-                }}
-                className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-              >
-                <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
-              </button>
-              <CenterSeekButton
-                direction="forward"
-                ariaLabel="Forward 15 seconds"
-                onClick={() => onSeekRelative(PLAYER_SEEK_STEP_MS)}
-              />
-            </div>
+            <button
+              data-player-ui
+              type="button"
+              aria-label={t("videoPlayer.playClip")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay();
+              }}
+              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            >
+              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+            </button>
 
             <div
               data-player-ui
@@ -1631,38 +1618,6 @@ function CenterPlaybackOverlay({
         )}
       </div>
     </div>
-  );
-}
-
-function CenterSeekButton({
-  direction,
-  ariaLabel,
-  onClick,
-}: {
-  direction: "back" | "forward";
-  ariaLabel: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      data-player-ui
-      type="button"
-      aria-label={ariaLabel}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className="pointer-events-auto flex h-[clamp(2.5rem,9cqw,4rem)] w-[clamp(2.5rem,9cqw,4rem)] items-center justify-center rounded-full bg-black/70 text-white shadow-xl ring-1 ring-white/20 backdrop-blur-md transition-transform duration-150 hover:scale-105 hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-    >
-      <span className="relative flex h-[clamp(1.25rem,4.5cqw,2rem)] w-[clamp(1.25rem,4.5cqw,2rem)] items-center justify-center">
-        <IconPlayerSkipForward
-          className={cn("h-full w-full", direction === "back" && "rotate-180")}
-        />
-        <span className="absolute text-[clamp(0.45rem,1.8cqw,0.7rem)] font-bold leading-none">
-          15
-        </span>
-      </span>
-    </button>
   );
 }
 

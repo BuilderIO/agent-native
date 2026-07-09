@@ -51,6 +51,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -82,6 +83,9 @@ const THEME_CSS_VARS = [
   "--sidebar-border",
   "--sidebar-ring",
 ];
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);
@@ -1354,7 +1358,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             src={iframeSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
-            sandbox="allow-scripts allow-forms"
+            sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}
             style={{
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",

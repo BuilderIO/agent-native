@@ -127,7 +127,9 @@ describe("ExtensionViewer MCP embeds", () => {
       "/_agent-native/extensions/ext-1/render",
     );
     expect(iframe.getAttribute("srcdoc")).toBeNull();
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
@@ -139,7 +141,9 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(iframe.getAttribute("srcdoc")).toContain(
       "agent-native-extension-binding",
     );
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
   });
 
   it("does not flash not-found while a cached null extension is refetching", async () => {

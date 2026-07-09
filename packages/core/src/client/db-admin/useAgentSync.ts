@@ -14,7 +14,15 @@
  */
 import { useEffect, useRef } from "react";
 
+import {
+  removeAgentChatContextItem,
+  setAgentChatContextItem,
+} from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  deleteClientAppState,
+  setClientAppState,
+} from "../application-state.js";
 
 const NAVIGATION_PATH = agentNativePath(
   "/_agent-native/application-state/navigation",
@@ -24,6 +32,8 @@ const NAVIGATE_PATH = agentNativePath(
 );
 
 const POLL_INTERVAL_MS = 1500;
+const TABLE_CONTEXT_KEY = "database-selected-table";
+const SELECTED_OBJECT_STATE_KEY = "selected-object";
 
 let cachedSource: string | null = null;
 
@@ -87,6 +97,48 @@ export function useDbAdminAgentSync({
       headers: headers({ "Content-Type": "application/json" }),
       body: JSON.stringify(state),
     }).catch(() => {});
+  }, [enabled, table, mode]);
+
+  useEffect(() => {
+    if (!enabled || !table) {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
+        keepalive: true,
+        requestSource: requestSource(),
+      }).catch(() => {});
+      return;
+    }
+
+    const selection = { type: "database-table", table, mode };
+    setAgentChatContextItem({
+      key: TABLE_CONTEXT_KEY,
+      title: `Table: ${table}`,
+      context: [
+        `The user currently has this database table selected: ${table}.`,
+        `Database admin mode: ${mode}`,
+        "Use the database admin actions and current-screen context to inspect rows, schema, or run SQL against this table.",
+      ].join("\n"),
+      openSidebar: false,
+      focus: false,
+    });
+    setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+      keepalive: true,
+      requestSource: requestSource(),
+    }).catch(() => {});
+
+    return () => {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
+        keepalive: true,
+        requestSource: requestSource(),
+      }).catch(() => {});
+    };
   }, [enabled, table, mode]);
 }
 

@@ -107,6 +107,13 @@ details live in `.agents/skills/`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
+- Dashboard saves keep bounded history in SQL. Use
+  `list-dashboard-revisions` to inspect undo points and
+  `restore-dashboard-revision` to restore one instead of hand-editing history
+  rows.
+- Saved analyses also keep bounded history. Use `list-analysis-revisions` and
+  `restore-analysis-revision` for rollback after a re-run updates the saved
+  findings.
 - Do not count shifting `/panels/<index>` values for ordinary dashboard edit
   requests. Use low-level JSON-pointer edits only when explicitly requested.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
@@ -251,7 +258,9 @@ details live in `.agents/skills/`.
   `@agent-native/core/client` (`captureException` / `captureMessage` /
   `addErrorBreadcrumb`), auto-enabled by `configureTracking` and transported
   through the first-party analytics ingest as a `$exception` event. Deep link:
-  `?view=errors&issue=<id>`. See `docs/error-capture.md`.
+  `?view=errors&issue=<id>`. Issue detail includes recent frequency,
+  parsed/raw stack traces, breadcrumbs, tags, occurrence history, and session
+  replay links. See `docs/error-capture.md`.
 - Session replay ↔ Errors: a recording's devtools Console error lines link to
   the grouped issue at `/monitoring?view=errors&issue=<id>`, resolved by
   `match-error-issues` (exact fingerprint match, no heuristics); issues link

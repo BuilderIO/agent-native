@@ -42,7 +42,7 @@ export const monitors = table("monitors", {
   /** Optional request body (POST/PUT/PATCH). */
   requestBody: text("request_body"),
   intervalSeconds: integer("interval_seconds").notNull().default(300),
-  timeoutMs: integer("timeout_ms").notNull().default(15000),
+  timeoutMs: integer("timeout_ms").notNull().default(10000),
   /**
    * Status matcher as JSON. One of:
    *   { "mode": "class", "classes": ["2xx","3xx"] }

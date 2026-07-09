@@ -447,6 +447,7 @@ export function normalizeAgentNativeExtensionSandbox(
   );
   tokens.delete("allow-same-origin");
   tokens.add("allow-scripts");
+  tokens.add("allow-downloads");
   return Array.from(tokens).join(" ");
 }
 

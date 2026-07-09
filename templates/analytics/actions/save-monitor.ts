@@ -101,7 +101,7 @@ export default defineAction({
       .min(1000)
       .max(120000)
       .optional()
-      .describe("Request timeout in milliseconds (default 15000)."),
+      .describe("Request timeout in milliseconds (default 10000)."),
     expectedStatus: statusMatcherSchema.optional(),
     assertions: z
       .array(assertionSchema)

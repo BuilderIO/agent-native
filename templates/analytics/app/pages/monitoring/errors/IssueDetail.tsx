@@ -31,6 +31,8 @@ import {
   useStatusLabel,
 } from "./utils";
 
+const DEFAULT_FREQUENCY_DAYS = 14;
+
 export function IssueDetail({
   issueId,
   fallback,
@@ -158,6 +160,7 @@ export function IssueDetail({
       </div>
 
       {issue ? <OverviewGrid issue={issue} latest={latest} /> : null}
+      {issue ? <FrequencyCard issue={issue} /> : null}
       {latest ? <LatestOccurrenceCard event={latest} /> : null}
 
       {isLoading && !latest ? (
@@ -288,55 +291,192 @@ function OverviewGrid({
   );
 }
 
-function StackTraceCard({ event }: { event?: ErrorEventDetail }) {
+function FrequencyCard({ issue }: { issue: ErrorIssueSummary }) {
   const t = useErrorsT();
-  const frames = event?.stack ?? [];
+  const values = (
+    issue.sparkline?.length
+      ? issue.sparkline
+      : new Array(DEFAULT_FREQUENCY_DAYS).fill(0)
+  ).map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0));
+  const max = Math.max(1, ...values);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const dayLabels = buildFrequencyDayLabels(values.length);
 
   return (
     <Card>
-      <CardContent className="p-0">
-        <div className="border-b px-4 py-3 text-sm font-medium">
-          {t.stackTrace}
+      <CardContent className="space-y-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">{t.frequency}</div>
+            <div className="text-xs text-muted-foreground">
+              {fmt(t.frequencyWindow, { days: values.length })}
+            </div>
+          </div>
+          <div className="text-end">
+            <div className="text-sm font-semibold text-foreground">
+              {formatNumber(total)}
+            </div>
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {t.recentOccurrences}
+            </div>
+          </div>
         </div>
-        {frames.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">{t.noStack}</p>
-        ) : (
-          <ol className="divide-y divide-border/40 font-mono text-xs">
-            {frames.map((frame, index) => (
-              <StackFrameRow key={index} frame={frame} />
-            ))}
-          </ol>
-        )}
+
+        <div className="flex h-28 items-end gap-1 border-b border-border/60 pb-2">
+          {values.map((count, index) => {
+            const height = count === 0 ? 4 : Math.max(12, (count / max) * 100);
+            const label = fmt(t.frequencyBarLabel, {
+              count,
+              date: dayLabels[index]?.long ?? "",
+            });
+            return (
+              <div
+                key={`${dayLabels[index]?.iso ?? index}-${index}`}
+                className="flex h-full flex-1 items-end"
+                title={label}
+                aria-label={label}
+              >
+                <div
+                  className={cn(
+                    "w-full rounded-t-sm transition-colors",
+                    count > 0
+                      ? "bg-primary/75 hover:bg-primary"
+                      : "bg-muted-foreground/15",
+                  )}
+                  style={{ height: `${height}%` }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>{dayLabels[0]?.short}</span>
+          {total === 0 ? <span>{t.noRecentVolume}</span> : null}
+          <span>{dayLabels[dayLabels.length - 1]?.short}</span>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function StackFrameRow({ frame }: { frame: ParsedStackFrame }) {
+function buildFrequencyDayLabels(days: number): Array<{
+  iso: string;
+  short: string;
+  long: string;
+}> {
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return Array.from({ length: Math.max(1, days) }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (days - 1 - index));
+    return {
+      iso: date.toISOString().slice(0, 10),
+      short: formatter.format(date),
+      long: formatter.format(date),
+    };
+  });
+}
+
+function StackTraceCard({ event }: { event?: ErrorEventDetail }) {
   const t = useErrorsT();
+  const frames = event?.stack ?? [];
+  const rawStack = event?.rawStack?.trim() ?? "";
+  const headline =
+    rawStack.split("\n")[0]?.trim() ||
+    (event ? `${event.type}: ${event.message}` : "");
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+          <div>
+            <div className="text-sm font-medium">{t.stackTrace}</div>
+            {headline ? (
+              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                {headline}
+              </div>
+            ) : null}
+          </div>
+          {frames.length > 0 ? (
+            <span className="rounded-full border bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {fmt(t.stackFrameCount, { count: frames.length })}
+            </span>
+          ) : null}
+        </div>
+        {frames.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">{t.noStack}</p>
+        ) : (
+          <ol className="divide-y divide-border/40">
+            {frames.map((frame, index) => (
+              <StackFrameRow key={index} frame={frame} index={index} />
+            ))}
+          </ol>
+        )}
+        {rawStack ? (
+          <details className="border-t px-4 py-3">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+              {t.rawStack}
+            </summary>
+            <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed text-foreground">
+              {rawStack}
+            </pre>
+          </details>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StackFrameRow({
+  frame,
+  index,
+}: {
+  frame: ParsedStackFrame;
+  index: number;
+}) {
+  const t = useErrorsT();
+  const location = stackFrameLocation(frame);
+
   return (
     <li
       className={cn(
-        "flex flex-wrap items-baseline gap-x-2 px-4 py-2",
-        frame.inApp ? "bg-transparent" : "bg-muted/20 text-muted-foreground",
+        "grid gap-3 px-4 py-3 sm:grid-cols-[auto_1fr_auto]",
+        frame.inApp ? "bg-background" : "bg-muted/20 text-muted-foreground",
       )}
     >
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border bg-muted/40 font-mono text-[11px] text-muted-foreground">
+        {index + 1}
+      </span>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 font-mono text-xs">
+          <span
+            className={cn(
+              "font-semibold",
+              frame.inApp ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {frame.function || "<anonymous>"}
+          </span>
+          <span className="min-w-0 truncate text-muted-foreground">
+            {location}
+          </span>
+        </div>
+        {frame.raw ? (
+          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/30 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            {frame.raw}
+          </pre>
+        ) : null}
+        {frame.sourceContext?.length ? (
+          <SourceContextBlock lines={frame.sourceContext} />
+        ) : null}
+      </div>
       <span
         className={cn(
-          "font-semibold",
-          frame.inApp ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {frame.function || "<anonymous>"}
-      </span>
-      <span className="text-muted-foreground">
-        {shortFrameFile(frame.file)}
-        {frame.lineno != null ? `:${frame.lineno}` : ""}
-        {frame.colno != null ? `:${frame.colno}` : ""}
-      </span>
-      <span
-        className={cn(
-          "ms-auto rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+          "h-fit rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide sm:justify-self-end",
           frame.inApp
             ? "bg-primary/10 text-primary"
             : "bg-muted text-muted-foreground",
@@ -346,6 +486,59 @@ function StackFrameRow({ frame }: { frame: ParsedStackFrame }) {
       </span>
     </li>
   );
+}
+
+function SourceContextBlock({
+  lines,
+}: {
+  lines: NonNullable<ParsedStackFrame["sourceContext"]>;
+}) {
+  const t = useErrorsT();
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-md border bg-background/60">
+      <div className="border-b bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {t.sourceContext}
+      </div>
+      <div className="overflow-x-auto font-mono text-[11px] leading-relaxed">
+        {lines.map((line) => (
+          <div
+            key={line.line}
+            className={cn(
+              "grid min-w-max grid-cols-[3rem_1fr]",
+              line.highlight
+                ? "bg-primary/10 text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "select-none border-e px-2 py-0.5 text-end",
+                line.highlight
+                  ? "border-primary/20 text-primary"
+                  : "border-border/60",
+              )}
+            >
+              {line.line}
+            </span>
+            <code className="whitespace-pre px-3 py-0.5">
+              {line.text || " "}
+            </code>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function stackFrameLocation(frame: ParsedStackFrame): string {
+  return [
+    shortFrameFile(frame.file),
+    frame.lineno != null ? frame.lineno : null,
+    frame.colno != null ? frame.colno : null,
+  ]
+    .filter((part) => part !== null && part !== "")
+    .join(":");
 }
 
 function normalizeBreadcrumb(value: unknown): ErrorBreadcrumb | null {

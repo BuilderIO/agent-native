@@ -24,16 +24,22 @@ function cellToCSV(value: unknown): string {
   return str;
 }
 
+/** Render a matrix as RFC-4180-style CSV with a header row. */
+export function toCSVTable(headers: string[], rows: unknown[][]): string {
+  const header = headers.map(cellToCSV).join(",");
+  const body = rows.map((row) => row.map(cellToCSV).join(","));
+  return [header, ...body].join("\r\n");
+}
+
 /** Render rows as RFC-4180-style CSV with a header row of the given columns. */
 export function toCSV(
   columns: string[],
   rows: Record<string, unknown>[],
 ): string {
-  const header = columns.map(cellToCSV).join(",");
-  const body = rows.map((row) =>
-    columns.map((col) => cellToCSV(row[col])).join(","),
+  return toCSVTable(
+    columns,
+    rows.map((row) => columns.map((col) => row[col])),
   );
-  return [header, ...body].join("\r\n");
 }
 
 /** Render rows as a pretty-printed JSON array. */

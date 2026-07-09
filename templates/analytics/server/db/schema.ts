@@ -46,6 +46,31 @@ export const dashboards = table("dashboards", {
 export const dashboardShares = createSharesTable("dashboard_shares");
 
 /**
+ * Bounded dashboard history. Each row snapshots the previous dashboard config
+ * before a meaningful save so users and agents can restore known-good states.
+ */
+export const dashboardRevisions = table(
+  "dashboard_revisions",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id").notNull(),
+    kind: text("kind", { enum: ["explorer", "sql"] }).notNull(),
+    title: text("title").notNull(),
+    config: text("config").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by"),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (t) => ({
+    dashboardCreatedIdx: index("dashboard_revisions_dashboard_created_idx").on(
+      t.dashboardId,
+      t.createdAt,
+    ),
+  }),
+);
+
+/**
  * Saved filter views per dashboard. Lives alongside the parent and is
  * governed by the parent's sharing (no separate share rows).
  */
@@ -118,6 +143,31 @@ export const analyses = table("analyses", {
   hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
+
+export const analysisRevisions = table(
+  "analysis_revisions",
+  {
+    id: text("id").primaryKey(),
+    analysisId: text("analysis_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    question: text("question").notNull().default(""),
+    instructions: text("instructions").notNull().default(""),
+    dataSources: text("data_sources").notNull().default("[]"),
+    resultMarkdown: text("result_markdown").notNull().default(""),
+    resultData: text("result_data"),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by"),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (t) => ({
+    analysisCreatedIdx: index("analysis_revisions_analysis_created_idx").on(
+      t.analysisId,
+      t.createdAt,
+    ),
+  }),
+);
 
 export const analysisShares = createSharesTable("analysis_shares");
 

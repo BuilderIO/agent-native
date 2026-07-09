@@ -309,6 +309,7 @@ const messages = {
     untitledDashboard: "未命名儀表板",
   },
   common: {
+    cancel: "取消",
     docs: "檔案",
     noData: "無資料",
     noDataAvailable: "無可用資料",
@@ -327,6 +328,8 @@ const messages = {
     editSqlQuery: "編輯 SQL 查詢",
     chartUnavailable: "圖表不可用",
     failedToDecodePanel: "無法解碼面板",
+    untitledAnalysis: "未命名分析",
+    untitledDashboard: "未命名儀表板",
   },
   dataDictionary: {
     intro:
@@ -591,6 +594,15 @@ const messages = {
     untitledTheme: "無標題主題",
   },
   dashboard: {
+    historyTitle: "儀表板歷史記錄",
+    historyDescription: "還原先前的儀表板狀態。還原前會先保存目前狀態。",
+    historyEmpty: "尚無歷史記錄。下一次編輯後，變更會自動保存在這裡。",
+    historyRestore: "還原",
+    historyRestored: "儀表板已還原",
+    historyRestoreFailed: "無法還原儀表板",
+    historyRestoreQuestion: "要還原此儀表板版本嗎？",
+    historyRestoreWarning:
+      "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
     panelSettings: "面板設定",
     revenueOverTime: "一段時間內的收入",
     recentSales: "最近銷售",
@@ -887,6 +899,15 @@ const messages = {
     never: "從不",
   },
   analyses: {
+    historyTitle: "分析歷史記錄",
+    historyDescription: "還原先前保存的分析狀態。還原前會先保存目前狀態。",
+    historyEmpty: "尚無歷史記錄。下一次重新執行後，變更會自動保存在這裡。",
+    historyRestore: "還原",
+    historyRestored: "分析已還原",
+    historyRestoreFailed: "無法還原分析",
+    historyRestoreQuestion: "要還原此分析版本嗎？",
+    historyRestoreWarning:
+      "這會取代目前保存的發現，並將目前狀態保留在歷史記錄。",
     description: "可以隨時重新執行以獲得新結果的臨時分析",
     searchPlaceholder: "搜尋分析...",
     noResults: "沒有結果",

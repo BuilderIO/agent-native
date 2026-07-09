@@ -41,6 +41,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 interface Extension {
   id: string;
@@ -54,6 +55,9 @@ interface Extension {
     permissions?: BridgePolicyContext["permissions"];
   };
 }
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 // Read the host app's *actual* computed theme values for the shared token set
 // (THEME_VAR_NAMES). The iframe ships with a generic baked palette
@@ -392,7 +396,7 @@ export function EmbeddedExtension({
         key={`${extensionId}-${extension.updatedAt ?? ""}`}
         src={iframeSrc}
         title={extension.name}
-        sandbox="allow-scripts allow-forms"
+        sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
           iframeRef.current?.contentWindow?.postMessage(

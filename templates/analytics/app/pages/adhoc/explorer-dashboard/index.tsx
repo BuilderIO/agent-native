@@ -38,12 +38,14 @@ import {
   IconEye,
   IconEyeOff,
   IconGripVertical,
+  IconHistory,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -80,6 +82,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
 import {
   resourceCanEdit,
   resourceCanManage,
@@ -195,11 +198,19 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
     null,
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  useDashboardChatContext({
+    id: dashboardId,
+    kind: "explorer",
+    title: dashboard?.name,
+    panelCount: dashboard?.charts.length,
+    canEdit,
+  });
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
@@ -608,7 +619,7 @@ export default function ExplorerDashboardPage() {
               {t("explorerDashboard.addChart")}
             </Button>
           ) : null}
-          {canEdit || canManage ? (
+          {dashboardId || canEdit || canManage ? (
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -628,6 +639,20 @@ export default function ExplorerDashboardPage() {
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="w-44">
+                {dashboardId ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setHistoryOpen(true);
+                    }}
+                  >
+                    <IconHistory className="mr-2 h-3.5 w-3.5" />
+                    {t("dashboard.historyTitle")}
+                  </DropdownMenuItem>
+                ) : null}
+                {dashboardId && canEdit && !archivedAt ? (
+                  <DropdownMenuSeparator />
+                ) : null}
                 {canEdit && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
@@ -656,6 +681,14 @@ export default function ExplorerDashboardPage() {
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+          {dashboardId ? (
+            <DashboardHistoryPanel
+              dashboardId={dashboardId}
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              canRestore={canEdit && !archivedAt}
+            />
           ) : null}
           {canManage ? (
             <AlertDialog

@@ -34,6 +34,17 @@ const enUS = {
     created: "Created {{date}}",
   },
   dashboard: {
+    historyTitle: "Dashboard history",
+    historyDescription:
+      "Restore a previous dashboard state. Restoring snapshots the current state first.",
+    historyEmpty:
+      "No history yet. Changes are saved here automatically after the next edit.",
+    historyRestore: "Restore",
+    historyRestored: "Dashboard restored",
+    historyRestoreFailed: "Couldn't restore dashboard",
+    historyRestoreQuestion: "Restore this dashboard version?",
+    historyRestoreWarning:
+      "This replaces the current dashboard layout and saves the current state in history.",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -333,6 +344,7 @@ const enUS = {
     newAnalysisPlaceholder: "Describe the question you want to investigate...",
   },
   common: {
+    cancel: "Cancel",
     docs: "Docs",
     noData: "No data",
     noDataAvailable: "No data available",
@@ -353,6 +365,8 @@ const enUS = {
     editSqlQuery: "Edit SQL Query",
     chartUnavailable: "Chart unavailable",
     failedToDecodePanel: "Failed to decode panel",
+    untitledAnalysis: "Untitled analysis",
+    untitledDashboard: "Untitled dashboard",
   },
   routeTitles: {
     notFound: "Not Found - Analytics",
@@ -679,6 +693,17 @@ const enUS = {
     allAnalyses: "All analyses",
     updated: "Updated {{date}}",
     created: "Created {{date}}",
+    historyTitle: "Analysis history",
+    historyDescription:
+      "Restore a previous saved analysis state. Restoring snapshots the current state first.",
+    historyEmpty:
+      "No history yet. Changes are saved here automatically after the next re-run.",
+    historyRestore: "Restore",
+    historyRestored: "Analysis restored",
+    historyRestoreFailed: "Couldn't restore analysis",
+    historyRestoreQuestion: "Restore this analysis version?",
+    historyRestoreWarning:
+      "This replaces the current saved findings and keeps the current state in history.",
     public: "Public",
     sharedWithOrg: "Shared with org",
     private: "Private",
@@ -11076,6 +11101,344 @@ const translatedDashboardAdminTranslations = {
 
 for (const [locale, overrides] of Object.entries(
   translatedDashboardAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
+
+const translatedHistoryTranslations = {
+  "zh-TW": {
+    common: {
+      cancel: "取消",
+      untitledAnalysis: "未命名分析",
+      untitledDashboard: "未命名儀表板",
+    },
+    dashboard: {
+      historyTitle: "儀表板歷史記錄",
+      historyDescription: "還原先前的儀表板狀態。還原前會先保存目前狀態。",
+      historyEmpty: "尚無歷史記錄。下一次編輯後，變更會自動保存在這裡。",
+      historyRestore: "還原",
+      historyRestored: "儀表板已還原",
+      historyRestoreFailed: "無法還原儀表板",
+      historyRestoreQuestion: "要還原此儀表板版本嗎？",
+      historyRestoreWarning:
+        "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+    },
+    analyses: {
+      historyTitle: "分析歷史記錄",
+      historyDescription: "還原先前保存的分析狀態。還原前會先保存目前狀態。",
+      historyEmpty: "尚無歷史記錄。下一次重新執行後，變更會自動保存在這裡。",
+      historyRestore: "還原",
+      historyRestored: "分析已還原",
+      historyRestoreFailed: "無法還原分析",
+      historyRestoreQuestion: "要還原此分析版本嗎？",
+      historyRestoreWarning:
+        "這會取代目前保存的發現，並將目前狀態保留在歷史記錄。",
+    },
+  },
+  "zh-CN": {
+    common: {
+      cancel: "取消",
+      untitledAnalysis: "未命名分析",
+      untitledDashboard: "未命名仪表板",
+    },
+    dashboard: {
+      historyTitle: "仪表板历史记录",
+      historyDescription: "还原之前的仪表板状态。还原前会先保存当前状态。",
+      historyEmpty: "还没有历史记录。下一次编辑后，变更会自动保存到这里。",
+      historyRestore: "还原",
+      historyRestored: "仪表板已还原",
+      historyRestoreFailed: "无法还原仪表板",
+      historyRestoreQuestion: "要还原此仪表板版本吗？",
+      historyRestoreWarning:
+        "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+    },
+    analyses: {
+      historyTitle: "分析历史记录",
+      historyDescription: "还原之前保存的分析状态。还原前会先保存当前状态。",
+      historyEmpty: "还没有历史记录。下一次重新运行后，变更会自动保存到这里。",
+      historyRestore: "还原",
+      historyRestored: "分析已还原",
+      historyRestoreFailed: "无法还原分析",
+      historyRestoreQuestion: "要还原此分析版本吗？",
+      historyRestoreWarning:
+        "这会替换当前保存的发现，并把当前状态保留在历史记录中。",
+    },
+  },
+  "es-ES": {
+    common: {
+      cancel: "Cancelar",
+      untitledAnalysis: "Análisis sin título",
+      untitledDashboard: "Panel sin título",
+    },
+    dashboard: {
+      historyTitle: "Historial del panel",
+      historyDescription:
+        "Restaura un estado anterior del panel. Al restaurar, primero se guarda una instantánea del estado actual.",
+      historyEmpty:
+        "Aún no hay historial. Los cambios se guardarán aquí automáticamente tras la próxima edición.",
+      historyRestore: "Restaurar",
+      historyRestored: "Panel restaurado",
+      historyRestoreFailed: "No se pudo restaurar el panel",
+      historyRestoreQuestion: "¿Restaurar esta versión del panel?",
+      historyRestoreWarning:
+        "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+    },
+    analyses: {
+      historyTitle: "Historial del análisis",
+      historyDescription:
+        "Restaura un estado anterior del análisis guardado. Al restaurar, primero se guarda una instantánea del estado actual.",
+      historyEmpty:
+        "Aún no hay historial. Los cambios se guardarán aquí automáticamente tras la próxima nueva ejecución.",
+      historyRestore: "Restaurar",
+      historyRestored: "Análisis restaurado",
+      historyRestoreFailed: "No se pudo restaurar el análisis",
+      historyRestoreQuestion: "¿Restaurar esta versión del análisis?",
+      historyRestoreWarning:
+        "Esto reemplaza los hallazgos guardados actuales y conserva el estado actual en el historial.",
+    },
+  },
+  "fr-FR": {
+    common: {
+      cancel: "Annuler",
+      untitledAnalysis: "Analyse sans titre",
+      untitledDashboard: "Tableau de bord sans titre",
+    },
+    dashboard: {
+      historyTitle: "Historique du tableau de bord",
+      historyDescription:
+        "Restaurez un état précédent du tableau de bord. La restauration enregistre d'abord l'état actuel.",
+      historyEmpty:
+        "Aucun historique pour l'instant. Les changements seront enregistrés ici automatiquement après la prochaine modification.",
+      historyRestore: "Restaurer",
+      historyRestored: "Tableau de bord restauré",
+      historyRestoreFailed: "Impossible de restaurer le tableau de bord",
+      historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
+      historyRestoreWarning:
+        "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+    },
+    analyses: {
+      historyTitle: "Historique de l'analyse",
+      historyDescription:
+        "Restaurez un état précédent de l'analyse enregistrée. La restauration enregistre d'abord l'état actuel.",
+      historyEmpty:
+        "Aucun historique pour l'instant. Les changements seront enregistrés ici automatiquement après la prochaine réexécution.",
+      historyRestore: "Restaurer",
+      historyRestored: "Analyse restaurée",
+      historyRestoreFailed: "Impossible de restaurer l'analyse",
+      historyRestoreQuestion: "Restaurer cette version de l'analyse ?",
+      historyRestoreWarning:
+        "Cela remplace les résultats enregistrés actuels et conserve l'état actuel dans l'historique.",
+    },
+  },
+  "de-DE": {
+    common: {
+      cancel: "Abbrechen",
+      untitledAnalysis: "Unbenannte Analyse",
+      untitledDashboard: "Unbenanntes Dashboard",
+    },
+    dashboard: {
+      historyTitle: "Dashboard-Verlauf",
+      historyDescription:
+        "Stelle einen früheren Dashboard-Stand wieder her. Vor der Wiederherstellung wird der aktuelle Stand gespeichert.",
+      historyEmpty:
+        "Noch kein Verlauf. Änderungen werden nach der nächsten Bearbeitung automatisch hier gespeichert.",
+      historyRestore: "Wiederherstellen",
+      historyRestored: "Dashboard wiederhergestellt",
+      historyRestoreFailed: "Dashboard konnte nicht wiederhergestellt werden",
+      historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
+      historyRestoreWarning:
+        "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+    },
+    analyses: {
+      historyTitle: "Analyseverlauf",
+      historyDescription:
+        "Stelle einen früheren Stand der gespeicherten Analyse wieder her. Vor der Wiederherstellung wird der aktuelle Stand gespeichert.",
+      historyEmpty:
+        "Noch kein Verlauf. Änderungen werden nach der nächsten erneuten Ausführung automatisch hier gespeichert.",
+      historyRestore: "Wiederherstellen",
+      historyRestored: "Analyse wiederhergestellt",
+      historyRestoreFailed: "Analyse konnte nicht wiederhergestellt werden",
+      historyRestoreQuestion: "Diese Analyseversion wiederherstellen?",
+      historyRestoreWarning:
+        "Dies ersetzt die aktuell gespeicherten Erkenntnisse und behält den aktuellen Stand im Verlauf.",
+    },
+  },
+  "ja-JP": {
+    common: {
+      cancel: "キャンセル",
+      untitledAnalysis: "無題の分析",
+      untitledDashboard: "無題のダッシュボード",
+    },
+    dashboard: {
+      historyTitle: "ダッシュボード履歴",
+      historyDescription:
+        "以前のダッシュボード状態を復元します。復元前に現在の状態を履歴に保存します。",
+      historyEmpty:
+        "まだ履歴はありません。次回の編集後、変更はここに自動保存されます。",
+      historyRestore: "復元",
+      historyRestored: "ダッシュボードを復元しました",
+      historyRestoreFailed: "ダッシュボードを復元できませんでした",
+      historyRestoreQuestion: "このダッシュボード版を復元しますか？",
+      historyRestoreWarning:
+        "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+    },
+    analyses: {
+      historyTitle: "分析履歴",
+      historyDescription:
+        "以前の保存済み分析状態を復元します。復元前に現在の状態を履歴に保存します。",
+      historyEmpty:
+        "まだ履歴はありません。次回の再実行後、変更はここに自動保存されます。",
+      historyRestore: "復元",
+      historyRestored: "分析を復元しました",
+      historyRestoreFailed: "分析を復元できませんでした",
+      historyRestoreQuestion: "この分析版を復元しますか？",
+      historyRestoreWarning:
+        "現在保存されている結果を置き換え、現在の状態を履歴に保持します。",
+    },
+  },
+  "ko-KR": {
+    common: {
+      cancel: "취소",
+      untitledAnalysis: "제목 없는 분석",
+      untitledDashboard: "제목 없는 대시보드",
+    },
+    dashboard: {
+      historyTitle: "대시보드 기록",
+      historyDescription:
+        "이전 대시보드 상태를 복원합니다. 복원하기 전에 현재 상태를 먼저 기록에 저장합니다.",
+      historyEmpty:
+        "아직 기록이 없습니다. 다음 편집 후 변경 사항이 여기에 자동으로 저장됩니다.",
+      historyRestore: "복원",
+      historyRestored: "대시보드가 복원되었습니다",
+      historyRestoreFailed: "대시보드를 복원할 수 없습니다",
+      historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
+      historyRestoreWarning:
+        "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+    },
+    analyses: {
+      historyTitle: "분석 기록",
+      historyDescription:
+        "이전 저장된 분석 상태를 복원합니다. 복원하기 전에 현재 상태를 먼저 기록에 저장합니다.",
+      historyEmpty:
+        "아직 기록이 없습니다. 다음 재실행 후 변경 사항이 여기에 자동으로 저장됩니다.",
+      historyRestore: "복원",
+      historyRestored: "분석이 복원되었습니다",
+      historyRestoreFailed: "분석을 복원할 수 없습니다",
+      historyRestoreQuestion: "이 분석 버전을 복원할까요?",
+      historyRestoreWarning:
+        "현재 저장된 결과를 대체하고 현재 상태를 기록에 보관합니다.",
+    },
+  },
+  "pt-BR": {
+    common: {
+      cancel: "Cancelar",
+      untitledAnalysis: "Análise sem título",
+      untitledDashboard: "Painel sem título",
+    },
+    dashboard: {
+      historyTitle: "Histórico do painel",
+      historyDescription:
+        "Restaure um estado anterior do painel. A restauração salva primeiro um snapshot do estado atual.",
+      historyEmpty:
+        "Ainda não há histórico. As alterações serão salvas aqui automaticamente após a próxima edição.",
+      historyRestore: "Restaurar",
+      historyRestored: "Painel restaurado",
+      historyRestoreFailed: "Não foi possível restaurar o painel",
+      historyRestoreQuestion: "Restaurar esta versão do painel?",
+      historyRestoreWarning:
+        "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+    },
+    analyses: {
+      historyTitle: "Histórico da análise",
+      historyDescription:
+        "Restaure um estado anterior da análise salva. A restauração salva primeiro um snapshot do estado atual.",
+      historyEmpty:
+        "Ainda não há histórico. As alterações serão salvas aqui automaticamente após a próxima nova execução.",
+      historyRestore: "Restaurar",
+      historyRestored: "Análise restaurada",
+      historyRestoreFailed: "Não foi possível restaurar a análise",
+      historyRestoreQuestion: "Restaurar esta versão da análise?",
+      historyRestoreWarning:
+        "Isso substitui as descobertas salvas atuais e mantém o estado atual no histórico.",
+    },
+  },
+  "hi-IN": {
+    common: {
+      cancel: "रद्द करें",
+      untitledAnalysis: "बिना शीर्षक वाला विश्लेषण",
+      untitledDashboard: "बिना शीर्षक वाला डैशबोर्ड",
+    },
+    dashboard: {
+      historyTitle: "डैशबोर्ड इतिहास",
+      historyDescription:
+        "पिछली डैशबोर्ड स्थिति को पुनर्स्थापित करें। पुनर्स्थापना से पहले वर्तमान स्थिति का snapshot सहेजा जाता है।",
+      historyEmpty:
+        "अभी कोई इतिहास नहीं है। अगले edit के बाद बदलाव यहाँ अपने-आप सहेजे जाएँगे।",
+      historyRestore: "पुनर्स्थापित करें",
+      historyRestored: "डैशबोर्ड पुनर्स्थापित हुआ",
+      historyRestoreFailed: "डैशबोर्ड पुनर्स्थापित नहीं किया जा सका",
+      historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
+      historyRestoreWarning:
+        "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+    },
+    analyses: {
+      historyTitle: "विश्लेषण इतिहास",
+      historyDescription:
+        "पिछली सहेजी गई विश्लेषण स्थिति को पुनर्स्थापित करें। पुनर्स्थापना से पहले वर्तमान स्थिति का snapshot सहेजा जाता है।",
+      historyEmpty:
+        "अभी कोई इतिहास नहीं है। अगली re-run के बाद बदलाव यहाँ अपने-आप सहेजे जाएँगे।",
+      historyRestore: "पुनर्स्थापित करें",
+      historyRestored: "विश्लेषण पुनर्स्थापित हुआ",
+      historyRestoreFailed: "विश्लेषण पुनर्स्थापित नहीं किया जा सका",
+      historyRestoreQuestion: "इस विश्लेषण संस्करण को पुनर्स्थापित करें?",
+      historyRestoreWarning:
+        "यह वर्तमान सहेजे गए findings को बदल देगा और वर्तमान स्थिति को इतिहास में रखेगा।",
+    },
+  },
+  "ar-SA": {
+    common: {
+      cancel: "إلغاء",
+      untitledAnalysis: "تحليل بلا عنوان",
+      untitledDashboard: "لوحة معلومات بلا عنوان",
+    },
+    dashboard: {
+      historyTitle: "سجل لوحة المعلومات",
+      historyDescription:
+        "استعد حالة سابقة للوحة المعلومات. تحفظ الاستعادة لقطة من الحالة الحالية أولاً.",
+      historyEmpty:
+        "لا يوجد سجل بعد. ستُحفظ التغييرات هنا تلقائياً بعد التعديل التالي.",
+      historyRestore: "استعادة",
+      historyRestored: "تمت استعادة لوحة المعلومات",
+      historyRestoreFailed: "تعذرت استعادة لوحة المعلومات",
+      historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
+      historyRestoreWarning:
+        "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+    },
+    analyses: {
+      historyTitle: "سجل التحليل",
+      historyDescription:
+        "استعد حالة سابقة للتحليل المحفوظ. تحفظ الاستعادة لقطة من الحالة الحالية أولاً.",
+      historyEmpty:
+        "لا يوجد سجل بعد. ستُحفظ التغييرات هنا تلقائياً بعد إعادة التشغيل التالية.",
+      historyRestore: "استعادة",
+      historyRestored: "تمت استعادة التحليل",
+      historyRestoreFailed: "تعذرت استعادة التحليل",
+      historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من التحليل؟",
+      historyRestoreWarning:
+        "سيستبدل هذا النتائج المحفوظة الحالية ويحتفظ بالحالة الحالية في السجل.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedHistoryTranslations,
 ) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
   const messages = messagesByLocale[locale];
   if (!messages) continue;

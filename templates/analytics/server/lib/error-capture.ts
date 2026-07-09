@@ -27,6 +27,9 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { stat, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -58,6 +61,10 @@ const DEFAULT_ISSUE_LIMIT = 50;
 const MAX_ISSUE_LIMIT = 100;
 const DEFAULT_EVENTS_PER_ISSUE_READ = 50;
 const SPARKLINE_DAYS = 14;
+const SOURCE_CONTEXT_BEFORE = 4;
+const SOURCE_CONTEXT_AFTER = 4;
+const MAX_SOURCE_CONTEXT_FILE_BYTES = 2_000_000;
+const MAX_SOURCE_CONTEXT_LINE_CHARS = 500;
 
 // ---------------------------------------------------------------------------
 // Pure helpers (unit tested)
@@ -70,6 +77,13 @@ export interface ParsedStackFrame {
   colno: number | null;
   inApp: boolean;
   raw: string;
+  sourceContext?: SourceContextLine[];
+}
+
+export interface SourceContextLine {
+  line: number;
+  text: string;
+  highlight: boolean;
 }
 
 const VENDOR_FILE_RE =
@@ -177,6 +191,150 @@ export function parseStack(
     if (frame) frames.push(frame);
   }
   return frames;
+}
+
+export function sourceContextFromText(
+  source: string,
+  lineNumber: number | null | undefined,
+  options: { before?: number; after?: number } = {},
+): SourceContextLine[] | null {
+  if (!lineNumber || lineNumber < 1) return null;
+  const lines = source.split(/\r?\n/);
+  if (lineNumber > lines.length) return null;
+  const before = options.before ?? SOURCE_CONTEXT_BEFORE;
+  const after = options.after ?? SOURCE_CONTEXT_AFTER;
+  const start = Math.max(1, lineNumber - before);
+  const end = Math.min(lines.length, lineNumber + after);
+  const context: SourceContextLine[] = [];
+  for (let line = start; line <= end; line += 1) {
+    const text = lines[line - 1] ?? "";
+    context.push({
+      line,
+      text:
+        text.length > MAX_SOURCE_CONTEXT_LINE_CHARS
+          ? `${text.slice(0, MAX_SOURCE_CONTEXT_LINE_CHARS)}…`
+          : text,
+      highlight: line === lineNumber,
+    });
+  }
+  return context;
+}
+
+const SOURCE_EXT_RE = /\.(?:[cm]?[jt]sx?|vue|svelte|css|scss|json)$/i;
+
+function templateRepoRootFrom(value: string): string | null {
+  const marker = `${path.sep}templates${path.sep}analytics`;
+  const index = value.indexOf(marker);
+  if (index < 0) return null;
+  return value.slice(0, index);
+}
+
+function sourceRoots(): string[] {
+  const roots = new Set<string>();
+  roots.add(process.cwd());
+  const cwdRepoRoot = templateRepoRootFrom(process.cwd());
+  if (cwdRepoRoot) roots.add(cwdRepoRoot);
+  try {
+    const modulePath = fileURLToPath(import.meta.url);
+    const moduleRepoRoot = templateRepoRootFrom(modulePath);
+    if (moduleRepoRoot) roots.add(moduleRepoRoot);
+  } catch {
+    // import.meta.url is always file: in Node, but source context is best-effort.
+  }
+  return Array.from(roots).map((root) => path.resolve(root));
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function cleanFrameFile(file: string | null): string | null {
+  if (!file) return null;
+  let cleaned = file.trim();
+  if (!cleaned || cleaned === "<anonymous>" || cleaned === "[native code]") {
+    return null;
+  }
+  if (/^https?:\/\//i.test(cleaned)) {
+    try {
+      cleaned = new URL(cleaned).pathname;
+    } catch {
+      return null;
+    }
+  } else if (cleaned.startsWith("file://")) {
+    try {
+      cleaned = fileURLToPath(cleaned);
+    } catch {
+      return null;
+    }
+  }
+  cleaned = cleaned.replace(/[?#].*$/, "");
+  try {
+    cleaned = decodeURIComponent(cleaned);
+  } catch {
+    // Keep the original path when a browser stack includes malformed escapes.
+  }
+  return cleaned;
+}
+
+async function resolveSourcePath(frame: ParsedStackFrame): Promise<string | null> {
+  const cleaned = cleanFrameFile(frame.file);
+  if (!cleaned || !SOURCE_EXT_RE.test(cleaned)) return null;
+  const roots = sourceRoots();
+  const candidates = new Set<string>();
+  if (path.isAbsolute(cleaned)) {
+    candidates.add(path.resolve(cleaned));
+    for (const root of roots) candidates.add(path.resolve(root, `.${cleaned}`));
+  } else {
+    for (const root of roots) candidates.add(path.resolve(root, cleaned));
+  }
+
+  for (const candidate of candidates) {
+    if (!roots.some((root) => isWithinRoot(candidate, root))) continue;
+    try {
+      const fileStat = await stat(candidate);
+      if (
+        fileStat.isFile() &&
+        fileStat.size > 0 &&
+        fileStat.size <= MAX_SOURCE_CONTEXT_FILE_BYTES
+      ) {
+        return candidate;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+async function sourceContextForFrame(
+  frame: ParsedStackFrame,
+): Promise<SourceContextLine[] | undefined> {
+  if (!frame.lineno) return undefined;
+  const sourcePath = await resolveSourcePath(frame);
+  if (!sourcePath) return undefined;
+  try {
+    const source = await readFile(sourcePath, "utf8");
+    return (
+      sourceContextFromText(source, frame.lineno, {
+        before: SOURCE_CONTEXT_BEFORE,
+        after: SOURCE_CONTEXT_AFTER,
+      }) ?? undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+async function addSourceContexts(
+  frames: ParsedStackFrame[],
+): Promise<ParsedStackFrame[]> {
+  return Promise.all(
+    frames.map(async (frame) => {
+      const sourceContext = await sourceContextForFrame(frame);
+      return sourceContext?.length ? { ...frame, sourceContext } : frame;
+    }),
+  );
 }
 
 /** Strip content hashes + query/hash from a filename for stable grouping. */
@@ -1031,6 +1189,7 @@ export interface ErrorEventDetail {
   culprit: string | null;
   level: ExceptionLevel;
   stack: ParsedStackFrame[];
+  rawStack: string | null;
   handled: boolean;
   url: string | null;
   userId: string | null;
@@ -1164,7 +1323,8 @@ export async function getErrorIssue(
   );
 
   const sessions = new Map<string, { recordingId: string; path: string }>();
-  const events: ErrorEventDetail[] = eventRows.map((row: any) => {
+  const events = await Promise.all(
+    eventRows.map(async (row: any): Promise<ErrorEventDetail> => {
     let recordingId: string | null = null;
     if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
       recordingId = row.sessionRecordingId;
@@ -1183,7 +1343,8 @@ export async function getErrorIssue(
       message: row.message ?? "",
       culprit: row.culprit ?? null,
       level: coerceLevel(row.level),
-      stack: parseJson<ParsedStackFrame[]>(row.stack, []),
+      stack: await addSourceContexts(parseJson<ParsedStackFrame[]>(row.stack, [])),
+      rawStack: row.rawStack ?? null,
       handled: Boolean(row.handled),
       url: row.url ?? null,
       userId: row.userId ?? null,
@@ -1199,7 +1360,8 @@ export async function getErrorIssue(
       breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
       occurredAt: row.occurredAt,
     };
-  });
+    }),
+  );
 
   const sparklines = await sparklinesForIssues([issueId]);
   const issue: ErrorIssueSummary = {

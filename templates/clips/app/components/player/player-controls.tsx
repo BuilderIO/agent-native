@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
-export const PLAYER_SEEK_STEP_MS = 15_000;
+export const PLAYER_SEEK_STEP_MS = 5_000;
 
 export interface PlayerControlsProps {
   isPlaying: boolean;
@@ -121,14 +121,6 @@ export function PlayerControls(props: PlayerControlsProps) {
 
       <div className="flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
-          onClick={() => onSeekRelative(-PLAYER_SEEK_STEP_MS)}
-          tooltip="Back 15 seconds"
-          ariaLabel="Back 15 seconds"
-        >
-          <SkipIcon direction="back" />
-        </IconBtn>
-
-        <IconBtn
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
           ariaLabel={isPlaying ? "Pause" : "Play"}
@@ -141,14 +133,23 @@ export function PlayerControls(props: PlayerControlsProps) {
         </IconBtn>
 
         <IconBtn
+          onClick={() => onSeekRelative(-PLAYER_SEEK_STEP_MS)}
+          tooltip="Back 5 seconds"
+          ariaLabel="Back 5 seconds"
+        >
+          <SkipIcon direction="back" />
+        </IconBtn>
+
+        <IconBtn
           onClick={() => onSeekRelative(PLAYER_SEEK_STEP_MS)}
-          tooltip="Forward 15 seconds"
-          ariaLabel="Forward 15 seconds"
+          tooltip="Forward 5 seconds"
+          ariaLabel="Forward 5 seconds"
         >
           <SkipIcon direction="forward" />
         </IconBtn>
 
         <div
+          data-player-ui
           className="relative flex shrink-0 items-center"
           onMouseEnter={() => setVolumePopoverOpen(true)}
           onMouseLeave={() => setVolumePopoverOpen(false)}
@@ -158,6 +159,7 @@ export function PlayerControls(props: PlayerControlsProps) {
           <Popover open={volumePopoverOpen} onOpenChange={setVolumePopoverOpen}>
             <PopoverTrigger asChild>
               <button
+                data-player-ui
                 type="button"
                 onClick={onToggleMute}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white hover:bg-white/10"
@@ -171,6 +173,7 @@ export function PlayerControls(props: PlayerControlsProps) {
               </button>
             </PopoverTrigger>
             <PopoverContent
+              data-player-ui
               side="top"
               align="center"
               sideOffset={8}
@@ -219,7 +222,10 @@ export function PlayerControls(props: PlayerControlsProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums hover:bg-white/10">
+                <button
+                  data-player-ui
+                  className="h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums hover:bg-white/10"
+                >
                   {speed}x
                 </button>
               </DropdownMenuTrigger>
@@ -227,6 +233,7 @@ export function PlayerControls(props: PlayerControlsProps) {
             <TooltipContent>{t("playerControls.playbackSpeed")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
+            data-player-ui
             align="end"
             side="top"
             className="min-w-[90px]"
@@ -298,6 +305,7 @@ function IconBtn({
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          data-player-ui
           onClick={onClick}
           aria-label={ariaLabel ?? tooltip}
           className={cn(
@@ -319,7 +327,7 @@ function SkipIcon({ direction }: { direction: "back" | "forward" }) {
       <IconPlayerSkipForward
         className={cn("h-5 w-5", direction === "back" && "rotate-180")}
       />
-      <span className="absolute text-[7px] font-bold leading-none">15</span>
+      <span className="absolute text-[7px] font-bold leading-none">5</span>
     </span>
   );
 }

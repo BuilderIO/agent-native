@@ -16,6 +16,13 @@ export interface ParsedStackFrame {
   colno: number | null;
   inApp: boolean;
   raw: string;
+  sourceContext?: SourceContextLine[];
+}
+
+export interface SourceContextLine {
+  line: number;
+  text: string;
+  highlight: boolean;
 }
 
 export interface ErrorIssueSummary {
@@ -45,6 +52,7 @@ export interface ErrorEventDetail {
   culprit: string | null;
   level: ExceptionLevel;
   stack: ParsedStackFrame[];
+  rawStack: string | null;
   handled: boolean;
   url: string | null;
   userId: string | null;

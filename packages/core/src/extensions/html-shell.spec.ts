@@ -183,7 +183,16 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
     it(`${file} renders the iframe without allow-same-origin`, () => {
       const text = readFileSync(join(CLIENT_DIR, file), "utf8");
       const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
-      expect(sandboxMatches.length).toBeGreaterThan(0);
+      const usesNormalizedSandbox = text.includes(
+        "sandbox={EXTENSION_IFRAME_SANDBOX}",
+      );
+      if (usesNormalizedSandbox) {
+        expect(text).toContain(
+          "normalizeAgentNativeExtensionSandbox(undefined)",
+        );
+      } else {
+        expect(sandboxMatches.length).toBeGreaterThan(0);
+      }
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }
