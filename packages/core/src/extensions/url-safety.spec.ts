@@ -113,14 +113,20 @@ describe("ssrfSafeFetch httpsOnly", () => {
   });
 
   it("still follows HTTP redirects when httpsOnly is not set", async () => {
+    const redirectResponse = new Response("moved", {
+      status: 302,
+      headers: { location: httpOrigin },
+    });
     const fetchMock = vi.fn(async (url: string) =>
       url === httpsOrigin
-        ? new Response(null, { status: 302, headers: { location: httpOrigin } })
+        ? redirectResponse
         : new Response("ok", { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const response = await ssrfSafeFetch(httpsOrigin);
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The followed hop's body must be drained so its connection is released.
+    expect(redirectResponse.bodyUsed).toBe(true);
   });
 });

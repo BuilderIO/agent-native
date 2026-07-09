@@ -282,6 +282,9 @@ export async function ssrfSafeFetch(
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (!location) return response;
+      // Drain the redirect body so the hop's connection is released instead
+      // of being held until GC.
+      await response.body?.cancel().catch(() => {});
       currentUrl = new URL(location, currentUrl).href;
       continue;
     }

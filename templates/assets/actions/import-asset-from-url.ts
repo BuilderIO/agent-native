@@ -1,11 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
+import { getObject } from "../server/lib/storage.js";
+import {
+  filterDuplicateAssetUploads,
+  hashAssetBuffer,
+} from "../server/lib/upload-dedupe.js";
 import {
   hasAllowedSignature,
   IMAGE_MIME_TYPES,
@@ -84,11 +89,40 @@ function validateHttpsUrl(url: string) {
   if (parsed.protocol !== "https:") {
     throw new Error("Only HTTPS image URLs can be imported.");
   }
+  if (parsed.username || parsed.password) {
+    throw new Error("URLs with embedded credentials cannot be imported.");
+  }
+}
+
+// Query params that carry bearer credentials (S3/GCS presigning, Azure SAS,
+// generic tokens). Provenance drops the query when one is present so signed
+// URLs do not become durable asset metadata; the fetch still uses the full URL.
+const CREDENTIAL_QUERY_PARAM_RE =
+  /^(x-amz-|x-goog-)|^(sig|signature|token|access[-_]?token|auth|authorization|expires|policy|credential|apikey|api[-_]?key|key|secret|session|sv|se|sp|st|spr|sr|skoid)$/i;
+
+function sanitizeProvenanceUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.username = "";
+  parsed.password = "";
+  parsed.hash = "";
+  for (const param of parsed.searchParams.keys()) {
+    if (CREDENTIAL_QUERY_PARAM_RE.test(param)) {
+      parsed.search = "";
+      break;
+    }
+  }
+  return parsed.toString();
+}
+
+/** Release an unread response body so its connection is not held until GC. */
+async function discardResponseBody(response: Response) {
+  await response.body?.cancel().catch(() => {});
 }
 
 async function readResponseBytes(response: Response): Promise<Buffer> {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_IMAGE_UPLOAD_BYTES) {
+    await discardResponseBody(response);
     throw new Error("Image too large (max 25 MB).");
   }
 
@@ -137,6 +171,7 @@ async function fetchImageBytes(url: string): Promise<{
   }
 
   if (!response.ok) {
+    await discardResponseBody(response);
     throw new Error(`Could not fetch that URL (${response.status}).`);
   }
 
@@ -144,6 +179,7 @@ async function fetchImageBytes(url: string): Promise<{
     response.headers.get("content-type"),
   );
   if (!IMAGE_MIME_TYPES.has(mimeType)) {
+    await discardResponseBody(response);
     throw new Error("Only PNG, JPEG, WebP, and AVIF images are supported.");
   }
 
@@ -155,6 +191,67 @@ async function fetchImageBytes(url: string): Promise<{
   }
 
   return { buffer, mimeType };
+}
+
+/**
+ * Same dedupe scope as the upload route: reference assets in this library
+ * with the same role. Returns the existing asset when the fetched bytes are
+ * already stored, so repeat imports are idempotent instead of duplicating
+ * the asset row and blob.
+ */
+async function findDuplicateReferenceAsset(input: {
+  libraryId: string;
+  role: (typeof IMPORTABLE_REFERENCE_ROLES)[number];
+  buffer: Buffer;
+  mimeType: string;
+  contentHash: string;
+  filename: string | null;
+}): Promise<typeof schema.assets.$inferSelect | null> {
+  const db = getDb();
+  const existingReferenceAssets = await db
+    .select({
+      id: schema.assets.id,
+      title: schema.assets.title,
+      mediaType: schema.assets.mediaType,
+      mimeType: schema.assets.mimeType,
+      sizeBytes: schema.assets.sizeBytes,
+      metadata: schema.assets.metadata,
+      objectKey: schema.assets.objectKey,
+    })
+    .from(schema.assets)
+    .where(
+      and(
+        eq(schema.assets.libraryId, input.libraryId),
+        eq(schema.assets.status, "reference"),
+        eq(schema.assets.role, input.role),
+      ),
+    );
+  const { skippedDuplicates } = await filterDuplicateAssetUploads({
+    files: [
+      {
+        altText: null,
+        buffer: input.buffer,
+        contentHash: input.contentHash,
+        filename: input.filename,
+        mediaType: "image",
+        metadata: {},
+        mimeType: input.mimeType,
+        title: "",
+      },
+    ],
+    existingAssets: existingReferenceAssets,
+    readExistingAssetBuffer: (asset) => getObject(asset.objectKey),
+  });
+  const duplicate = skippedDuplicates.find(
+    (skip) => skip.reason === "existing-asset" && skip.assetId,
+  );
+  if (!duplicate?.assetId) return null;
+  const [asset] = await db
+    .select()
+    .from(schema.assets)
+    .where(eq(schema.assets.id, duplicate.assetId))
+    .limit(1);
+  return asset ?? null;
 }
 
 export default defineAction({
@@ -175,16 +272,12 @@ export default defineAction({
     title: z.string().max(200).optional(),
     description: z.string().max(1000).optional(),
   }),
-  run: async ({
-    libraryId,
-    url,
-    role,
-    category,
-    collectionId,
-    folderId,
-    title,
-    description,
-  }) => {
+  run: async (args) => {
+    const { libraryId, url, role, category, title, description } = args;
+    // An empty-string id means "unassigned", never a real row — normalize to
+    // null so it can't skip membership validation yet still land in the row.
+    const collectionId = args.collectionId || null;
+    const folderId = args.folderId || null;
     await assertAccess("asset-library", libraryId, "editor");
     validateHttpsUrl(url);
     if (collectionId) {
@@ -195,10 +288,24 @@ export default defineAction({
     }
 
     const { buffer, mimeType } = await fetchImageBytes(url);
+    const contentHash = hashAssetBuffer(buffer);
+    const duplicate = await findDuplicateReferenceAsset({
+      libraryId,
+      role,
+      buffer,
+      mimeType,
+      contentHash,
+      filename: new URL(url).pathname.split("/").pop() || null,
+    });
+    if (duplicate) {
+      return { ...serializeAsset(duplicate), deduplicated: true };
+    }
+
+    const provenanceUrl = sanitizeProvenanceUrl(url);
     const asset = await createAssetFromBuffer({
       libraryId,
-      collectionId: collectionId ?? null,
-      folderId: folderId ?? null,
+      collectionId,
+      folderId,
       buffer,
       mimeType,
       mediaType: "image",
@@ -207,8 +314,8 @@ export default defineAction({
       status: "reference",
       title: title ?? null,
       description: description ?? null,
-      sourceUrl: url,
-      metadata: { importedFrom: url },
+      sourceUrl: provenanceUrl,
+      metadata: { contentHash, importedFrom: provenanceUrl },
     });
 
     return serializeAsset(asset);
