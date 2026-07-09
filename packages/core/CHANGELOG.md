@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.7
+
+### Patch Changes
+
+- 37f3367: Preserve starter-pinned `@agent-native/toolkit` versions during builder-agent-native-starter manifest sync so template sync does not reset the update bot's exact toolkit pin back to `"latest"`.
+
 ## 0.92.6
 
 ### Patch Changes
