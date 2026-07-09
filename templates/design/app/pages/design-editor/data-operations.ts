@@ -207,6 +207,21 @@ export function clearAcknowledgedDesignDataOperations(
   return next;
 }
 
+/**
+ * Clears every operation included in a compacted save through `revision`
+ * while preserving edits that entered the queue after that request began.
+ */
+export function clearAcknowledgedDesignDataOperationsThroughRevision(
+  pending: PendingDesignDataOperations,
+  revision: number,
+): PendingDesignDataOperations {
+  return Object.fromEntries(
+    Object.entries(pending).filter(
+      ([, operation]) => operation.revision > revision,
+    ),
+  );
+}
+
 export function pendingDesignDataOperations(
   pending: PendingDesignDataOperations,
 ): DesignDataOperation[] {

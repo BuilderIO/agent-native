@@ -5760,6 +5760,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.removeEventListener("keyup", onSelectionChange, true);
         target.removeEventListener("mouseup", onSelectionChange, true);
         document.removeEventListener("selectionchange", onSelectionChange);
+        window.removeEventListener("blur", onWindowBlur, true);
         target.removeAttribute("contenteditable");
         target.removeAttribute("data-agent-native-text-editing");
         document.documentElement.removeAttribute(
@@ -5806,17 +5807,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       finishActiveTextEdit = finish;
-      function onBlur() {
-        if (programmaticTextEdit && !(target.textContent || "").trim()) {
-          window.setTimeout(function() {
-            if (committed || (target.textContent || "").trim()) return;
-            target.focus();
-            updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-            postTextEditingState(target, true);
-          }, 0);
-          return;
+      var emptyProgrammaticRefocusScheduled = false;
+      function refocusEmptyProgrammaticEdit() {
+        if (emptyProgrammaticRefocusScheduled || !programmaticTextEdit || (target.textContent || "").trim()) {
+          return false;
         }
+        emptyProgrammaticRefocusScheduled = true;
+        window.setTimeout(function() {
+          emptyProgrammaticRefocusScheduled = false;
+          if (committed || (target.textContent || "").trim()) return;
+          target.focus();
+          updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+          postTextEditingState(target, true);
+        }, 0);
+        return true;
+      }
+      function onBlur() {
+        if (refocusEmptyProgrammaticEdit()) return;
         finish(true);
+      }
+      function onWindowBlur() {
+        refocusEmptyProgrammaticEdit();
       }
       function onKeyDown(ev) {
         if (ev.isComposing || ev.keyCode === 229) return;
@@ -5872,6 +5883,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       target.addEventListener("keyup", onSelectionChange, true);
       target.addEventListener("mouseup", onSelectionChange, true);
       document.addEventListener("selectionchange", onSelectionChange);
+      window.addEventListener("blur", onWindowBlur, true);
       target.focus();
       if (programmaticTextEdit) {
         try {

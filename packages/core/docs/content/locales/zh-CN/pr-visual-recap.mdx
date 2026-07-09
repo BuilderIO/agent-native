@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 秘密。与 `VISUAL_RECAP_AGENT=codex` 一起设置以使用 Codex 运行回顾。                                                          |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 变量。选择编码代理后端（`claude` 或 `codex`）。                                                                              |
-| `VISUAL_RECAP_MODEL`     | 每个CLI的默认值                 | 变量。固定模型 - 例如`gpt-5.6-sol` 表示 Codex，或 Claude 型号 ID。取消设置使用 CLI 自己的默认值。                                |
+| `VISUAL_RECAP_MODEL`     | 每个CLI的默认值                 | 变量。固定模型 - 例如`gpt-5.6-sol` 表示 Codex，或 Claude 型号 ID。取消设置使用 CLI 自己的默认值。                            |
 | `VISUAL_RECAP_REASONING` | 每个模型的默认值                | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于Codex后端。                                     |
 | `RECAP_CLI_VERSION`      | `latest`                        | 变量。固定工作流程安装的 `@agent-native/core` CLI 版本 - 例如`1.5.0`。参见[Version pinning](#version-pinning-copy-variant)。 |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。仅当在不同来源自行托管计划应用时。                                                                                     |

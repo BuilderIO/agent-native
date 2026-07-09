@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                             |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                  |
-| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.6-sol`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                               |
+| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.6-sol`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                           |
 | `VISUAL_RECAP_REASONING` | 各モデルのデフォルト            | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                      |
 | `RECAP_CLI_VERSION`      | `latest`                        | 変数。ワークフローがインストールする `@agent-native/core` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。 |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                            |

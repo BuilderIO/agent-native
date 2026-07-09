@@ -408,7 +408,7 @@ import {
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
-  clearAcknowledgedDesignDataOperations,
+  clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
@@ -6226,17 +6226,19 @@ function DesignEditor() {
       }
       const revision = frameGeometryOperationRevisionRef.current + 1;
       frameGeometryOperationRevisionRef.current = revision;
-      const outboxEntry = createFrameGeometryOutboxEntry(
-        dataOperations,
-        revision,
-      );
-      if (!outboxEntry) return false;
       pendingFrameGeometryOperationsForUnloadRef.current =
         stagePendingDesignDataOperations(
           pendingFrameGeometryOperationsForUnloadRef.current,
           dataOperations,
           revision,
         );
+      const outboxEntry = createFrameGeometryOutboxEntry(
+        pendingDesignDataOperations(
+          pendingFrameGeometryOperationsForUnloadRef.current,
+        ),
+        revision,
+      );
+      if (!outboxEntry) return false;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
         .catch(() => {})
@@ -6245,9 +6247,8 @@ function DesignEditor() {
             await journalOutboxEntry(outboxEntry);
             await updateDesignAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
-              clearAcknowledgedDesignDataOperations(
+              clearAcknowledgedDesignDataOperationsThroughRevision(
                 pendingFrameGeometryOperationsForUnloadRef.current,
-                dataOperations,
                 revision,
               );
             await acknowledgeOutboxEntry(outboxEntry);

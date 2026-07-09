@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 비밀. 대신 Codex로 요약을 실행하려면 `VISUAL_RECAP_AGENT=codex`와 함께 설정하세요.                                                                  |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 변수. 코딩 에이전트 백엔드(`claude` 또는 `codex`)를 선택합니다.                                                                                     |
-| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                              |
+| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                          |
 | `VISUAL_RECAP_REASONING` | 각 모델의 기본값                | 변수입니다. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`. Codex 백엔드에 적용됩니다.                                          |
 | `RECAP_CLI_VERSION`      | `latest`                        | 변수입니다. 워크플로가 설치하는 `@agent-native/core` CLI 버전을 고정합니다. `1.5.0`. [Version pinning](#version-pinning-copy-variant)를 참조하세요. |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 비밀. 다른 출처에서 Plans 앱을 자체 호스팅하는 경우에만 해당됩니다.                                                                                 |

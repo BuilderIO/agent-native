@@ -7,6 +7,7 @@ import {
   buildDataOperationsKeepalivePayload,
   buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperations,
+  clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
@@ -143,6 +144,30 @@ describe("Design editor data operations", () => {
         clearAcknowledgedDesignDataOperations(afterFirstAck, second, 2),
       ),
     ).toEqual([]);
+  });
+
+  it("clears a compacted acknowledgement without dropping newer queued edits", () => {
+    const revisionOne = stagePendingDesignDataOperations(
+      {},
+      [{ op: "set", path: ["canvasFrames", "a"], value: frameA }],
+      1,
+    );
+    const revisionTwo = stagePendingDesignDataOperations(
+      revisionOne,
+      [{ op: "delete", path: ["canvasFrames", "b"] }],
+      2,
+    );
+    const revisionThree = stagePendingDesignDataOperations(
+      revisionTwo,
+      [{ op: "set", path: ["canvasFrames", "c"], value: frameB }],
+      3,
+    );
+
+    expect(
+      pendingDesignDataOperations(
+        clearAcknowledgedDesignDataOperationsThroughRevision(revisionThree, 2),
+      ),
+    ).toEqual([{ op: "set", path: ["canvasFrames", "c"], value: frameB }]);
   });
 
   it("compacts and guards keepalive payloads by source, emptiness, and byte cap", () => {

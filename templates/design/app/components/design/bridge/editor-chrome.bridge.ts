@@ -8384,6 +8384,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       target.removeEventListener("keyup", onSelectionChange, true);
       target.removeEventListener("mouseup", onSelectionChange, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
       document.documentElement.removeAttribute(
@@ -8449,17 +8450,37 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // Escape/blur would take, instead of only resetting activeTextEditEl.
     finishActiveTextEdit = finish;
 
-    function onBlur() {
-      if (programmaticTextEdit && !(target.textContent || "").trim()) {
-        window.setTimeout(function () {
-          if (committed || (target.textContent || "").trim()) return;
-          target.focus();
-          updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-          postTextEditingState(target, true);
-        }, 0);
-        return;
+    var emptyProgrammaticRefocusScheduled = false;
+    function refocusEmptyProgrammaticEdit() {
+      if (
+        emptyProgrammaticRefocusScheduled ||
+        !programmaticTextEdit ||
+        (target.textContent || "").trim()
+      ) {
+        return false;
       }
+      emptyProgrammaticRefocusScheduled = true;
+      window.setTimeout(function () {
+        emptyProgrammaticRefocusScheduled = false;
+        if (committed || (target.textContent || "").trim()) return;
+        target.focus();
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+        postTextEditingState(target, true);
+      }, 0);
+      return true;
+    }
+
+    function onBlur() {
+      if (refocusEmptyProgrammaticEdit()) return;
       finish(true);
+    }
+
+    // Moving focus from a child browsing context back to the host canvas does
+    // not consistently blur the iframe's activeElement in Chromium. Listen at
+    // the window boundary too so the newly created empty text field keeps the
+    // keyboard until the user types or explicitly exits.
+    function onWindowBlur() {
+      refocusEmptyProgrammaticEdit();
     }
 
     function onKeyDown(ev) {
@@ -8531,6 +8552,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     target.addEventListener("keyup", onSelectionChange, true);
     target.addEventListener("mouseup", onSelectionChange, true);
     document.addEventListener("selectionchange", onSelectionChange);
+    window.addEventListener("blur", onWindowBlur, true);
     target.focus();
     if (programmaticTextEdit) {
       // The synthesized point sits at the (0×0) node's edge and resolves to the
