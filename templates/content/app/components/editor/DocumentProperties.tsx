@@ -2736,9 +2736,10 @@ export function AddProperty({
   }
 
   function activateAddPropertyItem(
-    event:
-      | ReactPointerEvent<HTMLButtonElement>
-      | ReactMouseEvent<HTMLButtonElement>,
+    event: Pick<
+      ReactMouseEvent<HTMLButtonElement>,
+      "button" | "preventDefault" | "stopPropagation"
+    >,
     key: string,
     action: () => void,
   ) {
