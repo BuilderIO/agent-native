@@ -136,7 +136,9 @@ interface AlertRuleFormState {
 
 const KNOWN_CHANNELS = ["inbox", "email", "slack", "webhook"] as const;
 
-function emptyAlertForm(defaults?: AlertRuleDefaults | null): AlertRuleFormState {
+function emptyAlertForm(
+  defaults?: AlertRuleDefaults | null,
+): AlertRuleFormState {
   const emailRecipients = defaults?.emailRecipients ?? [];
   return {
     name: "",
@@ -478,11 +480,7 @@ export function AlertRulesSettingsCard() {
                 )}
                 {t("settings.alertRunNow")}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={startCreateAlert}
-              >
+              <Button type="button" size="sm" onClick={startCreateAlert}>
                 <IconPlus className="size-3.5" />
                 {t("settings.alertNew")}
               </Button>
