@@ -3,4 +3,4 @@ type: fixed
 date: 2026-07-07
 ---
 
-Working locations from Google Calendar now appear as native, non-blocking working-location events instead of generic all-day events.
+Working locations now appear in a dedicated non-blocking lane and can be changed between Home, Office, and Other for one day or an entire recurring series.

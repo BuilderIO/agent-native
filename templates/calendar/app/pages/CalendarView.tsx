@@ -730,6 +730,11 @@ export default function CalendarView() {
     return events.find((event) => event.id === candidate.id) ?? candidate;
   }, [events, sidebarEvent, focusedEvent]);
 
+  const refreshedSidebarEvent = useMemo(() => {
+    if (!sidebarEvent) return null;
+    return events.find((event) => event.id === sidebarEvent.id) ?? sidebarEvent;
+  }, [events, sidebarEvent]);
+
   function handleNavigate(direction: "prev" | "next") {
     const fns =
       direction === "next"
@@ -1670,7 +1675,7 @@ export default function CalendarView() {
         {/* Event detail sidebar — full height, outside the calendar column */}
         {eventDetailSidebar && (
           <EventDetailPanel
-            event={sidebarEvent}
+            event={refreshedSidebarEvent}
             onClose={() => setSidebarEvent(null)}
             onDelete={handleDeleteEvent}
             onTitleSave={handleTitleSave}

@@ -273,6 +273,15 @@ export default defineAction({
       return existingEvent;
     };
 
+    if (args.location !== undefined && !hasWorkingLocationPatch) {
+      const existingEvent = await loadExistingEvent();
+      if (existingEvent.eventType === "workingLocation") {
+        throw new Error(
+          "Working-location events do not support a generic location. Use workingLocationType and workingLocationLabel instead.",
+        );
+      }
+    }
+
     if (hasTimePatch) {
       const existingEvent = await loadExistingEvent();
       const existingStatusEventType =
@@ -300,15 +309,20 @@ export default defineAction({
         args.workingLocationType ??
         existingEvent.workingLocationProperties?.type ??
         "customLocation";
+      const existingWorkingLocationLabel =
+        existingEvent.workingLocationProperties?.type === "officeLocation"
+          ? existingEvent.workingLocationProperties.officeLocation?.label
+          : existingEvent.workingLocationProperties?.type === "customLocation"
+            ? existingEvent.workingLocationProperties.customLocation?.label
+            : undefined;
       const nextWorkingLocationLabel =
         args.workingLocationLabel ??
         args.location ??
-        existingEvent.location ??
+        existingWorkingLocationLabel ??
         existingEvent.title;
       const workingLocationFields = buildStatusEventFields({
         eventType: "workingLocation",
         title: args.title ?? existingEvent.title,
-        location: args.location ?? existingEvent.location,
         workingLocationType: nextWorkingLocationType,
         workingLocationLabel: nextWorkingLocationLabel,
       });
@@ -330,6 +344,7 @@ export default defineAction({
         visibility: "public",
         workingLocationProperties: nextWorkingLocationProperties,
       });
+      delete updates.location;
     }
 
     if (attendeesToAdd !== undefined) {

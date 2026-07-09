@@ -65,6 +65,7 @@ describe("update-event working locations", () => {
         id: "google-working-location-1",
         workingLocationType: "officeLocation",
         workingLocationLabel: "Pier 57",
+        location: "Forbidden generic location",
       }),
     );
 
@@ -85,6 +86,160 @@ describe("update-event working locations", () => {
           },
         },
       }),
+      expect.any(Object),
+    );
+    expect(updateEventMock.mock.calls[0]?.[1]).not.toHaveProperty("location");
+  });
+
+  it("updates one recurring instance by its instance id and clears office labels for Home", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-instance-20260707",
+      recurringEventId: "working-location-series",
+      title: "Office",
+      description: "",
+      location: "Pier 57",
+      start: "2026-07-07",
+      end: "2026-07-08",
+      allDay: true,
+      source: "google",
+      accountEmail: "owner@example.com",
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: { label: "Pier 57", buildingId: "nyc" },
+      },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-instance-20260707",
+        workingLocationType: "homeOffice",
+        workingLocationLabel: "",
+        location: "",
+        scope: "single",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "instance-20260707",
+      expect.objectContaining({
+        workingLocationProperties: {
+          type: "homeOffice",
+          homeOffice: {},
+        },
+      }),
+      expect.objectContaining({ scope: "single" }),
+    );
+    expect(updateEventMock.mock.calls[0]?.[1]).not.toHaveProperty("location");
+  });
+
+  it("drops incompatible office metadata when switching to a custom location", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-working-location-1",
+      title: "Office",
+      description: "",
+      location: "Pier 57",
+      start: "2026-07-07",
+      end: "2026-07-08",
+      allDay: true,
+      source: "google",
+      accountEmail: "owner@example.com",
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: {
+          label: "Pier 57",
+          buildingId: "nyc",
+          deskId: "D14",
+        },
+      },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-working-location-1",
+        workingLocationType: "customLocation",
+        workingLocationLabel: "Neighborhood cafe",
+        location: "Neighborhood cafe",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "working-location-1",
+      expect.objectContaining({
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+      }),
+      expect.any(Object),
+    );
+    expect(updateEventMock.mock.calls[0]?.[1]).not.toHaveProperty("location");
+  });
+
+  it("rejects a generic location-only edit on an existing working-location event", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-working-location-1",
+      title: "Home",
+      description: "",
+      location: "",
+      start: "2026-07-07",
+      end: "2026-07-08",
+      allDay: true,
+      source: "google",
+      accountEmail: "owner@example.com",
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-working-location-1",
+          location: "Pier 57",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Working-location events do not support a generic location. Use workingLocationType and workingLocationLabel instead.",
+    );
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps generic location edits working for ordinary events", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "",
+      location: "Old room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      eventType: "default",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-event-1",
+        location: "Conference room B",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "event-1",
+      expect.objectContaining({ location: "Conference room B" }),
       expect.any(Object),
     );
   });

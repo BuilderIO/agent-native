@@ -126,6 +126,13 @@ They are transparent/non-blocking for availability. Google allows timed working
 locations or single-day all-day working locations; multi-day all-day ranges must
 be represented as separate daily working-location events.
 
+For a visible occurrence in a recurring working-location series, default to
+`scope: "single"` and pass the occurrence's event `id`, not its
+`recurringEventId`. Use `scope: "all"` only when the user explicitly asks to
+change every day in the series. Keep office building/floor/desk metadata when
+editing an office label, and clear incompatible location labels when changing
+between Home, Office, and Other.
+
 Do not use `eventType` for Tasks or appointment schedules. Google Calendar
 Tasks are a separate product/API surface, and appointment schedules should use
 booking links or availability workflows instead.

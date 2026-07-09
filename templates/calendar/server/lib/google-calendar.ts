@@ -1179,7 +1179,10 @@ export async function updateEvent(
   if (eventPatch.title !== undefined) requestBody.summary = eventPatch.title;
   if (eventPatch.description !== undefined)
     requestBody.description = eventPatch.description;
-  if (eventPatch.location !== undefined)
+  if (
+    eventPatch.location !== undefined &&
+    eventPatch.workingLocationProperties === undefined
+  )
     requestBody.location = eventPatch.location;
   if (eventPatch.start !== undefined) {
     requestBody.start = eventPatch.allDay

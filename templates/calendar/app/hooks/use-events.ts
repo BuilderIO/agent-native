@@ -12,6 +12,12 @@ import {
 import { nanoid } from "nanoid";
 
 import {
+  buildWorkingLocationProperties,
+  getWorkingLocationEditableLabel,
+  getWorkingLocationType,
+} from "@/lib/working-location";
+
+import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
@@ -316,27 +322,50 @@ export function useUpdateEvent() {
         sendUpdates,
         notificationMessage,
         scope,
+        workingLocationType,
+        workingLocationLabel,
         ...optimisticData
       } = newData;
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
-        (old) =>
-          old?.map((e) =>
-            e.id === optimisticData.id
-              ? {
-                  ...e,
-                  ...optimisticData,
-                  ...(addAttendees
-                    ? {
-                        attendees: mergeAttendeeLists(
-                          e.attendees,
-                          addAttendees,
-                        ),
-                      }
-                    : {}),
-                }
-              : e,
-          ),
+        (old) => {
+          const target = old?.find((event) => event.id === optimisticData.id);
+          return old?.map((e) => {
+            const matchesScope =
+              e.id === optimisticData.id ||
+              (scope === "all" &&
+                !!target?.recurringEventId &&
+                e.recurringEventId === target.recurringEventId);
+            if (!matchesScope) return e;
+            const hasWorkingLocationUpdate =
+              workingLocationType !== undefined ||
+              workingLocationLabel !== undefined;
+            const nextWorkingLocationType =
+              workingLocationType ?? getWorkingLocationType(e);
+            const nextWorkingLocationLabel =
+              workingLocationLabel ?? getWorkingLocationEditableLabel(e);
+            return {
+              ...e,
+              ...optimisticData,
+              ...(hasWorkingLocationUpdate
+                ? {
+                    workingLocationProperties: buildWorkingLocationProperties(
+                      e,
+                      {
+                        type: nextWorkingLocationType,
+                        label: nextWorkingLocationLabel,
+                      },
+                    ),
+                  }
+                : {}),
+              ...(addAttendees
+                ? {
+                    attendees: mergeAttendeeLists(e.attendees, addAttendees),
+                  }
+                : {}),
+            };
+          });
+        },
       );
       return { previous };
     },

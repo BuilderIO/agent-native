@@ -10,6 +10,7 @@ import {
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
 import {
+  createWorkingLocationDisplayLabels,
   getWorkingLocationChipLabel,
   getWorkingLocationTitle,
   isWorkingLocationEvent,
@@ -37,10 +38,11 @@ export function EventCard({
   colorPreferences,
 }: EventCardProps) {
   const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const accentColor = getEventDisplayColor(event, colorPreferences);
   const ownerLabel = event.ownerName || event.overlayEmail;
-  const title = getWorkingLocationChipLabel(event);
-  const ariaTitle = getWorkingLocationTitle(event);
+  const title = getWorkingLocationChipLabel(event, workingLocationLabels);
+  const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
   const isWorkingLocation = isWorkingLocationEvent(event);
 
   const handleDragStart = (e: React.DragEvent) => {

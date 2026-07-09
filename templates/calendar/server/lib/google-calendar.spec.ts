@@ -627,6 +627,49 @@ describe("calendar recurring event updates", () => {
   });
 });
 
+describe("calendar working-location updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarPatchEventMock.mockResolvedValue({
+      id: "working-location-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("omits generic location when patching native working-location properties", async () => {
+    await updateEvent("working-location-1", {
+      accountEmail: "steve@example.com",
+      location: "Pier 57",
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: { label: "Pier 57" },
+      },
+    });
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "working-location-1",
+      {
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      },
+      expect.any(Object),
+    );
+  });
+});
+
 describe("calendar RSVP updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
