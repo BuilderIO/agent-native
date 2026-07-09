@@ -16,7 +16,7 @@ import {
   resolveScreenEntryZoom,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
-} from "./DesignEditor";
+} from "./design-editor/overview-camera";
 
 describe("clampZoom", () => {
   it("clamps to the shared canvas zoom range by default", () => {

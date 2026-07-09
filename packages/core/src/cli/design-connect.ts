@@ -64,6 +64,11 @@ export interface DesignConnectArgs {
    *  matches the token already stored on the user's connection row (no
    *  self-registration). Also read from AGENT_NATIVE_BRIDGE_TOKEN. */
   bridgeToken?: string;
+  /** Read-only token used by Design browser previews. This is deliberately
+   *  distinct from `bridgeToken`, which unlocks local filesystem reads/writes.
+   *  When omitted it is derived one-way from bridgeToken for compatibility
+   *  with existing /visual-edit launch commands. */
+  previewToken?: string;
   json: boolean;
   once: boolean;
   dryRun: boolean;
@@ -77,6 +82,8 @@ export interface DesignConnectRoute {
   title: string;
   sourceFile?: string;
   sourceKind: "react-router" | "html" | "manual";
+  screenshotUrl?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DesignConnectManifest {
@@ -112,6 +119,34 @@ export interface DesignConnectBridge {
    *  the manifest JSON so it is not exposed over the network via GET /manifest.
    *  The server-side grant action reads it from the running bridge instance. */
   bridgeToken: string;
+  /** Read-only token accepted by manifest, route, snapshot, proxy, and editor
+   *  bridge-registration endpoints. Safe to hand to the Design browser, but
+   *  never accepted by filesystem endpoints. */
+  previewToken: string;
+}
+
+export interface DesignConnectBridgeOptions {
+  bridgeToken?: string;
+  previewToken?: string;
+  /** Extra exact browser origins allowed to make CORS requests to the bridge.
+   *  The production Design origin and loopback development origins are always
+   *  recognized; custom deployments should pass their app origin here. */
+  allowedOrigins?: string[];
+}
+
+const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+
+/**
+ * Derive a read-only preview credential from the stronger filesystem token.
+ * The one-way hash keeps old `--bridge-token` launch commands compatible while
+ * ensuring a leaked preview credential cannot be promoted into write access.
+ */
+export function deriveDesignPreviewToken(bridgeToken: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(PREVIEW_TOKEN_DOMAIN)
+    .update(bridgeToken)
+    .digest("hex");
 }
 
 function stringFlagValue(argv: string[], index: number, flag: string) {
@@ -183,6 +218,11 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
       index += 1;
     } else if (arg.startsWith("--bridge-token=")) {
       parsed.bridgeToken = arg.slice("--bridge-token=".length);
+    } else if (arg === "--preview-token") {
+      parsed.previewToken = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--preview-token=")) {
+      parsed.previewToken = arg.slice("--preview-token=".length);
     } else if (arg === "--json") {
       parsed.json = true;
       parsed.once = true;
@@ -214,13 +254,36 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
 }
 
 function routeId(routePath: string): string {
-  if (routePath === "/") return "route-root";
-  const slug = routePath
+  const normalized = routePath.trim() || "/";
+  const slug = normalized
     .replace(/^\/+/, "")
+    .replace(/\*/g, "w")
+    .replace(/:/g, "p")
+    .replace(/[[\]]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return slug ? `route-${slug}` : "route-wildcard";
+  // Slugs are intentionally readable but necessarily lossy: `/foo/bar`,
+  // `/foo-bar`, and `/foo_bar` all collapse to the same text, while `/` and
+  // `/*` can collide with literal `/root` and `/wildcard` paths. Suffix every
+  // route with a stable hash of its normalized path so URL/query states and
+  // router patterns can never silently replace one another in the manifest.
+  const readable =
+    normalized === "/"
+      ? "root"
+      : /^\/\*+$/.test(normalized) || !slug
+        ? "wildcard"
+        : slug;
+  return `route-${readable}-${stableRoutePathHash(normalized)}`;
+}
+
+function stableRoutePathHash(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const character of value) {
+    hash ^= BigInt(character.codePointAt(0)!);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(36);
 }
 
 function titleFromRoutePath(routePath: string): string {
@@ -384,8 +447,12 @@ function isDesignConnectManifest(
 
 async function fetchRunningBridgeManifest(
   bridgeUrl: string,
+  previewToken?: string,
 ): Promise<DesignConnectManifest | null> {
-  const manifestUrl = new URL("/manifest.json", bridgeUrl).toString();
+  const manifestUrl = new URL("/manifest.json", bridgeUrl);
+  if (previewToken) {
+    manifestUrl.searchParams.set("previewToken", previewToken);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 800);
   try {
@@ -421,6 +488,48 @@ export function designConnectManifestsTargetSameApp(
   );
 }
 
+/** Non-sensitive stable identifier used by /health so daemon reruns can detect
+ * an already-running bridge for the same app without exposing its root path or
+ * route manifest. */
+export function designConnectAppFingerprint(
+  manifest: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+): string {
+  let devServerUrl = manifest.devServerUrl;
+  try {
+    devServerUrl = normalizeHttpUrl(devServerUrl);
+  } catch {
+    // Hash the original string for malformed legacy manifests.
+  }
+  return crypto
+    .createHash("sha256")
+    .update(`${devServerUrl}\n${path.resolve(manifest.rootPath)}`)
+    .digest("base64url")
+    .slice(0, 24);
+}
+
+async function fetchRunningBridgeFingerprint(
+  bridgeUrl: string,
+): Promise<string | null> {
+  const healthUrl = new URL("/health", bridgeUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 800);
+  try {
+    const response = await fetch(healthUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as Record<string, unknown>;
+    return typeof body["appFingerprint"] === "string"
+      ? body["appFingerprint"]
+      : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function resolveDevServerUrl(url?: string): Promise<string> {
   if (url) return normalizeHttpUrl(url);
   for (const candidate of DEFAULT_DEV_SERVER_CANDIDATES) {
@@ -435,12 +544,76 @@ async function ensureRouteManifest(options: {
   routes: DesignConnectRoute[];
   devServerUrl: string;
   dryRun: boolean;
-}): Promise<{ path: string; created: boolean }> {
+}): Promise<{ path: string; created: boolean; routes: DesignConnectRoute[] }> {
   const manifestPath = path.isAbsolute(options.routeManifestPath)
     ? options.routeManifestPath
     : path.join(options.root, options.routeManifestPath);
   if (fsSync.existsSync(manifestPath)) {
-    return { path: manifestPath, created: false };
+    try {
+      const parsed = JSON.parse(
+        await fs.readFile(manifestPath, "utf8"),
+      ) as Record<string, unknown>;
+      const savedRoutes = Array.isArray(parsed.routes)
+        ? parsed.routes.flatMap((value): DesignConnectRoute[] => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              return [];
+            }
+            const route = value as Record<string, unknown>;
+            if (typeof route.path !== "string" || !route.path.trim()) return [];
+            const sourceKind =
+              route.sourceKind === "react-router" ||
+              route.sourceKind === "html" ||
+              route.sourceKind === "manual"
+                ? route.sourceKind
+                : "manual";
+            return [
+              {
+                id:
+                  typeof route.id === "string" && route.id.trim()
+                    ? route.id
+                    : routeId(route.path),
+                path: route.path,
+                title:
+                  typeof route.title === "string" && route.title.trim()
+                    ? route.title
+                    : titleFromRoutePath(route.path),
+                sourceFile:
+                  typeof route.sourceFile === "string"
+                    ? route.sourceFile
+                    : undefined,
+                sourceKind,
+                screenshotUrl:
+                  typeof route.screenshotUrl === "string"
+                    ? route.screenshotUrl
+                    : undefined,
+                metadata:
+                  route.metadata &&
+                  typeof route.metadata === "object" &&
+                  !Array.isArray(route.metadata)
+                    ? (route.metadata as Record<string, unknown>)
+                    : undefined,
+              },
+            ];
+          })
+        : [];
+      if (savedRoutes.length > 0) {
+        const savedPaths = new Set(savedRoutes.map((route) => route.path));
+        return {
+          path: manifestPath,
+          created: false,
+          // Keep manual/custom route order and metadata while still surfacing
+          // newly discovered routes on subsequent bridge starts.
+          routes: [
+            ...savedRoutes,
+            ...options.routes.filter((route) => !savedPaths.has(route.path)),
+          ],
+        };
+      }
+    } catch {
+      // Never overwrite a malformed/custom file. Route discovery remains a
+      // safe runtime fallback and the user can repair the manifest in place.
+    }
+    return { path: manifestPath, created: false, routes: options.routes };
   }
   if (!options.dryRun) {
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
@@ -461,7 +634,11 @@ async function ensureRouteManifest(options: {
       "utf8",
     );
   }
-  return { path: manifestPath, created: !options.dryRun };
+  return {
+    path: manifestPath,
+    created: !options.dryRun,
+    routes: options.routes,
+  };
 }
 
 export async function prepareDesignConnectManifest(
@@ -471,15 +648,16 @@ export async function prepareDesignConnectManifest(
   const port = options.port ?? DEFAULT_BRIDGE_PORT;
   const devServerUrl = await resolveDevServerUrl(options.url);
   const bridgeUrl = `http://127.0.0.1:${port}`;
-  const routes = discoverDesignRoutes(root);
+  const discoveredRoutes = discoverDesignRoutes(root);
   const routeManifest = await ensureRouteManifest({
     root,
     routeManifestPath: options.routeManifest ?? ROUTE_MANIFEST_FILE,
-    routes,
+    routes: discoveredRoutes,
     devServerUrl,
     dryRun: Boolean(options.dryRun),
   });
   const generatedAt = new Date().toISOString();
+  const routes = routeManifest.routes;
 
   return {
     version: 1,
@@ -511,6 +689,73 @@ export async function prepareDesignConnectManifest(
   };
 }
 
+const BRIDGE_CORS_HEADERS = Symbol("agent-native-design-bridge-cors");
+
+type CorsAwareResponse = ServerResponse & {
+  [BRIDGE_CORS_HEADERS]?: Record<string, string>;
+};
+
+function isLoopbackOrigin(parsed: URL): boolean {
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  );
+}
+
+function isApprovedDesignOrigin(
+  rawOrigin: string,
+  configuredOrigins: ReadonlySet<string>,
+): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawOrigin);
+  } catch {
+    return false;
+  }
+  if (parsed.origin !== rawOrigin) return false;
+  if (configuredOrigins.has(parsed.origin)) return true;
+  if (
+    (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+    isLoopbackOrigin(parsed)
+  ) {
+    return true;
+  }
+  return (
+    parsed.protocol === "https:" &&
+    (parsed.hostname === "design.agent-native.com" ||
+      parsed.hostname.endsWith(".design.agent-native.com"))
+  );
+}
+
+function configureBridgeCors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  configuredOrigins: ReadonlySet<string>,
+): boolean {
+  const origin =
+    typeof req.headers.origin === "string" ? req.headers.origin : "";
+  const approved = origin
+    ? isApprovedDesignOrigin(origin, configuredOrigins)
+    : false;
+  (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] = approved
+    ? {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
+        "access-control-allow-headers":
+          "content-type, x-bridge-token, x-design-preview-token",
+        "access-control-allow-private-network": "true",
+        vary: "Origin",
+      }
+    : {};
+  return approved;
+}
+
+function bridgeCorsHeaders(res: ServerResponse): Record<string, string> {
+  return (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] ?? {};
+}
+
 function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -518,10 +763,7 @@ function sendJson(
 ) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
   });
   res.end(`${JSON.stringify(body, null, 2)}\n`);
 }
@@ -534,10 +776,7 @@ function sendText(
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
   });
   res.end(body);
 }
@@ -549,10 +788,7 @@ function sendBytes(
   headers: Headers,
 ) {
   const responseHeaders: Record<string, string> = {
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
   };
   for (const name of [
     "content-type",
@@ -573,6 +809,28 @@ function sameOrigin(a: string, b: string): boolean {
   } catch {
     return false;
   }
+}
+
+function constantTimeTokenMatches(
+  providedToken: string,
+  expectedToken: string,
+): boolean {
+  try {
+    return (
+      providedToken.length === expectedToken.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(providedToken, "utf8"),
+        Buffer.from(expectedToken, "utf8"),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readHeader(req: IncomingMessage, name: string): string {
+  const value = req.headers[name];
+  return typeof value === "string" ? value : "";
 }
 
 function resolvePreviewSnapshotUrl(
@@ -1224,34 +1482,83 @@ async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
 
 export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
-  seedToken?: string,
+  seedOrOptions?: string | DesignConnectBridgeOptions,
 ): Promise<DesignConnectBridge> {
   // Shared secret the browser sends (x-bridge-token) to unlock live-edit/read/
   // write. Bridge and the user's connection row must agree on it. Adopt a
   // server-minted seed when given (MCP flow); otherwise mint one and rely on
   // --app-url self-registration to push it up. Kept in-process, never served.
+  const options: DesignConnectBridgeOptions =
+    typeof seedOrOptions === "string"
+      ? { bridgeToken: seedOrOptions }
+      : (seedOrOptions ?? {});
   const bridgeToken =
-    seedToken ||
+    options.bridgeToken ||
     process.env["AGENT_NATIVE_BRIDGE_TOKEN"] ||
     crypto.randomBytes(32).toString("hex");
+  const previewToken =
+    options.previewToken ||
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
+    deriveDesignPreviewToken(bridgeToken);
+  const configuredOrigins = new Set(
+    (options.allowedOrigins ?? []).flatMap((raw): string[] => {
+      try {
+        return [new URL(raw).origin];
+      } catch {
+        return [];
+      }
+    }),
+  );
   let liveEditBridgeScript = "";
+  // One bridge process serves every URL-backed screen in an overview. The
+  // editor script carries screen-specific state (notably screenId), so a
+  // single global slot lets parallel iframe registrations overwrite each
+  // other and boot a frame with another frame's identity. Keep keyed scripts
+  // for modern clients while retaining the unkeyed slot for older clients.
+  const liveEditBridgeScripts = new Map<string, string>();
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
+      const corsApproved = configureBridgeCors(req, res, configuredOrigins);
       if (req.method === "OPTIONS") {
-        sendJson(res, 204, {});
+        sendJson(
+          res,
+          corsApproved ? 204 : 403,
+          corsApproved
+            ? {}
+            : { ok: false, error: "origin is not allowed by this bridge" },
+        );
         return;
       }
 
-      const pathname = new URL(req.url ?? "/", manifest.bridgeUrl).pathname;
+      const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+      const pathname = requestUrl.pathname;
+      const providedPreviewToken =
+        readHeader(req, "x-design-preview-token") ||
+        requestUrl.searchParams.get("previewToken") ||
+        "";
+      const previewTokenValid = constantTimeTokenMatches(
+        providedPreviewToken,
+        previewToken,
+      );
+      const rejectInvalidPreviewToken = (): boolean => {
+        if (previewTokenValid) return false;
+        sendJson(res, 401, {
+          ok: false,
+          error: "invalid or missing preview token",
+        });
+        return true;
+      };
 
-      // ── Public read-only routes (no token required) ──────────────────────
+      // ── Read-only preview routes (preview token required) ────────────────
 
       if (pathname === "/" || pathname === "/manifest.json") {
+        if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
         return;
       }
       if (pathname === "/routes.json") {
+        if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, {
           version: 1,
           sourceType: "localhost",
@@ -1263,7 +1570,11 @@ export async function startDesignConnectBridge(
         return;
       }
       if (pathname === "/health") {
-        sendJson(res, 200, { ok: true, source: manifest.source });
+        sendJson(res, 200, {
+          ok: true,
+          source: manifest.source,
+          appFingerprint: designConnectAppFingerprint(manifest),
+        });
         return;
       }
       if (pathname === "/live-edit-bridge") {
@@ -1271,42 +1582,54 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
-        const tokenHeader = req.headers["x-bridge-token"];
-        const providedToken =
-          typeof tokenHeader === "string" ? tokenHeader : "";
-        let tokenValid = false;
-        try {
-          tokenValid =
-            providedToken.length === bridgeToken.length &&
-            crypto.timingSafeEqual(
-              Buffer.from(providedToken, "utf8"),
-              Buffer.from(bridgeToken, "utf8"),
-            );
-        } catch {
-          tokenValid = false;
-        }
-        if (!tokenValid) {
-          sendJson(res, 401, {
-            ok: false,
-            error: "invalid or missing bridge token",
-          });
-          return;
-        }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
             const raw = await readRequestBody(req);
             const body = JSON.parse(raw) as Record<string, unknown>;
             const script =
               typeof body["script"] === "string" ? body["script"] : "";
-            if (!script.includes("agent-native:editor-chrome-ready")) {
+            const bridgeKey =
+              typeof body["bridgeKey"] === "string"
+                ? body["bridgeKey"].trim()
+                : "";
+            const installsSupportedDesignBridge =
+              script.includes("agent-native:editor-chrome-ready") ||
+              script.includes("embedded-canvas-pan");
+            if (!installsSupportedDesignBridge) {
               sendJson(res, 400, {
                 ok: false,
-                error: "script must install the Agent Native editor bridge",
+                error:
+                  "script must install an approved Agent Native editor or canvas-pan bridge",
+              });
+              return;
+            }
+            if (
+              bridgeKey &&
+              (!/^[a-zA-Z0-9:._-]+$/.test(bridgeKey) || bridgeKey.length > 128)
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "bridgeKey must be 1-128 safe identifier characters",
               });
               return;
             }
             liveEditBridgeScript = script;
-            sendJson(res, 200, { ok: true });
+            if (bridgeKey) {
+              liveEditBridgeScripts.delete(bridgeKey);
+              liveEditBridgeScripts.set(bridgeKey, script);
+              // Bound the in-memory cache. Normal editor usage has one key per
+              // visible screen; 128 also leaves ample room for mode changes.
+              while (liveEditBridgeScripts.size > 128) {
+                const oldest = liveEditBridgeScripts.keys().next().value;
+                if (typeof oldest !== "string") break;
+                liveEditBridgeScripts.delete(oldest);
+              }
+            }
+            sendJson(res, 200, {
+              ok: true,
+              ...(bridgeKey ? { bridgeKey } : {}),
+            });
           } catch (err: unknown) {
             sendJson(res, 400, {
               ok: false,
@@ -1321,9 +1644,9 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
-            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
             const targetUrl = resolvePreviewSnapshotUrl(
               manifest.devServerUrl,
               requestUrl.searchParams.get("url") ??
@@ -1335,6 +1658,23 @@ export async function startDesignConnectBridge(
             );
             const includeEditorBridge =
               requestUrl.searchParams.get("bridge") !== "0";
+            const requestedBridgeKey =
+              requestUrl.searchParams.get("bridgeKey")?.trim() ?? "";
+            const editorBridgeScript = requestedBridgeKey
+              ? (liveEditBridgeScripts.get(requestedBridgeKey) ?? "")
+              : liveEditBridgeScript;
+            if (
+              includeEditorBridge &&
+              requestedBridgeKey &&
+              !editorBridgeScript
+            ) {
+              sendJson(res, 409, {
+                ok: false,
+                error:
+                  "The requested live-edit bridge script is not registered. Reload the Design frame to register it again.",
+              });
+              return;
+            }
             // The dev server route the SPA must boot on (e.g. "/todo"), taken
             // from the resolved snapshot target rather than the bridge's own
             // "/live-edit" request path.
@@ -1344,7 +1684,7 @@ export async function startDesignConnectBridge(
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
-              includeEditorBridge ? liveEditBridgeScript : "",
+              includeEditorBridge ? editorBridgeScript : "",
               targetPath,
             );
             sendText(
@@ -1369,9 +1709,9 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
-            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
             const targetUrl = resolvePreviewSnapshotUrl(
               manifest.devServerUrl,
               requestUrl.searchParams.get("url") ??
@@ -1413,20 +1753,8 @@ export async function startDesignConnectBridge(
         }
 
         // Authenticate with constant-time comparison to prevent timing attacks.
-        const tokenHeader = req.headers["x-bridge-token"];
-        const providedToken =
-          typeof tokenHeader === "string" ? tokenHeader : "";
-        let tokenValid = false;
-        try {
-          tokenValid =
-            providedToken.length === bridgeToken.length &&
-            crypto.timingSafeEqual(
-              Buffer.from(providedToken, "utf8"),
-              Buffer.from(bridgeToken, "utf8"),
-            );
-        } catch {
-          tokenValid = false;
-        }
+        const providedToken = readHeader(req, "x-bridge-token");
+        const tokenValid = constantTimeTokenMatches(providedToken, bridgeToken);
         if (!tokenValid) {
           sendJson(res, 401, {
             ok: false,
@@ -1644,6 +1972,15 @@ export async function startDesignConnectBridge(
       }
 
       if (req.method === "GET" || req.method === "HEAD") {
+        const sameOriginPreviewSubresource =
+          readHeader(req, "sec-fetch-site") === "same-origin";
+        if (!previewTokenValid && !sameOriginPreviewSubresource) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "invalid or missing preview token",
+          });
+          return;
+        }
         void (async () => {
           try {
             const targetUrl = resolvePreviewProxyUrl(
@@ -1682,7 +2019,7 @@ export async function startDesignConnectBridge(
     });
   });
 
-  return { server, manifest, bridgeToken };
+  return { server, manifest, bridgeToken, previewToken };
 }
 
 /**
@@ -1741,7 +2078,7 @@ export async function registerConnectionWithServer(
   authToken?: string,
 ): Promise<void> {
   const endpoint = `${appUrl}/_agent-native/actions/connect-localhost`;
-  const { manifest, bridgeToken } = bridge;
+  const { manifest, bridgeToken, previewToken } = bridge;
   const payload = {
     devServerUrl: manifest.devServerUrl,
     bridgeUrl: manifest.bridgeUrl,
@@ -1761,6 +2098,7 @@ export async function registerConnectionWithServer(
     // row.  grant-localhost-write-consent then reads it from the row instead of
     // minting its own unrelated token, which would always produce a 401.
     bridgeToken,
+    previewToken,
     status: "connected" as const,
   };
 
@@ -1814,6 +2152,10 @@ Options:
                           /visual-edit flow so the bridge and the user's stored
                           connection token match with no self-registration.
                           (also reads AGENT_NATIVE_BRIDGE_TOKEN env)
+  --preview-token <token> Adopt the paired read-only browser preview token.
+                          Optional when --bridge-token is present: compatible
+                          clients derive the same one-way token automatically.
+                          (also reads AGENT_NATIVE_PREVIEW_TOKEN env)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -1869,19 +2211,24 @@ function resolveCurrentCliInvocation(argv: string[]): {
 async function startDetachedDesignBridge(
   argv: string[],
   manifest: DesignConnectManifest,
+  previewToken?: string,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    const runningManifest = await fetchRunningBridgeManifest(
-      manifest.bridgeUrl,
-    );
+    const [runningManifest, runningFingerprint] = await Promise.all([
+      fetchRunningBridgeManifest(manifest.bridgeUrl, previewToken),
+      fetchRunningBridgeFingerprint(manifest.bridgeUrl),
+    ]);
+    const fingerprintMatches =
+      runningFingerprint === designConnectAppFingerprint(manifest);
     if (
-      runningManifest &&
-      designConnectManifestsTargetSameApp(runningManifest, manifest)
+      (runningManifest &&
+        designConnectManifestsTargetSameApp(runningManifest, manifest)) ||
+      fingerprintMatches
     ) {
       console.error(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
-      console.log(JSON.stringify(runningManifest, null, 2));
+      console.log(JSON.stringify(runningManifest ?? manifest, null, 2));
       return 0;
     }
 
@@ -1942,24 +2289,33 @@ export async function runDesign(argv: string[]) {
   }
 
   const manifest = await prepareDesignConnectManifest(parsed);
+  const seedBridgeToken =
+    parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
+  const seedPreviewToken =
+    parsed.previewToken ||
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
+    (seedBridgeToken ? deriveDesignPreviewToken(seedBridgeToken) : undefined);
+  const appUrl = resolveAppUrl(parsed.appUrl);
   if (parsed.daemon) {
-    return startDetachedDesignBridge(argv, manifest);
+    return startDetachedDesignBridge(argv, manifest, seedPreviewToken);
   }
   if (parsed.json || parsed.once || parsed.dryRun) {
     console.log(JSON.stringify(manifest, null, 2));
     return 0;
   }
 
-  const seedToken =
-    parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
-  const bridge = await startDesignConnectBridge(manifest, seedToken);
+  const bridge = await startDesignConnectBridge(manifest, {
+    bridgeToken: seedBridgeToken,
+    previewToken: seedPreviewToken,
+    allowedOrigins: appUrl ? [appUrl] : [],
+  });
   console.error("Design localhost bridge running");
   console.error(`Bridge:   ${manifest.bridgeUrl}`);
   console.error(`Manifest: ${manifest.bridgeUrl}/manifest.json`);
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
-  if (seedToken) {
+  if (seedBridgeToken) {
     // Server already stored this token on the row; bridge matches it, so no
     // self-registration needed. Zero-config path for the remote-MCP flow.
     console.error(
@@ -1968,13 +2324,12 @@ export async function runDesign(argv: string[]) {
   } else {
     // No seed: fall back to self-registration — POST the minted token to
     // connect-localhost. Needs an auth token in env or it 401s (the old gap).
-    const appUrl = resolveAppUrl(parsed.appUrl);
     if (appUrl) {
       void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
     } else {
       // No token source at all — warn rather than 401 silently at edit time.
       console.error(
-        "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — live-edit will fail to authorize.",
+        "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
       );
     }
   }

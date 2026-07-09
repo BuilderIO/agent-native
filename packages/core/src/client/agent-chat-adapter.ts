@@ -751,7 +751,7 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
 }
 
 const COMPLETED_TOOL_TIMEOUT_NAME_RE =
-  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+  /^(add|apply|archive|capture|compose|create|delete|deploy|duplicate|edit|generate|grant|insert|install|migrate|move|mutate|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
 const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
   "connect-assets-mcp",
   "import-design-tokens",
@@ -1728,8 +1728,10 @@ export function createAgentChatAdapter(
 
       // Mode switch for recovery ownership: durable/background-dispatched runs
       // are always recovered by the server. Foreground self-chain follows the
-      // server on healthy handoffs, but a loud self-dispatch failure falls back
-      // to the client POST path because no successor run owns recovery yet.
+      // server on healthy handoffs. A loud continuation-dispatch failure falls
+      // back to the client POST path in either mode because the server has
+      // already marked the unclaimed successor terminal; the per-turn tool
+      // journal keeps that retry from replaying completed side effects.
       const isDurableBackgroundDispatch = () =>
         currentRunDispatchMode?.startsWith("background") === true;
       const isForegroundSelfChainDispatch = () =>
@@ -1737,12 +1739,15 @@ export function createAgentChatAdapter(
       const shouldFollowServerContinuation = (
         signal?: AgentAutoContinueSignal,
       ) => {
+        if (
+          signal?.errorInfo?.errorCode ===
+          "background_continuation_dispatch_failed"
+        ) {
+          return false;
+        }
         if (isDurableBackgroundDispatch()) return true;
         if (!isForegroundSelfChainDispatch()) return false;
-        return (
-          signal?.errorInfo?.errorCode !==
-          "background_continuation_dispatch_failed"
-        );
+        return true;
       };
 
       const rememberRunSeq = (seq: number) => {

@@ -88,8 +88,8 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
   schema: {
-    designLocalhostConnections: {},
-    designLocalhostWriteGrants: {},
+    designLocalhostConnections: { orgId: "connectionOrgId" },
+    designLocalhostWriteGrants: { orgId: "grantOrgId" },
   },
 }));
 

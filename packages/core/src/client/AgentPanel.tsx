@@ -1274,7 +1274,14 @@ function AgentPanelInner({
                 {t("agentPanel.settings")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
+            <DropdownMenuItem
+              onSelect={() => {
+                // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
+                // teardown, otherwise it can immediately dismiss the Popover we're
+                // opening in the same tick (Radix nested-overlay race).
+                setTimeout(() => setFeedbackOpen(true), 0);
+              }}
+            >
               <IconMessageDots size={14} className="shrink-0" />
               {t("agentPanel.feedback")}
             </DropdownMenuItem>

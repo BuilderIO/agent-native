@@ -602,6 +602,7 @@
 .dashboard-grid-container {
   --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;
+  gap: 0;
 }
 
 .dashboard-grid {
@@ -632,6 +633,16 @@
 .dashboard-column-drop-slot {
   height: 1.5rem;
   margin-block: -0.75rem;
+}
+
+/* At compact widths, panels from the same dashboard row stack vertically.
+   Give the drop targets between those panels the same 1rem footprint as the
+   row drop targets so every adjacent chart has consistent spacing. */
+@container dashboard-grid (max-width: 767px) {
+  .dashboard-grid
+    > .dashboard-column-drop-slot:not(:first-child):not(:last-child) {
+    margin-block: -0.25rem;
+  }
 }
 
 .dashboard-row-drop-slot::after,

@@ -16,8 +16,13 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  mutateDesignData,
+  type DesignDataRecord,
+} from "../server/lib/design-data-mutation.js";
+import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
+  type CanvasFrameGeometry,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import {
@@ -32,6 +37,9 @@ const routeInputSchema = z.object({
   url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
+  sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
+  screenshotUrl: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   x: z.number().optional(),
@@ -63,10 +71,87 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function parseDesignDataSnapshot(
+  designId: string,
+  value: string | null,
+): DesignDataRecord {
+  if (value === null) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (isRecord(parsed)) return parsed;
+  } catch {
+    // The error below deliberately refuses to discard malformed legacy data.
+  }
+  throw new Error(
+    `Design "${designId}" has invalid data JSON. Refusing to overwrite it; repair or restore the design data before retrying.`,
+  );
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+interface PlacementIntent {
+  fileId: string;
+  filename: string;
+  fallback: CanvasFramePlacement;
+  existedAtStart: boolean;
+  owns: {
+    x: boolean;
+    y: boolean;
+    width: boolean;
+    height: boolean;
+    z: boolean;
+  };
+}
+
+function placementAgainstLatest(
+  intent: PlacementIntent,
+  latest: CanvasFrameGeometry | undefined,
+): CanvasFramePlacement {
+  const choose = (key: keyof PlacementIntent["owns"]): number | undefined =>
+    intent.owns[key]
+      ? intent.fallback[key]
+      : (latest?.[key] ?? intent.fallback[key]);
+
+  return {
+    fileId: intent.fileId,
+    filename: intent.filename,
+    x: choose("x"),
+    y: choose("y"),
+    width: choose("width"),
+    height: choose("height"),
+    z: choose("z"),
+    // add-localhost-screens never owns rotation. A concurrent/local canvas
+    // rotation therefore survives even when this action refreshes the route.
+    rotation: latest?.rotation,
+  };
+}
+
 function normalizeBaseUrl(value: string): string {
   const parsed = new URL(value);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("devServerUrl must be an http(s) URL");
+  }
   parsed.hash = "";
   return parsed.toString().replace(/\/$/, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "0.0.0.0"
+  ) {
+    return true;
+  }
+  return /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
 function withLocalhostProtocol(value: string): string {
@@ -97,6 +182,25 @@ export function routeUrl(
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`Localhost screen URL must be an http(s) URL: ${raw}`);
+  }
+  const base = new URL(baseUrl);
+  if (parsed.origin !== base.origin) {
+    const equivalentLoopbackOrigin =
+      parsed.protocol === base.protocol &&
+      parsed.port === base.port &&
+      isLoopbackHostname(parsed.hostname) &&
+      isLoopbackHostname(base.hostname);
+    if (!equivalentLoopbackOrigin) {
+      throw new Error(
+        `Localhost screen URL must stay on the connected dev server origin (${base.origin}): ${raw}`,
+      );
+    }
+    // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
+    // server, but the bridge enforces exact same-origin fetches. Canonicalize
+    // the alias to the registered dev-server origin so live edit does not fail
+    // later with an opaque bridge 400.
+    parsed.protocol = base.protocol;
+    parsed.host = base.host;
   }
   parsed.hash = "";
   return parsed.toString();
@@ -166,6 +270,36 @@ function metadataNumber(
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function metadataForFile(
+  fileId: string,
+  screenMetadata: Record<string, unknown>,
+  localhostScreens: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const primary = screenMetadata[fileId];
+  if (isRecord(primary)) return primary;
+  const legacy = localhostScreens[fileId];
+  return isRecord(legacy) ? legacy : undefined;
+}
+
+function metadataMatchesRoute(
+  metadata: Record<string, unknown> | undefined,
+  args: { connectionId: string; routeId: string; path: string; url: string },
+): boolean {
+  if (!metadata || metadata.sourceType !== "localhost") return false;
+  if (
+    typeof metadata.connectionId === "string" &&
+    metadata.connectionId !== args.connectionId
+  ) {
+    return false;
+  }
+  return (
+    metadata.routeId === args.routeId ||
+    metadata.url === args.url ||
+    metadata.previewUrl === args.url ||
+    metadata.path === args.path
+  );
 }
 
 export default defineAction({
@@ -289,6 +423,10 @@ export default defineAction({
             routeId: route.id,
             path: route.path,
             title: route.title,
+            sourceFile: route.sourceFile,
+            sourceKind: route.sourceKind,
+            screenshotUrl: route.screenshotUrl,
+            metadata: route.metadata,
             width:
               typeof route.metadata?.width === "number"
                 ? route.metadata.width
@@ -310,12 +448,18 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, designId))
       .limit(1);
-    const prevData = parseJson<Record<string, unknown>>(design?.data, {});
+    if (!design) throw new Error(`Design "${designId}" not found.`);
+    // Fail before touching files/collab when a legacy row contains malformed
+    // data. SQL NULL is the one supported legacy empty-data sentinel.
+    const prevData = parseDesignDataSnapshot(designId, design.data);
     const existingCanvasFrames = parseCanvasFrameGeometryById(
       prevData.canvasFrames,
     );
     const existingMetadata = isRecord(prevData.screenMetadata)
       ? (prevData.screenMetadata as Record<string, unknown>)
+      : {};
+    const existingLocalhostScreens = isRecord(prevData.localhostScreens)
+      ? (prevData.localhostScreens as Record<string, unknown>)
       : {};
     const existingFiles = await db
       .select()
@@ -326,8 +470,9 @@ export default defineAction({
     );
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const now = new Date().toISOString();
-    const effectiveDefaultWidth = defaultWidth ?? 1280;
-    const effectiveDefaultHeight = defaultHeight ?? 900;
+    const layoutStartX = startX ?? 0;
+    const layoutStartY = startY ?? 0;
+    const layoutGap = gap ?? 160;
     const savedScreens: Array<{
       id: string;
       filename: string;
@@ -336,10 +481,13 @@ export default defineAction({
       url: string;
       routeId: string;
       sourceFile?: string;
+      sourceKind?: "react-router" | "html" | "manual";
+      screenshotUrl?: string;
+      routeMetadata?: Record<string, unknown>;
       width: number;
       height: number;
     }> = [];
-    const placements: CanvasFramePlacement[] = [];
+    const placementIntents: PlacementIntent[] = [];
 
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
@@ -360,19 +508,51 @@ export default defineAction({
       const title =
         input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
       const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
-      const width = input.width ?? effectiveDefaultWidth;
-      const height = input.height ?? effectiveDefaultHeight;
+      const sourceKind = input.sourceKind ?? manifestRoute?.sourceKind;
+      const screenshotUrl = input.screenshotUrl ?? manifestRoute?.screenshotUrl;
+      const routeMetadata = {
+        ...(manifestRoute?.metadata ?? {}),
+        ...(input.metadata ?? {}),
+      };
       const basePreferredFilename = `localhost-${slugForPath(path)}.html`;
-      const existingBase = existingByFilename.get(basePreferredFilename);
+      const routeMatchArgs = {
+        connectionId: connection.id,
+        routeId,
+        path,
+        url,
+      };
+      const routeCandidates = existingFiles.filter((file) =>
+        metadataMatchesRoute(
+          metadataForFile(file.id, existingMetadata, existingLocalhostScreens),
+          routeMatchArgs,
+        ),
+      );
+      const filenameBase = existingByFilename.get(basePreferredFilename);
+      const existingBase =
+        filenameBase &&
+        metadataMatchesRoute(
+          metadataForFile(
+            filenameBase.id,
+            existingMetadata,
+            existingLocalhostScreens,
+          ),
+          routeMatchArgs,
+        )
+          ? filenameBase
+          : routeCandidates.find(
+              (candidate) => candidate.filename === basePreferredFilename,
+            );
       const requestedViewportExplicitly =
         input.width !== undefined ||
         input.height !== undefined ||
         defaultWidth !== undefined ||
         defaultHeight !== undefined;
-      const existingBaseMetadata = isRecord(
-        existingBase ? existingMetadata[existingBase.id] : undefined,
-      )
-        ? (existingMetadata[existingBase!.id] as Record<string, unknown>)
+      const existingBaseMetadata = existingBase
+        ? metadataForFile(
+            existingBase.id,
+            existingMetadata,
+            existingLocalhostScreens,
+          )
         : undefined;
       const existingBaseFrame = existingBase
         ? existingCanvasFrames[existingBase.id]
@@ -383,20 +563,87 @@ export default defineAction({
       const existingBaseHeight =
         existingBaseFrame?.height ??
         metadataNumber(existingBaseMetadata, "height");
+      const requestedWidth =
+        input.width ??
+        defaultWidth ??
+        existingBaseWidth ??
+        metadataNumber(routeMetadata, "width") ??
+        1280;
+      const requestedHeight =
+        input.height ??
+        defaultHeight ??
+        existingBaseHeight ??
+        metadataNumber(routeMetadata, "height") ??
+        900;
       const viewportDiffersFromBase =
         (typeof existingBaseWidth === "number" &&
-          existingBaseWidth !== width) ||
+          existingBaseWidth !== requestedWidth) ||
         (typeof existingBaseHeight === "number" &&
-          existingBaseHeight !== height);
+          existingBaseHeight !== requestedHeight);
       const preferredFilename =
         existingBase && requestedViewportExplicitly && viewportDiffersFromBase
-          ? viewportFilename(path, width, height)
+          ? viewportFilename(path, requestedWidth, requestedHeight)
           : basePreferredFilename;
-      const existing = existingByFilename.get(preferredFilename);
+      const preferredExisting = existingByFilename.get(preferredFilename);
+      const matchingPreferredExisting =
+        preferredExisting &&
+        metadataMatchesRoute(
+          metadataForFile(
+            preferredExisting.id,
+            existingMetadata,
+            existingLocalhostScreens,
+          ),
+          routeMatchArgs,
+        )
+          ? preferredExisting
+          : undefined;
+      const existing =
+        matchingPreferredExisting ??
+        routeCandidates.find((candidate) => {
+          const frame = existingCanvasFrames[candidate.id];
+          const metadata = metadataForFile(
+            candidate.id,
+            existingMetadata,
+            existingLocalhostScreens,
+          );
+          const candidateWidth =
+            frame?.width ?? metadataNumber(metadata, "width");
+          const candidateHeight =
+            frame?.height ?? metadataNumber(metadata, "height");
+          return requestedViewportExplicitly
+            ? candidateWidth === requestedWidth &&
+                candidateHeight === requestedHeight
+            : candidate === existingBase;
+        }) ??
+        (!requestedViewportExplicitly ? routeCandidates[0] : undefined);
       const filename =
         existing?.filename ??
         uniqueFilename(path, usedFilenames, preferredFilename);
       const fileId = existing?.id ?? nanoid();
+      const existingScreenMetadata = existing
+        ? metadataForFile(
+            existing.id,
+            existingMetadata,
+            existingLocalhostScreens,
+          )
+        : undefined;
+      const existingFrame = existing
+        ? existingCanvasFrames[existing.id]
+        : undefined;
+      const width =
+        input.width ??
+        defaultWidth ??
+        existingFrame?.width ??
+        metadataNumber(existingScreenMetadata, "width") ??
+        metadataNumber(routeMetadata, "width") ??
+        1280;
+      const height =
+        input.height ??
+        defaultHeight ??
+        existingFrame?.height ??
+        metadataNumber(existingScreenMetadata, "height") ??
+        metadataNumber(routeMetadata, "height") ??
+        900;
 
       if (existing) {
         await db
@@ -429,65 +676,253 @@ export default defineAction({
         url,
         routeId,
         sourceFile,
+        sourceKind,
+        screenshotUrl,
+        routeMetadata,
         width,
         height,
       });
-      placements.push({
+      const fallbackPlacement: CanvasFramePlacement = {
         fileId,
         filename,
-        x: input.x ?? startX + index * (width + gap),
-        y: input.y ?? startY,
+        x:
+          input.x ??
+          existingFrame?.x ??
+          layoutStartX + index * (width + layoutGap),
+        y: input.y ?? existingFrame?.y ?? layoutStartY,
         width,
         height,
-        z: input.z ?? index,
+        z: input.z ?? existingFrame?.z ?? index,
+      };
+      placementIntents.push({
+        fileId,
+        filename,
+        fallback: fallbackPlacement,
+        existedAtStart: Boolean(existingFrame),
+        owns: {
+          x: input.x !== undefined,
+          y: input.y !== undefined,
+          width: input.width !== undefined || defaultWidth !== undefined,
+          height: input.height !== undefined || defaultHeight !== undefined,
+          z: input.z !== undefined,
+        },
       });
     }
 
-    const mergedFrames = mergeCanvasFramePlacements({
-      existing: prevData.canvasFrames,
-      placements,
-      resolveFileId: (placement) => placement.fileId,
-    });
-    const previousMetadata = isRecord(prevData.screenMetadata)
-      ? { ...prevData.screenMetadata }
-      : {};
-    const previousLocalhostScreens = isRecord(prevData.localhostScreens)
-      ? { ...prevData.localhostScreens }
-      : {};
-    for (const screen of savedScreens) {
-      const metadata = {
-        sourceType: "localhost",
-        previewState: "live",
-        title: screen.title,
-        width: screen.width,
-        height: screen.height,
-        url: screen.url,
-        previewUrl: screen.url,
-        connectionId: connection.id,
-        routeId: screen.routeId,
-        sourceFile: screen.sourceFile,
-        path: screen.path,
-        bridgeUrl: connection.bridgeUrl ?? undefined,
-        bridgeToken: connection.bridgeToken ?? undefined,
-      };
-      previousMetadata[screen.id] = metadata;
-      previousLocalhostScreens[screen.id] = metadata;
-    }
+    let lastOwnedMetadata = new Map<string, Record<string, unknown>>();
+    let lastOwnedFrameFields = new Map<string, Partial<CanvasFrameGeometry>>();
 
-    await db
-      .update(schema.designs)
-      .set({
-        data: JSON.stringify({
-          ...prevData,
+    const { data: persistedData } = await mutateDesignData({
+      designId,
+      mutate: (currentData, { updatedAt }) => {
+        const latestFrames = parseCanvasFrameGeometryById(
+          currentData.canvasFrames,
+        );
+        const placements = placementIntents.map((intent) =>
+          placementAgainstLatest(intent, latestFrames[intent.fileId]),
+        );
+        const mergedFrames = mergeCanvasFramePlacements({
+          existing: currentData.canvasFrames,
+          placements,
+          resolveFileId: (placement) => placement.fileId,
+        });
+        const previousMetadata = isRecord(currentData.screenMetadata)
+          ? { ...currentData.screenMetadata }
+          : {};
+        const previousLocalhostScreens = isRecord(currentData.localhostScreens)
+          ? { ...currentData.localhostScreens }
+          : {};
+        const nextOwnedMetadata = new Map<string, Record<string, unknown>>();
+        const nextOwnedFrameFields = new Map<
+          string,
+          Partial<CanvasFrameGeometry>
+        >();
+
+        for (const screen of savedScreens) {
+          const currentMetadata = isRecord(previousMetadata[screen.id])
+            ? (previousMetadata[screen.id] as Record<string, unknown>)
+            : {};
+          const currentLocalhostMetadata = isRecord(
+            previousLocalhostScreens[screen.id],
+          )
+            ? (previousLocalhostScreens[screen.id] as Record<string, unknown>)
+            : {};
+          const frame = mergedFrames.canvasFrames[screen.id] ?? {};
+          const ownedMetadata: Record<string, unknown> = {
+            sourceType: "localhost",
+            previewState: "live",
+            title: screen.title,
+            width: frame.width ?? screen.width,
+            height: frame.height ?? screen.height,
+            url: screen.url,
+            previewUrl: screen.url,
+            connectionId: connection.id,
+            routeId: screen.routeId,
+            path: screen.path,
+            bridgeUrl: connection.bridgeUrl ?? undefined,
+            previewToken: connection.previewToken ?? undefined,
+          };
+          if (screen.sourceFile !== undefined) {
+            ownedMetadata.sourceFile = screen.sourceFile;
+          }
+          if (screen.sourceKind !== undefined) {
+            ownedMetadata.sourceKind = screen.sourceKind;
+          }
+          if (screen.screenshotUrl !== undefined) {
+            ownedMetadata.screenshotUrl = screen.screenshotUrl;
+          }
+
+          const mergedRouteMetadata = (
+            primary: Record<string, unknown>,
+            counterpart: Record<string, unknown>,
+          ) => ({
+            ...(isRecord(counterpart.routeMetadata)
+              ? counterpart.routeMetadata
+              : {}),
+            ...(isRecord(primary.routeMetadata) ? primary.routeMetadata : {}),
+            ...(screen.routeMetadata ?? {}),
+          });
+
+          // Preserve independently written legacy and canonical metadata keys.
+          // Each map keeps its own value on an unrelated same-key conflict,
+          // while localhost-owned fields above intentionally converge.
+          previousMetadata[screen.id] = {
+            ...currentLocalhostMetadata,
+            ...currentMetadata,
+            ...ownedMetadata,
+            routeMetadata: mergedRouteMetadata(
+              currentMetadata,
+              currentLocalhostMetadata,
+            ),
+          };
+          previousLocalhostScreens[screen.id] = {
+            ...currentMetadata,
+            ...currentLocalhostMetadata,
+            ...ownedMetadata,
+            routeMetadata: mergedRouteMetadata(
+              currentLocalhostMetadata,
+              currentMetadata,
+            ),
+          };
+          nextOwnedMetadata.set(screen.id, {
+            ...ownedMetadata,
+            routeMetadata: screen.routeMetadata ?? {},
+          });
+
+          const placementIntent = placementIntents.find(
+            (intent) => intent.fileId === screen.id,
+          );
+          const ownedFrameFields: Partial<CanvasFrameGeometry> = {};
+          if (placementIntent) {
+            for (const key of ["x", "y", "width", "height", "z"] as const) {
+              // A newly created screen owns its initial geometry. A refresh of
+              // an existing screen only owns fields explicitly supplied by the
+              // caller; current canvas movement/resizing wins for the rest.
+              if (
+                !placementIntent.existedAtStart ||
+                placementIntent.owns[key]
+              ) {
+                ownedFrameFields[key] = frame[key];
+              }
+            }
+          }
+          nextOwnedFrameFields.set(screen.id, ownedFrameFields);
+        }
+
+        lastOwnedMetadata = nextOwnedMetadata;
+        lastOwnedFrameFields = nextOwnedFrameFields;
+        return {
+          ...currentData,
+          sourceType: "localhost",
           sourceMode: "localhost",
+          connectionId: connection.id,
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           localhostScreens: previousLocalhostScreens,
-          updatedAt: now,
-        }),
-        updatedAt: now,
-      })
-      .where(eq(schema.designs.id, designId));
+          updatedAt,
+        };
+      },
+      isApplied: (data) => {
+        if (
+          data.sourceType !== "localhost" ||
+          data.sourceMode !== "localhost" ||
+          data.connectionId !== connection.id
+        ) {
+          return false;
+        }
+        const frames = parseCanvasFrameGeometryById(data.canvasFrames);
+        const metadataById = isRecord(data.screenMetadata)
+          ? data.screenMetadata
+          : {};
+        const localhostById = isRecord(data.localhostScreens)
+          ? data.localhostScreens
+          : {};
+
+        for (const screen of savedScreens) {
+          const frame = frames[screen.id];
+          if (!frame) return false;
+          for (const [key, expected] of Object.entries(
+            lastOwnedFrameFields.get(screen.id) ?? {},
+          )) {
+            if (
+              !jsonValuesEqual(
+                frame[key as keyof CanvasFrameGeometry],
+                expected,
+              )
+            ) {
+              return false;
+            }
+          }
+
+          const expectedMetadata = lastOwnedMetadata.get(screen.id) ?? {};
+          for (const rawMetadata of [
+            metadataById[screen.id],
+            localhostById[screen.id],
+          ]) {
+            if (!isRecord(rawMetadata)) return false;
+            for (const [key, expected] of Object.entries(expectedMetadata)) {
+              if (key === "routeMetadata") {
+                if (!isRecord(rawMetadata.routeMetadata)) return false;
+                for (const [routeKey, routeValue] of Object.entries(
+                  expected as Record<string, unknown>,
+                )) {
+                  if (
+                    !jsonValuesEqual(
+                      rawMetadata.routeMetadata[routeKey],
+                      routeValue,
+                    )
+                  ) {
+                    return false;
+                  }
+                }
+              } else if (!jsonValuesEqual(rawMetadata[key], expected)) {
+                return false;
+              }
+            }
+          }
+        }
+        return true;
+      },
+    });
+
+    const persistedFrames = parseCanvasFrameGeometryById(
+      persistedData.canvasFrames,
+    );
+    const resultScreens = savedScreens.map((screen) => ({
+      ...screen,
+      width: persistedFrames[screen.id]?.width ?? screen.width,
+      height: persistedFrames[screen.id]?.height ?? screen.height,
+    }));
+    const placedFrames = placementIntents.map((intent) => ({
+      fileId: intent.fileId,
+      filename: intent.filename,
+      frame:
+        persistedFrames[intent.fileId] ??
+        parseCanvasFrameGeometryById({
+          [intent.fileId]: intent.fallback,
+        })[intent.fileId] ??
+        {},
+    }));
 
     return {
       designId,
@@ -495,8 +930,8 @@ export default defineAction({
       devServerUrl,
       bridgeUrl: connection.bridgeUrl ?? null,
       screenCount: savedScreens.length,
-      screens: savedScreens,
-      placedFrames: mergedFrames.placedFrames,
+      screens: resultScreens,
+      placedFrames,
       overview: true,
       urlPath: `/design/${designId}`,
     };

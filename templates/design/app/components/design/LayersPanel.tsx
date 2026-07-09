@@ -256,6 +256,8 @@ export interface LayersPanelHandle {
    * it into view, and focuses+selects the rename input once it mounts.
    */
   beginRename: (layerId: string) => boolean;
+  /** Opens the existing layers search row and focuses its input. */
+  focusSearch: () => void;
 }
 
 export interface FlatLayerRow {
@@ -517,6 +519,22 @@ export function mapPanelPlacementToDomPlacement(
   if (placement === "before") return "after";
   if (placement === "after") return "before";
   return "inside";
+}
+
+/**
+ * Converts the panel's top-to-bottom visual ordering into the DOM ordering
+ * consumed by DesignEditor's structural move pipeline. Sibling groups are
+ * rendered in reverse DOM order in the panel, so both the anchor placement
+ * and a multi-selection's order must be reversed at this boundary.
+ */
+export function mapPanelMoveIntentToDomIntent(
+  intent: LayersPanelMoveIntent,
+): LayersPanelMoveIntent {
+  return {
+    ...intent,
+    draggedIds: [...intent.draggedIds].reverse(),
+    placement: mapPanelPlacementToDomPlacement(intent.placement),
+  };
 }
 
 function nextExpandedIds(
@@ -1092,6 +1110,11 @@ function LayersPanelImpl(
   // appear in rowElementRefs and finishes the job once it does.
   const pendingRenameFocusIdRef = useRef<string | null>(null);
 
+  const focusSearch = useCallback(() => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+
   const beginRename = useCallback(
     (layerId: string): boolean => {
       if (!onRename) return false;
@@ -1115,7 +1138,10 @@ function LayersPanelImpl(
     [onExpandedIdsChange, onRename],
   );
 
-  useImperativeHandle(ref, () => ({ beginRename }), [beginRename]);
+  useImperativeHandle(ref, () => ({ beginRename, focusSearch }), [
+    beginRename,
+    focusSearch,
+  ]);
 
   // Finishes an in-flight beginRename once its row is mounted: scrolls it
   // into view and focuses+selects the rename input (the input already
@@ -1170,10 +1196,6 @@ function LayersPanelImpl(
 
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
-  const openSearch = useCallback(() => {
-    setSearchOpen(true);
-    window.requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, []);
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
   const collapseTargetId = useMemo(() => {
     for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
@@ -1271,7 +1293,7 @@ function LayersPanelImpl(
             <div className="flex items-center gap-0.5 text-muted-foreground">
               <IconTooltipButton
                 label={labels.searchPlaceholder}
-                onClick={openSearch}
+                onClick={focusSearch}
               >
                 <IconSearch className="size-4" />
               </IconTooltipButton>
@@ -1765,7 +1787,7 @@ const LayerRow = memo(function LayerRow({
       clearStaleIndicatorForThisRow();
       return;
     }
-    const intent = {
+    const panelIntent = {
       draggedIds: cleanedIds,
       targetId: node.id,
       placement: dropPlacementForEvent(
@@ -1774,14 +1796,15 @@ const LayerRow = memo(function LayerRow({
         isExpandedWithChildren,
       ),
     } satisfies LayersPanelMoveIntent;
-    if (canMoveLayer && !canMoveLayer(intent)) {
+    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+    if (canMoveLayer && !canMoveLayer(moveIntent)) {
       clearStaleIndicatorForThisRow();
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    activeDropIntent = intent;
-    onDropIndicatorChange(intent);
+    activeDropIntent = panelIntent;
+    onDropIndicatorChange(panelIntent);
 
     // L20 spring-loaded expand: sustained "inside" hover over a collapsed
     // container expands it after a delay so the user can drop into nested
@@ -1789,7 +1812,7 @@ const LayerRow = memo(function LayerRow({
     // once per qualifying hover — if a timer is already pending for this row
     // we leave it running rather than resetting it on every dragover tick.
     if (
-      intent.placement === "inside" &&
+      panelIntent.placement === "inside" &&
       hasChildren &&
       !isExpanded &&
       springLoadTimerRef.current === null
@@ -1798,7 +1821,11 @@ const LayerRow = memo(function LayerRow({
         springLoadTimerRef.current = null;
         onToggleExpanded(node.id, true);
       }, SPRING_LOAD_DELAY_MS);
-    } else if (intent.placement !== "inside" || !hasChildren || isExpanded) {
+    } else if (
+      panelIntent.placement !== "inside" ||
+      !hasChildren ||
+      isExpanded
+    ) {
       clearSpringLoadTimer();
     }
   };
@@ -1837,7 +1864,7 @@ const LayerRow = memo(function LayerRow({
               ),
             }
           : null;
-      const intent =
+      const panelIntent =
         storedIntent && storedIntent.draggedIds.length > 0
           ? storedIntent
           : ({
@@ -1849,8 +1876,9 @@ const LayerRow = memo(function LayerRow({
                 isExpandedWithChildren,
               ),
             } satisfies LayersPanelMoveIntent);
-      if (!canMoveLayer || canMoveLayer(intent)) {
-        onMoveLayer(intent);
+      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+      if (!canMoveLayer || canMoveLayer(moveIntent)) {
+        onMoveLayer(moveIntent);
       }
     }
     activeDropIntent = null;

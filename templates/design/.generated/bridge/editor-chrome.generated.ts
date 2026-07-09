@@ -1320,7 +1320,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var persistentNodes = Array.prototype.slice.call(
         document.querySelectorAll("[data-agent-native-edit-overlay]")
       );
-      var activeSelector = preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+      var activeSelector = forceFullDocument ? "" : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
       var activeCandidates = [];
       if (Array.isArray(selectorCandidates)) {
         selectorCandidates.forEach(function(selector) {
@@ -5894,7 +5894,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       return node && node.nodeType === 1 ? node : null;
     }
     function activateProgrammaticTextEdit(textTarget, force) {
-      if (activeTextEditEl && activeTextEditEl === textTarget) return;
+      if (activeTextEditEl && activeTextEditEl === textTarget) {
+        if (document.activeElement !== textTarget || !document.hasFocus()) {
+          textTarget.focus();
+          try {
+            var refocusRange = document.createRange();
+            refocusRange.selectNodeContents(textTarget);
+            refocusRange.collapse(false);
+            var refocusSelection = window.getSelection();
+            refocusSelection.removeAllRanges();
+            refocusSelection.addRange(refocusRange);
+          } catch {
+          }
+          postTextEditingState(textTarget, true);
+        }
+        return;
+      }
       var bteRect = textTarget.getBoundingClientRect();
       var bteCenterX = bteRect.right - 2;
       var bteCenterY = bteRect.top + bteRect.height / 2;
@@ -6225,7 +6240,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var textEditStatusEditingEl = document.querySelector(
             '[data-agent-native-node-id="' + escapedTextEditStatusNodeId + '"][data-agent-native-text-editing]'
           );
-          if (textEditStatusEditingEl && document.activeElement === textEditStatusEditingEl) {
+          if (textEditStatusEditingEl && document.activeElement === textEditStatusEditingEl && document.hasFocus()) {
             textEditStatus = "active";
           } else if (textEditStatusNode && (textEditStatusNode.textContent ?? "").trim().length > 0) {
             textEditStatus = "done";

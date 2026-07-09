@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   serializeActionQueryParams,
   shouldRetryActionQueryForError,
+  tryCallActionKeepalive,
 } from "./use-action.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -185,6 +187,88 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+  });
+});
+
+describe("tryCallActionKeepalive", () => {
+  it("uses the normal action transport and exposes response completion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ok: true, version: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive<{ ok: boolean; version: number }>(
+      "update-file",
+      { id: "file-1", content: "updated" },
+    );
+
+    expect(attempt.accepted).toBe(true);
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true, version: 3 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/update-file",
+      expect.objectContaining({
+        method: "POST",
+        keepalive: true,
+        cache: "no-store",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        }),
+        body: JSON.stringify({ id: "file-1", content: "updated" }),
+      }),
+    );
+  });
+
+  it("holds the aggregate reservation until the response body completes", async () => {
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const first = tryCallActionKeepalive("save-one", payload);
+    const blocked = tryCallActionKeepalive("save-two", payload);
+    expect(first.accepted).toBe(true);
+    expect(blocked).toMatchObject({
+      accepted: false,
+      reason: "budget-exhausted",
+    });
+
+    resolveFirst?.(jsonResponse({ ok: true }));
+    if (!first.accepted)
+      throw new Error("Expected first request to be accepted");
+    await first.completion;
+
+    const afterCompletion = tryCallActionKeepalive("save-three", payload);
+    expect(afterCompletion.accepted).toBe(true);
+    if (!afterCompletion.accepted) {
+      throw new Error("Expected released reservation to be reusable");
+    }
+    await afterCompletion.completion;
+  });
+
+  it("rejects a body larger than the conservative keepalive budget", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive("update-file", {
+      content: "x".repeat(ACTION_KEEPALIVE_BODY_BUDGET_BYTES),
+    });
+
+    expect(attempt).toMatchObject({
+      accepted: false,
+      reason: "body-too-large",
+      completion: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -639,6 +639,8 @@ const enUS = {
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
+      annotationSendError:
+        "Could not send annotations. Your drawing is still here—try again.",
       codingHandoffError: "Could not create agent handoff",
       codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
@@ -651,6 +653,15 @@ const enUS = {
       openScreenPng: "Open a screen before exporting PNG",
       pngCreateError: "Could not create PNG download",
       pngDownloaded: "PNG downloaded",
+      pngCopied: "PNG copied to clipboard",
+      pngClipboardUnsupported:
+        "This browser can't copy PNG images to the clipboard",
+      pngClipboardBlocked: "Allow clipboard access to copy this PNG",
+      pngClipboardWriteError: "Could not copy PNG to the clipboard",
+      pngLivePreviewUnavailable:
+        "PNG capture isn't available for URL-backed screens yet",
+      pngReadOnlyUnavailable:
+        "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
       openScreenSvg: "Open a screen before exporting SVG",
@@ -5989,6 +6000,12 @@ const designExactEnglishOverrides = {
         openScreenSvg: "导出 SVG 前请先打开一个屏幕",
         pngCreateError: "无法创建 PNG 下载",
         pngDownloaded: "PNG 已下载",
+        pngCopied: "PNG 已复制到剪贴板",
+        pngClipboardUnsupported: "此浏览器无法将 PNG 图像复制到剪贴板",
+        pngClipboardBlocked: "请允许访问剪贴板以复制此 PNG",
+        pngClipboardWriteError: "无法将 PNG 复制到剪贴板",
+        pngLivePreviewUnavailable: "URL 支持的屏幕暂不支持 PNG 捕获",
+        pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
         pngExportError: "无法导出 PNG",
         pngSaveError: "无法保存 PNG",
         svgDownloaded: "SVG 已下载",
@@ -6065,6 +6082,16 @@ const designExactEnglishOverrides = {
         openScreenSvg: "Abre una pantalla antes de exportar SVG",
         pngCreateError: "No se pudo crear la descarga PNG",
         pngDownloaded: "PNG descargado",
+        pngCopied: "PNG copiado al portapapeles",
+        pngClipboardUnsupported:
+          "Este navegador no puede copiar imágenes PNG al portapapeles",
+        pngClipboardBlocked:
+          "Permite el acceso al portapapeles para copiar este PNG",
+        pngClipboardWriteError: "No se pudo copiar el PNG al portapapeles",
+        pngLivePreviewUnavailable:
+          "La captura PNG aún no está disponible para pantallas basadas en URL",
+        pngReadOnlyUnavailable:
+          "La captura PNG no está disponible en vistas previas de solo lectura",
         pngExportError: "No se pudo exportar PNG",
         pngSaveError: "No se pudo guardar PNG",
         svgDownloaded: "SVG descargado",
@@ -6142,6 +6169,17 @@ const designExactEnglishOverrides = {
         openScreenSvg: "Ouvrez un écran avant d’exporter SVG",
         pngCreateError: "Impossible de créer le téléchargement PNG",
         pngDownloaded: "PNG téléchargé",
+        pngCopied: "PNG copié dans le presse-papiers",
+        pngClipboardUnsupported:
+          "Ce navigateur ne peut pas copier d’images PNG dans le presse-papiers",
+        pngClipboardBlocked:
+          "Autorisez l’accès au presse-papiers pour copier ce PNG",
+        pngClipboardWriteError:
+          "Impossible de copier le PNG dans le presse-papiers",
+        pngLivePreviewUnavailable:
+          "La capture PNG n’est pas encore disponible pour les écrans basés sur une URL",
+        pngReadOnlyUnavailable:
+          "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
         pngExportError: "Impossible d’exporter PNG",
         pngSaveError: "Impossible d’enregistrer PNG",
         svgDownloaded: "SVG téléchargé",
@@ -6219,6 +6257,17 @@ const designExactEnglishOverrides = {
         openScreenSvg: "Öffnen Sie vor dem SVG-Export einen Bildschirm",
         pngCreateError: "PNG-Download konnte nicht erstellt werden",
         pngDownloaded: "PNG heruntergeladen",
+        pngCopied: "PNG in die Zwischenablage kopiert",
+        pngClipboardUnsupported:
+          "Dieser Browser kann PNG-Bilder nicht in die Zwischenablage kopieren",
+        pngClipboardBlocked:
+          "Erlauben Sie den Zugriff auf die Zwischenablage, um dieses PNG zu kopieren",
+        pngClipboardWriteError:
+          "PNG konnte nicht in die Zwischenablage kopiert werden",
+        pngLivePreviewUnavailable:
+          "PNG-Aufnahmen sind für URL-basierte Bildschirme noch nicht verfügbar",
+        pngReadOnlyUnavailable:
+          "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
         pngExportError: "PNG konnte nicht exportiert werden",
         pngSaveError: "PNG konnte nicht gespeichert werden",
         svgDownloaded: "SVG heruntergeladen",
@@ -6296,6 +6345,16 @@ const designExactEnglishOverrides = {
         openScreenSvg: "SVG をエクスポートする前に画面を開いてください",
         pngCreateError: "PNG ダウンロードを作成できませんでした",
         pngDownloaded: "PNG をダウンロードしました",
+        pngCopied: "PNG をクリップボードにコピーしました",
+        pngClipboardUnsupported:
+          "このブラウザでは PNG 画像をクリップボードにコピーできません",
+        pngClipboardBlocked:
+          "この PNG をコピーするにはクリップボードへのアクセスを許可してください",
+        pngClipboardWriteError: "PNG をクリップボードにコピーできませんでした",
+        pngLivePreviewUnavailable:
+          "URL ベースの画面では PNG キャプチャをまだ利用できません",
+        pngReadOnlyUnavailable:
+          "読み取り専用プレビューでは PNG キャプチャを利用できません",
         pngExportError: "PNG をエクスポートできませんでした",
         pngSaveError: "PNG を保存できませんでした",
         svgDownloaded: "SVG をダウンロードしました",
@@ -6372,6 +6431,15 @@ const designExactEnglishOverrides = {
         openScreenSvg: "SVG를 내보내기 전에 화면을 여세요",
         pngCreateError: "PNG 다운로드를 만들 수 없음",
         pngDownloaded: "PNG 다운로드됨",
+        pngCopied: "PNG가 클립보드에 복사됨",
+        pngClipboardUnsupported:
+          "이 브라우저에서는 PNG 이미지를 클립보드에 복사할 수 없음",
+        pngClipboardBlocked: "이 PNG를 복사하려면 클립보드 접근을 허용하세요",
+        pngClipboardWriteError: "PNG를 클립보드에 복사할 수 없음",
+        pngLivePreviewUnavailable:
+          "URL 기반 화면에서는 아직 PNG 캡처를 사용할 수 없음",
+        pngReadOnlyUnavailable:
+          "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
         pngExportError: "PNG를 내보낼 수 없음",
         pngSaveError: "PNG를 저장할 수 없음",
         svgDownloaded: "SVG 다운로드됨",
@@ -6448,6 +6516,17 @@ const designExactEnglishOverrides = {
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         pngCreateError: "Não foi possível criar o download PNG",
         pngDownloaded: "PNG baixado",
+        pngCopied: "PNG copiado para a área de transferência",
+        pngClipboardUnsupported:
+          "Este navegador não pode copiar imagens PNG para a área de transferência",
+        pngClipboardBlocked:
+          "Permita o acesso à área de transferência para copiar este PNG",
+        pngClipboardWriteError:
+          "Não foi possível copiar o PNG para a área de transferência",
+        pngLivePreviewUnavailable:
+          "A captura PNG ainda não está disponível para telas baseadas em URL",
+        pngReadOnlyUnavailable:
+          "A captura PNG não está disponível em visualizações somente leitura",
         pngExportError: "Não foi possível exportar PNG",
         pngSaveError: "Não foi possível salvar PNG",
         svgDownloaded: "SVG baixado",
@@ -6523,6 +6602,15 @@ const designExactEnglishOverrides = {
         openScreenSvg: "SVG निर्यात करने से पहले कोई स्क्रीन खोलें",
         pngCreateError: "PNG डाउनलोड नहीं बनाया जा सका",
         pngDownloaded: "PNG डाउनलोड हुआ",
+        pngCopied: "PNG क्लिपबोर्ड पर कॉपी हुआ",
+        pngClipboardUnsupported:
+          "यह ब्राउज़र PNG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
+        pngClipboardBlocked:
+          "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
+        pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
+        pngLivePreviewUnavailable:
+          "URL-आधारित स्क्रीन के लिए PNG कैप्चर अभी उपलब्ध नहीं है",
+        pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
         pngSaveError: "PNG सहेजा नहीं जा सका",
         svgDownloaded: "SVG डाउनलोड हुआ",
@@ -6598,6 +6686,14 @@ const designExactEnglishOverrides = {
         openScreenSvg: "افتح شاشة قبل تصدير SVG",
         pngCreateError: "تعذر إنشاء تنزيل PNG",
         pngDownloaded: "تم تنزيل PNG",
+        pngCopied: "تم نسخ PNG إلى الحافظة",
+        pngClipboardUnsupported: "لا يمكن لهذا المتصفح نسخ صور PNG إلى الحافظة",
+        pngClipboardBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف PNG هذا",
+        pngClipboardWriteError: "تعذر نسخ PNG إلى الحافظة",
+        pngLivePreviewUnavailable:
+          "التقاط PNG غير متاح بعد للشاشات المستندة إلى عنوان URL",
+        pngReadOnlyUnavailable:
+          "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
         pngExportError: "تعذر تصدير PNG",
         pngSaveError: "تعذر حفظ PNG",
         svgDownloaded: "تم تنزيل SVG",
@@ -8406,6 +8502,7 @@ const designCanvasFeatureOverrides = {
   "zh-TW": {
     designEditor: {
       toasts: {
+        annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
         propsCopied: "屬性已複製",
         propsPasted: "屬性已貼上",
       },
@@ -8445,6 +8542,7 @@ const designCanvasFeatureOverrides = {
   "zh-CN": {
     designEditor: {
       toasts: {
+        annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
         propsCopied: "属性已复制",
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
@@ -8521,6 +8619,8 @@ const designCanvasFeatureOverrides = {
   "es-ES": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
         propsCopied: "Propiedades copiadas",
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
@@ -8599,6 +8699,8 @@ const designCanvasFeatureOverrides = {
   "fr-FR": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
         propsCopied: "Propriétés copiées",
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
@@ -8677,6 +8779,8 @@ const designCanvasFeatureOverrides = {
   "de-DE": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
         propsCopied: "Eigenschaften kopiert",
         propsPasted: "Eigenschaften eingefügt",
         primitiveInsertFailed:
@@ -8756,6 +8860,8 @@ const designCanvasFeatureOverrides = {
   "ja-JP": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
         propsCopied: "プロパティをコピーしました",
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
@@ -8833,6 +8939,8 @@ const designCanvasFeatureOverrides = {
   "ko-KR": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
         propsCopied: "속성이 복사됨",
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
@@ -8910,6 +9018,8 @@ const designCanvasFeatureOverrides = {
   "pt-BR": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
         propsCopied: "Propriedades copiadas",
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
@@ -8988,6 +9098,8 @@ const designCanvasFeatureOverrides = {
   "hi-IN": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
         propsCopied: "गुण कॉपी किए गए",
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
@@ -9065,6 +9177,8 @@ const designCanvasFeatureOverrides = {
   "ar-SA": {
     designEditor: {
       toasts: {
+        annotationSendError:
+          "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
         propsCopied: "تم نسخ الخصائص",
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
@@ -12077,6 +12191,7 @@ export const messagesByLocale = {
       designTokenImportOverrides["zh-TW"],
       designImportOverrides["zh-TW"],
       designModeFeatureOverrides["zh-TW"],
+      designCanvasFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],

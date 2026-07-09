@@ -8,7 +8,7 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
 import {
   languageForSourcePath,
@@ -107,17 +107,7 @@ export interface SourceWorkspaceContext {
 }
 
 function parseDesignDataSourceType(value: unknown): DesignSourceType {
-  if (typeof value !== "string") return "inline";
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const raw = (parsed as Record<string, unknown>).sourceType;
-      return normalizeDesignSourceType(raw) ?? "inline";
-    }
-  } catch {
-    // Invalid design data falls back to inline, matching existing actions.
-  }
-  return "inline";
+  return designSourceTypeFromData(value);
 }
 
 function parseDesignDataBoardFileId(value: unknown): string | null {
@@ -302,7 +292,16 @@ export async function writeInlineSourceFile(args: {
 
     await db
       .update(schema.designFiles)
-      .set({ content: authoritativeContent, updatedAt })
+      .set({
+        content: authoritativeContent,
+        updatedAt,
+        // This action/agent write is outside the browser save sequence. Break
+        // that lineage so a later tab revision must pass its ordinary content
+        // hash guard instead of inheriting a stale same-source bypass.
+        contentOperationSource: null,
+        contentOperationRevision: null,
+        contentOperationResultHash: null,
+      })
       .where(eq(schema.designFiles.id, args.file.id));
 
     await db

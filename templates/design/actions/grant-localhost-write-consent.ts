@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -53,6 +53,9 @@ export default defineAction({
         and(
           eq(schema.designLocalhostConnections.id, connectionId),
           eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+          orgId
+            ? eq(schema.designLocalhostConnections.orgId, orgId)
+            : isNull(schema.designLocalhostConnections.orgId),
         ),
       )
       .limit(1);
@@ -93,6 +96,9 @@ export default defineAction({
           eq(schema.designLocalhostWriteGrants.designId, designId),
           eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
           eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+          orgId
+            ? eq(schema.designLocalhostWriteGrants.orgId, orgId)
+            : isNull(schema.designLocalhostWriteGrants.orgId),
         ),
       )
       .limit(1);

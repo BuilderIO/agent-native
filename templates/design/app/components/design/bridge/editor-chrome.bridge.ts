@@ -1925,8 +1925,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var persistentNodes = Array.prototype.slice.call(
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
-    var activeSelector =
-      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // A forced whole-document replace is used for structural edits (duplicate,
+    // delete, cut/paste, undo/redo). Never fall back to the current selection
+    // in that mode: doing so activates the single-subtree fast path below,
+    // which can faithfully replace the selected node while silently omitting
+    // newly inserted or removed siblings elsewhere in the document.
+    var activeSelector = forceFullDocument
+      ? ""
+      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -8560,8 +8566,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     textTarget: HTMLElement,
     force: boolean,
   ): void {
-    // If we are already editing this element, do nothing.
-    if (activeTextEditEl && activeTextEditEl === textTarget) return;
+    // The host canvas can reclaim keyboard focus while React settles a newly
+    // created layer. In that case this document still reports the same
+    // activeElement even though its browsing context no longer has focus, so
+    // treating the session as already active makes every retry a no-op and the
+    // user's first keystroke hits host shortcuts. Re-focus the existing
+    // session instead of rebuilding it.
+    if (activeTextEditEl && activeTextEditEl === textTarget) {
+      if (document.activeElement !== textTarget || !document.hasFocus()) {
+        textTarget.focus();
+        try {
+          var refocusRange = document.createRange();
+          refocusRange.selectNodeContents(textTarget);
+          refocusRange.collapse(false);
+          var refocusSelection = window.getSelection();
+          refocusSelection.removeAllRanges();
+          refocusSelection.addRange(refocusRange);
+        } catch {}
+        postTextEditingState(textTarget, true);
+      }
+      return;
+    }
     // Synthesise coordinates at the end of the element content so the caret
     // lands at the insertion point (right after any placeholder text).
     var bteRect = textTarget.getBoundingClientRect();
@@ -9019,7 +9044,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         );
         if (
           textEditStatusEditingEl &&
-          document.activeElement === textEditStatusEditingEl
+          document.activeElement === textEditStatusEditingEl &&
+          document.hasFocus()
         ) {
           textEditStatus = "active";
         } else if (

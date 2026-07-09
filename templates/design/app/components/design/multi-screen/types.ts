@@ -10,7 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
-} from "../DesignCanvas";
+} from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
   ElementInfo,
@@ -34,6 +34,8 @@ export interface ScreenFile {
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Read-only localhost preview credential. Never a filesystem token. */
+  previewToken?: string;
   /**
    * When set, renders multiple side-by-side breakpoint frames (mobile-first,
    * §6.4). Each entry is a pixel width; the active breakpoint determines the
@@ -93,12 +95,14 @@ export interface ScreenMetadata {
   sourceType?: string;
   lod?: string;
   previewState?: string;
+  status?: string;
   title?: string;
   width?: number;
   height?: number;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  previewToken?: string;
 }
 
 export interface DuplicateRequest {

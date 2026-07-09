@@ -751,7 +751,7 @@ describe("recap setup planning", () => {
         env: {
           PLAN_RECAP_TOKEN: "example-plan-token",
           OPENAI_API_KEY: "example-openai-key",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
         } as NodeJS.ProcessEnv,
       });
@@ -765,7 +765,7 @@ describe("recap setup planning", () => {
         requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
         variableValues: {
           VISUAL_RECAP_AGENT: "codex",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
         },
       });
@@ -1788,7 +1788,7 @@ describe("recap gate decision", () => {
   });
 
   it("accepts a valid VISUAL_RECAP_MODEL value", () => {
-    const result = evaluateRecapGate(ok({ model: "gpt-5.5" }));
+    const result = evaluateRecapGate(ok({ model: "gpt-5.6-sol" }));
     expect(result.run).toBe(true);
   });
 
@@ -2624,8 +2624,8 @@ describe("reusable caller workflow builder", () => {
   });
 
   it("adds the model input line when a model is specified", () => {
-    const yml = buildReusableCallerWorkflow({ model: "gpt-5.5" });
-    expect(yml).toContain("model: gpt-5.5");
+    const yml = buildReusableCallerWorkflow({ model: "gpt-5.6-sol" });
+    expect(yml).toContain("model: gpt-5.6-sol");
   });
 });
 

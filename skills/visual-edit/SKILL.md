@@ -60,14 +60,19 @@ iframe-backed screens on the infinite canvas.
 
 ## Required Local Bridge
 
-The live-edit bridge is unlocked by a shared secret (the "bridge token") that
-must match on two sides: the local bridge process, and the user's connection row
-in Design (which the browser reads to authorize `/live-edit-bridge`,
-`/read-file`, `/write-file`). Get them to match by letting the
-**authenticated** `open-visual-edit` action mint the token, then starting the
-bridge with it. This is the only ordering that works for the remote-MCP flow —
-the bridge cannot push its own token to the server without a CLI auth token, so
-the server mints instead and the bridge adopts.
+The bridge uses two scoped secrets. `bridgeToken` is the stronger filesystem
+credential accepted only by `/read-file`, `/list-files`, `/write-file`, and
+`/apply-edit`; Design never stores it in project/screen data or returns it from
+`get-design`, and local writes still require explicit human consent.
+`previewToken` is a distinct read-only browser credential accepted by route,
+snapshot, proxy, and `/live-edit-bridge` endpoints. Editors receive only this
+one in screen metadata; public viewers receive neither token.
+
+Both must match the local bridge and the user's private connection row. Let the
+**authenticated** `open-visual-edit` action mint them, then start the bridge
+with the returned values. This is the only ordering that works for the
+remote-MCP flow — the bridge cannot push its own tokens to the server without a
+CLI auth token.
 
 From the target app repo, make sure its dev server is running, then:
 
@@ -81,26 +86,28 @@ This prints the manifest (routes + capabilities). Parse it to build
 `routeManifest` for the next step. (Skip this if the user already gave explicit
 paths/URLs to place.)
 
-**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
-The server mints one, stores it on the user's connection row, copies it into the
-placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
+**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken` or
+`previewToken`. The server mints both, stores them on the user's private
+connection row, copies only the read-only token into placed-screen metadata,
+and returns both values. Capture them.
 
 **3. Start the persistent bridge adopting that token** (single line; prefer the
 env var so the secret does not appear in `ps`):
 
 ```bash
-AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" AGENT_NATIVE_PREVIEW_TOKEN="<previewToken from step 2>" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
 ```
 
-(Equivalently, pass `--bridge-token <token>`.) This starts a detached bridge on
-`http://127.0.0.1:7331`, adopts the server-minted token — so bridge and row
-agree and live-edit authorizes with no self-registration — and stays alive after
-the command exits.
+(Equivalently, pass `--bridge-token <token> --preview-token <token>`.) Newer
+CLIs derive the same one-way preview token from `--bridge-token` when the
+preview flag is omitted, preserving older launch commands. This starts a
+detached bridge on `http://127.0.0.1:7331`, adopts the server-minted
+credentials, and stays alive after the command exits.
 
 For a manual health/manifest check on the running bridge:
 
 ```bash
-curl http://127.0.0.1:7331/manifest.json
+curl -H 'X-Design-Preview-Token: <previewToken>' http://127.0.0.1:7331/manifest.json
 ```
 
 Only use `--json` for the step-1 route probe. Never use `--json`, `--once`,
@@ -110,7 +117,7 @@ so Design falls back to a non-editable live iframe.
 ## Action Flow
 
 Prefer the single authenticated `open-visual-edit` action. It registers or
-refreshes the localhost bridge connection, mints and stores the bridge token,
+refreshes the localhost bridge connection, mints and stores both scoped tokens,
 creates or reuses a Design project, places URL-backed screens, stores the active
 visual-edit context, and navigates to overview mode in one call. This avoids
 creating a private design under a synthetic CLI user and then handing the browser
@@ -118,8 +125,8 @@ a tokenized URL that may be shadowed by an existing session.
 
 Call it BEFORE starting the durable bridge (step 3 above): it does not contact
 the bridge, so the bridge need not be running yet, and you need its returned
-`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken`
-on the call so the server mints one.
+token pair to start the bridge with matching credentials. Omit both token
+fields on the call so the server mints them.
 
 ```bash
 pnpm action open-visual-edit '{
@@ -132,12 +139,11 @@ pnpm action open-visual-edit '{
 }'
 ```
 
-The action returns `designId`, `connectionId`, `bridgeToken`, `screens`,
-`urlPath`, and `openUrl`. Keep `designId`/`connectionId` in the chat context
-for follow-ups, and pass `bridgeToken` to `design connect` (step 3) to start
-the bridge. On follow-up calls reusing an existing `connectionId`, the same
-token is returned (it is minted once and reused), so the running bridge stays
-valid.
+The action returns `designId`, `connectionId`, `bridgeToken`, `previewToken`,
+`screens`, `urlPath`, and `openUrl`. Keep `designId`/`connectionId` in the chat
+context for follow-ups, and pass both credentials to `design connect` (step 3).
+On follow-up calls reusing an existing `connectionId`, the same token pair is
+returned (minted once and reused), so the running bridge stays valid.
 
 For a numbered flow the user describes in chat, keep the labels and order:
 

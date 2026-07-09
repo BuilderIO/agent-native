@@ -4777,8 +4777,14 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("The design was saved");
   });
 
-  it.each(["import-design-tokens", "connect-assets-mcp"])(
-    "finishes with a completed-tool note for allowlisted mutating tool %s",
+  it.each([
+    "import-design-tokens",
+    "connect-assets-mcp",
+    "compose-dashboard",
+    "install-dashboard-template",
+    "mutate-dashboard",
+  ])(
+    "finishes with a completed-tool note for recognized mutating tool %s",
     async (toolName) => {
       vi.useFakeTimers();
       const dispatchEvent = vi.fn();
@@ -5648,6 +5654,85 @@ describe("createAgentChatAdapter", () => {
           {
             role: "user",
             content: [{ type: "text", text: "do a self-chained task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("Working fallback continued");
+  });
+
+  it("falls back to a client continuation when a durable background handoff fails", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? backgroundSseResponse(
+              [
+                { type: "text", text: "Working" },
+                {
+                  type: "error",
+                  error:
+                    "The agent's background worker could not hand off the next step.",
+                  errorCode: "background_continuation_dispatch_failed",
+                  recoverable: true,
+                },
+              ],
+              "run-background-handoff-failed",
+            )
+          : sseResponse(
+              [{ type: "text", text: " fallback continued" }, { type: "done" }],
+              "run-background-client-fallback",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: false,
+          threadId: "thread-background-handoff-failed",
+          status: "idle",
+          heartbeatAt: null,
+          lastProgressAt: null,
+        });
+      }
+      if (url.includes("/runs/run-background-handoff-failed/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-background-handoff-failed",
+      threadId: "thread-background-handoff-failed",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a durable background task" }],
           },
         ],
         abortSignal: new AbortController().signal,

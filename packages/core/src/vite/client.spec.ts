@@ -466,7 +466,7 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("externalizes native sqlite deps for production SSR builds", async () => {
+  it("externalizes singleton and native deps for production SSR builds", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
@@ -479,6 +479,7 @@ describe("agentNative Vite plugin preset", () => {
       { command: "build", mode: "production" },
     )) as any;
 
+    expect(config.ssr.external).toContain("yjs");
     expect(config.ssr.external).toContain("better-sqlite3");
     expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
@@ -945,6 +946,8 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@paper-design/shaders-react": "0.0.76",
+          html2canvas: "^1.4.1",
           "react-router": "^8.0.1",
         },
       }),
@@ -953,10 +956,26 @@ describe("local-core dev aliases and router dedupe", () => {
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
     expect(deps).not.toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@assistant-ui/react");
-    expect(deps).toContain("@tiptap/react");
-    expect(deps).toContain("@xterm/xterm");
-    expect(deps).toContain("shiki/core");
+    expect(deps).toContain("@agent-native/core > @assistant-ui/react");
+    expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
+    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).toContain(
+      "@agent-native/core > @shadcn/react/message-scroller",
+    );
+    expect(deps).toContain("@agent-native/core > @tiptap/react");
+    expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
+    expect(deps).toContain("@agent-native/core > @xterm/xterm");
+    expect(deps).toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/core > shiki/core");
+    expect(deps).toContain("@paper-design/shaders-react");
+    expect(deps).not.toContain(
+      "@agent-native/core > @paper-design/shaders-react",
+    );
+    expect(deps).toContain("html2canvas");
+    expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-router");
+    expect(deps).not.toContain("@agent-native/core > react-router");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

@@ -49,22 +49,8 @@ test.describe.serial("layers menu structure operations", () => {
     const before = await visibleLayerNames(page);
     expect(before.indexOf("Alpha Button")).toBeGreaterThanOrEqual(0);
     expect(before.indexOf("Beta Button")).toBeGreaterThanOrEqual(0);
-
-    await layerRow(page, "Beta Button").dragTo(layerRow(page, "Alpha Button"), {
-      targetPosition: { x: 24, y: 2 },
-    });
-
-    await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return names.indexOf("Beta Button") < names.indexOf("Alpha Button");
-      })
-      .toBe(true);
-
-    await clickLayerRow(page, "Alpha Button");
-    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
+    expect(before.indexOf("Beta Button")).toBeLessThan(
+      before.indexOf("Alpha Button"),
     );
 
     await layerRow(page, "Alpha Button").dragTo(layerRow(page, "Beta Button"), {
@@ -75,6 +61,23 @@ test.describe.serial("layers menu structure operations", () => {
       .poll(async () => {
         const names = await visibleLayerNames(page);
         return names.indexOf("Alpha Button") < names.indexOf("Beta Button");
+      })
+      .toBe(true);
+
+    await clickLayerRow(page, "Beta Button");
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await layerRow(page, "Beta Button").dragTo(layerRow(page, "Alpha Button"), {
+      targetPosition: { x: 24, y: 2 },
+    });
+
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return names.indexOf("Beta Button") < names.indexOf("Alpha Button");
       })
       .toBe(true);
   });
@@ -98,10 +101,10 @@ test.describe.serial("layers menu structure operations", () => {
         .poll(async () => {
           const names = await visibleLayerNames(page);
           return (
-            names.indexOf("Fixture Card Title") <
+            names.indexOf("Alpha Button") <
               names.indexOf("Card body text inside a nested container.") &&
             names.indexOf("Card body text inside a nested container.") <
-              names.indexOf("Alpha Button")
+              names.indexOf("Fixture Card Title")
           );
         })
         .toBe(true);

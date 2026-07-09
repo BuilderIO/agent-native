@@ -3,7 +3,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   discoverDesignRoutes,
@@ -12,6 +12,7 @@ import {
   prepareDesignConnectManifest,
   registerConnectionWithServer,
   resolveAppUrl,
+  runDesign,
   startDesignConnectBridge,
 } from "./design-connect.js";
 
@@ -74,6 +75,7 @@ async function postJson(
 
 async function getJson(
   url: string,
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -83,6 +85,7 @@ async function getJson(
           hostname: parsed.hostname,
           port: Number(parsed.port),
           path: `${parsed.pathname}${parsed.search}`,
+          headers,
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -105,7 +108,10 @@ async function getJson(
   });
 }
 
-async function getText(url: string): Promise<{
+async function getText(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{
   status: number;
   headers: http.IncomingHttpHeaders;
   body: string;
@@ -118,6 +124,7 @@ async function getText(url: string): Promise<{
           hostname: parsed.hostname,
           port: Number(parsed.port),
           path: `${parsed.pathname}${parsed.search}`,
+          headers,
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -210,6 +217,20 @@ describe("design connect CLI", () => {
     });
   });
 
+  it("parses the distinct read-only preview token", () => {
+    expect(
+      parseDesignConnectArgs([
+        "connect",
+        "--bridge-token=example-write-token",
+        "--preview-token",
+        "example-preview-token",
+      ]),
+    ).toMatchObject({
+      bridgeToken: "example-write-token",
+      previewToken: "example-preview-token",
+    });
+  });
+
   it("parses --daemon and rejects one-shot modes", () => {
     expect(parseDesignConnectArgs(["connect", "--daemon"])).toMatchObject({
       daemon: true,
@@ -259,6 +280,43 @@ describe("design connect CLI", () => {
     ).toBe(false);
   });
 
+  it("reuses a same-app daemon without knowing its preview token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const devServerUrl = "http://localhost:5173";
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: devServerUrl,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runDesign([
+          "connect",
+          "--url",
+          devServerUrl,
+          "--port",
+          String(port),
+          "--root",
+          root,
+          "--daemon",
+        ]),
+      ).resolves.toBe(0);
+      expect(error).toHaveBeenCalledWith(
+        `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+      );
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
   it("resolves standard app URL env vars for self-registration", () => {
     for (const key of appUrlEnvKeys) delete process.env[key];
     process.env.APP_URL = "https://design.example.com/";
@@ -287,35 +345,35 @@ describe("design connect CLI", () => {
 
     expect(discoverDesignRoutes(root)).toEqual([
       {
-        id: "route-root",
+        id: expect.stringMatching(/^route-root-[a-z0-9]+$/),
         path: "/",
         title: "Home",
         sourceFile: "app/routes/_index.tsx",
         sourceKind: "react-router",
       },
       {
-        id: "route-wildcard",
+        id: expect.stringMatching(/^route-wildcard-[a-z0-9]+$/),
         path: "/*",
         title: "Wildcard",
         sourceFile: "app/routes/$.tsx",
         sourceKind: "react-router",
       },
       {
-        id: "route-design-systems-setup",
+        id: expect.stringMatching(/^route-design-systems-setup-[a-z0-9]+$/),
         path: "/design-systems/setup",
         title: "Design Systems Setup",
         sourceFile: "app/routes/design-systems_.setup.tsx",
         sourceKind: "react-router",
       },
       {
-        id: "route-design-id",
+        id: expect.stringMatching(/^route-design-pid-[a-z0-9]+$/),
         path: "/design/:id",
         title: "Design Id",
         sourceFile: "app/routes/design.$id.tsx",
         sourceKind: "react-router",
       },
       {
-        id: "route-settings",
+        id: expect.stringMatching(/^route-settings-[a-z0-9]+$/),
         path: "/settings",
         title: "Settings",
         sourceFile: "app/routes/_app.settings.tsx",
@@ -366,9 +424,146 @@ describe("design connect CLI", () => {
       '{"keep":true}\n',
     );
   });
+
+  it("keeps structural route ids distinct and preserves custom manifest metadata", async () => {
+    const root = tmpDir();
+    const routes = path.join(root, "app", "routes");
+    fs.mkdirSync(routes, { recursive: true });
+    fs.writeFileSync(
+      path.join(routes, "design.$id.tsx"),
+      "export default null;",
+    );
+    fs.writeFileSync(
+      path.join(routes, "design-id.tsx"),
+      "export default null;",
+    );
+    fs.writeFileSync(path.join(routes, "users.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "users.$.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "_index.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "root.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "$.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "wildcard.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "foo.bar.tsx"), "export default null;");
+    fs.writeFileSync(path.join(routes, "foo-bar.tsx"), "export default null;");
+
+    const manifestPath = path.join(root, ".agent-native/design-routes.json");
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        routes: [
+          {
+            id: "custom-checkout",
+            path: "/checkout?step=payment",
+            title: "Payment step",
+            sourceKind: "manual",
+            metadata: { width: 390, stateName: "payment" },
+          },
+        ],
+      }),
+    );
+
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port: 7666,
+    });
+
+    expect(manifest.routes[0]).toMatchObject({
+      id: "custom-checkout",
+      title: "Payment step",
+      metadata: { width: 390, stateName: "payment" },
+    });
+    expect(
+      manifest.routes.find((route) => route.path === "/design/:id")?.id,
+    ).toMatch(/^route-design-pid-[a-z0-9]+$/);
+    expect(
+      manifest.routes.find((route) => route.path === "/design-id")?.id,
+    ).toMatch(/^route-design-id-[a-z0-9]+$/);
+    expect(
+      manifest.routes.find((route) => route.path === "/users")?.id,
+    ).toMatch(/^route-users-[a-z0-9]+$/);
+    expect(
+      manifest.routes.find((route) => route.path === "/users/*")?.id,
+    ).toMatch(/^route-users-w-[a-z0-9]+$/);
+    expect(
+      manifest.routes.find((route) => route.path === "/design/:id")?.id,
+    ).not.toBe("route-design-pid");
+    for (const [left, right] of [
+      ["/", "/root"],
+      ["/*", "/wildcard"],
+      ["/foo/bar", "/foo-bar"],
+    ]) {
+      expect(manifest.routes.find((route) => route.path === left)?.id).not.toBe(
+        manifest.routes.find((route) => route.path === right)?.id,
+      );
+    }
+  });
 });
 
 describe("design connect bridge endpoints", () => {
+  it("keeps screen-specific editor bridge scripts isolated across parallel frames", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><html><body><main>Screen</main></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      const scriptA =
+        '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
+      const scriptB =
+        '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
+      await postJson(
+        `${base}/live-edit-bridge`,
+        { script: scriptA, bridgeKey: "screen-a" },
+        auth,
+      );
+      await postJson(
+        `${base}/live-edit-bridge`,
+        { script: scriptB, bridgeKey: "screen-b" },
+        auth,
+      );
+
+      const frameA = await getText(
+        `${base}/live-edit?path=/a&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      const frameB = await getText(
+        `${base}/live-edit?path=/b&bridgeKey=screen-b&previewToken=${bridge.previewToken}`,
+      );
+
+      expect(frameA.status).toBe(200);
+      expect(frameA.body).toContain('window.__screenBridge="A"');
+      expect(frameA.body).not.toContain('window.__screenBridge="B"');
+      expect(frameB.status).toBe(200);
+      expect(frameB.body).toContain('window.__screenBridge="B"');
+      expect(frameB.body).not.toContain('window.__screenBridge="A"');
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("returns read-only HTML snapshots from the connected dev server", async () => {
     const root = tmpDir();
     const devPort = await freePort();
@@ -394,7 +589,7 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const result = await getJson(
-        `http://127.0.0.1:${port}/snapshot?path=/hello`,
+        `http://127.0.0.1:${port}/snapshot?path=/hello&previewToken=${bridge.previewToken}`,
       );
       expect(result.status).toBe(200);
       expect(result.body["ok"]).toBe(true);
@@ -456,12 +651,21 @@ describe("design connect bridge endpoints", () => {
           script:
             "<script>window.__editorBridgeReady = 'agent-native:editor-chrome-ready';</script>",
         },
-        { "x-bridge-token": bridge.bridgeToken },
+        { "x-design-preview-token": bridge.previewToken },
       );
       expect(registration.status).toBe(200);
       expect(registration.body["ok"]).toBe(true);
 
-      const html = await getText(`${base}/live-edit?path=/dashboard`);
+      const rejectedArbitraryScript = await postJson(
+        `${base}/live-edit-bridge`,
+        { script: "<script>window.__arbitrary = true</script>" },
+        { "x-design-preview-token": bridge.previewToken },
+      );
+      expect(rejectedArbitraryScript.status).toBe(400);
+
+      const html = await getText(
+        `${base}/live-edit?path=/dashboard&previewToken=${bridge.previewToken}`,
+      );
       expect(html.status).toBe(200);
       expect(html.headers["content-type"]).toContain("text/html");
       expect(html.body).toContain(`<base href="${base}/">`);
@@ -469,7 +673,7 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain("agent-native:editor-chrome-ready");
 
       const interactHtml = await getText(
-        `${base}/live-edit?path=/dashboard&bridge=0`,
+        `${base}/live-edit?path=/dashboard&bridge=0&previewToken=${bridge.previewToken}`,
       );
       expect(interactHtml.status).toBe(200);
       expect(interactHtml.body).toContain(`<base href="${base}/">`);
@@ -478,12 +682,29 @@ describe("design connect bridge endpoints", () => {
         "agent-native:editor-chrome-ready",
       );
 
-      const module = await getText(`${base}/src/main.ts`);
+      const module = await getText(`${base}/src/main.ts`, {
+        "sec-fetch-site": "same-origin",
+      });
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
       );
       expect(module.body).toContain("CSR booted");
+
+      const panOnlyRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__panBridgeMarker = 'embedded-canvas-pan'</script>",
+          bridgeKey: "pan-only",
+        },
+        { "x-design-preview-token": bridge.previewToken },
+      );
+      expect(panOnlyRegistration.status).toBe(200);
+      const panOnlyHtml = await getText(
+        `${base}/live-edit?path=/dashboard&bridgeKey=pan-only&previewToken=${bridge.previewToken}`,
+      );
+      expect(panOnlyHtml.body).toContain("embedded-canvas-pan");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -503,7 +724,7 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const result = await getJson(
-        `http://127.0.0.1:${port}/snapshot?url=http://example.com/`,
+        `http://127.0.0.1:${port}/snapshot?url=http://example.com/&previewToken=${bridge.previewToken}`,
       );
       expect(result.status).toBe(400);
       expect(result.body["ok"]).toBe(false);
@@ -515,7 +736,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("exposes bridgeToken on the returned bridge object", async () => {
+  it("exposes distinct write and read-only preview tokens on the bridge", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -527,6 +748,9 @@ describe("design connect bridge endpoints", () => {
     try {
       expect(typeof bridge.bridgeToken).toBe("string");
       expect(bridge.bridgeToken.length).toBe(64); // 32 bytes hex
+      expect(typeof bridge.previewToken).toBe("string");
+      expect(bridge.previewToken).toHaveLength(64);
+      expect(bridge.previewToken).not.toBe(bridge.bridgeToken);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -576,6 +800,145 @@ describe("design connect bridge endpoints", () => {
         { "x-bridge-token": "wrong-token-value" },
       );
       expect(result.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("never accepts the read-only preview token for filesystem access", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "index.html"), "<h1>private source</h1>");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/read-file`,
+        { relPath: "index.html" },
+        { "x-bridge-token": bridge.previewToken },
+      );
+      expect(result.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("never accepts the filesystem token for browser preview registration", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+        },
+        { "x-design-preview-token": bridge.bridgeToken },
+      );
+      expect(result.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("blocks hostile browser origins and never emits wildcard CORS", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest, {
+      allowedOrigins: ["https://design.example.com"],
+    });
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const approved = await getText(
+        `${base}/manifest.json?previewToken=${bridge.previewToken}`,
+        { origin: "https://design.example.com" },
+      );
+      expect(approved.status).toBe(200);
+      expect(approved.headers["access-control-allow-origin"]).toBe(
+        "https://design.example.com",
+      );
+      expect(approved.headers["access-control-allow-origin"]).not.toBe("*");
+
+      const hostile = await getText(
+        `${base}/manifest.json?previewToken=${bridge.previewToken}`,
+        { origin: "https://hostile.example" },
+      );
+      expect(hostile.status).toBe(200);
+      expect(hostile.headers["access-control-allow-origin"]).toBeUndefined();
+
+      const preflight = await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+      }>((resolve, reject) => {
+        const request = http.request(
+          `${base}/snapshot`,
+          {
+            method: "OPTIONS",
+            headers: {
+              origin: "https://hostile.example",
+              "access-control-request-method": "GET",
+              "access-control-request-private-network": "true",
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.headers,
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(preflight.status).toBe(403);
+      expect(preflight.headers["access-control-allow-origin"]).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("blocks cross-site proxy reads without a preview token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getText(`http://127.0.0.1:${port}/private-route`, {
+        origin: "https://hostile.example",
+        "sec-fetch-site": "cross-site",
+      });
+      expect(result.status).toBe(401);
+      expect(result.headers["access-control-allow-origin"]).toBeUndefined();
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -883,7 +1246,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("registerConnectionWithServer sends bridgeToken in the payload", async () => {
+  it("registerConnectionWithServer sends both scoped tokens in the payload", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -929,6 +1292,7 @@ describe("design connect bridge endpoints", () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         expect(captured).not.toBeNull();
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);
+        expect(captured?.["previewToken"]).toBe(bridge.previewToken);
         expect(captured?.["devServerUrl"]).toBe(manifest.devServerUrl);
         expect(captured?.["bridgeUrl"]).toBe(manifest.bridgeUrl);
         const registeredOperations = (
@@ -951,7 +1315,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("public routes remain accessible without a token", async () => {
+  it("keeps health public but requires the preview token for manifests and routes", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -962,22 +1326,25 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const base = `http://127.0.0.1:${port}`;
-      for (const pathname of [
-        "/",
-        "/manifest.json",
-        "/routes.json",
-        "/health",
-      ]) {
+      for (const pathname of ["/", "/manifest.json", "/routes.json"]) {
         await new Promise<void>((resolve, reject) => {
           http
             .get(`${base}${pathname}`, (res) => {
-              expect(res.statusCode).toBe(200);
+              expect(res.statusCode).toBe(401);
               res.resume();
               res.on("end", resolve);
             })
             .on("error", reject);
         });
       }
+      expect((await getJson(`${base}/health`)).status).toBe(200);
+      expect(
+        (
+          await getJson(
+            `${base}/manifest.json?previewToken=${bridge.previewToken}`,
+          )
+        ).status,
+      ).toBe(200);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

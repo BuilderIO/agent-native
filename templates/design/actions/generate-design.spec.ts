@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
   let designRows: Array<Record<string, unknown>> = [
     { id: "design-1", data: null },
   ];
+  let designData: Record<string, unknown> = {};
 
   const fileSelectChain = { from: vi.fn(), where: vi.fn() };
   fileSelectChain.from.mockReturnValue(fileSelectChain);
@@ -141,6 +142,11 @@ const mocks = vi.hoisted(() => {
     setDesignRows: (next: Array<Record<string, unknown>>) => {
       designRows = next;
     },
+    setDesignData: (next: Record<string, unknown>) => {
+      designData = next;
+    },
+    getDesignData: () => designData,
+    mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     eq: vi.fn((left, right) => ({ left, right })),
     readAppState: vi.fn().mockResolvedValue(null),
@@ -202,7 +208,30 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import action from "./generate-design.js";
+
+function resetDesignDataMutation() {
+  mocks.setDesignData({ concurrentSibling: { keep: true } });
+  mocks.mutateDesignData.mockImplementation(
+    async (options: {
+      mutate: (
+        current: Record<string, unknown>,
+        context: { updatedAt: string },
+      ) => Record<string, unknown>;
+      isApplied: (current: Record<string, unknown>) => boolean;
+    }) => {
+      const updatedAt = "2026-07-09T12:00:00.000Z";
+      const next = options.mutate(mocks.getDesignData(), { updatedAt });
+      mocks.setDesignData(next);
+      expect(options.isApplied(next)).toBe(true);
+      return { data: next, updatedAt };
+    },
+  );
+}
 
 function setExistingFile(
   content: string,
@@ -283,6 +312,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue(undefined);
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
   });
 
   it("updates an existing file's content via the hash-guarded write path", async () => {
@@ -402,6 +432,7 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue(undefined);
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
   });
 
   it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {
@@ -431,5 +462,10 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     expect(seededValues[0]).toContain("<body");
     expect(seededValues[0]).toContain("Hello</body></html>");
     expect(seededValues[0]).toContain("data-agent-native-node-id");
+    expect(mocks.getDesignData()).toMatchObject({
+      concurrentSibling: { keep: true },
+      lastPrompt: "New landing page",
+      fileCount: 1,
+    });
   });
 });

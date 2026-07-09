@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 
-import { SURFACE_PADDING } from "../MultiScreenCanvas";
 import type { PortableStyleSnapshot } from "../types";
+import { screenLocalRectToBoardGeometry } from "./coordinate-transforms";
+import { SURFACE_PADDING } from "./overview-layout";
 import type {
   CrossScreenDropAxis,
   CrossScreenDropGuide,
@@ -67,19 +68,14 @@ export function getCrossScreenDropGuideForHitTest(args: {
   if (!rect) return null;
   const placement = args.hit.placement ?? "inside";
   const axis = args.hit.axis ?? "y";
-  const scaleX =
-    args.targetGeometry.width / Math.max(1, args.targetMetadata.width);
-  const scaleY =
-    args.targetGeometry.height / Math.max(1, args.targetMetadata.height);
   return {
     placement,
     axis,
-    boardRect: {
-      x: args.targetGeometry.x + rect.left * scaleX,
-      y: args.targetGeometry.y + rect.top * scaleY,
-      width: Math.max(1, rect.width * scaleX),
-      height: Math.max(1, rect.height * scaleY),
-    },
+    boardRect: screenLocalRectToBoardGeometry(
+      rect,
+      args.targetGeometry,
+      args.targetMetadata,
+    ),
   };
 }
 
@@ -93,6 +89,7 @@ export function getCrossScreenDropGuideStyle(args: {
   const top = args.pan.y + (SURFACE_PADDING + boardRect.y) * args.scale;
   const width = Math.max(1, boardRect.width * args.scale);
   const height = Math.max(1, boardRect.height * args.scale);
+  const rotation = boardRect.rotation ?? 0;
 
   if (placement === "inside") {
     return {
@@ -105,30 +102,43 @@ export function getCrossScreenDropGuideStyle(args: {
         "color-mix(in srgb, var(--design-editor-accent-color) 14%, transparent)",
       borderRadius: 2,
       boxShadow: "none",
+      transform: rotation ? `rotate(${rotation}deg)` : undefined,
     };
   }
 
   if (axis === "x") {
     const x = placement === "before" ? left : left + width;
+    const lineLeft = x - 1;
     return {
-      left: x - 1,
+      left: lineLeft,
       top,
       width: 2,
       height: Math.max(8, height),
       background: "var(--design-editor-accent-color)",
       borderRadius: 999,
       boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
+      transform: rotation ? `rotate(${rotation}deg)` : undefined,
+      // Rotate the insertion line around the anchor rect's center, not its
+      // own center, so before/after edges stay attached to a rotated target.
+      transformOrigin: rotation
+        ? `${left + width / 2 - lineLeft}px ${height / 2}px`
+        : undefined,
     };
   }
 
   const y = placement === "before" ? top : top + height;
+  const lineTop = y - 1;
   return {
     left,
-    top: y - 1,
+    top: lineTop,
     width: Math.max(8, width),
     height: 2,
     background: "var(--design-editor-accent-color)",
     borderRadius: 999,
     boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
+    transform: rotation ? `rotate(${rotation}deg)` : undefined,
+    transformOrigin: rotation
+      ? `${width / 2}px ${top + height / 2 - lineTop}px`
+      : undefined,
   };
 }

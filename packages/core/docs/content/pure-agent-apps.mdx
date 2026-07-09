@@ -91,6 +91,28 @@ The `--headless` flag only chooses the initial scaffold. It does not choose a
 different architecture. You can later move the same `actions/`, instructions,
 skills, and SQL state into a chat app or full application surface.
 
+## Add chat later {#add-chat-later}
+
+`--headless` is not a permanent runtime mode, and there is no `agent-native`
+command that converts an existing action-only project into a chat app in place.
+When people need a browser conversation surface, use the [Chat template](/docs/template-chat)
+as the migration reference and keep the durable action and database contract:
+
+1. Scaffold a temporary Chat app with the framework version you are migrating
+   to: `npx @agent-native/core@latest create my-chat-reference --template chat`.
+2. Bring its browser shell, server plugins, and UI dependencies into the
+   existing project. In particular, add the full-page `<AgentChatSurface>` and
+   an `agent-chat` plugin that loads the existing action registry.
+3. Keep your action names, Zod schemas, SQL data, instructions, and skills.
+   Chat calls those same actions; it does not replace them.
+4. Verify both surfaces: run `pnpm typecheck`, start the browser app with
+   `pnpm dev`, then complete one chat turn that calls an existing action.
+
+Use `agent-native add` for integration blueprints, not for this conversion.
+Choose chat when people need conversational steering, approvals, or durable
+thread history; add app pages when they need to browse, compare, edit, or share
+persistent objects.
+
 ## What to add next {#whats-next}
 
 - [**Getting Started**](/docs/getting-started) — the chat-first tutorial from action to inline result to durable page

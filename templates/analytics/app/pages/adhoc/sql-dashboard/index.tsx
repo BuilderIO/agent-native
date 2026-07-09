@@ -92,7 +92,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
+import {
+  useDashboardChatContext,
+  type DashboardPanelChatContextArgs,
+  type SelectDashboardPanelOptions,
+} from "@/hooks/use-dashboard-chat-context";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -258,6 +262,8 @@ const PanelCell = memo(function PanelCell({
   editable,
   eagerLoad,
   isDragSource,
+  selectedForChat,
+  selectPanelForChat,
   onRemovePanel,
   onEditPanel,
   onSavePanel,
@@ -268,6 +274,11 @@ const PanelCell = memo(function PanelCell({
   editable: boolean;
   eagerLoad: boolean;
   isDragSource: boolean;
+  selectedForChat: boolean;
+  selectPanelForChat: (
+    panel: DashboardPanelChatContextArgs,
+    options?: SelectDashboardPanelOptions,
+  ) => void;
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
@@ -288,6 +299,29 @@ const PanelCell = memo(function PanelCell({
   const resolvedSql = useMemo(
     () => interpolate(serializePanelSql(panel.sql), vars),
     [panel.sql, vars],
+  );
+  const handleSelectForChat = useCallback(
+    (options?: SelectDashboardPanelOptions) => {
+      const extensionId =
+        panel.chartType === "extension" ? panel.config?.extensionId : undefined;
+      selectPanelForChat(
+        {
+          panelId: panel.id,
+          panelTitle: panel.title,
+          panelKind:
+            panel.chartType === "table"
+              ? "table"
+              : panel.chartType === "extension"
+                ? "extension"
+                : "chart",
+          chartType: panel.chartType,
+          source: panel.source,
+          extensionId,
+        },
+        options,
+      );
+    },
+    [panel, selectPanelForChat],
   );
 
   return (
@@ -323,6 +357,8 @@ const PanelCell = memo(function PanelCell({
         editable={editable}
         eagerLoad={eagerLoad}
         isDragSource={isDragSource}
+        selectedForChat={selectedForChat}
+        onSelectForChat={handleSelectForChat}
       />
     </div>
   );
@@ -477,7 +513,7 @@ export default function SqlDashboardPage() {
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
-  useDashboardChatContext({
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
     id: reportScreenshot ? null : dashboardId,
     kind: "sql",
     title: dashboard?.name,
@@ -1859,6 +1895,8 @@ export default function SqlDashboardPage() {
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
+                                selectedForChat={selectedPanelId === panel.id}
+                                selectPanelForChat={selectPanelForChat}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}

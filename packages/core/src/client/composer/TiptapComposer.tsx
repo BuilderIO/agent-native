@@ -835,7 +835,7 @@ function latestModelsOnly(models: string[]): string[] {
       seen.add(claude[1]);
       return true;
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.4 and gpt-5.4-mini are different)
+    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
     // OpenAI reasoning: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);

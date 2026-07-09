@@ -105,6 +105,71 @@ interface Stroke {
   createdAt: number;
 }
 
+interface PendingTextInput {
+  /** Fractional x (0..1) of the visual rect. */
+  xFrac: number;
+  /** Fractional y (0..1) of the visual rect. */
+  yFrac: number;
+  value: string;
+}
+
+/**
+ * Keep long pen/stylus gestures bounded before they become agent prompt data.
+ * Once this limit is reached, older samples are progressively decimated while
+ * preserving the first, latest, and future points. At normal pointer rates the
+ * sub-pixel filter below is the only sampling users will notice.
+ */
+const MAX_STROKE_POINTS = 2048;
+const MIN_POINT_DISTANCE_PX = 0.35;
+
+function pointFromClient(
+  clientX: number,
+  clientY: number,
+  rect: DOMRect,
+): Point | null {
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  return {
+    x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
+  };
+}
+
+function appendStrokePoint(
+  points: Point[],
+  point: Point,
+  rect: DOMRect,
+  force = false,
+): Point[] {
+  const last = points[points.length - 1];
+  if (last) {
+    const dx = (point.x - last.x) * rect.width;
+    const dy = (point.y - last.y) * rect.height;
+    const distanceSquared = dx * dx + dy * dy;
+    if (
+      distanceSquared === 0 ||
+      (!force && distanceSquared < MIN_POINT_DISTANCE_PX ** 2)
+    ) {
+      return points;
+    }
+  }
+
+  let next = points;
+  if (next.length >= MAX_STROKE_POINTS) {
+    // Preserve the full trajectory instead of dropping the tail of a long
+    // gesture. Repeated compaction gradually lowers only the oldest sampling
+    // density, which is visually preferable to a path that suddenly stops.
+    const compacted: Point[] = [next[0]];
+    for (let index = 2; index < next.length - 1; index += 2) {
+      compacted.push(next[index]);
+    }
+    compacted.push(next[next.length - 1]);
+    next = compacted;
+  }
+
+  next.push(point);
+  return next;
+}
+
 /**
  * Draw-to-prompt overlay for the slide canvas.
  *
@@ -142,21 +207,26 @@ export function DrawOverlay({
   const [color, setColor] = useState(PRESET_COLORS[0].color);
   const [lineWidth, setLineWidth] = useState(LINE_WIDTHS[1].value);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const strokesRef = useRef<Stroke[]>([]);
   const [textAnnotations, setTextAnnotations] = useState<DrawAnnotation[]>([]);
+  const textAnnotationsRef = useRef<DrawAnnotation[]>([]);
   // Unified redo stack. Each entry is either a Stroke or a DrawAnnotation so
   // undo/redo work in creation order across both types.
   const [redoStack, setRedoStack] = useState<Array<Stroke | DrawAnnotation>>(
     [],
   );
   const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
+  // Pointer events can arrive down -> move -> up before React renders once.
+  // This ref is the authoritative in-progress gesture; state is only a
+  // frame-throttled snapshot used to redraw the canvas.
+  const currentStrokeRef = useRef<Point[] | null>(null);
+  const currentStrokeFrameRef = useRef<number | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
+  const activeStrokeStyleRef = useRef({ color, lineWidth });
+  const lastCreatedAtRef = useRef(0);
   const [textMode, setTextMode] = useState(false);
-  const [textInput, setTextInput] = useState<{
-    /** Fractional x (0..1) of the visual rect. */
-    xFrac: number;
-    /** Fractional y (0..1) of the visual rect. */
-    yFrac: number;
-    value: string;
-  } | null>(null);
+  const [textInput, setTextInput] = useState<PendingTextInput | null>(null);
+  const textInputStateRef = useRef<PendingTextInput | null>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   // Escape cancels the pending text annotation, but unmounting the input also
   // fires its blur handler, which would commit the very annotation the user
@@ -169,33 +239,100 @@ export function DrawOverlay({
   // the canvas element's CSS size changes (e.g. device frame switch).
   const [resizeTick, setResizeTick] = useState(0);
 
-  const scale = zoom / 100;
+  const scale = Math.max(zoom / 100, 0.01);
+
+  const cancelScheduledStrokeFrame = useCallback(() => {
+    if (currentStrokeFrameRef.current === null) return;
+    window.cancelAnimationFrame(currentStrokeFrameRef.current);
+    currentStrokeFrameRef.current = null;
+  }, []);
+
+  const scheduleCurrentStrokeRedraw = useCallback(() => {
+    if (currentStrokeFrameRef.current !== null) return;
+    currentStrokeFrameRef.current = window.requestAnimationFrame(() => {
+      currentStrokeFrameRef.current = null;
+      const points = currentStrokeRef.current;
+      setCurrentStroke(points ? [...points] : null);
+    });
+  }, []);
+
+  const resetActiveStroke = useCallback(() => {
+    drawing.current = false;
+    activePointerIdRef.current = null;
+    currentStrokeRef.current = null;
+    cancelScheduledStrokeFrame();
+    setCurrentStroke(null);
+  }, [cancelScheduledStrokeFrame]);
+
+  const nextCreatedAt = useCallback(() => {
+    const next = Math.max(Date.now(), lastCreatedAtRef.current + 1);
+    lastCreatedAtRef.current = next;
+    return next;
+  }, []);
+
+  const setPendingTextInput = useCallback(
+    (
+      update:
+        | PendingTextInput
+        | null
+        | ((current: PendingTextInput | null) => PendingTextInput | null),
+    ) => {
+      const next =
+        typeof update === "function"
+          ? update(textInputStateRef.current)
+          : update;
+      textInputStateRef.current = next;
+      setTextInput(next);
+    },
+    [],
+  );
 
   // Clear all state on hide so the next open starts fresh.
   useEffect(() => {
     if (!visible) {
+      resetActiveStroke();
+      strokesRef.current = [];
+      textAnnotationsRef.current = [];
       setStrokes([]);
       setTextAnnotations([]);
       setRedoStack([]);
-      setCurrentStroke(null);
-      setTextInput(null);
+      setPendingTextInput(null);
+      setTextMode(false);
       setInstruction("");
+      cancelingTextRef.current = false;
+      lastCreatedAtRef.current = 0;
     }
-  }, [visible]);
+  }, [resetActiveStroke, setPendingTextInput, visible]);
 
+  // Comment-pin mode can temporarily leave the toolbar visible while making
+  // the drawing surface inert. Never retain a half-finished gesture across
+  // that tool switch.
   useEffect(() => {
-    if (!textInput) return;
+    if (!canvasInteractive) resetActiveStroke();
+  }, [canvasInteractive, resetActiveStroke]);
+
+  useEffect(
+    () => () => {
+      cancelScheduledStrokeFrame();
+    },
+    [cancelScheduledStrokeFrame],
+  );
+
+  const shouldFocusTextInput = textInput !== null;
+  useEffect(() => {
+    if (!shouldFocusTextInput) return;
     const id = window.requestAnimationFrame(() => {
       textInputRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [textInput?.xFrac, textInput?.yFrac]);
+  }, [shouldFocusTextInput]);
 
   // ResizeObserver: bump resizeTick whenever the canvas changes CSS size so
   // the redraw effect re-runs and the backing store is resized correctly.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => setResizeTick((t) => t + 1));
     ro.observe(canvas);
     return () => ro.disconnect();
@@ -235,14 +372,15 @@ export function DrawOverlay({
     }
 
     if (currentStroke && currentStroke.length > 0) {
+      const activeStyle = activeStrokeStyleRef.current;
       drawStroke(
         ctx,
         currentStroke.map((p) => ({
           x: p.x * rect.width,
           y: p.y * rect.height,
         })),
-        color,
-        lineWidth,
+        activeStyle.color,
+        activeStyle.lineWidth,
       );
     }
     // `zoom` is a dependency because it scales the canvas via a CSS transform,
@@ -254,77 +392,151 @@ export function DrawOverlay({
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      if (!canvasInteractive || drawing.current) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+
       if (textMode) {
+        e.preventDefault();
         cancelingTextRef.current = false;
-        setTextInput({
+        setPendingTextInput({
           xFrac: (e.clientX - rect.left) / rect.width,
           yFrac: (e.clientY - rect.top) / rect.height,
           value: "",
         });
         return;
       }
+
+      const point = pointFromClient(e.clientX, e.clientY, rect);
+      if (!point) return;
+      e.preventDefault();
       drawing.current = true;
-      // Store as fractions so the point survives zoom/resize changes.
-      const point = {
-        x: (e.clientX - rect.left) / rect.width,
-        y: (e.clientY - rect.top) / rect.height,
-      };
+      activePointerIdRef.current = e.pointerId;
+      activeStrokeStyleRef.current = { color, lineWidth };
+      currentStrokeRef.current = [point];
       setCurrentStroke([point]);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture may fail if the browser already cancelled the
+        // gesture. The pointer-id guard still prevents cross-pointer mixing.
+      }
     },
-    [textMode],
+    [canvasInteractive, color, lineWidth, setPendingTextInput, textMode],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!drawing.current || textMode) return;
+      if (activePointerIdRef.current !== e.pointerId) return;
       const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const point = {
-        x: (e.clientX - rect.left) / rect.width,
-        y: (e.clientY - rect.top) / rect.height,
-      };
-      setCurrentStroke((prev) => (prev ? [...prev, point] : [point]));
+      if (!rect || !currentStrokeRef.current) return;
+
+      const nativeEvent = e.nativeEvent;
+      const coalesced = nativeEvent.getCoalescedEvents?.() ?? [];
+      const samples = [...coalesced, nativeEvent];
+      let points = currentStrokeRef.current;
+      let changed = false;
+      for (const sample of samples) {
+        const point = pointFromClient(sample.clientX, sample.clientY, rect);
+        if (!point) continue;
+        const previousLength = points.length;
+        const next = appendStrokePoint(points, point, rect);
+        if (next !== points || next.length !== previousLength) changed = true;
+        points = next;
+      }
+      currentStrokeRef.current = points;
+      if (changed) scheduleCurrentStrokeRedraw();
     },
-    [textMode],
+    [scheduleCurrentStrokeRedraw, textMode],
   );
 
-  const handlePointerUp = useCallback(() => {
-    if (!drawing.current) return;
-    drawing.current = false;
-    if (currentStroke && currentStroke.length > 1) {
-      setStrokes((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          points: currentStroke,
-          color,
-          lineWidth,
-          createdAt: Date.now(),
-        },
-      ]);
-      // A new stroke clears the redo stack (standard editor convention).
-      setRedoStack([]);
-    }
-    setCurrentStroke(null);
-  }, [currentStroke, color, lineWidth]);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!drawing.current || activePointerIdRef.current !== e.pointerId)
+        return;
 
-  const handlePointerCancel = useCallback(() => {
-    drawing.current = false;
-    setCurrentStroke(null);
-  }, []);
+      e.preventDefault();
+      const rect = canvasRef.current?.getBoundingClientRect();
+      let points = currentStrokeRef.current;
+      if (rect && points) {
+        const coalesced = e.nativeEvent.getCoalescedEvents?.() ?? [];
+        for (const sample of [...coalesced, e.nativeEvent]) {
+          const point = pointFromClient(sample.clientX, sample.clientY, rect);
+          if (point) points = appendStrokePoint(points, point, rect, true);
+        }
+        currentStrokeRef.current = points;
+      }
+
+      drawing.current = false;
+      activePointerIdRef.current = null;
+      cancelScheduledStrokeFrame();
+      if (points && points.length > 1) {
+        const activeStyle = activeStrokeStyleRef.current;
+        const stroke: Stroke = {
+          id: crypto.randomUUID(),
+          points: [...points],
+          color: activeStyle.color,
+          lineWidth: activeStyle.lineWidth,
+          createdAt: nextCreatedAt(),
+        };
+        const nextStrokes = [...strokesRef.current, stroke];
+        strokesRef.current = nextStrokes;
+        setStrokes(nextStrokes);
+        // A new stroke clears the redo stack (standard editor convention).
+        setRedoStack([]);
+      }
+      currentStrokeRef.current = null;
+      setCurrentStroke(null);
+
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        // The browser can release capture before React handles pointerup.
+      }
+    },
+    [cancelScheduledStrokeFrame, nextCreatedAt],
+  );
+
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      resetActiveStroke();
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        // Pointer cancellation often releases capture before this event.
+      }
+    },
+    [resetActiveStroke],
+  );
+
+  const handleLostPointerCapture = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (drawing.current && activePointerIdRef.current === e.pointerId) {
+        resetActiveStroke();
+      }
+    },
+    [resetActiveStroke],
+  );
 
   /**
    * Undo removes the most recently created annotation (stroke or text) in
    * creation order and pushes it onto the unified redo stack.
    */
   const undo = () => {
-    const lastStroke = strokes.length > 0 ? strokes[strokes.length - 1] : null;
-    const lastText =
-      textAnnotations.length > 0
-        ? textAnnotations[textAnnotations.length - 1]
+    const currentStrokes = strokesRef.current;
+    const currentTexts = textAnnotationsRef.current;
+    const lastStroke =
+      currentStrokes.length > 0
+        ? currentStrokes[currentStrokes.length - 1]
         : null;
+    const lastText =
+      currentTexts.length > 0 ? currentTexts[currentTexts.length - 1] : null;
 
     if (!lastStroke && !lastText) return;
 
@@ -333,10 +545,14 @@ export function DrawOverlay({
     const textTime = lastText?.createdAt ?? 0;
 
     if (lastStroke && strokeTime >= textTime) {
-      setStrokes((prev) => prev.slice(0, -1));
+      const nextStrokes = currentStrokes.slice(0, -1);
+      strokesRef.current = nextStrokes;
+      setStrokes(nextStrokes);
       setRedoStack((stack) => [...stack, lastStroke]);
     } else if (lastText) {
-      setTextAnnotations((prev) => prev.slice(0, -1));
+      const nextTexts = currentTexts.slice(0, -1);
+      textAnnotationsRef.current = nextTexts;
+      setTextAnnotations(nextTexts);
       setRedoStack((stack) => [...stack, lastText]);
     }
   };
@@ -348,10 +564,17 @@ export function DrawOverlay({
       const remaining = stack.slice(0, -1);
       if ("points" in top) {
         // It's a Stroke
-        setStrokes((prev) => [...prev, top as Stroke]);
+        const nextStrokes = [...strokesRef.current, top as Stroke];
+        strokesRef.current = nextStrokes;
+        setStrokes(nextStrokes);
       } else {
         // It's a DrawAnnotation (text)
-        setTextAnnotations((prev) => [...prev, top as DrawAnnotation]);
+        const nextTexts = [
+          ...textAnnotationsRef.current,
+          top as DrawAnnotation,
+        ];
+        textAnnotationsRef.current = nextTexts;
+        setTextAnnotations(nextTexts);
       }
       return remaining;
     });
@@ -359,9 +582,11 @@ export function DrawOverlay({
 
   const clear = () => {
     if (strokes.length === 0 && textAnnotations.length === 0) return;
-    const prevStrokes = strokes;
-    const prevTexts = textAnnotations;
+    const prevStrokes = strokesRef.current;
+    const prevTexts = textAnnotationsRef.current;
     const prevRedo = redoStack;
+    strokesRef.current = [];
+    textAnnotationsRef.current = [];
     setStrokes([]);
     setTextAnnotations([]);
     setRedoStack([]);
@@ -371,8 +596,12 @@ export function DrawOverlay({
         onClick: () => {
           // Merge snapshot with any strokes/texts drawn during the toast window
           // so new work is not discarded; also restore the pre-clear redo stack.
-          setStrokes((cur) => [...prevStrokes, ...cur]);
-          setTextAnnotations((cur) => [...prevTexts, ...cur]);
+          const restoredStrokes = [...prevStrokes, ...strokesRef.current];
+          const restoredTexts = [...prevTexts, ...textAnnotationsRef.current];
+          strokesRef.current = restoredStrokes;
+          textAnnotationsRef.current = restoredTexts;
+          setStrokes(restoredStrokes);
+          setTextAnnotations(restoredTexts);
           setRedoStack(prevRedo);
         },
       },
@@ -381,35 +610,42 @@ export function DrawOverlay({
   };
 
   const commitTextAnnotation = () => {
-    if (!textInput || !textInput.value.trim()) {
-      setTextInput(null);
-      return;
-    }
+    const pendingText = textInputStateRef.current;
+    // Clear the authoritative pending value first. Enter, blur, and Send can
+    // all occur in the same browser turn; any later handler becomes a no-op
+    // instead of duplicating the label.
+    setPendingTextInput(null);
+    if (!pendingText || !pendingText.value.trim()) return;
+
     const ann: DrawAnnotation = {
       id: crypto.randomUUID(),
       type: "text",
-      text: textInput.value.trim(),
+      text: pendingText.value.trim(),
       // Store fractional position so the label stays anchored across zoom changes.
-      position: { x: textInput.xFrac, y: textInput.yFrac },
+      position: { x: pendingText.xFrac, y: pendingText.yFrac },
       color,
       lineWidth,
-      createdAt: Date.now(),
+      createdAt: nextCreatedAt(),
     };
-    setTextAnnotations((prev) => [...prev, ann]);
+    const nextTexts = [...textAnnotationsRef.current, ann];
+    textAnnotationsRef.current = nextTexts;
+    setTextAnnotations(nextTexts);
     // A new text annotation also clears the redo stack.
     setRedoStack([]);
-    setTextInput(null);
   };
 
   const send = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // A focused text label normally commits on blur before the Send click, but
+    // keyboard/programmatic activation does not guarantee that ordering.
+    commitTextAnnotation();
     const rect = canvas.getBoundingClientRect();
     // Layout-space dimensions = visual rect / scale factor.
     const layoutW = rect.width / scale;
     const layoutH = rect.height / scale;
 
-    const pathAnnotations: DrawAnnotation[] = strokes.map((s) => ({
+    const pathAnnotations: DrawAnnotation[] = strokesRef.current.map((s) => ({
       id: s.id,
       type: "path",
       // Convert fractional points to layout-space absolute pixels for the agent.
@@ -425,18 +661,18 @@ export function DrawOverlay({
     }));
 
     // Convert fractional text positions to layout-space absolute pixels.
-    const layoutTextAnnotations: DrawAnnotation[] = textAnnotations.map(
-      (a) => ({
+    const layoutTextAnnotations: DrawAnnotation[] =
+      textAnnotationsRef.current.map((a) => ({
         ...a,
         position: {
           x: a.position.x * layoutW,
           y: a.position.y * layoutH,
         },
-      }),
-    );
+      }));
 
     const all = [...pathAnnotations, ...layoutTextAnnotations];
-    if (all.length === 0 && !instruction.trim()) return;
+    if (all.length === 0 && !instruction.trim() && queuedAnnotationCount === 0)
+      return;
 
     onSend(all, instruction.trim(), {
       width: layoutW,
@@ -449,6 +685,7 @@ export function DrawOverlay({
   const hasContent =
     strokes.length > 0 ||
     textAnnotations.length > 0 ||
+    !!textInput?.value.trim() ||
     instruction.trim() ||
     queuedAnnotationCount > 0;
 
@@ -648,7 +885,7 @@ export function DrawOverlay({
         ref={canvasRef}
         data-draw-canvas
         className={cn(
-          "absolute inset-0 h-full w-full",
+          "absolute inset-0 h-full w-full touch-none",
           textMode ? "cursor-text" : "cursor-crosshair",
           !canvasInteractive && "pointer-events-none",
         )}
@@ -656,6 +893,7 @@ export function DrawOverlay({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onLostPointerCapture={handleLostPointerCapture}
       />
 
       {/* Rendered text annotations.
@@ -708,7 +946,7 @@ export function DrawOverlay({
                 ref={textInputRef}
                 value={textInput.value}
                 onChange={(e) =>
-                  setTextInput((prev) =>
+                  setPendingTextInput((prev) =>
                     prev ? { ...prev, value: e.target.value } : null,
                   )
                 }
@@ -719,16 +957,19 @@ export function DrawOverlay({
                     cancelingTextRef.current = false;
                     return;
                   }
-                  if (textInput.value.trim()) commitTextAnnotation();
+                  commitTextAnnotation();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
+                    // Committing unmounts the focused input, which can emit a
+                    // blur event in the same turn. Skip that second commit.
+                    cancelingTextRef.current = true;
                     commitTextAnnotation();
                   }
                   if (e.key === "Escape") {
                     cancelingTextRef.current = true;
-                    setTextInput(null);
+                    setPendingTextInput(null);
                   }
                 }}
                 className="h-7 w-48 border-primary bg-background text-sm"

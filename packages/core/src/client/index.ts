@@ -920,12 +920,16 @@ export {
   type DevOptionValue,
 } from "./dev-overlay/index.js";
 export {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
+  tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type KeepaliveActionCallRejectionReason,
+  type KeepaliveActionCallResult,
 } from "./use-action.js";
 export { createAgentNativeQueryClient } from "./create-query-client.js";
 export { AppProviders, type AppProvidersProps } from "./app-providers.js";

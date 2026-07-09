@@ -258,6 +258,7 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     capabilities TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'connected',
     last_seen_at TEXT,
+    preview_token TEXT,
     bridge_token TEXT,
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
@@ -265,6 +266,7 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     updated_at TEXT DEFAULT (datetime('now'))
   );
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS bridge_token TEXT;
+ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT;
 CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
@@ -322,6 +324,23 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
+    },
+    {
+      version: 20,
+      name: "design-data-operation-revisions",
+      sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS data_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
+    },
+    {
+      version: 21,
+      name: "design-file-content-operation-revisions",
+      sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_source TEXT;
+ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revision INTEGER;
+ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash TEXT`,
+    },
+    {
+      version: 22,
+      name: "design-localhost-preview-token",
+      sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
     },
   ],
   { table: "design_migrations" },
