@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.9
+
+### Patch Changes
+
+- d5d94f2: Prevent PR recap workflows from publishing screenshots of failed recap pages, and report SSR render failures through configured error monitoring.
+
 ## 0.92.8
 
 ### Patch Changes
