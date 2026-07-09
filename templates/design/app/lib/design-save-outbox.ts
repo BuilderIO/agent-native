@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client";
+import { sourceContentHash } from "@shared/source-workspace";
 
 export type DesignSaveActionName =
   | "update-file"
@@ -264,6 +265,25 @@ export async function discardDesignSaveOutboxEntry(
   return await storage.deleteIfRevision(entry);
 }
 
+/** A versioned update-file no-op is safe to acknowledge only when the server
+ * proves the exact requested content is already persisted. A higher revision
+ * from the same source also reports skippedStaleOperation, but its version hash
+ * belongs to different content and must leave this entry conflict-retained. */
+export function updateFileResultPersistedContent(
+  actionResult: unknown,
+  expectedContent: string,
+): boolean {
+  if (!actionResult || typeof actionResult !== "object") return true;
+  const result = actionResult as {
+    skippedStaleMirror?: unknown;
+    skippedStaleOperation?: unknown;
+    versionHash?: unknown;
+  };
+  if (result.skippedStaleMirror) return false;
+  if (!result.skippedStaleOperation) return true;
+  return result.versionHash === sourceContentHash(expectedContent);
+}
+
 async function drainEntries(
   designId: string,
   actorScope: string,
@@ -290,10 +310,11 @@ async function drainEntries(
       const actionResult = await invokeAction(entry.actionName, entry.payload);
       if (
         entry.actionName === "update-file" &&
-        actionResult &&
-        typeof actionResult === "object" &&
-        "skippedStaleMirror" in actionResult &&
-        (actionResult as { skippedStaleMirror?: unknown }).skippedStaleMirror
+        typeof entry.payload.content === "string" &&
+        !updateFileResultPersistedContent(
+          actionResult,
+          entry.payload.content,
+        )
       ) {
         const conflict = new Error(
           "The saved file changed elsewhere before this edit could be replayed",

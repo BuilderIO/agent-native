@@ -345,6 +345,7 @@ import {
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
   journalDesignSaveOutboxEntry,
+  updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import {
@@ -419,7 +420,11 @@ import {
 } from "./design-editor/data-operations";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import { queryUniqueSelector } from "./design-editor/dom-utils";
-import { LOCAL_EDIT_ORIGIN, TAB_ID } from "./design-editor/editor-session";
+import {
+  createEditorSaveOperationSource,
+  LOCAL_EDIT_ORIGIN,
+  TAB_ID,
+} from "./design-editor/editor-session";
 import {
   applyRelativeDeltaToStyleValue,
   type FileContentSaveRequest,
@@ -4648,6 +4653,9 @@ function DesignEditor() {
   } | null>(null);
   const persistedSelectionWriteTimerRef = useRef<number | null>(null);
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
+  const designSaveOperationSourceRef = useRef(
+    createEditorSaveOperationSource(),
+  );
   const frameGeometrySaveTimerRef = useRef<number | null>(null);
   const pendingFrameGeometrySaveRef = useRef<{
     geometryById: CanvasFrameGeometryById;
@@ -5310,7 +5318,7 @@ function DesignEditor() {
         id: fileId,
         content,
         syncCollab,
-        operationSource: TAB_ID,
+        operationSource: designSaveOperationSourceRef.current,
         operationRevision,
         ...(lastAckedFileContentHashRef.current[fileId]
           ? { expectedVersionHash: lastAckedFileContentHashRef.current[fileId] }
@@ -5443,10 +5451,10 @@ function DesignEditor() {
               lastAckedFileContentHashRef.current[pending.id] =
                 resultInfo?.versionHash ?? sourceContentHash(pending.content);
             }
-            const persistedContentMatches =
-              !skippedStaleMirror &&
-              (!resultInfo?.skippedStaleOperation ||
-                resultInfo.versionHash === sourceContentHash(pending.content));
+            const persistedContentMatches = updateFileResultPersistedContent(
+              resultInfo,
+              pending.content,
+            );
             if (persistedContentMatches && outboxEntry) {
               await acknowledgeOutboxEntry(outboxEntry);
             } else if (!persistedContentMatches) {
@@ -5580,13 +5588,7 @@ function DesignEditor() {
       if (!attempt.accepted) return;
       void attempt.completion
         .then((result: unknown) => {
-          const skippedStaleMirror = Boolean(
-            result &&
-            typeof result === "object" &&
-            "skippedStaleMirror" in result &&
-            (result as { skippedStaleMirror?: unknown }).skippedStaleMirror,
-          );
-          if (skippedStaleMirror) {
+          if (!updateFileResultPersistedContent(result, pending.content)) {
             warnChangesWillRetry();
             return;
           }
@@ -5654,7 +5656,7 @@ function DesignEditor() {
         actorScope: designSaveActorScope,
         actionName: "apply-tweaks",
         resourceId: id,
-        operationSource: TAB_ID,
+        operationSource: designSaveOperationSourceRef.current,
         operationRevision: pending.revision,
         payload: {
           designId: id,
@@ -6229,12 +6231,12 @@ function DesignEditor() {
         actorScope: designSaveActorScope,
         actionName: "update-design",
         resourceId: id,
-        operationSource: TAB_ID,
+        operationSource: designSaveOperationSourceRef.current,
         operationRevision: revision,
         payload: {
           id,
           dataOperations: compacted,
-          operationSource: TAB_ID,
+          operationSource: designSaveOperationSourceRef.current,
           operationRevision: revision,
         },
       });
