@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.92.8
+
+### Patch Changes
+
+- 02ff384: Keep Design localhost route manifests, collision-resistant route identities, and per-screen live-edit bridge scripts stable across reconnects and multi-screen editing. Split read-only preview authorization from filesystem access, require authenticated preview endpoints, and restrict bridge CORS to approved Design origins.
+- 02ff384: Prevent local template dev servers from discovering editor dependencies after startup and reloading with outdated optimized modules. Keep production SSR builds on one shared Yjs implementation so collaboration types retain constructor identity.
+- 02ff384: Add a budget-coordinated keepalive action helper for reliable unload-time writes.
+- 02ff384: Replace the managed and BYOK GPT model catalogs with GPT-5.6 Sol, Terra, and Luna.
+- 02ff384: Preserve prior continuation tool results when final-response guards validate a multi-chunk agent turn, recover failed durable handoffs through the client continuation path, and retain completed-side-effect metadata for journal-recovered writes. Successful data queries and dashboard mutations are no longer reported as missing after a background boundary.
+- 02ff384: Keep Cloudflare D1 runtime detection type-safe when core database helpers are compiled inside template applications.
+- 02ff384: Fix a bug where a durable-background agent run could be killed by a single transient network blip during its soft-timeout chunk handoff. A worker proven to be running inside a real background function now gets a retry budget sized for its remaining wall-clock time (5 attempts / 15s timeout) instead of being silently demoted to the smaller foreground budget just because it was forced onto the same-process dispatch target.
+
 ## 0.92.7
 
 ### Patch Changes
