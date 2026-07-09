@@ -1,3 +1,7 @@
+import { stat, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /**
  * Server-side error capture — OWNED BY THE ERROR CAPTURE FEATURE.
  *
@@ -27,9 +31,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { stat, readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -246,7 +247,10 @@ function sourceRoots(): string[] {
 
 function isWithinRoot(candidate: string, root: string): boolean {
   const relative = path.relative(root, candidate);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 function cleanFrameFile(file: string | null): string | null {
@@ -277,7 +281,9 @@ function cleanFrameFile(file: string | null): string | null {
   return cleaned;
 }
 
-async function resolveSourcePath(frame: ParsedStackFrame): Promise<string | null> {
+async function resolveSourcePath(
+  frame: ParsedStackFrame,
+): Promise<string | null> {
   const cleaned = cleanFrameFile(frame.file);
   if (!cleaned || !SOURCE_EXT_RE.test(cleaned)) return null;
   const roots = sourceRoots();
@@ -1325,41 +1331,46 @@ export async function getErrorIssue(
   const sessions = new Map<string, { recordingId: string; path: string }>();
   const events = await Promise.all(
     eventRows.map(async (row: any): Promise<ErrorEventDetail> => {
-    let recordingId: string | null = null;
-    if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
-      recordingId = row.sessionRecordingId;
-    } else if (row.clientRecordingId && byClientId.has(row.clientRecordingId)) {
-      recordingId = byClientId.get(row.clientRecordingId) ?? null;
-    }
-    if (recordingId && !sessions.has(recordingId)) {
-      sessions.set(recordingId, {
-        recordingId,
-        path: `/sessions/${recordingId}`,
-      });
-    }
-    return {
-      id: row.id,
-      type: row.type,
-      message: row.message ?? "",
-      culprit: row.culprit ?? null,
-      level: coerceLevel(row.level),
-      stack: await addSourceContexts(parseJson<ParsedStackFrame[]>(row.stack, [])),
-      rawStack: row.rawStack ?? null,
-      handled: Boolean(row.handled),
-      url: row.url ?? null,
-      userId: row.userId ?? null,
-      anonymousId: row.anonymousId ?? null,
-      userKey: row.userKey ?? null,
-      sessionId: row.sessionId ?? null,
-      sessionRecordingId: recordingId,
-      sessionRecordingPath: recordingPath(recordingId),
-      release: row.release ?? null,
-      environment: row.environment ?? null,
-      tags: parseJson<Record<string, unknown>>(row.tags, {}),
-      extra: parseJson<Record<string, unknown>>(row.extra, {}),
-      breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
-      occurredAt: row.occurredAt,
-    };
+      let recordingId: string | null = null;
+      if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
+        recordingId = row.sessionRecordingId;
+      } else if (
+        row.clientRecordingId &&
+        byClientId.has(row.clientRecordingId)
+      ) {
+        recordingId = byClientId.get(row.clientRecordingId) ?? null;
+      }
+      if (recordingId && !sessions.has(recordingId)) {
+        sessions.set(recordingId, {
+          recordingId,
+          path: `/sessions/${recordingId}`,
+        });
+      }
+      return {
+        id: row.id,
+        type: row.type,
+        message: row.message ?? "",
+        culprit: row.culprit ?? null,
+        level: coerceLevel(row.level),
+        stack: await addSourceContexts(
+          parseJson<ParsedStackFrame[]>(row.stack, []),
+        ),
+        rawStack: row.rawStack ?? null,
+        handled: Boolean(row.handled),
+        url: row.url ?? null,
+        userId: row.userId ?? null,
+        anonymousId: row.anonymousId ?? null,
+        userKey: row.userKey ?? null,
+        sessionId: row.sessionId ?? null,
+        sessionRecordingId: recordingId,
+        sessionRecordingPath: recordingPath(recordingId),
+        release: row.release ?? null,
+        environment: row.environment ?? null,
+        tags: parseJson<Record<string, unknown>>(row.tags, {}),
+        extra: parseJson<Record<string, unknown>>(row.extra, {}),
+        breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
+        occurredAt: row.occurredAt,
+      };
     }),
   );
 
