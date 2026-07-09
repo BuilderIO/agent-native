@@ -4664,7 +4664,40 @@ export function backgroundContinuationReasonForRun(
 }
 
 export async function runAgentLoopWithMainChatInternalContinuations(
-  opts: Parameters<typeof runAgentLoop>[0],
+  opts: Parameters<typeof runAgentLoop>[0] & {
+    /**
+     * Opt-in: also catch a thrown `isResumableEngineError` (gateway drop /
+     * transport interruption surviving engine retries) and retry it in-process
+     * — the same "continue from where you left off" treatment already applied
+     * to in-loop `auto_continue` events below — instead of letting it
+     * propagate out to the caller. Default false/omitted preserves the exact
+     * prior behavior: such an error is NOT caught here and propagates to
+     * `startRun`'s outer catch, which marks the run "errored" and (for a
+     * background worker) hands off to `chainServerDrivenContinuation` for a
+     * fresh invocation.
+     *
+     * Only safe to enable when the CALLER is a proven durable-background
+     * worker (`isInBackgroundFunctionRuntime()`): such a worker has minutes of
+     * remaining budget on this same invocation, so resuming in-process avoids
+     * a self-dispatch entirely — critically, it avoids the bg-function
+     * self-dispatch 404 (a background function cannot invoke its own public
+     * URL from inside a live invocation) that this same recoverable-error
+     * path would otherwise hit via `chainServerDrivenContinuation`. A
+     * foreground turn (~40s budget) must NOT set this — it keeps depending on
+     * the existing cross-invocation recovery (foreground self-chain or the
+     * client's `auto_continue` re-POST), unchanged.
+     */
+    resumeResumableErrorsInProcess?: boolean;
+    /**
+     * Override for the per-invocation continuation attempt cap. Defaults to
+     * `MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT` (6) when omitted — unchanged for
+     * every existing caller. A proven background-function worker (15-min
+     * budget) can pass a higher cap (e.g. `MAX_BACKGROUND_RUN_CONTINUATIONS`)
+     * so a run that needs several resumable-error recoveries within one
+     * 13-minute chunk isn't cut off at the foreground-sized limit.
+     */
+    maxContinuations?: number;
+  },
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
     inputTokens: 0,
@@ -4681,11 +4714,18 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.model = next.model;
   };
 
+  const resumeResumableErrorsInProcess =
+    opts.resumeResumableErrorsInProcess === true;
+  const maxContinuations =
+    typeof opts.maxContinuations === "number" && opts.maxContinuations > 0
+      ? opts.maxContinuations
+      : MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
+
   const localTurnEvents: AgentChatEvent[] = [];
   let lastAttemptWasUnfinishedContinuation = false;
   for (
     let attempt = 0;
-    !opts.signal.aborted && attempt < MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
+    !opts.signal.aborted && attempt < maxContinuations;
     attempt++
   ) {
     lastAttemptWasUnfinishedContinuation = false;
@@ -4703,8 +4743,23 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       opts.send(event);
     };
 
-    const nextUsage = await runAgentLoop({ ...opts, send });
-    addUsage(nextUsage);
+    try {
+      const nextUsage = await runAgentLoop({ ...opts, send });
+      addUsage(nextUsage);
+    } catch (err) {
+      // Preserve exact prior behavior unless explicitly opted in: an aborted
+      // signal (real soft-timeout / user stop) or a non-resumable error is
+      // always rethrown, and when `resumeResumableErrorsInProcess` is not
+      // set, EVERY thrown error is rethrown exactly as before.
+      if (
+        !resumeResumableErrorsInProcess ||
+        opts.signal.aborted ||
+        !isResumableEngineError(err)
+      ) {
+        throw err;
+      }
+      continuationReason = continuationReasonForResumableError(err);
+    }
 
     if (!continuationReason || opts.signal.aborted) {
       return usage;
@@ -6525,10 +6580,25 @@ export function createProductionAgentHandler(
                   // chaining via the regular function — the Netlify
                   // `-background` function is only emitted into the deploy
                   // output when the durable flag is on.
+                  //
+                  // `&& !runsInBackgroundFunction`: a worker PROVEN to already
+                  // be executing inside the real `-background` function must
+                  // never dispatch back to that same function's own URL — a
+                  // background function invoking itself by URL from inside a
+                  // live invocation is a documented Netlify platform
+                  // limitation (404), unlike the initial foreground→background
+                  // dispatch or a worker that landed on the regular function
+                  // (a genuinely different function calling the background
+                  // one, which works). This only changes the dispatch TARGET
+                  // for that one proven-in-bg-function case — by this point
+                  // (with the in-process resumable-error resume above) it is
+                  // reached only when the chunk genuinely exhausted its
+                  // budget, so falling back to the regular `_process-run`
+                  // function (40s clamp) here is the correct, safe target.
                   chainViaDurableBackground:
                     isAgentChatDurableBackgroundEnabled({
                       appOptIn: options.durableBackgroundRuns === true,
-                    }),
+                    }) && !runsInBackgroundFunction,
                 });
               }
             } finally {
@@ -6944,6 +7014,26 @@ export function createProductionAgentHandler(
                 approvedToolCalls: body.approvedToolCalls
                   .filter((k: unknown): k is string => typeof k === "string")
                   .slice(0, 200),
+              }
+            : {}),
+          // A worker PROVEN to be running inside the real 15-min Netlify
+          // `-background` function (`runsInBackgroundFunction`) has minutes of
+          // budget left on THIS invocation. Let it catch a recoverable
+          // transport/gateway error (isResumableEngineError) and resume the
+          // agent loop in-process instead of unwinding out to `startRun`'s
+          // outer catch, which would otherwise hand off to
+          // `chainServerDrivenContinuation` — and for a worker already inside
+          // the background function, that hand-off is a same-function
+          // self-dispatch that 404s on Netlify (a background function cannot
+          // invoke its own public URL from inside a live invocation). A
+          // foreground turn or a worker that landed on the regular ~60s
+          // function (runsInBackgroundFunction false) must NOT set this — it
+          // keeps depending on the existing cross-invocation recovery
+          // (foreground self-chain / client auto_continue re-POST), unchanged.
+          ...(runsInBackgroundFunction
+            ? {
+                resumeResumableErrorsInProcess: true,
+                maxContinuations: MAX_BACKGROUND_RUN_CONTINUATIONS,
               }
             : {}),
         };

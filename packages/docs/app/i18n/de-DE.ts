@@ -408,6 +408,8 @@ const deDE = {
     copyCommand: "Befehl kopieren",
     copyCode: "Code kopieren",
     tryIt: "Ausprobieren",
+    customizeIt: "Anpassen",
+    editOnline: "Online bearbeiten",
     runLocally: "Lokal ausführen",
     viewDocs: "Docs ansehen",
     source: "Quelle",

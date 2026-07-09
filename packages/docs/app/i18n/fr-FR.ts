@@ -407,6 +407,8 @@ const frFR = {
     copyCommand: "Commande Copier",
     copyCode: "Copier le code",
     tryIt: "Essayer",
+    customizeIt: "Personnaliser",
+    editOnline: "Modifier en ligne",
     runLocally: "Exécuter localement",
     viewDocs: "Voir les docs",
     source: "Code source",
