@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { sourceContentHash } from "@shared/source-workspace";
 
 import {
   acknowledgeDesignSaveOutboxEntry,
@@ -161,10 +162,82 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
+  it("retains a skipped stale file operation when the persisted hash belongs to newer content", async () => {
+    const storage = new MemoryOutboxStorage();
+    const entry = fileEntry(1, "requested content");
+    await journalDesignSaveOutboxEntry(entry, storage);
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockResolvedValue({
+        updated: true,
+        skippedStaleOperation: true,
+        versionHash: sourceContentHash("newer persisted content"),
+      }),
+      storage,
+    });
+
+    expect(result.saved).toEqual([]);
+    expect(result.failed).toHaveLength(1);
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("acknowledges an exact idempotent file replay when its content hash is proven", async () => {
+    const storage = new MemoryOutboxStorage();
+    const content = "already persisted content";
+    const entry = fileEntry(1, content);
+    await journalDesignSaveOutboxEntry(entry, storage);
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockResolvedValue({
+        updated: true,
+        skippedStaleOperation: true,
+        versionHash: sourceContentHash(content),
+      }),
+      storage,
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.saved).toEqual([entry]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
   it("never replays an unguarded live-collaboration mirror", async () => {
     const storage = new MemoryOutboxStorage();
     const unsafe = fileEntry(1);
     unsafe.payload.syncCollab = false;
+    await journalDesignSaveOutboxEntry(unsafe, storage);
+    const invokeAction = vi.fn();
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction,
+      storage,
+    });
+
+    expect(result.failed).toHaveLength(1);
+    expect(invokeAction).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("never replays a full tweak snapshot without its base hash", async () => {
+    const storage = new MemoryOutboxStorage();
+    const unsafe = createDesignSaveOutboxEntry({
+      designId: "design-1",
+      actorScope: "user-1",
+      actionName: "apply-tweaks",
+      resourceId: "design-1",
+      operationSource: "editor-session-1",
+      operationRevision: 1,
+      payload: {
+        designId: "design-1",
+        selections: { density: "compact" },
+      },
+    });
     await journalDesignSaveOutboxEntry(unsafe, storage);
     const invokeAction = vi.fn();
 

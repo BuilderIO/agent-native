@@ -189,6 +189,7 @@ vi.mock("../server/db/index.js", () => {
 import applyDesignTokenEdit from "./apply-design-token-edit.js";
 import applyTweaks from "./apply-tweaks.js";
 import importDesignTokens from "./import-design-tokens.js";
+import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
 function readData(): Record<string, unknown> {
   return JSON.parse(state.design.data) as Record<string, unknown>;
@@ -317,5 +318,59 @@ describe("design data mutation interleaving", () => {
     const data = readData();
     expect(data.tweakSelections).toMatchObject({ density: "comfortable" });
     expect(data.concurrentDuringCas).toBe("preserve-me");
+  });
+
+  it("rejects a retained full snapshot after a newer tweak value wins", async () => {
+    const emptyBaseHash = tweakSelectionsHash({});
+    await applyTweaks.run({
+      designId: "design_1",
+      selections: { density: "compact" },
+      expectedSelectionsHash: emptyBaseHash,
+    });
+
+    await expect(
+      applyTweaks.run({
+        designId: "design_1",
+        selections: { density: "comfortable" },
+        expectedSelectionsHash: emptyBaseHash,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(readData().tweakSelections).toMatchObject({ density: "compact" });
+  });
+
+  it("accepts an exact retry after the requested selections already landed", async () => {
+    const emptyBaseHash = tweakSelectionsHash({});
+    const params = {
+      designId: "design_1",
+      selections: { density: "compact" },
+      expectedSelectionsHash: emptyBaseHash,
+    };
+    const first = await applyTweaks.run(params);
+    const retry = await applyTweaks.run(params);
+
+    expect(retry.appliedTweaks).toMatchObject({ density: "compact" });
+    expect(retry.selectionsHash).toBe(first.selectionsHash);
+  });
+
+  it("lets only one of two full snapshots from the same base win", async () => {
+    const emptyBaseHash = tweakSelectionsHash({});
+    const results = await Promise.allSettled([
+      applyTweaks.run({
+        designId: "design_1",
+        selections: { density: "compact" },
+        expectedSelectionsHash: emptyBaseHash,
+      }),
+      applyTweaks.run({
+        designId: "design_1",
+        selections: { density: "comfortable" },
+        expectedSelectionsHash: emptyBaseHash,
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(["compact", "comfortable"]).toContain(
+      (readData().tweakSelections as Record<string, unknown>).density,
+    );
   });
 });

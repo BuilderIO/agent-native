@@ -195,12 +195,14 @@ export default defineAction({
     // read-check-write.
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
+    let exactOperationAlreadyPersisted = false;
     let persistedVersionHash: string | undefined;
 
     await withSourceFileWriteLock(id, async () => {
       for (let attempt = 0; attempt < 4; attempt += 1) {
         skippedStaleMirror = false;
         skippedStaleOperation = false;
+        exactOperationAlreadyPersisted = false;
         const [persistedFile] = await db
           .select({
             content: schema.designFiles.content,
@@ -240,6 +242,17 @@ export default defineAction({
           requestedOperationRevision <= persistedFile.contentOperationRevision!
         ) {
           skippedStaleOperation = true;
+          // The SQL CAS may have committed before the separate collab apply
+          // failed. A retry of that exact operation must be allowed to finish
+          // convergence; an older revision must remain a strict no-op. Require
+          // both persisted hashes to prove the requested content is exactly
+          // what this operation committed before re-running any side effect.
+          exactOperationAlreadyPersisted =
+            requestedOperationRevision ===
+              persistedFile.contentOperationRevision &&
+            content !== undefined &&
+            persistedContentHash === sourceContentHash(content) &&
+            persistedFile.contentOperationResultHash === persistedContentHash;
         }
 
         // Several rapid saves may all have been queued from the same acked
@@ -533,9 +546,11 @@ export default defineAction({
         // the current SQL mirror (mirror-lineage rescue) also syncs here, so a
         // dead/lagging live doc receives the caller's change as a CRDT
         // diff-merge instead of silently diverging from the mirror.
+        const shouldConvergePersistedRetry =
+          exactOperationAlreadyPersisted && syncCollab;
         if (
           content !== undefined &&
-          !skipContentWrite &&
+          (!skipContentWrite || shouldConvergePersistedRetry) &&
           (syncCollab || mirrorLineageCollabSync)
         ) {
           const collabExists = await hasCollabState(id);

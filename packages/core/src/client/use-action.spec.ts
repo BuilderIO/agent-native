@@ -255,6 +255,61 @@ describe("tryCallActionKeepalive", () => {
     await afterCompletion.completion;
   });
 
+  it("releases the aggregate reservation after a rejected fetch", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const failed = tryCallActionKeepalive("save-one", payload);
+    expect(failed.accepted).toBe(true);
+    if (!failed.accepted) throw new Error("Expected request to be accepted");
+    await expect(failed.completion).rejects.toThrow(/network unavailable/);
+
+    const retry = tryCallActionKeepalive("save-two", payload);
+    expect(retry.accepted).toBe(true);
+    if (!retry.accepted) {
+      throw new Error("Expected rejected request to release its reservation");
+    }
+    await retry.completion;
+  });
+
+  it("releases the aggregate reservation after caller abort", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      )
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const aborted = tryCallActionKeepalive("save-one", payload, {
+      signal: controller.signal,
+    });
+    expect(aborted.accepted).toBe(true);
+    if (!aborted.accepted) throw new Error("Expected request to be accepted");
+    controller.abort();
+    await expect(aborted.completion).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    const retry = tryCallActionKeepalive("save-two", payload);
+    expect(retry.accepted).toBe(true);
+    if (!retry.accepted) {
+      throw new Error("Expected aborted request to release its reservation");
+    }
+    await retry.completion;
+  });
+
   it("rejects a body larger than the conservative keepalive budget", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

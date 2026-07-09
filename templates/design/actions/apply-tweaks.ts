@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -16,6 +17,17 @@ function designDeepLink(designId: string): string {
     view: "editor",
     params: { designId },
   });
+}
+
+export class TweakSelectionsConflictError extends Error {
+  readonly statusCode = 409;
+
+  constructor() {
+    super(
+      "Tweak values changed elsewhere before this edit could be saved. Refresh the design and try again.",
+    );
+    this.name = "TweakSelectionsConflictError";
+  }
 }
 
 export default defineAction({
@@ -37,8 +49,16 @@ export default defineAction({
           "e.g. { 'theme-accent': '#0EA5E9', 'border-radius': 12, " +
           "'dark-mode': true }",
       ),
+    expectedSelectionsHash: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe(
+        "Optimistic-concurrency hash of the persisted tweak selection map this full snapshot was based on.",
+      ),
   }),
-  run: async ({ designId, selections }) => {
+  run: async ({ designId, selections, expectedSelectionsHash }) => {
     await assertAccess("design", designId, "editor");
 
     const readSelections = (data: DesignDataRecord) =>
@@ -47,28 +67,43 @@ export default defineAction({
       !Array.isArray(data.tweakSelections)
         ? (data.tweakSelections as Record<string, unknown>)
         : {};
+    const selectionsAreApplied = (persisted: Record<string, unknown>) =>
+      Object.entries(selections).every(
+        ([key, value]) => persisted[key] === value,
+      );
 
     // Transactional CAS merge: keep every sibling key in designs.data and
     // retry against the newest revision if another editor/action writes while
     // this request is in flight.
     const { data: persistedData } = await mutateDesignData({
       designId,
-      mutate: (prevData, { updatedAt }) => ({
-        ...prevData,
-        tweakSelections: { ...readSelections(prevData), ...selections },
-        tweaksAppliedAt: updatedAt,
-      }),
+      mutate: (prevData, { updatedAt }) => {
+        const persistedSelections = readSelections(prevData);
+        const alreadyApplied = selectionsAreApplied(persistedSelections);
+        if (
+          expectedSelectionsHash !== undefined &&
+          tweakSelectionsHash(persistedSelections) !== expectedSelectionsHash &&
+          !alreadyApplied
+        ) {
+          throw new TweakSelectionsConflictError();
+        }
+        if (alreadyApplied) return prevData;
+        return {
+          ...prevData,
+          tweakSelections: { ...persistedSelections, ...selections },
+          tweaksAppliedAt: updatedAt,
+        };
+      },
       isApplied: (data) => {
         const persistedSelections = readSelections(data);
-        return Object.entries(selections).every(
-          ([key, value]) => persistedSelections[key] === value,
-        );
+        return selectionsAreApplied(persistedSelections);
       },
     });
 
     return {
       designId,
       appliedTweaks: readSelections(persistedData),
+      selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
       deepLink: designDeepLink(designId),
     };
   },

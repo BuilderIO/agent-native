@@ -22,6 +22,11 @@ const collabReadBarrier = vi.hoisted(() => ({
   remaining: 0,
   waiters: [] as Array<() => void>,
 }));
+const collabState = vi.hoisted(() => ({
+  exists: false,
+  content: "",
+  failApplyCount: 0,
+}));
 
 async function waitAtCollabReadBarrier(): Promise<void> {
   if (collabReadBarrier.remaining <= 0) return;
@@ -38,11 +43,25 @@ async function waitAtCollabReadBarrier(): Promise<void> {
 vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: async () => {
     await waitAtCollabReadBarrier();
-    return false;
+    return collabState.exists;
   },
-  getText: async () => "",
-  applyText: async () => undefined,
-  seedFromText: async () => undefined,
+  getText: async () => collabState.content,
+  applyText: async (_id: string, content: string) => {
+    if (collabState.failApplyCount > 0) {
+      collabState.failApplyCount -= 1;
+      throw new Error("simulated collab apply failure");
+    }
+    collabState.exists = true;
+    collabState.content = content;
+  },
+  seedFromText: async (_id: string, content: string) => {
+    if (collabState.failApplyCount > 0) {
+      collabState.failApplyCount -= 1;
+      throw new Error("simulated collab seed failure");
+    }
+    collabState.exists = true;
+    collabState.content = content;
+  },
 }));
 
 vi.mock("@agent-native/core/db", () => ({
@@ -150,6 +169,7 @@ function persistedFile(): PersistedFile {
 
 async function save(args: {
   content: string;
+  syncCollab?: boolean;
   expectedVersionHash?: string;
   operationSource?: string;
   operationRevision?: number;
@@ -157,7 +177,7 @@ async function save(args: {
   return updateFileAction.run({
     id: FILE_ID,
     content: args.content,
-    syncCollab: false,
+    syncCollab: args.syncCollab ?? false,
     ...args,
   } as never);
 }
@@ -165,6 +185,9 @@ async function save(args: {
 beforeEach(() => {
   collabReadBarrier.remaining = 0;
   collabReadBarrier.waiters = [];
+  collabState.exists = false;
+  collabState.content = "";
+  collabState.failApplyCount = 0;
   localDb.sqlite?.exec("DELETE FROM design_files; DELETE FROM designs;");
   localDb.sqlite
     ?.prepare("INSERT INTO designs (id, updated_at) VALUES (?, ?)")
@@ -311,5 +334,81 @@ describe("update-file browser operation ordering with real SQLite", () => {
       content_operation_revision: null,
       content_operation_result_hash: null,
     });
+  });
+
+  it("accepts revision one from a new editor-mount source after an old source reached a high watermark", async () => {
+    const oldMountContent = "<main>old editor mount</main>";
+    await save({
+      content: oldMountContent,
+      expectedVersionHash: sourceContentHash(BASE),
+      operationSource: "tab-a:save:editor-1",
+      operationRevision: 7,
+    });
+
+    const remountedContent = "<main>fresh edit after remount</main>";
+    const result = await save({
+      content: remountedContent,
+      expectedVersionHash: sourceContentHash(oldMountContent),
+      operationSource: "tab-a:save:editor-2",
+      operationRevision: 1,
+    });
+
+    expect(result).toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(remountedContent),
+    });
+    expect(persistedFile()).toMatchObject({
+      content: remountedContent,
+      content_operation_source: "tab-a:save:editor-2",
+      content_operation_revision: 1,
+    });
+  });
+
+  it("retries exact persisted operations to finish collab convergence but never reapplies an older revision", async () => {
+    collabState.exists = true;
+    collabState.content = BASE;
+    collabState.failApplyCount = 1;
+    const firstContent = "<main>sql committed before collab failed</main>";
+    const firstRequest = {
+      content: firstContent,
+      syncCollab: true,
+      expectedVersionHash: sourceContentHash(BASE),
+      operationSource: "tab-a:save:editor-1",
+      operationRevision: 1,
+    };
+
+    await expect(save(firstRequest)).rejects.toThrow(
+      /simulated collab apply failure/,
+    );
+    expect(persistedFile()).toMatchObject({
+      content: firstContent,
+      content_operation_revision: 1,
+    });
+    expect(collabState.content).toBe(BASE);
+
+    await expect(save(firstRequest)).resolves.toMatchObject({
+      updated: true,
+      skippedStaleOperation: true,
+      versionHash: sourceContentHash(firstContent),
+    });
+    expect(collabState.content).toBe(firstContent);
+
+    const latestContent = "<main>newer revision</main>";
+    await save({
+      content: latestContent,
+      syncCollab: true,
+      expectedVersionHash: sourceContentHash(firstContent),
+      operationSource: firstRequest.operationSource,
+      operationRevision: 2,
+    });
+    expect(collabState.content).toBe(latestContent);
+
+    await expect(save(firstRequest)).resolves.toMatchObject({
+      updated: true,
+      skippedStaleOperation: true,
+      versionHash: sourceContentHash(latestContent),
+    });
+    expect(persistedFile().content).toBe(latestContent);
+    expect(collabState.content).toBe(latestContent);
   });
 });

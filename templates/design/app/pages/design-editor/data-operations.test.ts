@@ -223,7 +223,9 @@ describe("Design editor data operations", () => {
     );
     expect(source).toContain("tryCallActionKeepalive");
     expect(source).toContain("createFrameGeometryOutboxEntry");
-    expect(source).toContain("operationSource: TAB_ID");
+    expect(source).toContain(
+      "operationSource: designSaveOperationSourceRef.current",
+    );
     expect(source).toContain("operationRevision: revision");
   });
 });

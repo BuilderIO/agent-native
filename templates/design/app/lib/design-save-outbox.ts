@@ -307,6 +307,16 @@ async function drainEntries(
         (conflict as Error & { status?: number }).status = 409;
         throw conflict;
       }
+      if (
+        entry.actionName === "apply-tweaks" &&
+        typeof entry.payload.expectedSelectionsHash !== "string"
+      ) {
+        const conflict = new Error(
+          "A full tweak snapshot cannot be replayed without a known base version",
+        );
+        (conflict as Error & { status?: number }).status = 409;
+        throw conflict;
+      }
       const actionResult = await invokeAction(entry.actionName, entry.payload);
       if (
         entry.actionName === "update-file" &&
