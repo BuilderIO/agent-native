@@ -362,16 +362,16 @@ function FrequencyCard({ issue }: { issue: ErrorIssueSummary }) {
 function frequencyBarClass(level: ErrorIssueSummary["level"]): string {
   switch (level) {
     case "fatal":
-      return "bg-red-500/85 shadow-[0_0_14px_rgba(239,68,68,0.24)] hover:bg-red-400";
+      return "bg-red-500/85 hover:bg-red-400";
     case "error":
-      return "bg-rose-500/85 shadow-[0_0_14px_rgba(244,63,94,0.22)] hover:bg-rose-400";
+      return "bg-rose-500/85 hover:bg-rose-400";
     case "warning":
-      return "bg-amber-400/85 shadow-[0_0_14px_rgba(251,191,36,0.22)] hover:bg-amber-300";
+      return "bg-amber-400/85 hover:bg-amber-300";
     case "info":
-      return "bg-sky-400/85 shadow-[0_0_14px_rgba(56,189,248,0.2)] hover:bg-sky-300";
+      return "bg-sky-400/85 hover:bg-sky-300";
     case "debug":
     default:
-      return "bg-violet-400/75 shadow-[0_0_14px_rgba(167,139,250,0.18)] hover:bg-violet-300";
+      return "bg-violet-400/75 hover:bg-violet-300";
   }
 }
 
