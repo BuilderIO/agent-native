@@ -153,7 +153,7 @@ importers:
   packages/core:
     dependencies:
       '@agent-native/toolkit':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../toolkit
       '@ai-sdk/cohere':
         specifier: '>=3'
@@ -1152,7 +1152,7 @@ importers:
   packages/scheduling:
     dependencies:
       '@agent-native/toolkit':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../toolkit
       '@date-fns/tz':
         specifier: ^1.2.0
