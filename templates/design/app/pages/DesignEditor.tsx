@@ -564,6 +564,7 @@ import {
   normalizeDesignTool,
 } from "./design-editor/tool-state";
 import {
+  classifyTweakSaveFailure,
   clearCompletedTweakSave,
   createQueuedTweakSave,
   rebaseTweakSaveForSend,
@@ -5700,7 +5701,10 @@ function DesignEditor() {
             confirmedTweakSelectionsHashRef.current,
           );
           const entry = createTweakSaveOutboxEntry(sendPending);
-          if (!entry) return;
+          if (!entry) {
+            tweakSaveInFlightRef.current = false;
+            return;
+          }
           const journaled = await journalTweakOutboxEntry(entry);
           try {
             const result = (await applyTweaksAsync(entry.payload as any)) as {
@@ -5772,13 +5776,10 @@ function DesignEditor() {
             if (tweakSaveRevisionRef.current === pending.revision) {
               setTweakSaveActive(true);
             }
-            const status =
-              error && typeof error === "object" && "status" in error
-                ? (error as { status?: unknown }).status
-                : undefined;
-            if (status === 409) {
+            const failureKind = classifyTweakSaveFailure(error, journaled);
+            if (failureKind === "conflict") {
               toast.error(t("designEditor.toasts.tweakConflict"));
-            } else if (journaled) {
+            } else if (failureKind === "durable-retry") {
               warnChangesWillRetry();
             } else {
               toast.error(t("designEditor.toasts.tweakSaveNotDurable"));

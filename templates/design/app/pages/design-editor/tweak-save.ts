@@ -48,3 +48,20 @@ export function clearCompletedTweakSave(
 ): PendingTweakSave | null {
   return queued?.revision === completedRevision ? null : queued;
 }
+
+export type TweakSaveFailureKind =
+  | "conflict"
+  | "durable-retry"
+  | "tab-memory-only";
+
+export function classifyTweakSaveFailure(
+  error: unknown,
+  journaled: boolean,
+): TweakSaveFailureKind {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  if (status === 409) return "conflict";
+  return journaled ? "durable-retry" : "tab-memory-only";
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyTweakSaveFailure,
   clearCompletedTweakSave,
   createQueuedTweakSave,
   rebaseTweakSaveForSend,
@@ -59,5 +60,20 @@ describe("tweak save ordering", () => {
     expect(retainLatestFailedTweakSave(newer, failed)).toBe(newer);
     expect(clearCompletedTweakSave(newer, 1)).toBe(newer);
     expect(clearCompletedTweakSave(newer, 2)).toBeNull();
+  });
+
+  it("does not promise a reconnect retry when journaling also failed", () => {
+    expect(classifyTweakSaveFailure(new Error("offline"), true)).toBe(
+      "durable-retry",
+    );
+    expect(classifyTweakSaveFailure(new Error("offline"), false)).toBe(
+      "tab-memory-only",
+    );
+    expect(
+      classifyTweakSaveFailure(
+        Object.assign(new Error("stale"), { status: 409 }),
+        true,
+      ),
+    ).toBe("conflict");
   });
 });
