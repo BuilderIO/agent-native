@@ -26,6 +26,35 @@ vi.mock("./run-store.js", () => ({
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   reconcileTerminalRunFromEvents: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
+  getLastTerminalRunEvent: vi.fn(() => Promise.resolve(null)),
+  resolveErroredRunTerminalEvent: vi.fn((run) => {
+    const code = typeof run?.errorCode === "string" ? run.errorCode.trim() : "";
+    const detail =
+      typeof run?.errorDetail === "string" ? run.errorDetail.trim() : "";
+    if (detail || (code && code !== "unknown")) {
+      return {
+        event: {
+          type: "error",
+          error: detail || "The agent run failed.",
+          ...(code && code !== "unknown" ? { errorCode: code } : {}),
+          recoverable: true,
+        },
+        shouldPersist: true,
+      };
+    }
+    return {
+      event: {
+        type: "error",
+        error:
+          "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+        errorCode: "stale_run",
+        recoverable: true,
+        details:
+          "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
+      },
+      shouldPersist: true,
+    };
+  }),
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
@@ -74,6 +103,7 @@ import {
   updateRunStatus,
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
+  getLastTerminalRunEvent,
   cleanupOldRuns,
   bumpRunProgress,
   setRunError,
@@ -1573,6 +1603,8 @@ describe("run manager soft timeout", () => {
       threadId: "thread-sql-aborted",
       status: "aborted",
       startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
     });
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
 
@@ -1598,6 +1630,8 @@ describe("run manager soft timeout", () => {
       threadId: "thread-sql-completed",
       status: "completed",
       startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
     });
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
 
@@ -1855,8 +1889,11 @@ describe("run manager soft timeout", () => {
       threadId: "thread-sql-errored",
       status: "errored",
       startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
     });
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
     vi.mocked(ensureTerminalRunEvent).mockClear();
 
     const stream = subscribeToRun("run-sql-errored", 0);
@@ -1883,14 +1920,95 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("replays the real Connection error. instead of inventing stale_run on reconnect", async () => {
+    // Slides prod: run-1783574983915-pmx5jd had events
+    // [Starting agent, Contacting model, Connection error.] and row
+    // error_detail="Connection error.", but the client cursor was already
+    // past seq 2 so getRunEventsSince returned []. The old path always
+    // synthesized STALE_RUN_ERROR_EVENT — exactly Kyle's Slack card.
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-connection-error",
+      threadId: "thread-connection-error",
+      status: "errored",
+      startedAt: Date.now(),
+      errorCode: "unknown",
+      errorDetail: "Connection error.",
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
+      seq: 2,
+      event: { type: "error", error: "Connection error." },
+    });
+    vi.mocked(ensureTerminalRunEvent).mockClear();
+
+    const stream = subscribeToRun("run-connection-error", 3);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"error":"Connection error."');
+    expect(output).not.toContain('"errorCode":"stale_run"');
+    expect(output).not.toContain("heartbeat stopped");
+    expect(ensureTerminalRunEvent).not.toHaveBeenCalled();
+  });
+
+  it("uses row error_detail when the terminal event row is missing", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-row-detail",
+      threadId: "thread-row-detail",
+      status: "errored",
+      startedAt: Date.now(),
+      errorCode: "unknown",
+      errorDetail: "Connection error.",
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+    vi.mocked(ensureTerminalRunEvent).mockClear();
+
+    const stream = subscribeToRun("run-row-detail", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"error":"Connection error."');
+    expect(output).not.toContain('"errorCode":"stale_run"');
+    expect(ensureTerminalRunEvent).toHaveBeenCalledWith(
+      "run-row-detail",
+      expect.objectContaining({
+        type: "error",
+        error: "Connection error.",
+        recoverable: true,
+      }),
+    );
+  });
+
   it("still streams the synthesized stale-run error when persistence to SQL fails", async () => {
     vi.mocked(getRunById).mockResolvedValue({
       id: "run-sql-errored-persist-fail",
       threadId: "thread-persist-fail",
       status: "errored",
       startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
     });
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
     vi.mocked(ensureTerminalRunEvent).mockRejectedValueOnce(
       new Error("DB unavailable"),
     );

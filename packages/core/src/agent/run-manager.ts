@@ -18,9 +18,10 @@ import {
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
+  getLastTerminalRunEvent,
+  resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
-  STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
@@ -1289,24 +1290,29 @@ function subscribeFromSQL(
                   return;
                 }
               } else if (run?.status === "errored") {
-                // The run row was flipped to `errored` but no terminal event
-                // was ever persisted — almost always means a reaper's silent
-                // `appendTerminalRunEvent(...).catch(() => {})` swallowed a
-                // transient DB error, so the user-facing situation is the
-                // same as a stale-run reap. Send the friendly event AND try
-                // to persist it so future reconnects replay it from SQL
-                // rather than regenerating it (the user used to see a bare
-                // "run_terminal_event_missing" debug string here).
-                await ensureTerminalRunEvent(
-                  runId,
-                  STALE_RUN_ERROR_EVENT,
-                ).catch(() => {});
+                // The run row is terminal but this subscriber's cursor is
+                // already past (or never saw) the terminal event. Prefer the
+                // REAL last terminal event / row error_detail over inventing
+                // a stale_run card — slides prod showed Connection error.
+                // rows being mislabeled as stale_run on reconnect because
+                // this path always synthesized STALE_RUN_ERROR_EVENT.
+                const existing = await getLastTerminalRunEvent(runId).catch(
+                  () => null,
+                );
+                const resolved = existing
+                  ? { event: existing.event, shouldPersist: false }
+                  : resolveErroredRunTerminalEvent(run);
+                if (resolved.shouldPersist) {
+                  await ensureTerminalRunEvent(runId, resolved.event).catch(
+                    () => {},
+                  );
+                }
                 try {
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({
-                        ...STALE_RUN_ERROR_EVENT,
-                        seq: lastSeq,
+                        ...resolved.event,
+                        seq: existing?.seq ?? lastSeq,
                       })}\n\n`,
                     ),
                   );
