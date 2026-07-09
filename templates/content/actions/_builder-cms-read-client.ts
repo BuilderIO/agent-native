@@ -121,8 +121,7 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   ]) {
     const normalized = normalizeBuilderCmsListFieldPath(fieldPath);
     if (!normalized) continue;
-    const key = normalized.toLowerCase();
-    if (!fields.has(key)) fields.set(key, normalized);
+    if (!fields.has(normalized)) fields.set(normalized, normalized);
   }
   return Array.from(fields.values()).join(",");
 }
@@ -972,7 +971,10 @@ export async function readBuilderCmsModelFields(args: {
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsModelFieldSummary[]> {
   const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
-  if (models.state !== "live") return [];
+  if (models.state === "unconfigured") return [];
+  if (models.state === "error") {
+    throw new Error(models.message ?? "Builder CMS model discovery failed.");
+  }
   const modelName = args.model.trim().toLowerCase();
   return (
     models.models.find((model) => {

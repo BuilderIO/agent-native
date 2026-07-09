@@ -31,10 +31,14 @@ describe("Builder CMS read client", () => {
       "data.tags",
       "data.customModelField",
       "data.published",
+      "data.Status",
+      "data.status",
       "data.tags",
       "data.blocks",
+      "DATA.BLOCKS",
       "data.blocks.children",
       "data.blocksString",
+      "data.BlocksString",
       "sys.sync_state",
       "bad,field",
     ]).split(",");
@@ -46,11 +50,15 @@ describe("Builder CMS read client", () => {
         "data.tags",
         "data.customModelField",
         "data.published",
+        "data.Status",
+        "data.status",
       ]),
     );
     expect(fields).not.toContain("data.blocks");
     expect(fields).not.toContain("data.blocks.children");
     expect(fields).not.toContain("data.blocksString");
+    expect(fields).not.toContain("DATA.BLOCKS");
+    expect(fields).not.toContain("data.BlocksString");
     expect(fields).not.toContain("sys.sync_state");
     expect(fields.filter((field) => field === "data.tags")).toHaveLength(1);
     expect(fields).toContain("published");
@@ -86,6 +94,38 @@ describe("Builder CMS read client", () => {
       models: [],
     });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps unconfigured model-field discovery as an empty-field fallback", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsModelFields({
+        model: "blog-article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("throws when production model discovery returns an error state", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("Builder unavailable", {
+        status: 503,
+      }),
+    );
+
+    await expect(
+      readBuilderCmsModelFields({
+        model: "blog-article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow("Builder MCP request failed with HTTP 503.");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("lists Builder models through the MCP read endpoint", async () => {
@@ -291,6 +331,8 @@ describe("Builder CMS read client", () => {
                 topics: ["AI", "CMS"],
                 tags: ["Agents"],
                 customModelField: "Preserved",
+                Status: "Editorial",
+                status: "published",
               },
             },
           ],
@@ -306,6 +348,8 @@ describe("Builder CMS read client", () => {
           "data.topics",
           "data.tags",
           "data.customModelField",
+          "data.Status",
+          "data.status",
           "data.blocks",
         ],
         fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -323,6 +367,8 @@ describe("Builder CMS read client", () => {
             "data.topics": ["AI", "CMS"],
             "data.tags": ["Agents"],
             "data.customModelField": "Preserved",
+            "data.Status": "Editorial",
+            "data.status": "published",
           },
         },
       ],

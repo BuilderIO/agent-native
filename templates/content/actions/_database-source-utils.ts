@@ -3319,15 +3319,19 @@ export async function seedMockSourceFields(args: {
         updatedAt: args.now,
       })),
   ];
+  const sourceFieldIdentityKey = (sourceFieldKey: string) => {
+    const trimmed = sourceFieldKey.trim();
+    return isBuilder ? trimmed : trimmed.toLowerCase();
+  };
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
-      rows.map((row) => row.sourceFieldKey.trim().toLowerCase()),
+      rows.map((row) => sourceFieldIdentityKey(row.sourceFieldKey)),
     );
     for (const field of args.builderModelFields ?? []) {
       const fieldName = field.name.trim();
       if (!fieldName) continue;
       const sourceFieldKey = `data.${fieldName}`;
-      const normalizedKey = sourceFieldKey.toLowerCase();
+      const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
       if (existingSourceFieldKeys.has(normalizedKey)) continue;
       existingSourceFieldKeys.add(normalizedKey);
       rows.push({
@@ -3352,7 +3356,7 @@ export async function seedMockSourceFields(args: {
     for (const entry of args.builderSampleEntries ?? []) {
       for (const sourceFieldKey of Object.keys(entry.sourceValues)) {
         if (!sourceFieldKey.startsWith("data.")) continue;
-        const normalizedKey = sourceFieldKey.toLowerCase();
+        const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
         if (existingSourceFieldKeys.has(normalizedKey)) continue;
         existingSourceFieldKeys.add(normalizedKey);
         const value = entry.sourceValues[sourceFieldKey];
@@ -3389,13 +3393,13 @@ export async function seedMockSourceFields(args: {
 
   const existingFieldBySourceKey = new Map(
     (args.existingFields ?? []).map((field) => [
-      field.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(field.sourceFieldKey),
       field,
     ]),
   );
   const mergedRows = rows.map((row) => {
     const existing = existingFieldBySourceKey.get(
-      row.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(row.sourceFieldKey),
     );
     if (!existing) return row;
     return {

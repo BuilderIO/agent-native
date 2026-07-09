@@ -58,6 +58,8 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           { name: "tags", type: "list", required: false },
           { name: "customModelField", type: "string", required: false },
           { name: "published", type: "boolean", required: false },
+          { name: "Status", type: "string", required: false },
+          { name: "status", type: "string", required: false },
         ];
       }
       return [];
@@ -169,6 +171,8 @@ vi.mock("./_builder-cms-read-client.js", async () => {
                 "data.tags": ["Agents", "Content"],
                 "data.customModelField": "Arbitrary value",
                 "data.published": true,
+                "data.Status": "Editorial",
+                "data.status": "published",
               },
             },
           ];
@@ -675,6 +679,24 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: "prop-status-upper",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Status upper",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-status-lower",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Status lower",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
   await db.insert(schema.contentDatabaseSources).values({
     id: "source-mapped-fields",
@@ -729,6 +751,34 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: "field-status-upper",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-status-upper",
+      localFieldKey: "prop-status-upper",
+      sourceFieldKey: "data.Status",
+      sourceFieldLabel: "Status upper",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-status-lower",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-status-lower",
+      localFieldKey: "prop-status-lower",
+      sourceFieldKey: "data.status",
+      sourceFieldLabel: "Status lower",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
 
   const [database] = await db
@@ -750,6 +800,8 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     "data.tags": ["Agents", "Content"],
     "data.customModelField": "Arbitrary value",
     "data.published": true,
+    "data.Status": "Editorial",
+    "data.status": "published",
   });
   const values = await db
     .select({
@@ -769,6 +821,8 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     "prop-topics": ["AI", "CMS"],
     "prop-tags": ["Agents", "Content"],
     "prop-custom": "Arbitrary value",
+    "prop-status-upper": "Editorial",
+    "prop-status-lower": "published",
   });
   const readCall = builderReadMock.calls.find(
     (call) => call.model === "collection-mapped-fields",
@@ -779,6 +833,8 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       "data.tags",
       "data.customModelField",
       "data.published",
+      "data.Status",
+      "data.status",
     ]),
   );
 });
