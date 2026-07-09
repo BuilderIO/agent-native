@@ -321,10 +321,7 @@ async function drainEntries(
       if (
         entry.actionName === "update-file" &&
         typeof entry.payload.content === "string" &&
-        !updateFileResultPersistedContent(
-          actionResult,
-          entry.payload.content,
-        )
+        !updateFileResultPersistedContent(actionResult, entry.payload.content)
       ) {
         const conflict = new Error(
           "The saved file changed elsewhere before this edit could be replayed",

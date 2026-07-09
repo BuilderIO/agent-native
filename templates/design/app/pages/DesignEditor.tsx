@@ -97,6 +97,7 @@ import {
 } from "@shared/pen-path";
 import {
   resolveTweaksToCssVars,
+  tweakSelectionsHash,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
 import {
@@ -562,6 +563,13 @@ import {
   isSingleScreenAnnotationTool,
   normalizeDesignTool,
 } from "./design-editor/tool-state";
+import {
+  clearCompletedTweakSave,
+  createQueuedTweakSave,
+  rebaseTweakSaveForSend,
+  retainLatestFailedTweakSave,
+  type PendingTweakSave,
+} from "./design-editor/tweak-save";
 import {
   type DesignLeftPanel,
   type DesignTool,

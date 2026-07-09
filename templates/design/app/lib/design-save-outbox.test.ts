@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import { sourceContentHash } from "@shared/source-workspace";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   acknowledgeDesignSaveOutboxEntry,
