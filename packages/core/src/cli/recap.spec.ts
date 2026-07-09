@@ -1277,7 +1277,12 @@ describe("recap screenshot browser launch", () => {
 describe("recap screenshot capture", () => {
   function createShotPlaywright(screenshotBytes: Buffer[]) {
     const page = {
-      goto: vi.fn(async () => undefined),
+      goto: vi.fn(async () => ({
+        ok: () => true,
+        status: () => 200,
+        url: () => "https://plan.agent-native.com/recaps/plan-abc123",
+        headers: () => ({ "content-type": "text/html; charset=utf-8" }),
+      })),
       waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
@@ -1379,6 +1384,47 @@ describe("recap screenshot capture", () => {
       );
       expect(page.waitForLoadState).toHaveBeenCalledWith("load", {
         timeout: 15_000,
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not upload a screenshot when the recap page returns an HTTP error", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.goto.mockResolvedValueOnce({
+      ok: () => false,
+      status: () => 500,
+      url: () => "https://plan.agent-native.com/recaps/recap-broken",
+      headers: () => ({ "content-type": "text/plain" }),
+    });
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/recap-broken",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        reason:
+          "recap page returned HTTP 500 while loading https://plan.agent-native.com/recaps/recap-broken",
       });
     } finally {
       stdout.mockRestore();
