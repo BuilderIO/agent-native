@@ -1,4 +1,5 @@
-const CALENDAR_CREATE_SURFACE_SELECTOR = "[data-calendar-create-surface='true']";
+const CALENDAR_CREATE_SURFACE_SELECTOR =
+  "[data-calendar-create-surface='true']";
 const OUTSIDE_CLICK_SUPPRESSION_MS = 500;
 
 /**
@@ -11,6 +12,7 @@ let popoverInteractOutsideAt = 0;
 let pendingEmptySpaceSuppression = false;
 
 function isCalendarCreateSurfaceTarget(target: EventTarget | null) {
+  if (typeof Element === "undefined") return false;
   if (!(target instanceof Element)) return false;
   if (target.closest("button")) return false;
   return !!target.closest(CALENDAR_CREATE_SURFACE_SELECTOR);
