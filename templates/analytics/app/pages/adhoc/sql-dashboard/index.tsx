@@ -464,6 +464,7 @@ export default function SqlDashboardPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -1395,7 +1396,10 @@ export default function SqlDashboardPage() {
             </Button>
           </AddPanelPopover>
         ) : null}
-        <DropdownMenu>
+        <DropdownMenu
+          open={dashboardActionsOpen}
+          onOpenChange={setDashboardActionsOpen}
+        >
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -1468,6 +1472,7 @@ export default function SqlDashboardPage() {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
+                    setDashboardActionsOpen(false);
                     setEmailReportOpen(true);
                   }}
                 >
@@ -1477,6 +1482,7 @@ export default function SqlDashboardPage() {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
+                    setDashboardActionsOpen(false);
                     setHistoryOpen(true);
                   }}
                 >
@@ -1489,6 +1495,7 @@ export default function SqlDashboardPage() {
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
+                  setDashboardActionsOpen(false);
                   void handleArchive();
                 }}
               >
@@ -1503,6 +1510,7 @@ export default function SqlDashboardPage() {
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
+                  setDashboardActionsOpen(false);
                   setConfirmDeleteOpen(true);
                 }}
                 className="text-destructive focus:text-destructive"

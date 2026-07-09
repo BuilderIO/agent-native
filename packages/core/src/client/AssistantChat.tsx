@@ -1595,6 +1595,7 @@ const AssistantChatInner = forwardRef<
   const queueDirtyRef = useRef(false);
   const queueMutationVersionRef = useRef(0);
   const dequeueInFlightRef = useRef(false);
+  const queueStopVersionRef = useRef(0);
   const [composerContextItems, setComposerContextItems] = useState<
     AgentChatContextItem[]
   >([]);
@@ -1831,7 +1832,9 @@ const AssistantChatInner = forwardRef<
   const tiptapRef = useRef<TiptapComposerHandle>(null);
   // Stable ref to the "stop active run" action so addToQueue can abort
   // a running turn without adding many unstable closure deps to its dep list.
-  const stopActiveRunRef = useRef<() => void>(() => {});
+  const stopActiveRunRef = useRef<
+    (options?: { preserveQueuedMessages?: boolean }) => void
+  >(() => {});
 
   const markOptimisticRunning = useCallback(() => {
     setOptimisticRunning(true);
@@ -3084,6 +3087,7 @@ const AssistantChatInner = forwardRef<
 
     const next = queuedMessages[0];
     if (!next) return;
+    const stopVersion = queueStopVersionRef.current;
 
     dequeueInFlightRef.current = true;
     let cancelled = false;
@@ -3101,7 +3105,10 @@ const AssistantChatInner = forwardRef<
           await waitForThreadRunToClear(apiUrl, threadId);
           if (cancelled) return;
 
-          if (queuedMessagesRef.current[0]?.id !== next.id) {
+          if (
+            queueStopVersionRef.current !== stopVersion ||
+            queuedMessagesRef.current[0]?.id !== next.id
+          ) {
             return;
           }
 
@@ -3138,6 +3145,7 @@ const AssistantChatInner = forwardRef<
         } catch (err) {
           if (
             removedForAppend &&
+            queueStopVersionRef.current === stopVersion &&
             !queuedMessagesRef.current.some((message) => message.id === next.id)
           ) {
             applyLocalQueuedMessages((prev) => [next, ...prev]);
@@ -3297,61 +3305,107 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
+  const settleVisibleInterruptedTools = useCallback(() => {
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+      if (settled.changed) {
+        threadRuntime.import(ensureMessageMetadata(settled.repo));
+      }
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "settle-stopped-tool-calls",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        },
+      });
+    }
+  }, [tabId, threadId, threadRuntime]);
+
   // Abort the active server run (identical to what the Stop button does) so
   // an immediate-while-running send can proceed cleanly without a 409 race.
   // Captured in a stable ref so addToQueue can call it without listing
   // all the stop-related state in its own dep array.
-  const stopActiveRun = useCallback(() => {
-    setForceStopped(true);
-    setOptimisticRunning(false);
-    const activeRun = getActiveRun();
-    const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
-    userStoppedRunRef.current = {
-      at: Date.now(),
-      ...(runIdToAbort ? { runId: runIdToAbort } : {}),
-    };
-    setRunErrorInfo(null);
-    setDismissedRunErrorKey(null);
-    if (runIdToAbort) {
-      if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
-      fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
-        method: "POST",
-      }).catch(() => {});
-    }
-    if (isReconnecting) {
-      reconnectAbortRef.current?.abort();
-      reconnectAbortRef.current = null;
-      reconnectRunIdRef.current = null;
-      setIsReconnecting(false);
-      const shouldFreezeReconnectContent =
-        !reconnectTailOnlyRef.current &&
-        reconnectCanMaterializeRef.current &&
-        reconnectContent.length > 0;
-      if (shouldFreezeReconnectContent) {
-        setReconnectFrozen(true);
-      } else {
-        setReconnectFrozen(false);
-        setReconnectContent([]);
-        reconnectCanMaterializeRef.current = false;
+  const stopActiveRun = useCallback(
+    (options?: { preserveQueuedMessages?: boolean }) => {
+      setForceStopped(true);
+      setOptimisticRunning(false);
+      setHasActiveServerRun(false);
+      setPendingReconnectRecovery(null);
+      setIsAutoResuming(false);
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
       }
-      reconnectTailOnlyRef.current = false;
-    }
-    threadRuntime.cancelRun();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: false, tabId: tabId || threadId },
-        }),
-      );
-    }
-  }, [
-    apiUrl,
-    isReconnecting,
-    reconnectContent.length,
-    tabId,
-    threadId,
-    threadRuntime,
-  ]);
+      resetRunningActivity();
+      if (!options?.preserveQueuedMessages) {
+        queueStopVersionRef.current += 1;
+        dequeueInFlightRef.current = false;
+        applyLocalQueuedMessages(() => []);
+      }
+      const activeRun = getActiveRun();
+      const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      userStoppedRunRef.current = {
+        at: Date.now(),
+        ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+      };
+      setRunErrorInfo(null);
+      setDismissedRunErrorKey(null);
+      if (runIdToAbort) {
+        if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
+        fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
+          method: "POST",
+        }).catch(() => {});
+      }
+      if (isReconnecting) {
+        reconnectAbortRef.current?.abort();
+        reconnectAbortRef.current = null;
+        reconnectRunIdRef.current = null;
+        setIsReconnecting(false);
+        const shouldFreezeReconnectContent =
+          !reconnectTailOnlyRef.current &&
+          reconnectCanMaterializeRef.current &&
+          reconnectContent.length > 0;
+        if (shouldFreezeReconnectContent) {
+          const frozenContent = cloneContentParts(reconnectContent);
+          settleInterruptedToolCalls(frozenContent, undefined, {
+            includeActivity: true,
+          });
+          setReconnectContent(frozenContent);
+          setReconnectFrozen(true);
+        } else {
+          setReconnectFrozen(false);
+          setReconnectContent([]);
+          reconnectCanMaterializeRef.current = false;
+        }
+        reconnectTailOnlyRef.current = false;
+      }
+      threadRuntime.cancelRun();
+      settleVisibleInterruptedTools();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId: tabId || threadId },
+          }),
+        );
+      }
+    },
+    [
+      apiUrl,
+      applyLocalQueuedMessages,
+      isReconnecting,
+      resetRunningActivity,
+      reconnectContent,
+      settleVisibleInterruptedTools,
+      tabId,
+      threadId,
+      threadRuntime,
+    ],
+  );
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
@@ -3369,7 +3423,8 @@ const AssistantChatInner = forwardRef<
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
     ) => {
-      if (!(await ensureAgentEngineReadyForSubmit())) {
+      if (agentEngineConfigured.state === "missing") {
+        void ensureAgentEngineReadyForSubmit();
         return;
       }
       if (!preserveReconnectAutoRecoveryBudget) {
@@ -3538,7 +3593,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
           },
         ]);
-        stopActiveRunRef.current();
+        stopActiveRunRef.current({ preserveQueuedMessages: true });
       } else if (isRunning && intent === "queued") {
         applyLocalQueuedMessages((prev) => [
           ...prev,
@@ -3588,6 +3643,7 @@ const AssistantChatInner = forwardRef<
     },
     [
       applyLocalQueuedMessages,
+      agentEngineConfigured.state,
       buildComposerContextSubmission,
       ensureAgentEngineReadyForSubmit,
       execMode,
@@ -4386,7 +4442,6 @@ const AssistantChatInner = forwardRef<
                           : undefined
                       }
                       onSlashCommand={onSlashCommand}
-                      onBeforeSubmit={ensureAgentEngineReadyForSubmit}
                       execMode={execMode}
                       onExecModeChange={onExecModeChange}
                       planModeDisabled={planModeDisabled}

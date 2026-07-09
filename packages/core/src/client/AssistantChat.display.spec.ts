@@ -32,6 +32,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
+  settleInterruptedAssistantToolCallsInRepo,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -581,6 +582,46 @@ describe("resolveAssistantChatRunningState", () => {
   });
 });
 
+describe("settleInterruptedAssistantToolCallsInRepo", () => {
+  it("settles active tool activity so stopped tool cards do not keep spinning", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tool-1",
+                toolName: "query",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+    const tool = settled.repo.messages[0].message.content[0] as {
+      result?: unknown;
+      isError?: boolean;
+      activity?: boolean;
+    };
+
+    expect(settled.changed).toBe(true);
+    expect(tool.result).toBe("Stopped before this action started.");
+    expect(tool.isError).toBe(true);
+    expect(tool.activity).toBe(true);
+    expect(settled.repo.messages[0].message.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+  });
+});
+
 describe("resolveAssistantChatRunningStatusLabel", () => {
   it("keeps active tool activity ahead of recovery labels", () => {
     expect(
@@ -613,6 +654,39 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         hasReconnectContent: false,
       }),
     ).toBe("Thinking");
+  });
+});
+
+describe("chat submit and stop hardening", () => {
+  it("does not block chat composer submit on the async readiness hook", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain(
+      "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
+    );
+    expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+  });
+
+  it("clears queued follow-ups and settles stopped tool calls by default", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const stopActiveRun = useCallback");
+    const end = source.indexOf("// Keep the ref current");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("preserveQueuedMessages");
+    expect(helperSource).toContain("queueStopVersionRef.current += 1");
+    expect(helperSource).toContain("dequeueInFlightRef.current = false");
+    expect(helperSource).toContain("applyLocalQueuedMessages(() => [])");
+    expect(helperSource).toContain("setPendingReconnectRecovery(null)");
+    expect(helperSource).toContain("resetRunningActivity()");
+    expect(helperSource).toContain("includeActivity: true");
+    expect(helperSource).toContain("settleVisibleInterruptedTools()");
   });
 });
 
