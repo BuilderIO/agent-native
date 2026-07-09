@@ -259,8 +259,9 @@ details live in `.agents/skills/`.
   `addErrorBreadcrumb`), auto-enabled by `configureTracking` and transported
   through the first-party analytics ingest as a `$exception` event. Deep link:
   `?view=errors&issue=<id>`. Issue detail includes recent frequency,
-  parsed/raw stack traces, breadcrumbs, tags, occurrence history, and session
-  replay links. See `docs/error-capture.md`.
+  parsed/raw stack traces, source code snippets when available, breadcrumbs,
+  tags, occurrence history, and session replay links. See
+  `docs/error-capture.md`.
 - Session replay ↔ Errors: a recording's devtools Console error lines link to
   the grouped issue at `/monitoring?view=errors&issue=<id>`, resolved by
   `match-error-issues` (exact fingerprint match, no heuristics); issues link
