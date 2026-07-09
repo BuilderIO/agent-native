@@ -740,13 +740,17 @@ async function getDurableChangesSinceForUser(
   try {
     const result = await getDbExec().execute({
       sql: `SELECT version, event_json FROM sync_events WHERE version > ? ORDER BY version ASC LIMIT ?`,
-      args: [since, DURABLE_READ_LIMIT],
+      args: [since, DURABLE_READ_LIMIT + 1],
     });
     const events: ChangeEvent[] = [];
     let version = Math.max(_version, since);
     let lastDurableVersion = since;
+    const rows = result.rows.slice(0, DURABLE_READ_LIMIT);
+    const overflowVersion = timestampValue(
+      result.rows[DURABLE_READ_LIMIT]?.version,
+    );
 
-    for (const row of result.rows) {
+    for (const row of rows) {
       const rawVersion = timestampValue(row.version);
       if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
       if (rawVersion > version) version = rawVersion;
@@ -783,7 +787,15 @@ async function getDurableChangesSinceForUser(
       }
     }
 
-    if (result.rows.length >= DURABLE_READ_LIMIT) {
+    if (rows.length >= DURABLE_READ_LIMIT) {
+      if (overflowVersion === lastDurableVersion) {
+        const boundaryVersion = lastDurableVersion;
+        return {
+          version: Math.max(since, boundaryVersion - 1),
+          events: events.filter((event) => event.version < boundaryVersion),
+          cursorLimited: true,
+        };
+      }
       return {
         version: Math.max(since, lastDurableVersion),
         events,

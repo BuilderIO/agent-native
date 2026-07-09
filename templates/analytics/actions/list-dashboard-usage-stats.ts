@@ -179,13 +179,16 @@ export default defineAction({
       });
     }
 
+    const analyticsUserIdentity = sql<
+      string | null
+    >`coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, ''))`;
     const eventRows = await db
       .select({
         path: schema.analyticsEvents.path,
         url: schema.analyticsEvents.url,
         eventName: schema.analyticsEvents.eventName,
         count: sql<number>`count(*)`,
-        uniqueUsers: sql<number>`count(distinct coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, '')))`,
+        userIdentity: analyticsUserIdentity,
         lastSeenAt: sql<
           string | null
         >`max(${schema.analyticsEvents.receivedAt})`,
@@ -206,6 +209,7 @@ export default defineAction({
         schema.analyticsEvents.path,
         schema.analyticsEvents.url,
         schema.analyticsEvents.eventName,
+        analyticsUserIdentity,
       );
 
     const eventsByDashboard = new Map<
@@ -213,7 +217,7 @@ export default defineAction({
       {
         viewCount: number;
         eventEngagementCount: number;
-        uniqueUserCount: number;
+        uniqueUsers: Set<string>;
         lastViewedAt: string | null;
       }
     >();
@@ -222,7 +226,7 @@ export default defineAction({
       url: string | null;
       eventName: string;
       count: unknown;
-      uniqueUsers: unknown;
+      userIdentity: string | null;
       lastSeenAt: string | null;
     }>) {
       const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
@@ -230,7 +234,7 @@ export default defineAction({
       const current = eventsByDashboard.get(dashboardId) ?? {
         viewCount: 0,
         eventEngagementCount: 0,
-        uniqueUserCount: 0,
+        uniqueUsers: new Set<string>(),
         lastViewedAt: null,
       };
       const count = toNumber(row.count);
@@ -244,10 +248,7 @@ export default defineAction({
       } else {
         current.eventEngagementCount += count;
       }
-      current.uniqueUserCount = Math.max(
-        current.uniqueUserCount,
-        toNumber(row.uniqueUsers),
-      );
+      if (row.userIdentity) current.uniqueUsers.add(row.userIdentity);
       eventsByDashboard.set(dashboardId, current);
     }
 
@@ -260,7 +261,7 @@ export default defineAction({
         const events = eventsByDashboard.get(row.id) ?? {
           viewCount: 0,
           eventEngagementCount: 0,
-          uniqueUserCount: 0,
+          uniqueUsers: new Set<string>(),
           lastViewedAt: null,
         };
         return {
@@ -282,7 +283,7 @@ export default defineAction({
           eventEngagementCount: events.eventEngagementCount,
           savedViewCount: savedViews.count,
           engagementCount: events.eventEngagementCount + savedViews.count,
-          uniqueUserCount: events.uniqueUserCount,
+          uniqueUserCount: events.uniqueUsers.size,
           lastViewedAt: events.lastViewedAt,
           lastSavedViewAt: savedViews.lastSavedViewAt,
           panelCount: dashboardPanelCount(row),

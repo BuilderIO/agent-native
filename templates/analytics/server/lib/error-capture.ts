@@ -222,23 +222,23 @@ export function sourceContextFromText(
 }
 
 const SOURCE_EXT_RE = /\.(?:[cm]?[jt]sx?|vue|svelte|css|scss|json)$/i;
+const SOURCE_CONTEXT_ALLOWED_PREFIXES = ["app/"] as const;
 
-function templateRepoRootFrom(value: string): string | null {
+function templateRootFrom(value: string): string | null {
   const marker = `${path.sep}templates${path.sep}analytics`;
   const index = value.indexOf(marker);
   if (index < 0) return null;
-  return value.slice(0, index);
+  return value.slice(0, index + marker.length);
 }
 
 function sourceRoots(): string[] {
   const roots = new Set<string>();
-  roots.add(process.cwd());
-  const cwdRepoRoot = templateRepoRootFrom(process.cwd());
-  if (cwdRepoRoot) roots.add(cwdRepoRoot);
+  const cwdTemplateRoot = templateRootFrom(process.cwd());
+  roots.add(cwdTemplateRoot ?? process.cwd());
   try {
     const modulePath = fileURLToPath(import.meta.url);
-    const moduleRepoRoot = templateRepoRootFrom(modulePath);
-    if (moduleRepoRoot) roots.add(moduleRepoRoot);
+    const moduleTemplateRoot = templateRootFrom(modulePath);
+    if (moduleTemplateRoot) roots.add(moduleTemplateRoot);
   } catch {
     // import.meta.url is always file: in Node, but source context is best-effort.
   }
@@ -281,19 +281,36 @@ function cleanFrameFile(file: string | null): string | null {
   return cleaned;
 }
 
+export function trustedSourceRelativePath(cleaned: string): string | null {
+  const normalized = cleaned.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (
+    !normalized ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    return null;
+  }
+  if (
+    !SOURCE_CONTEXT_ALLOWED_PREFIXES.some((prefix) =>
+      normalized.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
 async function resolveSourcePath(
   frame: ParsedStackFrame,
 ): Promise<string | null> {
+  if (!frame.inApp) return null;
   const cleaned = cleanFrameFile(frame.file);
   if (!cleaned || !SOURCE_EXT_RE.test(cleaned)) return null;
+  const relativePath = trustedSourceRelativePath(cleaned);
+  if (!relativePath) return null;
   const roots = sourceRoots();
   const candidates = new Set<string>();
-  if (path.isAbsolute(cleaned)) {
-    candidates.add(path.resolve(cleaned));
-    for (const root of roots) candidates.add(path.resolve(root, `.${cleaned}`));
-  } else {
-    for (const root of roots) candidates.add(path.resolve(root, cleaned));
-  }
+  for (const root of roots) candidates.add(path.resolve(root, relativePath));
 
   for (const candidate of candidates) {
     if (!roots.some((root) => isWithinRoot(candidate, root))) continue;
@@ -1330,48 +1347,53 @@ export async function getErrorIssue(
 
   const sessions = new Map<string, { recordingId: string; path: string }>();
   const events = await Promise.all(
-    eventRows.map(async (row: any): Promise<ErrorEventDetail> => {
-      let recordingId: string | null = null;
-      if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
-        recordingId = row.sessionRecordingId;
-      } else if (
-        row.clientRecordingId &&
-        byClientId.has(row.clientRecordingId)
-      ) {
-        recordingId = byClientId.get(row.clientRecordingId) ?? null;
-      }
-      if (recordingId && !sessions.has(recordingId)) {
-        sessions.set(recordingId, {
-          recordingId,
-          path: `/sessions/${recordingId}`,
-        });
-      }
-      return {
-        id: row.id,
-        type: row.type,
-        message: row.message ?? "",
-        culprit: row.culprit ?? null,
-        level: coerceLevel(row.level),
-        stack: await addSourceContexts(
-          parseJson<ParsedStackFrame[]>(row.stack, []),
-        ),
-        rawStack: row.rawStack ?? null,
-        handled: Boolean(row.handled),
-        url: row.url ?? null,
-        userId: row.userId ?? null,
-        anonymousId: row.anonymousId ?? null,
-        userKey: row.userKey ?? null,
-        sessionId: row.sessionId ?? null,
-        sessionRecordingId: recordingId,
-        sessionRecordingPath: recordingPath(recordingId),
-        release: row.release ?? null,
-        environment: row.environment ?? null,
-        tags: parseJson<Record<string, unknown>>(row.tags, {}),
-        extra: parseJson<Record<string, unknown>>(row.extra, {}),
-        breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
-        occurredAt: row.occurredAt,
-      };
-    }),
+    eventRows.map(
+      async (row: any, index: number): Promise<ErrorEventDetail> => {
+        let recordingId: string | null = null;
+        if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
+          recordingId = row.sessionRecordingId;
+        } else if (
+          row.clientRecordingId &&
+          byClientId.has(row.clientRecordingId)
+        ) {
+          recordingId = byClientId.get(row.clientRecordingId) ?? null;
+        }
+        if (recordingId && !sessions.has(recordingId)) {
+          sessions.set(recordingId, {
+            recordingId,
+            path: `/sessions/${recordingId}`,
+          });
+        }
+        return {
+          id: row.id,
+          type: row.type,
+          message: row.message ?? "",
+          culprit: row.culprit ?? null,
+          level: coerceLevel(row.level),
+          stack:
+            index === 0
+              ? await addSourceContexts(
+                  parseJson<ParsedStackFrame[]>(row.stack, []),
+                )
+              : parseJson<ParsedStackFrame[]>(row.stack, []),
+          rawStack: row.rawStack ?? null,
+          handled: Boolean(row.handled),
+          url: row.url ?? null,
+          userId: row.userId ?? null,
+          anonymousId: row.anonymousId ?? null,
+          userKey: row.userKey ?? null,
+          sessionId: row.sessionId ?? null,
+          sessionRecordingId: recordingId,
+          sessionRecordingPath: recordingPath(recordingId),
+          release: row.release ?? null,
+          environment: row.environment ?? null,
+          tags: parseJson<Record<string, unknown>>(row.tags, {}),
+          extra: parseJson<Record<string, unknown>>(row.extra, {}),
+          breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
+          occurredAt: row.occurredAt,
+        };
+      },
+    ),
   );
 
   const sparklines = await sparklinesForIssues([issueId]);
