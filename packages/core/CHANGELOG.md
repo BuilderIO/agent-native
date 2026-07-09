@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.92.3
+
+### Patch Changes
+
+- 0fee97b: Animate settings section cards open and closed with intrinsic height transitions.
+- 0fee97b: Document how to build API-only Agent Native apps with actions on the built-in Nitro/H3 server.
+- 0fee97b: Replay the real terminal error for completed agent runs on reconnect instead of replacing provider failures with stale-run messages, and stop heartbeat updates after a run leaves the running state.
+- 0fee97b: Allow signed embed sessions for Analytics dashboard deep links to authenticate after canonical `/dashboards/:id` redirects.
+- 0fee97b: Prevent stale stored awareness rows from resurrecting user or agent presence after a client explicitly leaves a collaborative document.
+- 0fee97b: Abort superseded chat reconnect readers and back off failed reattach attempts so repeated stale runs do not create client request storms.
+- 0fee97b: Harden chat stop and queued follow-up handling so interrupted tool calls settle cleanly, and flush Agent Native analytics immediately in serverless runtimes.
+- 0fee97b: Avoid CORS preflight storms for embedded framework polling by using query-token auth on safe `/_agent-native` GET requests.
+- 0fee97b: Deliver Agent Native Analytics tracking immediately in serverless runtimes so `http.response` health telemetry is not lost after the response finishes.
+- 0fee97b: Prevent in-flight tool call cards from flickering between newer and older states during reconnect, thread import, and retry clears.
+- 0fee97b: Make chat prompt submission update immediately and make Stop clear queued follow-ups and settle interrupted tool calls.
+- 0fee97b: Single-flight the agent run heartbeat write so a run holds at most one Neon connection for liveness. The 1.5s heartbeat timer previously fired a fresh write every tick regardless of whether the prior one was still in flight; under Neon pooler saturation (writes taking up to the ~8s DB timeout) this piled up ~5 concurrent heartbeat connections per run, adding to the connection-cap exhaustion that starves the heartbeat and gets the still-alive run false-reaped as stale. The abort and no-progress-backstop checks still run every tick.
+- 0fee97b: Normalize unsupported saved agent models to a supported version match or the engine default.
+- 0fee97b: Remove Grok Code Fast and Qwen3 Coder from the Builder gateway model picker.
+- 0fee97b: Treat Anthropic/Builder bare "Connection error." failures as retryable network interruptions, and stop mislabeling those failed runs as stale_run when the client reconnects past the real terminal event.
+- 0fee97b: Stop `useDbSync` from turning app-state navigation/selection churn into a client fetch storm. `app-state` change events (agent/UI navigation, selection, and the set-url/questions command channel) now only invalidate their own `["app-state"]` and command query keys — they no longer fan out into the broad `["action"]`, `["extension"]`, and `["tool"]` data-query invalidation. Only events that can actually change action/extension-backed data (action mutations, settings, extensions, collab, screen-refresh) refetch those prefixes.
+
+  During an active agent session the app mirrors navigation and selection into `application_state` continuously, and on serverless the poll fallback replays those writes back to the originating tab (the DB-scan path can't preserve `requestSource`, so `ignoreSource` can't filter them). Each replayed write previously refetched every action query at once, and that request storm exhausted the DB connection pool — which starved run heartbeat writes and surfaced downstream as `stale_run` chat errors. Real mutations that also write navigation state still refresh action queries because their `action` event rides in the same batch.
+
+- 0fee97b: Show streamed agent reasoning when gateways emit AI SDK-style reasoning deltas.
+- 0fee97b: Show raw tool call output in an auto-height popover with viewport-capped scrolling instead of a fixed-height dialog.
+
 ## 0.92.2
 
 ### Patch Changes
