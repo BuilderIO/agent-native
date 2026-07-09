@@ -1962,6 +1962,12 @@ async function startNativeFullscreenRecording(
     await invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureAudioParams,
+      // Credentials for live upload (streaming chunks during recording). Omit
+      // for local-only recordings, which never upload to the server.
+      serverUrl: localOnly ? undefined : params.serverUrl,
+      authToken: localOnly ? undefined : (params.authToken ?? ""),
+      cookie: localOnly ? undefined : (params.cookie ?? ""),
+      hasCamera: wantsCamera,
     });
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
