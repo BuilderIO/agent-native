@@ -5,7 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -225,27 +225,37 @@ export default defineAction({
       updatedAt: now,
     };
 
-    // Write-once token: on conflict only overwrite it for an explicit token;
-    // a server-minted one leaves any existing token alone, so concurrent
-    // first-time callers cannot clobber each other (read->mint->write isn't
-    // atomic). setWhere keeps a cross-user conflict a no-op.
+    // On conflict, an explicit token overwrites; a server-minted one uses
+    // coalesce(existing, minted) evaluated at write time — it fills a null token
+    // but never clobbers one, so concurrent first-time callers converge on the
+    // first writer (read->mint->write isn't atomic). setWhere keeps a cross-user
+    // conflict a no-op.
     await db
       .insert(schema.designLocalhostConnections)
       .values({ ...baseValues, bridgeToken: nextBridgeToken, createdAt: now })
       .onConflictDoUpdate({
         target: schema.designLocalhostConnections.id,
-        set: explicitToken
-          ? { ...baseValues, bridgeToken: nextBridgeToken }
-          : baseValues,
+        set: {
+          ...baseValues,
+          bridgeToken: explicitToken
+            ? nextBridgeToken
+            : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
+        },
         setWhere: eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       });
 
-    // Return the token the row actually holds, not the one we minted, so
+    // Return the token the row actually holds (owner-scoped, so a cross-user
+    // no-op never leaks another user's token), not the one we minted — so
     // concurrent callers converge on the winner (no 401 on a lost race).
     const [stored] = await db
       .select({ bridgeToken: schema.designLocalhostConnections.bridgeToken })
       .from(schema.designLocalhostConnections)
-      .where(eq(schema.designLocalhostConnections.id, id))
+      .where(
+        and(
+          eq(schema.designLocalhostConnections.id, id),
+          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+        ),
+      )
       .limit(1);
     const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
 
