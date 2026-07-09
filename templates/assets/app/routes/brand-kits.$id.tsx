@@ -1475,7 +1475,7 @@ export function BrandKitDetailRoute({
                   <RunCard
                     key={run.id}
                     run={run}
-                    outputAssets={assetById}
+                    assetById={assetById}
                     rerunning={
                       rerunGeneration.isPending || refreshGeneration.isPending
                     }
@@ -1644,13 +1644,13 @@ type LaneGalleryItem = {
 
 function RunCard({
   run,
-  outputAssets,
+  assetById,
   onRerun,
   onCreateHandoff,
   rerunning,
 }: {
   run: any;
-  outputAssets?: Map<string, any>;
+  assetById?: Map<string, any>;
   onRerun: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
@@ -1661,14 +1661,16 @@ function RunCard({
     string,
     unknown
   >;
-  const selectedReferenceIds = Array.isArray(
+  const selectedReferenceIds: string[] = Array.isArray(
     referenceSelection.selectedAssetIds,
   )
     ? referenceSelection.selectedAssetIds.filter(
         (id): id is string => typeof id === "string",
       )
     : Array.isArray(run.referenceAssetIds)
-      ? run.referenceAssetIds
+      ? run.referenceAssetIds.filter(
+          (id: unknown): id is string => typeof id === "string",
+        )
       : [];
   const outputIds = Array.isArray(run.output?.assetIds)
     ? run.output.assetIds.filter(
@@ -1778,7 +1780,7 @@ function RunCard({
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
               {outputIds.map((assetId: any) => {
-                const outputAsset = outputAssets?.get(assetId);
+                const outputAsset = assetById?.get(assetId);
                 return (
                   <Button
                     key={assetId}
@@ -1812,11 +1814,21 @@ function RunCard({
           <div className="text-xs font-medium text-muted-foreground">
             {t("brandKitDetail.references")}
           </div>
-          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-            {selectedReferenceIds.length
-              ? selectedReferenceIds.map(shortId).join(", ")
-              : t("brandKitDetail.noneSelected")}
-          </p>
+          {selectedReferenceIds.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {selectedReferenceIds.map((assetId) => (
+                <RunReferenceTile
+                  key={assetId}
+                  assetId={assetId}
+                  asset={assetById?.get(assetId)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("brandKitDetail.noneSelected")}
+            </p>
+          )}
         </div>
       </div>
 
@@ -1831,6 +1843,49 @@ function RunCard({
         </details>
       ) : null}
     </article>
+  );
+}
+
+function RunReferenceTile({
+  assetId,
+  asset,
+}: {
+  assetId: string;
+  asset?: any;
+}) {
+  const label = asset ? assetDisplayTitle(asset) : shortId(assetId);
+  return (
+    <Link
+      to={asset ? `/asset/${asset.id}` : "#"}
+      title={asset ? `${label} · ${asset.id}` : assetId}
+      aria-disabled={!asset}
+      className={[
+        "group block w-20 overflow-hidden rounded-md border bg-background text-left transition",
+        asset
+          ? "hover:border-foreground/30 hover:shadow-sm"
+          : "pointer-events-none border-dashed",
+      ].join(" ")}
+    >
+      <div className="aspect-square bg-muted/40">
+        {asset ? (
+          <AssetPreview asset={asset} fit="cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <IconPhoto className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+      </div>
+      <div className="border-t px-1.5 py-1">
+        <div className="truncate text-[11px] font-medium text-foreground">
+          {label}
+        </div>
+        {asset ? (
+          <div className="truncate text-[10px] text-muted-foreground">
+            {shortId(assetId)}
+          </div>
+        ) : null}
+      </div>
+    </Link>
   );
 }
 

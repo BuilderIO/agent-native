@@ -1,6 +1,196 @@
 # Existing non-English catalog values that still exactly match English.
 # Keep this file sorted. Remove entries as catalogs get translated.
 # Format: relative/catalog/locale|key|English source string
+templates/assets/app/i18n/ar-SA|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/ar-SA|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/ar-SA|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/ar-SA|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/ar-SA|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/ar-SA|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/ar-SA|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/ar-SA|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/ar-SA|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/ar-SA|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/ar-SA|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/ar-SA|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/ar-SA|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/de-DE|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/de-DE|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/de-DE|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/de-DE|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/de-DE|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/de-DE|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/de-DE|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/de-DE|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/de-DE|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/de-DE|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/de-DE|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/de-DE|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/de-DE|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/es-ES|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/es-ES|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/es-ES|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/es-ES|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/es-ES|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/es-ES|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/es-ES|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/es-ES|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/es-ES|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/es-ES|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/es-ES|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/es-ES|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/es-ES|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/fr-FR|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/fr-FR|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/fr-FR|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/fr-FR|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/fr-FR|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/fr-FR|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/fr-FR|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/fr-FR|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/fr-FR|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/fr-FR|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/fr-FR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/fr-FR|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/fr-FR|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/hi-IN|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/hi-IN|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/hi-IN|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/hi-IN|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/hi-IN|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/hi-IN|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/hi-IN|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/hi-IN|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/hi-IN|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/hi-IN|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/hi-IN|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/hi-IN|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/hi-IN|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/ja-JP|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/ja-JP|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/ja-JP|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/ja-JP|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/ja-JP|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/ja-JP|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/ja-JP|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/ja-JP|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/ja-JP|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/ja-JP|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/ja-JP|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/ja-JP|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/ja-JP|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/ko-KR|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/ko-KR|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/ko-KR|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/ko-KR|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/ko-KR|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/ko-KR|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/ko-KR|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/ko-KR|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/ko-KR|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/ko-KR|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/ko-KR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/ko-KR|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/ko-KR|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/pt-BR|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/pt-BR|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/pt-BR|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/pt-BR|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/pt-BR|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/pt-BR|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/pt-BR|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/pt-BR|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/pt-BR|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/pt-BR|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/pt-BR|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/pt-BR|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/pt-BR|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/zh-CN|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/zh-CN|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/zh-CN|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/zh-CN|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/zh-CN|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/zh-CN|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/zh-CN|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/zh-CN|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/zh-CN|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/zh-CN|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/zh-CN|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/zh-CN|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/zh-CN|brandKitDetail.uploadingReferenceImage|Uploading...
+templates/assets/app/i18n/zh-TW|brandKitDetail.addReference|Add reference
+templates/assets/app/i18n/zh-TW|brandKitDetail.chooseReferenceImage|Choose from library
+templates/assets/app/i18n/zh-TW|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
+templates/assets/app/i18n/zh-TW|brandKitDetail.editReference|Edit reference
+templates/assets/app/i18n/zh-TW|brandKitDetail.filledPerGeneration|Filled per generation
+templates/assets/app/i18n/zh-TW|brandKitDetail.noReferenceImages|No reference images
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceBoardEmptyDescription|Add named visual slots like "Steve" so every run can use the right people, products, or style references.
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceBoardSubjectLimitError|Subject reference entries may attach at most 4 images total.
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceBoardTotalLimitError|The reference board may attach at most 8 images total.
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceBoard|Reference board
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceDescriptionPlaceholder|e.g. This is Steve, our usual host. Render him faithfully.
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceImageUploaded|Reference image uploaded.
+templates/assets/app/i18n/zh-TW|brandKitDetail.referenceMode|Reference mode
+templates/assets/app/i18n/zh-TW|brandKitDetail.removeReferenceImage|Remove reference image
+templates/assets/app/i18n/zh-TW|brandKitDetail.removeReference|Remove reference
+templates/assets/app/i18n/zh-TW|brandKitDetail.searchLibraryImages|Search library images
+templates/assets/app/i18n/zh-TW|brandKitDetail.subjectReferenceModelTip|Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.
+templates/assets/app/i18n/zh-TW|brandKitDetail.uploadReferenceImage|Upload image
+templates/assets/app/i18n/zh-TW|brandKitDetail.uploadingReferenceImage|Uploading...
 templates/calendar/app/i18n/ar-SA|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/ar-SA|eventForm.googleMeet|Google Meet
 templates/calendar/app/i18n/de-DE|bookingLinks.googleMeet|Google Meet

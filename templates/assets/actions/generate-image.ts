@@ -9,7 +9,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ import {
   DEFAULT_GENERATION_REFERENCE_LIMIT,
   generateWithManagedImageProvider,
   isImageGenerationSetupError,
+  loadReferenceData,
   resolveImageModelForRequest,
   selectReferences,
   type ReferenceForGeneration,
@@ -33,6 +34,11 @@ import {
   prepareGptImage2SkeletonInpaintImages,
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import {
+  normalizePresetReferences,
+  PRESET_REFERENCE_ROLE_MAP,
+  resolvePresetReferenceFills,
+} from "../server/lib/preset-references.js";
 import {
   aspectRatioValue,
   clampCutoutAspectRatio,
@@ -65,9 +71,14 @@ import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
 const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
 
+const presetReferenceFillSchema = z.object({
+  referenceId: z.string().min(1),
+  assetIds: z.array(z.string().min(1)).min(1).max(4),
+});
+
 export default defineAction({
   description:
-    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+    "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z
       .string()
@@ -123,6 +134,13 @@ export default defineAction({
       .optional()
       .describe(
         "Exact reference assets to use. When omitted, the server deterministically chooses a small relevant subset from the latest library references.",
+      ),
+    presetReferenceFills: z
+      .array(presetReferenceFillSchema)
+      .max(6)
+      .optional()
+      .describe(
+        'Per-run images for the preset\'s reference board (see the tagged preset brief or list-generation-presets settings.presetReferences). Each fill REPLACES the images of one variable entry by id, e.g. [{ referenceId: "guest-speaker", assetIds: ["..."] }]. Required entries without pinned images MUST be filled or the call fails. Only valid when presetId is set.',
       ),
     includeLogo: z.coerce
       .boolean()
@@ -281,9 +299,26 @@ export default defineAction({
       tier?: ImageQualityTier;
       includeLogo?: boolean;
       skeletonSpec?: unknown;
+      presetReferences?: unknown;
     }>(preset?.settings, {});
     const skeletonSpec = normalizePresetSkeletonSpec(
       presetSettings.skeletonSpec,
+    );
+    const presetReferences = normalizePresetReferences(
+      presetSettings.presetReferences,
+    );
+    if (args.presetReferenceFills?.length && !preset) {
+      throw new Error(
+        "presetReferenceFills requires a presetId whose preset declares a reference board.",
+      );
+    }
+    const resolvedPresetReferences = resolvePresetReferenceFills({
+      entries: presetReferences,
+      fills: args.presetReferenceFills,
+      presetTitle: preset?.title ?? "",
+    });
+    const boardAssignments = Object.fromEntries(
+      resolvedPresetReferences.map((item) => [item.entry.id, item.assetIds]),
     );
     const isSkeletonCutout = skeletonSpec?.contentMode === "cutout";
     const outputAspectRatio = (args.aspectRatio ??
@@ -333,11 +368,32 @@ export default defineAction({
         model: resolvedModel,
       });
     }
+    // Mirror the create/update-generation-preset guard for per-run model
+    // overrides: subject board photos on a model without character
+    // consistency would silently ignore the people they exist to preserve.
+    if (
+      resolvedModel === "gemini-2.5-flash-image" &&
+      resolvedPresetReferences.some((item) => item.entry.role === "subject")
+    ) {
+      throw new Error(
+        "Subject reference entries need a model with character consistency. Use gemini-3.1-flash-image, gemini-3-pro-image, gpt-image-1, or gpt-image-2.",
+      );
+    }
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);
     const skeletonReferenceExclusionIds =
       skeletonCompositeAssetIds(skeletonSpec);
+    const boardRefs = await loadPresetReferenceBoardRefs({
+      db,
+      libraryId: args.libraryId,
+      resolved: resolvedPresetReferences,
+    });
+    const boardAssetIdSet = new Set(boardRefs.map((ref) => ref.id));
+    const referenceExclusionIds = [
+      ...(skeletonReferenceExclusionIds ?? []),
+      ...boardAssetIdSet,
+    ];
     const skeletonAssets = skeletonSpec
       ? await loadSkeletonAssets({
           spec: skeletonSpec,
@@ -395,35 +451,67 @@ export default defineAction({
           .join("\n")
       : "";
     let references: ReferenceForGeneration[];
+    const baseReferenceLimit =
+      args.intent !== "restyle" &&
+      preset?.referencePolicy === "explicit" &&
+      !args.referenceAssetIds?.length
+        ? 0
+        : DEFAULT_GENERATION_REFERENCE_LIMIT;
     if (useSkeletonInpaint) {
-      references = skeletonInpaint?.references ?? [];
+      const guidanceReferenceLimit = Math.max(
+        0,
+        baseReferenceLimit - boardRefs.length,
+      );
+      const guidanceReferences =
+        baseReferenceLimit > 0 || args.referenceAssetIds?.length
+          ? await selectReferences({
+              libraryId: args.libraryId,
+              collectionId: resolvedCollectionId,
+              categories: resolvedCategories,
+              referenceAssetIds: args.referenceAssetIds,
+              excludeAssetIds: referenceExclusionIds,
+              sourceAssetId: args.sourceAssetId,
+              subjectAssetId: args.subjectAssetId,
+              intent: args.intent,
+              limit: guidanceReferenceLimit,
+            })
+          : [];
+      const inpaintReferences = skeletonInpaint?.references ?? [];
+      const [plateReference, ...maskReferences] = inpaintReferences;
+      references = [
+        ...(plateReference ? [plateReference] : []),
+        ...boardRefs.map(referenceForSkeletonInpaintGuidance),
+        ...guidanceReferences.map(referenceForSkeletonInpaintGuidance),
+        ...maskReferences,
+      ];
     } else {
       const backgroundPlateReference =
         backgroundPlateReferenceForSkeleton(skeletonAssets);
-      const baseReferenceLimit =
-        args.intent !== "restyle" &&
-        preset?.referencePolicy === "explicit" &&
-        !args.referenceAssetIds?.length
-          ? 0
-          : DEFAULT_GENERATION_REFERENCE_LIMIT;
-      const referenceLimit =
-        backgroundPlateReference && baseReferenceLimit > 0
+      const referenceLimit = Math.max(
+        0,
+        (backgroundPlateReference && baseReferenceLimit > 0
           ? baseReferenceLimit + 1
-          : baseReferenceLimit;
-      references = await selectReferences({
-        libraryId: args.libraryId,
-        collectionId: resolvedCollectionId,
-        categories: resolvedCategories,
-        referenceAssetIds: args.referenceAssetIds,
-        excludeAssetIds: skeletonReferenceExclusionIds,
-        sourceAssetId: args.sourceAssetId,
-        subjectAssetId: args.subjectAssetId,
-        intent: args.intent,
-        limit: referenceLimit,
-      });
-      if (backgroundPlateReference) {
-        references.unshift(backgroundPlateReference);
-      }
+          : baseReferenceLimit) - boardRefs.length,
+      );
+      const autoReferences =
+        referenceLimit > 0 || args.referenceAssetIds?.length
+          ? await selectReferences({
+              libraryId: args.libraryId,
+              collectionId: resolvedCollectionId,
+              categories: resolvedCategories,
+              referenceAssetIds: args.referenceAssetIds,
+              excludeAssetIds: referenceExclusionIds,
+              sourceAssetId: args.sourceAssetId,
+              subjectAssetId: args.subjectAssetId,
+              intent: args.intent,
+              limit: referenceLimit,
+            })
+          : [];
+      references = [
+        ...(backgroundPlateReference ? [backgroundPlateReference] : []),
+        ...boardRefs,
+        ...autoReferences,
+      ];
     }
     const compiledPrompt = compilePrompt({
       libraryTitle: library.title,
@@ -448,6 +536,12 @@ export default defineAction({
       category,
       intent: args.intent,
       styleStrength: args.styleStrength,
+      referenceBoard: resolvedPresetReferences.map((item) => ({
+        label: item.entry.label,
+        role: item.entry.role,
+        count: item.assetIds.length,
+        description: item.entry.description,
+      })),
     });
     const runId = nanoid();
     const now = nowIso();
@@ -476,6 +570,7 @@ export default defineAction({
       selectionReasons: Object.fromEntries(
         references.map((ref) => [ref.id, ref.selectionReason ?? "scored"]),
       ),
+      boardAssignments,
     };
     const settingsUsed = {
       model: resolvedModel,
@@ -497,6 +592,7 @@ export default defineAction({
       embeddedText: args.embeddedText ?? null,
       textPlacement: args.textPlacement ?? null,
       customInstructions: library.customInstructions ?? "",
+      boardAssignments,
     };
     const dismissibleSlot = args.dismissible !== false && Boolean(slotId);
     const baseMetadata = {
@@ -593,6 +689,7 @@ export default defineAction({
             collectionId: resolvedCollectionId ?? null,
             source: args.source,
             callerAppId: args.callerAppId,
+            hasBoardReferences: boardRefs.length > 0,
           }),
       );
       await deleteAppState("image-generation-setup").catch(() => {});
@@ -847,6 +944,62 @@ function backgroundPlateReferenceForSkeleton(
   };
 }
 
+async function loadPresetReferenceBoardRefs(input: {
+  db: any;
+  libraryId: string;
+  resolved: Array<{
+    entry: {
+      id: string;
+      role: keyof typeof PRESET_REFERENCE_ROLE_MAP;
+    };
+    assetIds: string[];
+  }>;
+}): Promise<ReferenceForGeneration[]> {
+  const assetIds = [
+    ...new Set(input.resolved.flatMap((item) => item.assetIds)),
+  ];
+  if (!assetIds.length) return [];
+
+  const rows = await input.db
+    .select()
+    .from(schema.assets)
+    .where(inArray(schema.assets.id, assetIds));
+  const byId = new Map<string, any>(
+    (rows as any[]).map((asset) => [asset.id, asset]),
+  );
+  const valid = assetIds.every((assetId) => {
+    const asset = byId.get(assetId);
+    return (
+      asset &&
+      asset.libraryId === input.libraryId &&
+      typeof asset.mimeType === "string" &&
+      asset.mimeType.startsWith("image/") &&
+      asset.status !== "archived" &&
+      asset.status !== "failed"
+    );
+  });
+  if (!valid) {
+    throw new Error(
+      "Reference board images must be images in this asset library.",
+    );
+  }
+
+  const refs: ReferenceForGeneration[] = [];
+  for (const item of input.resolved) {
+    const assets = item.assetIds
+      .map((assetId) => byId.get(assetId))
+      .filter((asset): asset is any => asset != null);
+    refs.push(
+      ...(await loadReferenceData(
+        assets,
+        () => PRESET_REFERENCE_ROLE_MAP[item.entry.role],
+        () => `preset-ref:${item.entry.id}`,
+      )),
+    );
+  }
+  return refs;
+}
+
 async function inpaintReferencesForSkeleton(
   skeletonAssets: LoadedSkeletonAssets | null,
 ): Promise<{
@@ -894,6 +1047,22 @@ async function inpaintReferencesForSkeleton(
         selectionReason: "explicit",
       },
     ],
+  };
+}
+
+function referenceForSkeletonInpaintGuidance(
+  ref: ReferenceForGeneration,
+): ReferenceForGeneration {
+  if (
+    ref.role !== "subject_reference" &&
+    ref.role !== "generated" &&
+    ref.role !== "edit_target"
+  ) {
+    return ref;
+  }
+  return {
+    ...ref,
+    role: "product_reference",
   };
 }
 

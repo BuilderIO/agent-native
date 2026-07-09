@@ -15,7 +15,11 @@ import {
 } from "../shared/api.js";
 import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
-import { assertPresetSkeletonAssetsValid } from "./_preset-skeleton-validation.js";
+import {
+  assertPresetReferenceAssetsValid,
+  assertPresetReferenceModelCompatible,
+  assertPresetSkeletonAssetsValid,
+} from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -56,10 +60,25 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
+    const settings = {
+      ...(args.settings ?? {}),
+      ...(args.includeLogo !== undefined
+        ? { includeLogo: args.includeLogo }
+        : {}),
+    };
     await assertPresetSkeletonAssetsValid({
       db,
       libraryId: args.libraryId,
-      settings: args.settings,
+      settings,
+    });
+    await assertPresetReferenceAssetsValid({
+      db,
+      libraryId: args.libraryId,
+      settings,
+    });
+    assertPresetReferenceModelCompatible({
+      model: args.model,
+      settings,
     });
     const now = nowIso();
     const row = {
@@ -76,12 +95,7 @@ export default defineAction({
       model: args.model,
       textPolicy: args.textPolicy,
       referencePolicy: args.referencePolicy,
-      settings: stringifyJson({
-        ...(args.settings ?? {}),
-        ...(args.includeLogo !== undefined
-          ? { includeLogo: args.includeLogo }
-          : {}),
-      }),
+      settings: stringifyJson(settings),
       sortOrder: args.sortOrder ?? 100,
       createdAt: now,
       updatedAt: now,

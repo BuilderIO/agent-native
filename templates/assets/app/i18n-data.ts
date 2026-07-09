@@ -169,6 +169,46 @@ const brandKitDetailEnUS = {
   lowerLeft: "Lower left",
   skeletonEnabled: "Enabled",
   skeletonOff: "Off",
+  addReference: "Add reference",
+  referenceBoard: "Reference board",
+  referenceBoardEmptyDescription:
+    'Add named visual slots like "Steve" so every run can use the right people, products, or style references.',
+  referenceDefaultLabel: "Reference",
+  referenceImageCount: "{{count}}/{{max}} images",
+  referenceSubjectImageCount: "{{count}}/{{max}} subject images",
+  moreImagesCount: "+{{count}}",
+  referenceLabel: "Label",
+  referenceRoleLabel: "Role",
+  referenceRole_subject: "Subject",
+  referenceRole_style: "Style",
+  referenceRole_product: "Product",
+  referenceRole_background: "Background",
+  referenceRole_composition: "Composition",
+  referenceDescription: "Description",
+  referenceDescriptionPlaceholder:
+    "e.g. This is Steve, our usual host. Render him faithfully.",
+  referenceMode: "Reference mode",
+  fixedReference: "Fixed",
+  swappableReference: "Swappable",
+  requiredPerRun: "Required",
+  required: "Required",
+  filledPerGeneration: "Filled per generation",
+  noReferenceImages: "No reference images",
+  chooseReferenceImage: "Choose from library",
+  searchLibraryImages: "Search library images",
+  editReference: "Edit reference",
+  uploadReferenceImage: "Upload image",
+  uploadingReferenceImage: "Uploading...",
+  referenceImageUploaded: "Reference image uploaded.",
+  couldNotUploadReferenceImage: "Could not upload reference image.",
+  removeReference: "Remove reference",
+  removeReferenceImage: "Remove reference image",
+  referenceBoardTotalLimitError:
+    "The reference board may attach at most 8 images total.",
+  referenceBoardSubjectLimitError:
+    "Subject reference entries may attach at most 4 images total.",
+  subjectReferenceModelTip:
+    "Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.",
   openChat: "Open chat",
   defaultTextPolicy:
     "Prefer no embedded text. Keep any requested text short and readable.",
@@ -1003,6 +1043,50 @@ type PartialMessages = {
   };
 };
 
+// TODO(l10n): translate after QA.
+const referenceBoardL10nTodo = {
+  addReference: "Add reference",
+  referenceBoard: "Reference board",
+  referenceBoardEmptyDescription:
+    'Add named visual slots like "Steve" so every run can use the right people, products, or style references.',
+  referenceDefaultLabel: "Reference",
+  referenceImageCount: "{{count}}/{{max}} images",
+  referenceSubjectImageCount: "{{count}}/{{max}} subject images",
+  moreImagesCount: "+{{count}}",
+  referenceLabel: "Label",
+  referenceRoleLabel: "Role",
+  referenceRole_subject: "Subject",
+  referenceRole_style: "Style",
+  referenceRole_product: "Product",
+  referenceRole_background: "Background",
+  referenceRole_composition: "Composition",
+  referenceDescription: "Description",
+  referenceDescriptionPlaceholder:
+    "e.g. This is Steve, our usual host. Render him faithfully.",
+  referenceMode: "Reference mode",
+  fixedReference: "Fixed",
+  swappableReference: "Swappable",
+  requiredPerRun: "Required",
+  required: "Required",
+  filledPerGeneration: "Filled per generation",
+  noReferenceImages: "No reference images",
+  chooseReferenceImage: "Choose from library",
+  searchLibraryImages: "Search library images",
+  editReference: "Edit reference",
+  uploadReferenceImage: "Upload image",
+  uploadingReferenceImage: "Uploading...",
+  referenceImageUploaded: "Reference image uploaded.",
+  couldNotUploadReferenceImage: "Could not upload reference image.",
+  removeReference: "Remove reference",
+  removeReferenceImage: "Remove reference image",
+  referenceBoardTotalLimitError:
+    "The reference board may attach at most 8 images total.",
+  referenceBoardSubjectLimitError:
+    "Subject reference entries may attach at most 4 images total.",
+  subjectReferenceModelTip:
+    "Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.",
+} satisfies Partial<Messages["brandKitDetail"]>;
+
 const brandKitDetailArSA = {
   addAssetsDescription:
     "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
@@ -1081,6 +1165,7 @@ const brandKitDetailArSA = {
   lowerLeft: "أسفل اليسار",
   skeletonEnabled: "مفعل",
   skeletonOff: "متوقف",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences: "لا يمكن إضافة الأصول المحددة إلى المراجع.",
   couldNotAddToReferences: "لا يمكن إضافة الأصل إلى المراجع.",
   couldNotArchiveBrandKit: "تعذر أرشفة مجموعة العلامة التجارية.",
@@ -1317,6 +1402,7 @@ const brandKitDetailDeDE = {
   lowerLeft: "Unten links",
   skeletonEnabled: "Aktiviert",
   skeletonOff: "Aus",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "Ausgewählte Assets konnten nicht zu Referenzen hinzugefügt werden.",
   couldNotAddToReferences:
@@ -1559,6 +1645,7 @@ const brandKitDetailEsES = {
   lowerLeft: "Inferior izquierda",
   skeletonEnabled: "Activado",
   skeletonOff: "Desactivado",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "No se pudieron agregar los recursos seleccionados a las Referencias.",
   couldNotAddToReferences: "No se pudo agregar activo a Referencias.",
@@ -1804,6 +1891,7 @@ const brandKitDetailFrFR = {
   lowerLeft: "En bas à gauche",
   skeletonEnabled: "Activé",
   skeletonOff: "Désactivé",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "Impossible d'ajouter les éléments sélectionnés aux références.",
   couldNotAddToReferences: "Impossible d'ajouter un élément aux références.",
@@ -2043,6 +2131,7 @@ const brandKitDetailHiIN = {
   lowerLeft: "नीचे बाएं",
   skeletonEnabled: "सक्षम",
   skeletonOff: "बंद",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "चयनित परिसंपत्तियों को संदर्भों में नहीं जोड़ा जा सका.",
   couldNotAddToReferences: "संदर्भों में संपत्ति नहीं जोड़ी जा सकी.",
@@ -2278,6 +2367,7 @@ const brandKitDetailJaJP = {
   lowerLeft: "左下",
   skeletonEnabled: "有効",
   skeletonOff: "オフ",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "選択したアセットを参照に追加できませんでした。",
   couldNotAddToReferences: "アセットを参照に追加できませんでした。",
@@ -2518,6 +2608,7 @@ const brandKitDetailKoKR = {
   lowerLeft: "왼쪽 아래",
   skeletonEnabled: "활성화됨",
   skeletonOff: "꺼짐",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences: "선택한 자산을 참조에 추가할 수 없습니다.",
   couldNotAddToReferences: "참조에 자산을 추가할 수 없습니다.",
   couldNotArchiveBrandKit: "브랜드 키트를 보관할 수 없습니다.",
@@ -2754,6 +2845,7 @@ const brandKitDetailPtBR = {
   lowerLeft: "Inferior esquerda",
   skeletonEnabled: "Ativado",
   skeletonOff: "Desativado",
+  ...referenceBoardL10nTodo,
   couldNotAddSelectedToReferences:
     "Não foi possível adicionar os ativos selecionados às referências.",
   couldNotAddToReferences: "Não foi possível adicionar recurso às referências.",
@@ -3950,6 +4042,7 @@ export const messagesByLocale = {
       lowerLeft: "左下",
       skeletonEnabled: "已启用",
       skeletonOff: "关闭",
+      ...referenceBoardL10nTodo,
       openChat: "打开聊天",
       defaultTextPolicy: "尽量不要嵌入文字。如需文字，请保持简短且易读。",
       generationPresetCreated: "生成预设已创建。",

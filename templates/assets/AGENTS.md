@@ -61,6 +61,17 @@ prompt, aspectRatio }`.
   composition, mood, lighting, and subject — then pass the `presetId` to
   `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
   apply automatically. Do not restate those as ad-hoc args.
+- Image requests without a tagged preset are preset-first: the user may not know
+  presets exist. Call `list-generation-presets` for the library before
+  generating and compare the request against each preset's title, description,
+  and category. If one matches the use case (e.g. "livestream poster" -> a
+  Livestream Announcement preset), generate with its `presetId` instead of
+  ad-hoc settings. Only generate presetless when nothing plausibly matches.
+- Presets may declare a reference board with fixed or variable named entries
+  such as a host, guest speaker, product, backdrop, or style. Fixed entries
+  attach automatically; collect images for required variable entries and pass
+  them via `presetReferenceFills` on `generate-image` /
+  `generate-image-batch`. See the `image-generation` skill for fill semantics.
 - For exact visible copy inside a generated image, pass `embeddedText` and
   optional `textPlacement` to `generate-image` or each `generate-image-batch`
   slot. Keep the general `prompt` for creative direction; the structured text

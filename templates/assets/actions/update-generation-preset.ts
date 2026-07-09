@@ -14,7 +14,11 @@ import {
 } from "../shared/api.js";
 import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
-import { assertPresetSkeletonAssetsValid } from "./_preset-skeleton-validation.js";
+import {
+  assertPresetReferenceAssetsValid,
+  assertPresetReferenceModelCompatible,
+  assertPresetSkeletonAssetsValid,
+} from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -88,7 +92,21 @@ export default defineAction({
         libraryId: preset.libraryId,
         settings: nextSettings,
       });
+      await assertPresetReferenceAssetsValid({
+        db,
+        libraryId: preset.libraryId,
+        settings: nextSettings,
+      });
+      assertPresetReferenceModelCompatible({
+        model: (args.model ?? preset.model) as string,
+        settings: nextSettings,
+      });
       updates.settings = stringifyJson(nextSettings);
+    } else if (args.model !== undefined) {
+      assertPresetReferenceModelCompatible({
+        model: args.model,
+        settings: parseJson<Record<string, unknown>>(preset.settings, {}),
+      });
     }
     await db
       .update(schema.assetGenerationPresets)
