@@ -612,10 +612,20 @@ describe("shouldOpenMonitorIncident", () => {
       new URL("./uptime-monitors.ts", import.meta.url),
       "utf8",
     );
-    const recoveryIndex = source.indexOf("if (open.notificationId)");
+    const recoveryIndex = source.indexOf("if (open.notificationDelivered)");
     const notifyIndex = source.indexOf("await notifyMonitorRecovered");
 
     expect(recoveryIndex).toBeGreaterThan(-1);
     expect(notifyIndex).toBeGreaterThan(recoveryIndex);
+  });
+
+  it("tracks actual down-notification delivery for recovery alerts", () => {
+    const source = readFileSync(
+      new URL("./uptime-monitors.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("delivery.deliveredChannels.length > 0");
+    expect(source).toContain("notificationDelivered,");
   });
 });

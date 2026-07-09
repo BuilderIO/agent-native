@@ -297,6 +297,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         // list-meetings also uses this for the lower bound when we widen the
         // upcoming window to include recently-started events (see action).
         ("includeStartedWithinMin", "5"),
+        ("excludePersonalSoloEvents", "true"),
     ]);
     req = req.header("X-Request-Source", "clips-desktop");
     if let Some(c) = cookie.as_deref() {

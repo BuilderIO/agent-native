@@ -31,6 +31,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isPersonalSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -81,6 +82,11 @@ export default defineAction({
       .optional()
       .describe(
         "Also include meetings that started within this many minutes (desktop reminder hold window). Default 0.",
+      ),
+    excludePersonalSoloEvents: booleanParam
+      .default(false)
+      .describe(
+        "Exclude obvious solo personal calendar blocks such as Gym or Dinner. Used by desktop meeting reminders.",
       ),
   }),
   http: { method: "GET" },
@@ -263,6 +269,12 @@ export default defineAction({
           for (const event of items) {
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
+            if (
+              args.excludePersonalSoloEvents &&
+              isPersonalSoloCalendarEvent({ account, event })
+            ) {
+              continue;
+            }
             const startIso = eventStartIso(event);
             const endIso = eventEndIso(event);
             if (!startIso || !endIso) continue;

@@ -15,8 +15,6 @@ describe("buildChatModelGroups", () => {
             "claude-sonnet-5",
             "gpt-5-5",
             "gemini-3-1-pro",
-            "grok-code-fast",
-            "qwen3-coder",
           ],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         },
@@ -42,12 +40,7 @@ describe("buildChatModelGroups", () => {
         models: ["gemini-3-1-pro"],
         configured: true,
       },
-      {
-        engine: "builder",
-        label: "More",
-        models: ["auto", "grok-code-fast", "qwen3-coder"],
-        configured: true,
-      },
+      { engine: "builder", label: "More", models: ["auto"], configured: true },
     ]);
   });
 

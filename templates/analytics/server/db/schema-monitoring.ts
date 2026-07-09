@@ -131,6 +131,9 @@ export const monitorIncidents = table("monitor_incidents", {
   cause: text("cause").notNull().default(""),
   lastError: text("last_error"),
   notificationId: text("notification_id"),
+  notificationDelivered: integer("notification_delivered", { mode: "boolean" })
+    .notNull()
+    .default(false),
   checksFailed: integer("checks_failed").notNull().default(1),
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),

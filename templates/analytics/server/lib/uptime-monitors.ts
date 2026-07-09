@@ -220,6 +220,7 @@ export interface MonitorIncident {
   cause: string;
   lastError: string | null;
   notificationId: string | null;
+  notificationDelivered: boolean;
   checksFailed: number;
   createdAt: string;
 }
@@ -1386,6 +1387,10 @@ function rowToIncident(row: any): MonitorIncident {
     cause: row.cause ?? "",
     lastError: row.lastError ?? null,
     notificationId: row.notificationId ?? null,
+    notificationDelivered:
+      row.notificationDelivered === true ||
+      row.notificationDelivered === 1 ||
+      Boolean(row.notificationId),
     checksFailed: Number(row.checksFailed ?? 1),
     createdAt: row.createdAt,
   };
@@ -2062,10 +2067,13 @@ export async function evaluateAndNotifyMonitor(
 
     const suppressed = await recentlyResolvedWithinCooldown(monitor, ctx, now);
     let notificationId: string | undefined;
+    let notificationDelivered = false;
     if (!suppressed) {
       try {
         const delivery = await notifyMonitorDown(monitor, outcome);
         notificationId = delivery.notification?.id;
+        notificationDelivered =
+          Boolean(notificationId) || delivery.deliveredChannels.length > 0;
       } catch (err) {
         console.error(
           `[uptime-monitors] notify failed for ${monitor.id}:`,
@@ -2088,6 +2096,7 @@ export async function evaluateAndNotifyMonitor(
       cause,
       lastError: outcome.error,
       notificationId: notificationId ?? null,
+      notificationDelivered,
       checksFailed: nextChecksFailed,
       createdAt: outcome.checkedAt,
       ownerEmail: monitor.ownerEmail,
@@ -2096,7 +2105,7 @@ export async function evaluateAndNotifyMonitor(
     return {
       status: outcome.status,
       incidentId,
-      notified: Boolean(notificationId),
+      notified: notificationDelivered,
     };
   }
 
@@ -2107,7 +2116,7 @@ export async function evaluateAndNotifyMonitor(
       .set({ resolvedAt: outcome.checkedAt })
       .where(eq(schema.monitorIncidents.id, open.id));
     let notified = false;
-    if (open.notificationId) {
+    if (open.notificationDelivered) {
       try {
         await notifyMonitorRecovered(monitor, outcome, open);
         notified = true;
