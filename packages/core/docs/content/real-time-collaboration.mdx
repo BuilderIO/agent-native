@@ -344,7 +344,7 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ## Presence Kit {#presence-kit}
 
-The presence kit provides Liveblocks/collaboration-grade live-cursor and selection primitives on top of the existing awareness layer.
+The presence kit provides Liveblocks/collaboration-grade live-cursor and selection primitives on top of the existing awareness layer. Finer-grained presence — such as which users are viewing a given slide in a deck — layers on top of the same awareness state using the same hooks below.
 
 Import client-side presence and editor UI from the focused browser subpath:
 
@@ -710,11 +710,6 @@ Key properties:
 
 </Callout>
 
-- **Same-region simultaneous rewrite is LWW** — If the agent rewrites a
-  passage and a human has unsaved edits in the exact same region, the
-  lead-client snapshot can overwrite the human's in-flight changes. Edits in
-  different regions merge correctly via the CRDT. Granular server-side merge
-  (see above) avoids this for structured documents.
 - **In-process write locks on serverless** — The `_writeLocks` map is
   process-local. Concurrent requests landing on different serverless
   invocations serialize at the SQL CAS layer (optimistic concurrency) rather
@@ -725,26 +720,7 @@ Key properties:
   state per invocation. Clients still receive full awareness snapshots on each
   poll cycle, so presence indicators update within one poll interval.
 
-## Presence {#presence}
-
-The `useCollaborativeDoc` hook returns:
-
-- `activeUsers` — array of `CollabUser` (name, email, color) for all peers
-  currently in the document (sourced from awareness).
-- `agentActive` — `true` briefly after the agent makes an edit (use for a
-  transient visual indicator).
-- `agentPresent` — `true` while the agent has an active awareness entry
-  (durable presence heartbeat).
-
-Use `emailToColor(email)` and `emailToName(email)` from
-`@agent-native/toolkit/collab-ui` to generate consistent cursor colors and display
-names from email addresses.
-
-A `PresenceBar` rendered with `activeUsers` shows live human and agent
-collaborators. Per-slide presence (which users are viewing a given slide)
-layers on top of the same awareness state.
-
-## Related docs {#related}
+## What's next {#whats-next}
 
 - [Real-Time Sync](/docs/client#usedbsync) — the `useDbSync` + `useChangeVersion`
   system that delivers the `updatedAt` bump driving editor reconciliation.
