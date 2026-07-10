@@ -4325,6 +4325,15 @@ function DesignEditor() {
   // exact same set of elements as the previous tick can bail before doing any
   // projection/canonicalization work.
   const lastMarqueeSelectionSignatureRef = useRef<string | null>(null);
+  // Whether anything is currently selected, tracked centrally so the empty
+  // marquee/click clear path can decide whether a deselect is actually needed
+  // regardless of HOW the current selection was made (iframe click, layers
+  // panel, agent, undo/redo, keyboard, etc.). Kept in sync via the effect below.
+  const hasActiveSelectionRef = useRef(false);
+  useEffect(() => {
+    hasActiveSelectionRef.current =
+      selectedElement !== null || selectedLayerIdsState.length > 0;
+  }, [selectedElement, selectedLayerIdsState]);
   // Tracks the nodeId of the most recently created TEXT primitive across one
   // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
   // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
@@ -9441,6 +9450,39 @@ function DesignEditor() {
       });
     },
     [setPresence],
+  );
+
+  // Clicking the empty grey canvas background (the area around the framed
+  // preview) deselects the current element in single-screen mode. Overview
+  // mode has its own marquee-based empty-click deselect in MultiScreenCanvas,
+  // so we only act here when NOT in overview.
+  const handleCanvasBackgroundClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      // Overview mode has its own marquee-based empty-click deselect in
+      // MultiScreenCanvas; only handle single-screen here.
+      if (viewModeRef.current === "overview") return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".design-canvas-iframe-wrapper")) return;
+      if (
+        target?.closest(
+          "button, a, input, textarea, select, [role='menu'], [role='menuitem'], [role='dialog'], [data-radix-popper-content-wrapper]",
+        )
+      ) {
+        return;
+      }
+      setSelectedElement(null);
+      setHoveredElement(null);
+      setHoveredElementScreenId(null);
+      setSelectedLayerIdsState([]);
+      // Mirror the marquee/Escape clear path: the selection highlight for an
+      // in-screen element is drawn inside the iframe by the bridge, so clearing
+      // only host state leaves that highlight visible. Bump the bridge
+      // clear-selection signal too (the single-screen canvas reads this via
+      // clearSelectionRequest={overviewClearSelectionRequest}).
+      setOverviewClearSelectionRequest((request) => request + 1);
+    },
+    [],
   );
 
   // Block canvas pointer events while any Radix popover is open over the editor.
@@ -27378,6 +27420,13 @@ function DesignEditor() {
       // projection/canonicalization work when the reported set is identical
       // to the last tick's — the common case while the marquee rect isn't
       // currently crossing an element boundary.
+      //
+      // The dedup is ONLY applied to non-empty hit-sets. An empty hit-set (a
+      // plain empty-space click, or dragging over blank canvas) is cheap to
+      // process and must never be deduped away: the last non-marquee selection
+      // (iframe click, layers panel, agent, undo/redo, keyboard) does not
+      // update this signature, so an empty "#0" tick could otherwise match a
+      // stale "#0" and skip the deselect entirely.
       const signature =
         selection
           .map(
@@ -27385,7 +27434,9 @@ function DesignEditor() {
               `${item.screenId}:${item.info.sourceId ?? item.info.selector ?? ""}`,
           )
           .join("|") + `#${intent.additive ? "1" : "0"}`;
-      if (lastMarqueeSelectionSignatureRef.current === signature) return;
+      if (selection.length > 0) {
+        if (lastMarqueeSelectionSignatureRef.current === signature) return;
+      }
       lastMarqueeSelectionSignatureRef.current = signature;
 
       pendingOverviewScreenSelectionRef.current = null;
@@ -27441,6 +27492,7 @@ function DesignEditor() {
         setSelectedElement(primary.elementInfo);
         focusDesignInspectorForSelection();
       } else if (
+        hasActiveSelectionRef.current &&
         shouldClearBridgeSelectionOnEmptyMarquee({
           resolvedCount: resolved.length,
           additive: intent.additive,
@@ -27452,6 +27504,11 @@ function DesignEditor() {
         // own selection-overlay highlight (set via the bridge for an
         // in-screen element) never gets the clear signal and keeps
         // rendering, mirroring the same clear used by Escape (~20428).
+        //
+        // Gated on hasActiveSelectionRef so that empty ticks during a
+        // blank-canvas marquee drag (which now always reach here, since empty
+        // sets are no longer deduped) don't bump the clear counter on every
+        // mousemove when there is nothing selected to clear.
         setSelectedElement(null);
         setOverviewClearSelectionRequest((request) => request + 1);
       }
@@ -29986,6 +30043,7 @@ function DesignEditor() {
                   ref={canvasContainerRef}
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   onPointerMove={handleCanvasPointerMove}
+                  onClick={handleCanvasBackgroundClick}
                 >
                   {/* Transparent shield that blocks pointer events reaching the
                     iframe when a portaled Radix popover (e.g. color picker) is
@@ -30409,6 +30467,14 @@ function DesignEditor() {
                           setHoveredElement(null);
                           setHoveredElementScreenId(null);
                           setSelectedLayerIdsState([]);
+                          // Also signal the iframe bridge so an in-screen
+                          // element's selection highlight (drawn inside the
+                          // iframe) is cleared, not just host state. Harmless
+                          // echo when this fires from the iframe's own
+                          // clear-selection message.
+                          setOverviewClearSelectionRequest(
+                            (request) => request + 1,
+                          );
                         }}
                         onIframeHotkey={handleIframeHotkey}
                         onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
