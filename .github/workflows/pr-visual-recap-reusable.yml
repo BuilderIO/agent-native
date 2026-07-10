@@ -585,12 +585,13 @@ jobs:
           AGENT_ENGINE: ai-sdk:openai
           AGENT_MODEL: ${{ inputs.model }}
           AGENT_NATIVE_CODE_USAGE_FILE: openai-compatible-usage.json
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
         run: |
           set -uo pipefail
           rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
-            $RECAP_CLI code exec --full-auto "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            $RECAP_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt

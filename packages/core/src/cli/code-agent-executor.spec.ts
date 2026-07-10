@@ -48,6 +48,7 @@ afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
   delete process.env.AGENT_NATIVE_CODE_USAGE_FILE;
+  delete process.env.AGENT_NATIVE_CODE_TOOL_PROFILE;
   process.env.PATH = originalPath;
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
@@ -363,6 +364,59 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("limits recap-source runs to repository reads and one output writer", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Author recap source",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "auto-edit",
+    });
+    let toolNames: string[] = [];
+    const engine = createToolCaptureEngine((names) => {
+      toolNames = names;
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write recap-source.json",
+      engine,
+    });
+
+    expect(toolNames).toEqual(["read", "write", "tool-search"]);
+  });
+
+  it("blocks recap-source runs from writing any other file", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    fs.mkdirSync(cwd, { recursive: true });
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Try another output",
+      status: "queued",
+      cwd,
+      permissionMode: "auto-edit",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write another file",
+      engine: createWriteAttemptEngine("stolen.txt"),
+    });
+
+    expect(fs.existsSync(path.join(cwd, "stolen.txt"))).toBe(false);
+    expect(
+      listCodeAgentTranscriptEvents(run.id).some((event) =>
+        String(event.metadata?.result ?? "").includes(
+          "only recap-source.json may be written",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("runs pending follow-ups after the current execution completes", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE = "Turn done.";
@@ -529,6 +583,46 @@ function createToolCaptureEngine(
       yield {
         type: "assistant-content",
         parts: [{ type: "text", text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createWriteAttemptEngine(filePath: string): AgentEngine {
+  let turn = 0;
+  return {
+    name: "write-attempt",
+    label: "Write Attempt",
+    defaultModel: "write-attempt",
+    supportedModels: ["write-attempt"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      turn += 1;
+      if (turn === 1) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "write-other-file",
+              name: "write",
+              input: { path: filePath, content: "secret" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
       };
       yield { type: "stop", reason: "end_turn" };
     },

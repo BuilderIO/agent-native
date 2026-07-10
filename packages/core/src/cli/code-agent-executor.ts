@@ -100,6 +100,10 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
+const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
+const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
+
+type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
 /**
  * Number of most-recent transcript events reconstructed as native
@@ -236,6 +240,9 @@ export async function executeCodeAgentRun(
     options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
+  const toolProfile = resolveCodeAgentToolProfile(
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE,
+  );
 
   // Holds structured metadata emitted by the coding tools side-channel.
   // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
@@ -253,8 +260,11 @@ export async function executeCodeAgentRun(
       // Stream incremental bash output to stdout for the terminal smoother
       options.stdout?.write(chunk);
     },
+    toolProfile,
   );
-  const mcpManager = await startCodeAgentMcpManager(existing.id);
+  const mcpManager = toolProfile
+    ? null
+    : await startCodeAgentMcpManager(existing.id);
   if (mcpManager) {
     Object.assign(actions, mcpToolsToActionEntries(mcpManager));
   }
@@ -1650,6 +1660,7 @@ function createLocalCodeAgentActions(
     meta: StructuredToolMetadata,
   ) => void,
   onBashOutputChunk?: (chunk: string) => void,
+  toolProfile?: CodeAgentToolProfile,
 ): Record<string, ActionEntry> {
   const actions = createCodingToolRegistry({
     cwd,
@@ -1688,6 +1699,24 @@ function createLocalCodeAgentActions(
       return null;
     },
   });
+  if (toolProfile === RECAP_SOURCE_TOOL_PROFILE) {
+    const allowedOutput = path.resolve(cwd, RECAP_SOURCE_OUTPUT_FILE);
+    const writeAction = actions.write;
+    return {
+      read: actions.read,
+      write: {
+        ...writeAction,
+        run: async (args, context) => {
+          const requestedPath =
+            args && typeof args.path === "string" ? args.path : "";
+          if (path.resolve(cwd, requestedPath) !== allowedOutput) {
+            return `Error: only ${RECAP_SOURCE_OUTPUT_FILE} may be written in the recap-source tool profile.`;
+          }
+          return writeAction.run(args, context);
+        },
+      },
+    };
+  }
   if (permissionMode === "read-only") {
     return {
       bash: actions.bash,
@@ -1695,6 +1724,15 @@ function createLocalCodeAgentActions(
     };
   }
   return actions;
+}
+
+function resolveCodeAgentToolProfile(
+  value: string | undefined,
+): CodeAgentToolProfile | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (normalized === RECAP_SOURCE_TOOL_PROFILE) return normalized;
+  throw new Error(`Unsupported Agent-Native Code tool profile: ${normalized}`);
 }
 
 export type CodeAgentCommandPermission =

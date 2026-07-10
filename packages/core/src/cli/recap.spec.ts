@@ -2489,6 +2489,25 @@ describe("bundled PR visual recap workflow", () => {
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_API_KEY");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("OPENAI_BASE_URL");
+    for (const workflow of [
+      PR_VISUAL_RECAP_WORKFLOW_YML,
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-fork.yml"),
+        "utf8",
+      ),
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+        "utf8",
+      ),
+    ]) {
+      expect(workflow).toContain(
+        "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
+      );
+      expect(workflow).toContain(
+        "$RECAP_CLI code exec --permission-mode auto-edit",
+      );
+      expect(workflow).not.toContain("$RECAP_CLI code exec --full-auto");
+    }
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
       "mcp__agent-native-plans__",
