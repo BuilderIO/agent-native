@@ -12,6 +12,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
+import type { BrowserControlLoopbackBridge } from "../browser-control/bridge";
+import type { BrowserTaskRegistration } from "../browser-control/protocol";
 import type { ComputerControlBroker } from "./broker";
 import { normalizeOrigin } from "./policy";
 import type { EphemeralScreenObserver } from "./screen-observer";
@@ -37,6 +39,8 @@ interface RunContext {
   permissionMode: DesktopComputerPermissionMode;
   latestSnapshot?: SemanticSnapshot;
   leaseToken?: string;
+  browserRegistration?: BrowserTaskRegistration;
+  browserObservationId?: string;
 }
 
 export interface DesktopComputerMcpRegistration {
@@ -48,6 +52,8 @@ export interface DesktopComputerMcpBridgeOptions {
   broker: ComputerControlBroker;
   permissionStatus: () => ComputerPermissionStatus;
   screenObserver?: EphemeralScreenObserver;
+  browserBridge?: BrowserControlLoopbackBridge;
+  browserNativeHostInstalled?: () => boolean;
   token?: () => string;
   leaseTtlMs?: number;
 }
@@ -95,24 +101,34 @@ export class DesktopComputerMcpBridge {
   ): DesktopComputerMcpRegistration {
     if (!this.url) throw new Error("Desktop computer MCP bridge is not ready.");
     if (!runId.trim()) throw new Error("A run id is required.");
-    this.removeCredentials(runId);
+    for (const previous of this.removeCredentials(runId)) {
+      this.stopBrowserContext(previous);
+    }
     const bearerToken = this.token();
     const tokenHash = hashToken(bearerToken);
-    this.contextsByTokenHash.set(tokenHash, { runId, permissionMode });
+    this.contextsByTokenHash.set(tokenHash, {
+      runId,
+      permissionMode,
+      browserRegistration: this.options.browserBridge?.registerTask(runId),
+    });
     this.tokenHashesByRun.set(runId, new Set([tokenHash]));
     return { url: this.url, bearerToken };
   }
 
   async revokeRun(runId: string): Promise<void> {
-    this.removeCredentials(runId);
+    const contexts = this.removeCredentials(runId);
     this.options.screenObserver?.clear(runId);
-    await this.options.broker.kill(runId);
+    await Promise.allSettled([
+      this.options.broker.kill(runId),
+      ...contexts.map((context) => this.stopBrowserContext(context)),
+    ]);
   }
 
   async close(): Promise<void> {
     this.contextsByTokenHash.clear();
     this.tokenHashesByRun.clear();
     this.options.screenObserver?.clear();
+    await this.options.browserBridge?.close();
     await this.options.broker.kill();
     this.options.broker.close();
     const server = this.httpServer;
@@ -123,11 +139,28 @@ export class DesktopComputerMcpBridge {
     }
   }
 
-  private removeCredentials(runId: string): void {
+  private removeCredentials(runId: string): RunContext[] {
+    const contexts: RunContext[] = [];
     for (const tokenHash of this.tokenHashesByRun.get(runId) ?? []) {
+      const context = this.contextsByTokenHash.get(tokenHash);
+      if (context) contexts.push(context);
       this.contextsByTokenHash.delete(tokenHash);
     }
     this.tokenHashesByRun.delete(runId);
+    return contexts;
+  }
+
+  private async stopBrowserContext(context: RunContext): Promise<void> {
+    const bridge = this.options.browserBridge;
+    const registration = context.browserRegistration;
+    context.browserRegistration = undefined;
+    context.browserObservationId = undefined;
+    if (!bridge || !registration) return;
+    try {
+      await bridge.stopTask(registration);
+    } finally {
+      bridge.revokeTask(context.runId);
+    }
   }
 
   private async handleHttpRequest(

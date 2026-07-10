@@ -27,6 +27,7 @@ import {
 } from "./remote-json-safety.js";
 import type {
   ComputerCommandEnvelope,
+  ComputerOperationClass,
   RemoteCommand,
   RemoteCommandKind,
   RemoteCommandStatus,
@@ -421,17 +422,22 @@ export async function claimNextComputerCommand(input: {
   deviceId: string;
   ownerEmail: string;
   orgId?: string | null;
+  operationClasses?: ComputerOperationClass[];
   now?: number;
 }): Promise<RemoteCommand | null> {
   await ensureTable();
+  if (input.operationClasses?.length === 0) return null;
   const client = getDbExec();
   const now = input.now ?? Date.now();
+  const operationClassClause = input.operationClasses?.length
+    ? ` AND operation_class IN (${input.operationClasses.map(() => "?").join(", ")})`
+    : "";
   const { rows } = await client.execute({
     sql: `SELECT * FROM integration_remote_commands
           WHERE device_id = ? AND owner_email = ?
             AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
             AND kind = 'computer-operation' AND status = 'pending'
-            AND next_check_at <= ?
+            AND next_check_at <= ?${operationClassClause}
           ORDER BY computer_sequence ASC, created_at ASC
           LIMIT 1`,
     args: [
@@ -440,6 +446,7 @@ export async function claimNextComputerCommand(input: {
       input.orgId ?? null,
       input.orgId ?? null,
       now,
+      ...(input.operationClasses ?? []),
     ],
   });
   if (!rows[0]) return null;

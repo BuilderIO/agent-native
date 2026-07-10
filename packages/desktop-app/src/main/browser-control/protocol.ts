@@ -1,4 +1,4 @@
-export type BrowserTarget = { backendNodeId: number };
+export type BrowserTarget = { observationId: string; backendNodeId: number };
 
 export type BrowserCommand =
   | { type: "attach"; tabId: number; allowedOrigins: string[] }

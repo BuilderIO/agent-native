@@ -76,15 +76,24 @@ import {
   markTaskRetryable,
 } from "./pending-tasks-store.js";
 import {
+  claimNextComputerCommand,
   claimNextRemoteCommand,
+  enqueueComputerCommand,
   enqueueRemoteCommand as enqueueRemoteCommandRow,
   isRemoteCommandKind,
   listRemoteCommandsForOwner,
   updateRemoteCommandResult,
 } from "./remote-commands-store.js";
 import {
+  createComputerApprovalRequest,
+  decideComputerApproval,
+  listComputerApprovalsForOwner,
+} from "./computer-supervision-store.js";
+import { ComputerSupervisionError } from "./computer-supervision.js";
+import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
+  getRemoteComputerCapabilities,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -106,6 +115,8 @@ import {
   listRemoteRunEvents,
 } from "./remote-run-events-store.js";
 import type {
+  ComputerCommandEnvelope,
+  ComputerOperationClass,
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,

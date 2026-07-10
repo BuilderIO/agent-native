@@ -216,6 +216,52 @@ export async function getComputerApprovalForOwner(input: {
   return rows[0] ? rowToApproval(rows[0] as Record<string, unknown>) : null;
 }
 
+export async function listComputerApprovalsForOwner(input: {
+  ownerEmail: string;
+  orgId?: string | null;
+  deviceId?: string;
+  taskId?: string;
+  runId?: string;
+  status?: ComputerApprovalStatus;
+  limit?: number;
+}): Promise<ComputerApprovalRecord[]> {
+  await ensureComputerApprovalStore();
+  const clauses = [
+    "owner_email = ?",
+    "((org_id IS NULL AND ? IS NULL) OR org_id = ?)",
+  ];
+  const args: Array<string | number | null> = [
+    input.ownerEmail,
+    input.orgId ?? null,
+    input.orgId ?? null,
+  ];
+  if (input.deviceId) {
+    clauses.push("device_id = ?");
+    args.push(input.deviceId);
+  }
+  if (input.taskId) {
+    clauses.push("task_id = ?");
+    args.push(input.taskId);
+  }
+  if (input.runId) {
+    clauses.push("run_id = ?");
+    args.push(input.runId);
+  }
+  if (input.status) {
+    clauses.push("status = ?");
+    args.push(input.status);
+  }
+  args.push(Math.max(1, Math.min(input.limit ?? 100, 250)));
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM integration_computer_approvals
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+    args,
+  });
+  return rows.map((row) => rowToApproval(row as Record<string, unknown>));
+}
+
 /**
  * Authorizes an operation immediately before it is enqueued. Callers should
  * pass their transaction handle so one-shot approval consumption and command

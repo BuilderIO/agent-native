@@ -38,7 +38,7 @@ links.
 Make every shareable table ownable, register it at server startup, and guard
 reads and writes with the same access helpers the UI and agent actions use.
 
-```ts
+```ts filename="server/db/schema.ts"
 import { ownableColumns, createSharesTable } from "@agent-native/core/sharing";
 import { registerShareableResource } from "@agent-native/core/sharing";
 

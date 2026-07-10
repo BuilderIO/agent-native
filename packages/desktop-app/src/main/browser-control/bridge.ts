@@ -55,6 +55,7 @@ export class BrowserControlLoopbackBridge {
   private baseUrl?: string;
   private waitingPoll?: ServerResponse;
   private waitingPollTimer?: ReturnType<typeof setTimeout>;
+  private lastHeartbeatAt?: number;
 
   constructor(options: BrowserControlLoopbackBridgeOptions = {}) {
     this.token = options.token ?? (() => randomBytes(32).toString("base64url"));
@@ -95,6 +96,23 @@ export class BrowserControlLoopbackBridge {
     const taskToken = this.token();
     this.taskTokenHashes.set(normalizedTaskId, hashToken(taskToken));
     return { taskId: normalizedTaskId, taskToken };
+  }
+
+  status(): {
+    nativeHostConnected: boolean;
+    lastHeartbeatAt?: string;
+    registeredTasks: number;
+  } {
+    const connected =
+      this.lastHeartbeatAt !== undefined &&
+      Date.now() - this.lastHeartbeatAt < 60_000;
+    return {
+      nativeHostConnected: connected,
+      lastHeartbeatAt: this.lastHeartbeatAt
+        ? new Date(this.lastHeartbeatAt).toISOString()
+        : undefined,
+      registeredTasks: this.taskTokenHashes.size,
+    };
   }
 
   execute(
@@ -234,6 +252,7 @@ export class BrowserControlLoopbackBridge {
     try {
       const body = await readJson(request, MAX_MESSAGE_BYTES);
       if (isHeartbeat(body)) {
+        this.lastHeartbeatAt = Date.now();
         response.writeHead(204).end();
         return;
       }

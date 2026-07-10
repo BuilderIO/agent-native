@@ -370,16 +370,8 @@ function createSessionHandler(
         };
 
         const form = new FormData();
-        form.append(
-          "sdp",
-          new Blob([sdp], { type: "application/sdp" }),
-          "offer.sdp",
-        );
-        form.append(
-          "session",
-          new Blob([JSON.stringify(session)], { type: "application/json" }),
-          "session.json",
-        );
+        form.set("sdp", sdp);
+        form.set("session", JSON.stringify(session));
 
         let upstream: Response;
         try {

@@ -279,12 +279,9 @@ describe("realtime voice session route", () => {
     expect(safetyIdentifier).not.toContain("person@example.com");
 
     const form = init.body as FormData;
-    expect(await (form.get("sdp") as Blob).text()).toBe(
-      "v=0\r\ns=agent-native\r\n",
-    );
-    const realtimeSession = JSON.parse(
-      await (form.get("session") as Blob).text(),
-    );
+    expect(form.get("sdp")).toBe("v=0\r\ns=agent-native\r\n");
+    expect(typeof form.get("session")).toBe("string");
+    const realtimeSession = JSON.parse(form.get("session") as string);
     expect(realtimeSession).toMatchObject({
       type: "realtime",
       model: "gpt-realtime-2.1",
