@@ -62,6 +62,17 @@ function timeoutBoundaryRun(): ActiveRun {
   return makeRun([{ type: "auto_continue", reason: "run_timeout" }]);
 }
 
+function recoverableErrorBoundaryRun(): ActiveRun {
+  return makeRun([
+    {
+      type: "error",
+      error: "Provider connection failed",
+      errorCode: "provider_failed",
+      recoverable: true,
+    },
+  ]);
+}
+
 interface Harness {
   deps: Required<
     Pick<
@@ -131,11 +142,12 @@ async function runChain(
     chainViaDurableBackground?: boolean;
     workerProvenInBackgroundFunction?: boolean;
     requestBody?: Record<string, unknown>;
+    run?: ActiveRun;
   },
 ): Promise<void> {
   await chainServerDrivenContinuation({
     event: {},
-    run: timeoutBoundaryRun(),
+    run: opts?.run ?? timeoutBoundaryRun(),
     effectiveThreadId: "thread-1",
     effectiveTurnId: "turn-1",
     requestBody: opts?.requestBody ?? {
@@ -177,10 +189,29 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
 
     // The chunk is marked terminal ONLY after the handoff landed.
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalledWith(
-      { runId: "run-chunk0", continuationReason: "run_timeout" },
+      {
+        runId: "run-chunk0",
+        continuationReason: "run_timeout",
+        terminalEvent: { type: "auto_continue", reason: "run_timeout" },
+      },
     );
     // No failure path was taken.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+  });
+
+  it("passes a recoverable error boundary to the chunk terminal marker", async () => {
+    const h = makeHarness();
+    const run = recoverableErrorBoundaryRun();
+
+    await runChain(h, { run });
+
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalledWith(
+      {
+        runId: "run-chunk0",
+        continuationReason: expect.any(String),
+        terminalEvent: run.events.at(-1)?.event,
+      },
+    );
   });
 
   it("dispatches IDS ONLY (payloadRef marker) — never the chat body — and fully awaits the response", async () => {
