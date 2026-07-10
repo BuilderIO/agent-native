@@ -32,18 +32,19 @@ interface RuntimeEventContext {
   runId?: string;
 }
 
+type MessageContentState =
+  | { type: "text"; text: string; id?: string }
+  | {
+      type: "reasoning";
+      text: string;
+      id?: string;
+      signature?: string;
+    };
+
 interface MessageState {
   id: AgentChatRuntimeMessageId;
   role: "assistant" | "user" | "system" | "tool";
-  content: Array<
-    | { type: "text"; text: string; id?: string }
-    | {
-        type: "reasoning";
-        text: string;
-        id?: string;
-        signature?: string;
-      }
-  >;
+  content: MessageContentState[];
   started: boolean;
   done: boolean;
 }
@@ -218,12 +219,20 @@ function appendContentEvents(
       ? last
       : undefined;
   if (!part) {
-    part = {
-      type: input.type,
-      text: "",
-      ...(input.partId ? { id: input.partId } : {}),
-    };
-    message.content.push(part);
+    const nextPart: MessageContentState =
+      input.type === "reasoning"
+        ? {
+            type: "reasoning",
+            text: "",
+            ...(input.partId ? { id: input.partId } : {}),
+          }
+        : {
+            type: "text",
+            text: "",
+            ...(input.partId ? { id: input.partId } : {}),
+          };
+    message.content.push(nextPart);
+    part = nextPart;
   }
   part.text += input.text;
   if (part.type === "reasoning" && input.signature) {
