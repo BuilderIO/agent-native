@@ -483,6 +483,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
 
     const findEmptyCanvasPoint = async () => {
+      await expect(world).toBeVisible();
       const canvas = await surface.boundingBox();
       if (!canvas) throw new Error("missing canvas surface");
       const cards = await page
