@@ -742,6 +742,46 @@ h4 {
   background: color-mix(in srgb, var(--fg-secondary) 8%, var(--code-bg));
 }
 
+/* Filename label bar for ```lang filename="path/to/file.ts" fences */
+.code-block-filename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 44px 8px 14px;
+  border: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-border);
+  border-radius: 8px 8px 0 0;
+  background: var(--code-bg);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.code-block-filename svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.code-block-filename span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-block[data-filename="true"] pre,
+.code-block[data-filename="true"] .shiki {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.code-block[data-filename="true"] .code-copy-btn {
+  top: 6px;
+}
+
 /* Copy button injected by MarkdownRenderer into .code-block wrappers */
 .code-copy-btn {
   position: absolute;

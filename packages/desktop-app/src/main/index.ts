@@ -7436,6 +7436,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         available: fs.existsSync(cliEntry),
       },
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: true,
@@ -7463,6 +7464,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: false,
@@ -7476,6 +7478,29 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function getDesktopComputerControlMetadata(): NonNullable<
+  CodeAgentHostMetadata["computerControl"]
+> {
+  const permissions =
+    process.platform === "darwin"
+      ? getComputerPermissionStatus(systemPreferences)
+      : { accessibility: false, screenRecording: "unknown" as const };
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  return {
+    available: Boolean(desktopComputerMcpBridge),
+    desktop: permissions,
+    browser: {
+      nativeHostInstalled: Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+      extensionBundled: fs.existsSync(extensionPath),
+    },
+  };
 }
 
 function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {

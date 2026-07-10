@@ -19,8 +19,10 @@ import {
   IconCheck,
   IconClock,
   IconCode,
+  IconBrandChrome,
   IconCopy,
   IconDeviceMobile,
+  IconDeviceDesktop,
   IconDots,
   IconExternalLink,
   IconFolder,
@@ -203,6 +205,11 @@ interface CodeAgentHostMetadata {
     label?: string;
     configuredProviders?: string[];
     missingEnvVars?: string[];
+  };
+  computerControl?: {
+    available: boolean;
+    desktop: { accessibility: boolean; screenRecording: string };
+    browser: { nativeHostInstalled: boolean; extensionBundled: boolean };
   };
   error?: string;
 }
@@ -1480,6 +1487,7 @@ export default function CodeAgentsApp({
                       ? `Task ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
+                <AgentCapabilitySummary metadata={hostMetadata} />
               </div>
               <div className="code-agents-toolbar-actions">
                 {canOpenTerminal && (
@@ -1647,6 +1655,54 @@ export default function CodeAgentsApp({
         )}
       </main>
     </section>
+  );
+}
+
+function AgentCapabilitySummary({
+  metadata,
+}: {
+  metadata: CodeAgentHostMetadata | null;
+}) {
+  const control = metadata?.computerControl;
+  const desktopReady = Boolean(
+    control?.available &&
+    control.desktop.accessibility &&
+    control.desktop.screenRecording === "granted",
+  );
+  const chromeReady = Boolean(
+    control?.available &&
+    control.browser.nativeHostInstalled &&
+    control.browser.extensionBundled,
+  );
+  return (
+    <div className="code-agents-capabilities" aria-label="Agent capabilities">
+      <span className="code-agents-capability code-agents-capability--ready">
+        <IconCode size={13} strokeWidth={1.8} />
+        Code ready
+      </span>
+      <span
+        className={`code-agents-capability${chromeReady ? " code-agents-capability--ready" : ""}`}
+        title={
+          chromeReady
+            ? "Chrome control is packaged and its native host is installed."
+            : "Load the bundled Chrome extension to enable browser control."
+        }
+      >
+        <IconBrandChrome size={13} strokeWidth={1.8} />
+        {chromeReady ? "Chrome available" : "Chrome setup"}
+      </span>
+      <span
+        className={`code-agents-capability${desktopReady ? " code-agents-capability--ready" : ""}`}
+        title={
+          desktopReady
+            ? "Desktop Accessibility and Screen Recording permissions are ready."
+            : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
+        }
+      >
+        <IconDeviceDesktop size={13} strokeWidth={1.8} />
+        {desktopReady ? "Desktop ready" : "Desktop setup"}
+      </span>
+    </div>
   );
 }
 
