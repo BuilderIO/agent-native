@@ -6531,13 +6531,14 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
     const updateRunStatusIfRunning = vi.fn(async () => true);
+    const setRunError = vi.fn(async () => {});
     const setRunTerminalReason = vi.fn(async () => {});
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
       }),
     ).resolves.toBe(true);
 
@@ -6546,17 +6547,54 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       "completed",
     );
     expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
+    expect(setRunError).not.toHaveBeenCalled();
+  });
+
+  it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
+    const updateRunStatusIfRunning = vi.fn(async () => true);
+    const setRunError = vi.fn(async () => {});
+    const setRunTerminalReason = vi.fn(async () => {});
+
+    await expect(
+      markBackgroundContinuationChunkTerminal({
+        runId: "run-error-boundary",
+        continuationReason: "run_timeout",
+        terminalEvent: {
+          type: "error",
+          error: "Provider connection failed",
+          errorCode: "provider_failed",
+          details: "upstream returned 500",
+          recoverable: true,
+        },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+      }),
+    ).resolves.toBe(true);
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "errored",
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "error:provider_failed",
+    );
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "provider_failed",
+      "upstream returned 500",
+    );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
     const updateRunStatusIfRunning = vi.fn(async () => false);
+    const setRunError = vi.fn(async () => {});
     const setRunTerminalReason = vi.fn(async () => {});
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
       }),
     ).resolves.toBe(false);
 
@@ -6565,6 +6603,7 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       "completed",
     );
     expect(setRunTerminalReason).not.toHaveBeenCalled();
+    expect(setRunError).not.toHaveBeenCalled();
   });
 });
 
