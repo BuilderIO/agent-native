@@ -126,6 +126,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -133,14 +135,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -348,5 +351,5 @@ The framework also tracks `builder connect clicked` from Connect Builder CTAs, a
 ## What's next
 
 - [**Actions**](/docs/actions) — where most tracking calls originate
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
-- [**Secrets**](/docs/security) — manage API keys for tracking providers
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
+- [**Security — Secrets Management**](/docs/security#secrets) — manage API keys for tracking providers

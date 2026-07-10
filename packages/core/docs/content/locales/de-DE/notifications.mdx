@@ -113,6 +113,7 @@ Der Schweregrad steuert den Badge-Stil im Dropdown-Menü und wird an die Kanäle
 | `inbox`   | Bleibt in der `notifications`-Tabelle; treibt die Glocke an UI | Immer an – Teil des Grundelements.                                   |
 | `webhook` | POST JSON zu einem konfigurierten URL                          | `NOTIFICATIONS_WEBHOOK_URL` Umgebungsvariable beim Start festgelegt. |
 
+E-Mail, Slack und Webhook werden neben dem Posteingang immer registriert. Bei der Zustellung werden zuerst die URL bzw. Empfänger aus den Metadaten der Benachrichtigung verwendet und dann die passende Umgebungsvariable. Ist beides nicht festgelegt, führt der Kanal bei der Ausgabe nichts aus.
 Der Webhook-Kanal löst `${keys.NAME}`-Referenzen sowohl im URL als auch im `NOTIFICATIONS_WEBHOOK_AUTH` anhand des Ad-hoc-[secrets](/docs/security) des Eigentümers auf, sodass der Rohwert niemals in den Kontext des Agenten gelangt. Es werden URL-Zulassungslisten pro Schlüssel erzwungen – dieselbe Regel, die das Automatisierungstool `web-request` verwendet.
 
 <Diagram id="doc-block-za29cd" title={"Kanäle und Schweregrad"} summary={"Der Posteingang ist immer aktiviert. Webhook benötigt eine Umgebungsvariable; Benutzerdefinierte Kanäle werden beim Start registriert. Der Schweregrad bestimmt die Gestaltung des Abzeichens und wird an alle Kanäle weitergegeben."}>
@@ -203,7 +204,7 @@ await notify(
 
 Registrieren Sie einen benutzerdefinierten Kanal von einem beliebigen Server-Plugin.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet. Alle Routen beziehen sich auf die E-Mail-Adresse der authentifizierten Sitzung.
 
-| Methode  | Pfad                                                |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| Methode  | Pfad                                                           |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-fro2p7" title="Benachrichtigungen auflisten" summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"Letzte Benachrichtigungen für den aktuellen Benutzer auflisten"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-fro2p7" title="Benachrichtigungen auflisten" method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"Letzte Benachrichtigungen für den aktuellen Benutzer auflisten"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "ISO-Zeitstempel-Cursor – gibt für die Seitennavigation Benachrichtigungen zurück, die vor diesem Zeitpunkt erstellt wurden."
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ Wird durch das Core-Routes-Plugin bei `/_agent-native/notifications/*` gemountet
 
 ## UI-Komponente {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

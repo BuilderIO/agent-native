@@ -139,8 +139,7 @@ pnpm install
 
 ثم حدد العملية الدائمة:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -494,12 +493,11 @@ export function AppShell({ children }) {
 نتائج الأدوات عندما تحتاج الدردشة إلى UI، وإضافة شاشات كاملة فقط عند المستخدمين
 تحتاج إلى تصفح الكائنات الثابتة أو مقارنتها أو تكوينها أو التعاون عليها.
 
-## المستندات ذات الصلة {#related-docs}
+## الخطوات التالية {#related-docs}
 
-- [Actions](/docs/actions) — حدد عملية مقطوعة الرأس مرة واحدة.
-- [Native واجهة الدردشة](/docs/native-chat-ui) — عرض نتائج الإجراءات المكتوبة في الدردشة.
-- [Drop-in Agent](/docs/drop-in-agent) — قم بتثبيت الدردشة أو الشريط الجانبي أو أسطح اللوحات.
-- [Component API](/docs/components) — مقطوعات الدردشة/الملحن React ذات المستوى الأدنى.
-- [Embedding SDK](/docs/embedding-sdk) — أضف Agent-Native إلى تطبيق موجود.
-- [External Agents](/docs/external-agents) — توصيل الأجهزة المضيفة المتوافقة مع MCP بأحد التطبيقات.
-- [A2A Protocol](/docs/a2a-protocol) — استدعاء الوكلاء من الوكلاء الآخرين.
+- [**Actions**](/docs/actions) — عرّف العملية مرة واحدة؛ كل سطح أعلاه يستدعي العملية نفسها
+- [**Native Chat UI**](/docs/native-chat-ui) — اعرض نتائج actions كجداول ومخططات وبطاقات في الدردشة
+- [**Generative UI**](/docs/generative-ui) — أنشئ واجهة مستخدم مؤقتة أو دائمة ضمن بيئة معزولة داخل الدردشة
+- [**Automation-First Apps**](/docs/pure-agent-apps) — النمط الكامل دون متصفح للوظائف وقوائم الانتظار والبرامج النصية والوكلاء الخارجيين
+- [**External Agents**](/docs/external-agents) — صِل المضيفين المتوافقين مع MCP بتطبيق
+- [**A2A Protocol**](/docs/a2a-protocol) — استدعِ الوكلاء من تطبيقات Agent-Native أخرى

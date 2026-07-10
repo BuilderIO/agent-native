@@ -11,7 +11,7 @@ Actions are the single source of truth for anything your app does. Define an act
 - **Typesafe React hooks** — `useActionQuery("name")` and `useActionMutation("name")` on the frontend, types inferred from the schema.
 - **Imperative client calls** — `callAction("name", params)` when a hook does not fit.
 - **Framework transport** — auto-mounted by the framework behind those hooks and available to external HTTP clients.
-- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
+- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP host.
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
@@ -540,7 +540,7 @@ export default defineAction({
 });
 ```
 
-Keep `link` as the fallback for CLI and non-UI MCP clients; it is also the embed's launch target. The embed bridge — the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping — is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
+Keep `link` as the fallback for CLI and non-UI MCP hosts; it is also the embed's launch target. The embed bridge — the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping — is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Standard actions {#standard-actions}
 

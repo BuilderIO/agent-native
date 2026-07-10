@@ -96,8 +96,7 @@ server/routes/
 
 Chaque itinéraire exporte un `defineEventHandler` :
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -137,8 +136,7 @@ Utilisez l'option `http` de l'action pour façonner l'accès HTTP direct : les a
 
 Pour un endpoint de statut en lecture seule, gardez-le comme une action :
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -171,8 +169,7 @@ que s'est-il passé. Pour les transformations étroites côté serveur qui n'ont
 outils, historique des discussions ou état d'exécution, utilisez `completeText()` comme échappement explicite
 trappe.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -239,8 +236,7 @@ Actions monté par le framework s'exécute automatiquement avec le contexte de l
 
 Les plugins résident dans `server/plugins/` et s'exécutent au démarrage. Utilisez-les pour les migrations, la configuration du fournisseur, les tâches récurrentes, les adaptateurs d'intégration et la configuration du plugin framework.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -418,8 +414,11 @@ Le webhooks entrant doit être vérifié, conservé et renvoyé rapidement. Le t
 
 </Diagram>
 
-> [!WARNING]
-> Ne vous fiez pas à des promesses non attendues après avoir renvoyé une réponse : les hôtes sans serveur gèlent l'exécution. Voir [Messaging](/docs/messaging) pour la file d'attente d'intégration canonique.
+<Callout tone="warning">
+  Ne vous fiez pas à des promesses non attendues après avoir renvoyé une
+  réponse : les hôtes sans serveur gèlent l'exécution. Voir
+  [Messaging](/docs/messaging) pour la file d'attente d'intégration canonique.
+</Callout>
 
 ## Avancé : trappes d'évacuation {#advanced-escape-hatches}
 
@@ -461,3 +460,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## Et ensuite
+
+- [**Actions**](/docs/actions) — la surface d'opération par défaut ; n'utilisez une route personnalisée que si elle ne convient pas
+- [**Base de données**](/docs/database) — le modèle `getDb()`/`schema` importé par les routes personnalisées et les actions
+- [**Sécurité**](/docs/security#access-guards) — `accessFilter`/`assertAccess` et le modèle complet de portée des données
+- [**Messagerie**](/docs/messaging) — le modèle canonique de file d'attente d'intégration pour les webhooks entrants
+- [**Protocole MCP**](/docs/mcp-protocol) — le point de terminaison `/_agent-native/mcp` que ce serveur monte automatiquement

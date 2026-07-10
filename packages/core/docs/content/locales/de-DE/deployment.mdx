@@ -452,3 +452,11 @@ Weitere Informationen zum eingebetteten Agent-Panel im Vergleich zu Cloud-Frame-
 ## Mehrinstanzbereitstellungen {#multi-instance}
 
 Agent-native Apps speichern den gesamten Status in SQL über Drizzle und synchronisieren den UI über [polling](/docs/key-concepts#polling-sync) mit der Datenbank – kein Dateisystemstatus, keine Sticky Sessions, keine In-Memory-Caches. Das bedeutet, dass Bereitstellungen mit mehreren Instanzen und serverlosen Bereitstellungen sofort funktionieren: Richten Sie jede Instanz auf denselben `DATABASE_URL` und sie konvergieren automatisch. Siehe [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) und [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Wie geht es weiter?
+
+- [**Database**](/docs/database#production) — Wählen Sie vor der ersten Produktionsbereitstellung ein persistentes SQL-Backend
+- [**Security**](/docs/security) — Die Produktionscheckliste und die auf dieser Seite erwähnten Opt-in-Flags
+- [**Authentication**](/docs/authentication) — OAuth-Anmeldedaten und Umgebungsvariablen für den gewählten Authentifizierungsmodus
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — Das Workspace-Modell hinter dem Single-Origin-Build von `deploy`
+- [**Frames**](/docs/frames) — Das eingebettete Agent-Panel gegenüber dem Cloud-Frame von Builder.io für UI-Änderungen in der Produktion

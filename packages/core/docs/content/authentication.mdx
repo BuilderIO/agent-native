@@ -15,7 +15,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-<Diagram id="doc-block-f8rmmq" title="Three ways in, one session" summary="Browser visitors, programmatic MCP clients, and custom providers all resolve to the same AuthSession that downstream scoping reads.">
+<Diagram id="doc-block-f8rmmq" title="Three ways in, one session" summary="Browser visitors, MCP hosts, and custom providers all resolve to the same AuthSession that downstream scoping reads.">
 
 ```html
 <div class="auth-modes">
