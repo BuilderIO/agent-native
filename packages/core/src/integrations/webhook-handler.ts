@@ -45,6 +45,10 @@ import {
 } from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import {
+  clearIntegrationAwaitingInput,
+  setIntegrationAwaitingInput,
+} from "./awaiting-input-store.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
 import { signInternalToken } from "./internal-token.js";
 import {
@@ -850,12 +854,23 @@ async function processIncomingMessage(
         );
       },
       async (completedRun: ActiveRun) => {
+        let keepSlackInputWindow = false;
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          const slackInputRequest =
+            incoming.platform === "slack"
+              ? extractSlackInputRequest(completedRun)
+              : null;
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
           );
+          // `ask-question` is a native web-chat interaction. When an
+          // integration run invokes it successfully, project the same
+          // validated question into Slack text and open a tightly-bound reply
+          // window for the originating user instead of leaving a web-only
+          // card with no way to answer in the channel.
+          if (slackInputRequest) responseText = slackInputRequest.text;
           if (!queuedA2AContinuation && !responseText.trim()) {
             const recoverableA2AArtifactText =
               extractRecoverableA2AArtifactToolResult(completedRun);
@@ -930,18 +945,30 @@ async function processIncomingMessage(
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
+            let delivered = false;
             if (progress) {
               try {
                 await progress.complete(outgoing);
+                delivered = true;
               } catch {
                 await adapter.sendResponse(outgoing, incoming, {
                   placeholderRef: opts.placeholderRef,
                 });
+                delivered = true;
               }
             } else {
               await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
+              delivered = true;
+            }
+            if (slackInputRequest && delivered && incoming.senderId) {
+              await setIntegrationAwaitingInput({
+                platform: "slack",
+                externalThreadId: incoming.externalThreadId,
+                requesterId: incoming.senderId,
+              });
+              keepSlackInputWindow = true;
             }
           } else if (progress) {
             // The downstream agent owns the eventual reply, but this parent
@@ -1003,6 +1030,15 @@ async function processIncomingMessage(
             if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
           } catch {}
         } finally {
+          // Any terminal path (including a failed run or an unrelated new
+          // mention) invalidates an older clarification window. The only
+          // exception is the just-delivered, verified `ask-question` flow.
+          if (incoming.platform === "slack" && !keepSlackInputWindow) {
+            await clearIntegrationAwaitingInput(
+              "slack",
+              incoming.externalThreadId,
+            ).catch(() => {});
+          }
           if (!budgetsSettled) {
             await releaseApplicableIntegrationBudgets(
               budgetReservations.reservations,
@@ -1260,6 +1296,85 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function extractSlackInputRequest(
+  completedRun: ActiveRun,
+): { text: string } | null {
+  const events = completedRun.events.map((runEvent) => runEvent.event);
+  const didRequestInput = events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.tool === "ask-question" &&
+      String(event.result ?? "").startsWith(
+        "Asked the user a clarifying question and rendered it in the chat.",
+      ),
+  );
+  if (!didRequestInput) return null;
+
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+      continue;
+    }
+    const input = event.input as Record<string, unknown> | undefined;
+    const question =
+      typeof input?.question === "string" ? input.question.trim() : "";
+    if (!question) return null;
+
+    let rawOptions: unknown;
+    try {
+      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(rawOptions) || rawOptions.length === 0) return null;
+    const options = rawOptions
+      .slice(0, 4)
+      .map((option) => {
+        const value = option as Record<string, unknown> | null;
+        const label =
+          typeof value?.label === "string"
+            ? value.label.trim()
+            : typeof value?.value === "string"
+              ? value.value.trim()
+              : "";
+        if (!label) return null;
+        const description =
+          typeof value?.description === "string"
+            ? value.description.trim()
+            : "";
+        return {
+          label: label.slice(0, 200),
+          description: description.slice(0, 400),
+        };
+      })
+      .filter(
+        (option): option is { label: string; description: string } =>
+          option !== null,
+      );
+    if (!options.length) return null;
+
+    const header =
+      typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
+    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    return {
+      text: [
+        header ? `*${header}*` : null,
+        question.slice(0, 1_500),
+        "",
+        ...options.map(
+          (option, optionIndex) =>
+            `${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`,
+        ),
+        "",
+        `Reply in this thread with your choice${allowFreeText ? " or a short answer" : ""}.`,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n"),
+    };
+  }
+  return null;
 }
 
 function extractRecoverableA2AArtifactToolResult(

@@ -22,6 +22,8 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -84,6 +86,11 @@ vi.mock("./usage-budget-store.js", () => ({
   reserveIntegrationUsageBudget: reserveIntegrationUsageBudgetMock,
   releaseIntegrationUsageBudget: releaseIntegrationUsageBudgetMock,
   settleIntegrationUsageBudget: settleIntegrationUsageBudgetMock,
+}));
+
+vi.mock("./awaiting-input-store.js", () => ({
+  setIntegrationAwaitingInput: setIntegrationAwaitingInputMock,
+  clearIntegrationAwaitingInput: clearIntegrationAwaitingInputMock,
 }));
 
 vi.mock("../usage/store.js", () => ({
@@ -203,6 +210,8 @@ describe("integration webhook handler engine resolution", () => {
     settleIntegrationUsageBudgetMock.mockResolvedValue({
       status: "settled",
     });
+    setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
+    clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
@@ -231,19 +240,66 @@ describe("integration webhook handler engine resolution", () => {
   // too tight for the full processIntegrationTask pipeline. Bumping these two
   // mock-heavy run-loop tests to 15s avoids flake without masking real perf
   // regressions: the test bodies still finish in well under a second locally.
-  it("releases reserved budgets when thread setup fails", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    listIntegrationUsageBudgetsMock.mockResolvedValue([
-      {
-        id: "budget-org",
-        subjectType: "org",
-        subjectId: "org-qa",
-      },
-    ]);
-    createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
+  it(
+    "releases reserved budgets when thread setup fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
 
-    await expect(
-      processIntegrationTask(pendingTask(), {
+      await expect(
+        processIntegrationTask(pendingTask(), {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "service",
+        }),
+      ).rejects.toThrow("thread setup failed");
+
+      expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
+      expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ budgetId: "budget-org" }),
+        expect.objectContaining({ orgId: "org-qa" }),
+      );
+      expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "settles the full actual cost above the reservation estimate",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "done" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      await processIntegrationTask(pendingTask(), {
         adapter: createAdapter(),
         systemPrompt: "system",
         actions: {},
@@ -251,56 +307,17 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: "dispatch+qa@integration.local",
         orgId: "org-qa",
         principalType: "service",
-      }),
-    ).rejects.toThrow("thread setup failed");
+      });
 
-    expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
-    expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
-      expect.objectContaining({ budgetId: "budget-org" }),
-      expect.objectContaining({ orgId: "org-qa" }),
-    );
-    expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
-  });
-
-  it("settles the full actual cost above the reservation estimate", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
-    listIntegrationUsageBudgetsMock.mockResolvedValue([
-      {
-        id: "budget-org",
-        subjectType: "org",
-        subjectId: "org-qa",
-      },
-    ]);
-    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
-      send({ type: "text", text: "done" });
-      return {
-        inputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: "test-model",
-      };
-    });
-
-    await processIntegrationTask(pendingTask(), {
-      adapter: createAdapter(),
-      systemPrompt: "system",
-      actions: {},
-      apiKey: "test-key",
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      principalType: "service",
-    });
-
-    expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        budgetId: "budget-org",
-        actualCostMicros: 2_500,
-      }),
-      expect.anything(),
-    );
-  });
+      expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetId: "budget-org",
+          actualCostMicros: 2_500,
+        }),
+        expect.anything(),
+      );
+    },
+  );
 
   it(
     "uses the shared engine resolver instead of forcing Anthropic",
@@ -831,6 +848,123 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(sendResponse).not.toHaveBeenCalled();
     expect(updateThreadDataMock).toHaveBeenCalled();
+  });
+
+  it("projects a successful Slack ask-question call into a reply window", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Create a launch design task",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "ask-question",
+        input: {
+          header: "Audience",
+          question: "Who is the launch page for?",
+          options: JSON.stringify([
+            {
+              label: "Existing customers",
+              description: "Focus on adoption and expansion",
+              recommended: true,
+            },
+            {
+              label: "New prospects",
+              description: "Focus on discovery and conversion",
+            },
+          ]),
+          allowFreeText: "true",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "ask-question",
+        result:
+          "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.",
+      });
+    });
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Who is the launch page for?"),
+      }),
+      expect.objectContaining({
+        externalThreadId: slackIncoming.externalThreadId,
+      }),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0]?.[0].text).toContain(
+      "1. Existing customers — Focus on adoption and expansion",
+    );
+    expect(setIntegrationAwaitingInputMock).toHaveBeenCalledWith({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      requesterId: "U123",
+    });
+    expect(clearIntegrationAwaitingInputMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a Slack reply window after a terminal response", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Use existing customers",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(clearIntegrationAwaitingInputMock).toHaveBeenCalledWith(
+      "slack",
+      slackIncoming.externalThreadId,
+    );
   });
 
   it("suppresses alternate A2A continuation deferral wording", async () => {

@@ -5,6 +5,7 @@ import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { getIntegrationRequestContext } from "../../server/request-context.js";
+import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
@@ -41,6 +42,8 @@ export interface SlackAdapterOptions {
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
   /** Override active-thread detection for hosted adapters/tests. */
   isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
+  /** Override one-shot clarification-window consumption for tests. */
+  consumeAwaitingInput?: (incoming: IncomingMessage) => Promise<boolean>;
 }
 
 /**
@@ -268,10 +271,24 @@ export function slackAdapter(
         };
 
         if (isThreadReply) {
+          // An ordinary thread reply is narrowly admitted when either work is
+          // still queued or the same Slack user is answering a fresh
+          // integration-originated clarification. Consuming the latter is a
+          // conditional SQL delete, so concurrent replies cannot both reopen
+          // the agent and unrelated channel messages remain ignored.
+          const answeredClarification = options.consumeAwaitingInput
+            ? await options.consumeAwaitingInput(partialIncoming)
+            : options.isThreadActive
+              ? false
+              : await consumeIntegrationAwaitingInput({
+                  platform: "slack",
+                  externalThreadId,
+                  requesterId: e.user,
+                });
           const active = options.isThreadActive
             ? await options.isThreadActive(partialIncoming)
             : await hasActivePendingTask("slack", externalThreadId);
-          if (!active) return null;
+          if (!active && !answeredClarification) return null;
         }
 
         const token = await resolveBotToken(partialIncoming);
