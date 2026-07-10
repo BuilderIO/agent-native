@@ -55,10 +55,13 @@ export function buildFigmaLinkChatPrompt(
   const context = designId ? `Current Design id: ${designId}` : undefined;
 
   if (action === "import") {
+    const destination = designId
+      ? "the current Design"
+      : "a Design (ask me which Design to use if needed)";
     return {
       message:
         link.kind === "frame"
-          ? `Import this Figma frame into the current Design and report any fidelity differences: ${link.url}`
+          ? `Import this Figma frame into ${destination} and report any fidelity differences: ${link.url}`
           : `Open this Figma file, list its top-level frames, and ask me which frame to import: ${link.url}`,
       context,
     };

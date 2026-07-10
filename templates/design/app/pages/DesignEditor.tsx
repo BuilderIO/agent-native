@@ -281,6 +281,10 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
+import {
+  FigmaLinkComposerBubble,
+  useDetectedFigmaComposerLink,
+} from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
@@ -3827,6 +3831,10 @@ function DesignEditor() {
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
   );
+  const {
+    link: detectedFigmaComposerLink,
+    onComposerTextChange: handleComposerTextChange,
+  } = useDetectedFigmaComposerLink();
 
   const isBuilderDesignEmbed = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -27669,6 +27677,15 @@ ${serializedHtml}
                     scope={designChatScope}
                     showScopeBadge={false}
                     browserTabId={browserTabId}
+                    onComposerTextChange={handleComposerTextChange}
+                    composerSlot={
+                      detectedFigmaComposerLink ? (
+                        <FigmaLinkComposerBubble
+                          link={detectedFigmaComposerLink}
+                          designId={id}
+                        />
+                      ) : null
+                    }
                   />
                 ) : (
                   <ReadOnlyEditorPanel
