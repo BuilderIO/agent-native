@@ -229,7 +229,7 @@ class RemoteCodeAgentConnector {
           "status",
           "run-events",
         ],
-        computerCapabilities: this.computerBridge?.capabilities,
+        computerCapabilities: this.computerBridge?.capabilities ?? {},
         activeRunIds: Array.from(this.remoteRunIds),
       },
     );

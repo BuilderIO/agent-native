@@ -64,6 +64,7 @@ export {
   createComputerApprovalRequest,
   decideComputerApproval,
   getComputerApprovalForOwner,
+  listComputerApprovalsForOwner,
   type ComputerApprovalRecord,
   type ComputerApprovalStatus,
 } from "./computer-supervision-store.js";

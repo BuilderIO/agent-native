@@ -1938,6 +1938,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   const invocation = resolveRemoteConnectorCliInvocation();
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
+    const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
       detached: false,
@@ -1946,6 +1947,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         ...invocation.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+        ...computerEnv,
       },
     });
     remoteConnectorProcess = child;
@@ -1959,6 +1961,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       if (text) console.error(`[remote-code-agent] ${text}`);
     });
     child.on("exit", (code, signal) => {
+      revokeRemoteConnectorComputerControl();
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       remoteConnectorLastExitAt = new Date().toISOString();
       remoteConnectorLastExitCode = code;
@@ -1968,6 +1971,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
     child.on("error", (err) => {
+      revokeRemoteConnectorComputerControl();
       remoteConnectorError = err instanceof Error ? err.message : String(err);
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       if (!appIsQuitting && remoteConnectorEnabled) {
@@ -1975,6 +1979,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
   } catch (err) {
+    revokeRemoteConnectorComputerControl();
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
   }
@@ -3312,6 +3317,31 @@ function desktopComputerChildEnv(
 
 function revokeDesktopComputerRun(runId: string): void {
   void desktopComputerMcpBridge?.revokeRun(runId).catch(() => undefined);
+}
+
+function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerConnector();
+    return {
+      AGENT_NATIVE_COMPUTER_BRIDGE_URL: registration.url,
+      AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN: registration.bearerToken,
+      AGENT_NATIVE_COMPUTER_CAPABILITIES: JSON.stringify({
+        browser: {
+          observe: true,
+          control: true,
+          provider: "chrome-extension",
+          version: "1",
+        },
+      }),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function revokeRemoteConnectorComputerControl(): void {
+  revokeDesktopComputerRun("__remote_connector__");
 }
 
 function signalCodeAgentProcess(pid: number, signal: NodeJS.Signals): boolean {
