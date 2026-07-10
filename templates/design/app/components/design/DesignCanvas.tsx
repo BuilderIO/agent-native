@@ -912,6 +912,25 @@ function contentHash(value: string): string {
   return `${value.length}:${hash >>> 0}`;
 }
 
+const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+
+/**
+ * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
+ * intentionally preserves the iframe browsing context but cannot execute
+ * newly inserted or changed scripts. Reload only when source script elements
+ * change; ordinary markup/style edits continue through the no-flash bridge.
+ */
+function runtimeDocumentNeedsReload(
+  previousContent: string,
+  nextContent: string,
+): boolean {
+  const scriptSignature = (html: string) =>
+    Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
+      "\n",
+    );
+  return scriptSignature(previousContent) !== scriptSignature(nextContent);
+}
+
 /**
  * Safely reads an embedded screen iframe's own internal document scroll
  * position, in the iframe's own unscaled content pixels — the same units
@@ -3557,12 +3576,33 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       return;
     }
+    const previousRuntimeContent =
+      lastRuntimeReplacementContentRef.current ?? renderedContent;
+    if (
+      runtimeDocumentNeedsReload(
+        previousRuntimeContent,
+        runtimeReplacementContent,
+      )
+    ) {
+      // `replaceRuntimeDocument` cannot execute scripts introduced through
+      // innerHTML. A real srcdoc rebuild is required for transitions such as a
+      // static variant becoming an Alpine app with `body[x-cloak]`; otherwise
+      // Alpine never starts and the entire editable canvas remains hidden
+      // while Interact mode (which does reload) appears to work.
+      lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
+      bridgeReadyRef.current = false;
+      pendingOneShotMessagesRef.current = [];
+      setRenderedContent(runtimeReplacementContent);
+      return;
+    }
     if (replaceRuntimeContentInPlace(runtimeReplacementContent)) {
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
     }
   }, [
     replaceRuntimeContentInPlace,
+    renderedContent,
     runtimeReplacementContent,
     runtimeReplacementKey,
   ]);
