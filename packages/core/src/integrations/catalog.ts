@@ -31,6 +31,8 @@ export type IntegrationIconKey =
   | "slack"
   | "telegram"
   | "whatsapp"
+  | "microsoft-teams"
+  | "discord"
   | "email"
   | "n8n"
   | "zapier";
@@ -55,6 +57,8 @@ export interface ChannelCapabilities {
   readonly directMessages?: boolean;
   readonly mentions?: boolean;
   readonly nativeThreads?: boolean;
+  readonly contextualReplies?: boolean;
+  readonly interactionOnly?: boolean;
   readonly webhookSetup?: "automatic" | "manual";
 }
 
@@ -94,7 +98,13 @@ export interface IntegrationCatalogEntry {
   readonly automationCapabilities?: AutomationCapabilities;
 }
 
-export type BuiltInChannelId = "slack" | "telegram" | "whatsapp" | "email";
+export type BuiltInChannelId =
+  | "slack"
+  | "microsoft-teams"
+  | "discord"
+  | "telegram"
+  | "whatsapp"
+  | "email";
 
 const BUILT_IN_CHANNEL_CATALOG = [
   {
@@ -149,6 +159,119 @@ const BUILT_IN_CHANNEL_CATALOG = [
     },
   },
   {
+    id: "microsoft-teams",
+    name: "Microsoft Teams",
+    categories: ["channel"],
+    availability: "available",
+    supportMaturity: "built-in",
+    iconKey: "microsoft-teams",
+    description:
+      "Receive Bot Framework messages from Microsoft Teams and reply in the originating conversation.",
+    caveats: [
+      "Inbound JWTs are validated with Microsoft's Bot Framework connector, including issuer, audience, service URL, and channel endorsement checks.",
+      "Production deployments must allowlist Microsoft Entra tenant IDs; proactive messaging without an inbound conversation reference is not implemented.",
+    ],
+    documentation: {
+      href: "/docs/messaging#microsoft-teams",
+      externalHref: "https://dev.botframework.com/",
+      externalLabel: "Open Bot Framework",
+    },
+    setup: {
+      steps: [
+        "Create an Azure Bot resource and Microsoft Entra app registration.",
+        "Configure the app ID, client secret, and allowed tenant IDs.",
+        "Set the bot messaging endpoint to the provided webhook URL.",
+        "Add the Microsoft Teams channel and install the bot in an allowed tenant.",
+      ],
+    },
+    credentialRequirements: [
+      {
+        key: "MICROSOFT_TEAMS_APP_ID",
+        label: "Microsoft Bot App ID",
+        required: true,
+      },
+      {
+        key: "MICROSOFT_TEAMS_APP_PASSWORD",
+        label: "Microsoft Bot Client Secret",
+        required: true,
+      },
+      {
+        key: "MICROSOFT_TEAMS_APP_TENANT_ID",
+        label: "Microsoft Bot Tenant ID",
+        required: false,
+        helpText: "Required for single-tenant bot registrations.",
+      },
+      {
+        key: "MICROSOFT_TEAMS_ALLOWED_TENANT_IDS",
+        label: "Allowed Microsoft Teams Tenant IDs",
+        required: true,
+        helpText:
+          "Comma-separated Entra tenant IDs that may invoke this deployment.",
+      },
+    ],
+    channelCapabilities: {
+      inboundText: true,
+      replyText: true,
+      proactiveMessages: false,
+      directMessages: true,
+      mentions: true,
+      nativeThreads: true,
+      contextualReplies: true,
+      webhookSetup: "manual",
+    },
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    categories: ["channel"],
+    availability: "available",
+    supportMaturity: "built-in",
+    iconKey: "discord",
+    description:
+      "Run the agent from Discord slash-command interactions with deferred replies.",
+    caveats: [
+      "This adapter receives HTTP interactions only. It does not ingest ordinary server or direct messages, which require a persistent Gateway connection.",
+      "Interaction tokens are retained only while the queued task is active and normally expire after 15 minutes.",
+    ],
+    documentation: {
+      href: "/docs/messaging#discord",
+      externalHref: "https://discord.com/developers/applications",
+      externalLabel: "Open Discord applications",
+    },
+    setup: {
+      steps: [
+        "Create or open a Discord application.",
+        "Configure its application ID and public key.",
+        "Paste the webhook URL into Interactions Endpoint URL.",
+        "Register a chat-input command with a string prompt option.",
+      ],
+    },
+    credentialRequirements: [
+      {
+        key: "DISCORD_APPLICATION_ID",
+        label: "Discord Application ID",
+        required: true,
+      },
+      {
+        key: "DISCORD_PUBLIC_KEY",
+        label: "Discord Public Key",
+        required: true,
+        helpText:
+          "Discord uses this Ed25519 public key to sign interaction webhooks.",
+      },
+    ],
+    channelCapabilities: {
+      inboundText: true,
+      replyText: true,
+      proactiveMessages: false,
+      directMessages: true,
+      nativeThreads: false,
+      contextualReplies: false,
+      interactionOnly: true,
+      webhookSetup: "manual",
+    },
+  },
+  {
     id: "telegram",
     name: "Telegram",
     categories: ["channel"],
@@ -157,8 +280,8 @@ const BUILT_IN_CHANNEL_CATALOG = [
     iconKey: "telegram",
     description: "Receive and reply to text messages through a Telegram bot.",
     caveats: [
-      "The built-in inbound adapter handles text messages at the chat level; it does not model forum topics.",
-      "Webhook verification should use TELEGRAM_WEBHOOK_SECRET in production.",
+      "Forum topics and private-chat topics use message_thread_id as part of the canonical conversation identity.",
+      "Webhook verification requires TELEGRAM_WEBHOOK_SECRET for production-safe setup.",
     ],
     documentation: {
       href: "/docs/messaging#telegram",
@@ -168,7 +291,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
     setup: {
       steps: [
         "Create a bot with @BotFather.",
-        "Configure the bot token and optional webhook secret.",
+        "Configure the bot token and webhook secret.",
         "Register the webhook from the setup control.",
         "Send the bot a text message to test.",
       ],
@@ -183,7 +306,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       {
         key: "TELEGRAM_WEBHOOK_SECRET",
         label: "Telegram Webhook Secret",
-        required: false,
+        required: true,
         helpText:
           "Telegram echoes this value on webhook requests for verification.",
       },
@@ -193,6 +316,8 @@ const BUILT_IN_CHANNEL_CATALOG = [
       replyText: true,
       proactiveMessages: true,
       directMessages: true,
+      nativeThreads: true,
+      contextualReplies: true,
       webhookSetup: "automatic",
     },
   },
@@ -240,8 +365,8 @@ const BUILT_IN_CHANNEL_CATALOG = [
       {
         key: "WHATSAPP_APP_SECRET",
         label: "WhatsApp App Secret",
-        required: false,
-        helpText: "Enables HMAC signature verification for inbound webhooks.",
+        required: true,
+        helpText: "Verifies inbound webhooks with Meta's HMAC signature.",
       },
     ],
     channelCapabilities: {
@@ -249,6 +374,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       replyText: true,
       proactiveMessages: false,
       directMessages: true,
+      contextualReplies: true,
       webhookSetup: "manual",
     },
   },
