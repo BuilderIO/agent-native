@@ -25,11 +25,11 @@ export function RowActionsMenu({
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size="icon"
           disabled={disabled}
           aria-label={ariaLabel}
           onClick={(event) => event.stopPropagation()}
-          className="relative z-10 text-muted-foreground opacity-70 hover:text-foreground"
+          className="relative z-10 size-8 text-muted-foreground opacity-70 hover:text-foreground"
         >
           <IconDots />
         </Button>

@@ -87,7 +87,7 @@ function ChipSelectChip({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon"
         disabled={disabled}
         aria-label={`Remove ${option.label}`}
         onPointerDown={(event) => event.stopPropagation()}

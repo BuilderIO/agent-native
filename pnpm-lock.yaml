@@ -4708,6 +4708,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../../packages/toolkit
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

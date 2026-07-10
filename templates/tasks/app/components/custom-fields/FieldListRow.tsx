@@ -98,14 +98,14 @@ export function FieldListRow({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             aria-label={`Delete ${item.title}`}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
               onRequestDelete();
             }}
-            className="relative z-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            className="relative z-10 size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
             <IconTrash />
           </Button>
