@@ -1113,6 +1113,45 @@ export function resolveAssistantChatRunningStatusLabel({
   return "Thinking";
 }
 
+function contentHasVisibleReasoning(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const candidate = part as { type?: unknown; text?: unknown };
+    return (
+      candidate.type === "reasoning" &&
+      typeof candidate.text === "string" &&
+      candidate.text.trim().length > 0
+    );
+  });
+}
+
+export function shouldShowGlobalRunningStatus({
+  showRunningInUI,
+  runningActivityLabel,
+  latestMessage,
+  reconnectContent,
+}: {
+  showRunningInUI: boolean;
+  runningActivityLabel: string | null | undefined;
+  latestMessage: unknown;
+  reconnectContent: readonly ContentPart[];
+}): boolean {
+  if (!showRunningInUI) return false;
+  if (runningActivityLabel) return true;
+
+  const message =
+    latestMessage && typeof latestMessage === "object"
+      ? (latestMessage as { role?: unknown; content?: unknown })
+      : null;
+  const latestMessageHasReasoning =
+    message?.role === "assistant" && contentHasVisibleReasoning(message.content);
+
+  return (
+    !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
+  );
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -4148,6 +4187,12 @@ const AssistantChatInner = forwardRef<
   );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    latestMessage,
+    reconnectContent: visibleReconnectContent,
+  });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
@@ -4608,7 +4653,7 @@ const AssistantChatInner = forwardRef<
                                 />
                               </MessageScrollerItem>
                             )}
-                          {showRunningInUI && (
+                          {showGlobalRunningStatus && (
                             <MessageScrollerItem>
                               <RunningActivityStatus
                                 label={runningStatusLabel}
