@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.12
+
+### Patch Changes
+
+- 1ecce26: Surface missing LLM credentials and earlier stream errors as failed agent runs instead of successful completions.
+
 ## 0.92.11
 
 ### Patch Changes
