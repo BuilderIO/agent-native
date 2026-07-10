@@ -303,7 +303,7 @@ async function controlAgentHarnessBackgroundRun(
   if (input.command === "stop") {
     return stopAgentHarnessBackgroundRun(input.runId, scope);
   }
-  if (input.command === "approve") {
+  if (input.command === "approve" || input.command === "deny") {
     const session = await getAgentHarnessSessionByRunId(input.runId);
     if (!session || session.ownerEmail !== scope.ownerEmail) {
       return missingHarnessRunResult(input.runId);
@@ -319,14 +319,18 @@ async function controlAgentHarnessBackgroundRun(
     }
     const result = await resolveAgentHarnessApproval({
       runId: input.runId,
-      approval: { id: pending.id, approved: true },
+      approval: { id: pending.id, approved: input.command === "approve" },
       scope,
     });
     return {
       ok: result.ok,
       runId: input.runId,
       run: await getAgentHarnessBackgroundRun(input.runId, scope),
-      message: result.ok ? "Harness approval resolved." : undefined,
+      message: result.ok
+        ? input.command === "approve"
+          ? "Harness approval accepted."
+          : "Harness approval denied."
+        : undefined,
       error: result.error,
     };
   }

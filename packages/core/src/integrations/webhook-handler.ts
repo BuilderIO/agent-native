@@ -1053,7 +1053,7 @@ async function processIncomingMessage(
       // Slack's native stream in "working" forever when the host kills the
       // process. Checkpoint at the foreground-safe boundary so onComplete can
       // always close the provider progress surface before the function wall.
-      { useHostedDefault: true },
+      { useHostedSoftTimeoutDefault: true },
     );
   });
 }

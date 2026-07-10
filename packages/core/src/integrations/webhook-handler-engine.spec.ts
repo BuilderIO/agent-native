@@ -317,7 +317,7 @@ describe("integration webhook handler engine resolution", () => {
         expect.any(String),
         expect.any(Function),
         expect.any(Function),
-        { useHostedDefault: true },
+        { useHostedSoftTimeoutDefault: true },
       );
       expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({
