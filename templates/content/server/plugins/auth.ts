@@ -4,7 +4,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "Agent-Native Content",
     tagline:
-      "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
+      "A local-first MDX knowledge base: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
       "Edit local Markdown/MDX files directly, with hosted sync when you need it",
       "Generate rich interactive custom MDX blocks and edit their props visually",

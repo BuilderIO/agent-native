@@ -1,7 +1,7 @@
 {
   "name": "Agent Native Content",
   "short_name": "Content",
-  "description": "Open-source Obsidian for MDX",
+  "description": "Local-first MDX knowledge base",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",

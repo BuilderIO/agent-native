@@ -67,7 +67,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "content",
     label: "Content",
-    hint: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    hint: "Local-first MDX knowledge base — edit local docs with agent assistance",
     icon: "FileText",
     color: "#10B981",
     colorRgb: "16 185 129",
@@ -91,7 +91,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "slides",
     label: "Slides",
-    hint: "Agent-native Google Slides — generate and edit React presentations",
+    hint: "Agent-native presentations — generate and edit React slide decks",
     icon: "GalleryHorizontal",
     color: "#EC4899",
     colorRgb: "236 72 153",
@@ -104,7 +104,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-native product analytics — connect data sources, prompt for charts",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
@@ -116,7 +116,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Agent-native email client — keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",

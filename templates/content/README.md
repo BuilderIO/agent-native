@@ -1,8 +1,8 @@
 # Content
 
-Open-source Obsidian for MDX — an agent-native, local-file document workspace and
-a self-hostable alternative to Notion and Obsidian. Edit local Markdown/MDX files,
-build Notion-style databases, and write with an AI agent.
+A local-first MDX knowledge base — an agent-native, local-file document workspace
+you can self-host and own end to end. Edit local Markdown/MDX files, build
+structured document databases, and write with an AI agent.
 
 **Live app: [content.agent-native.com](https://content.agent-native.com)**
 
@@ -14,7 +14,7 @@ local Markdown/MDX files.
 ## Features
 
 - Rich-text editor (Tiptap) with slash commands and hierarchical pages.
-- Notion-style databases with table, board, calendar, gallery, and timeline views.
+- Structured databases with table, board, calendar, gallery, and timeline views.
 - Local Markdown/MDX file editing plus custom interactive MDX components.
 - Inline comments, version history, and full-text search.
 - Private-by-default sharing with per-user / per-org grants and public pages.

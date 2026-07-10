@@ -453,7 +453,7 @@ touch local files.
 
 If a Plans tool ever returns `needs auth`, `Unauthorized`, or `Session
 terminated`, do not keep retrying it. Authenticate the connector with
-`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+`npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
 for Codex, or re-run `/mcp` → **Authenticate** in an OAuth-capable host. Start a
 new Codex thread or restart/reload the relevant client before expecting the tool
 registry to update.
