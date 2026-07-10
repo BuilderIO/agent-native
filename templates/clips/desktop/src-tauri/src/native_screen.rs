@@ -1232,9 +1232,12 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         session.custom_pipeline
     );
 
-    // Live-upload path: most of the file already streamed to the server during
-    // recording. The writer is now finalized, so flush the tail + final post
-    // instead of re-reading and re-uploading the whole file.
+    // Live-upload path: most of the file already streamed to the server
+    // during recording. The writer produces delegate-fed segments that WE
+    // append to the local file (AVFoundation never rewrites it — see the
+    // "Segmented output" section in custom_capture.rs), so the streamed byte
+    // ranges are stable and the uploader can safely drain the tail + send the
+    // final post instead of re-uploading the whole file.
     #[cfg(target_os = "macos")]
     if let Some(live) = session.live_upload.take() {
         eprintln!(

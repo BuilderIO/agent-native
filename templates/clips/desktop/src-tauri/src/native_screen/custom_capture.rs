@@ -12,13 +12,14 @@ use super::*;
 use screencapturekit::error::SCError;
 use screencapturekit::stream::delegate_trait::SCStreamDelegateTrait;
 
-// Movie-fragment cadence (seconds of media time). Smaller = data becomes
-// append-stable / uploadable sooner, at a small container-overhead cost.
-const MOVIE_FRAGMENT_INTERVAL_SECONDS: i64 = 1;
 /// `AVAssetWriter.status` raw value for `.completed`.
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 /// `kAudioFormatMPEG4AAC` FourCC ('aac ') for the writer's audio output.
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
+/// Cadence of delegate-produced output segments in segmented mode (seconds of
+/// media time). Smaller = data becomes uploadable sooner, at a small
+/// container-overhead cost.
+const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
 /// Capture-time H.264 budget in bits per pixel per frame. 0.15 bpp matches
 /// Cap's "instant" quality tier (~3.3 Mbps at 1280x720@24) and keeps most
 /// recordings small enough to upload without a post-capture transcode.
@@ -101,6 +102,124 @@ impl CaptureWatch {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Segmented output (live-upload mode)
+//
+// With `movieFragmentInterval` + a writer-owned file, `finishWriting`
+// DEFRAGMENTS the file in place (fragmented layout -> classic mdat+moov), so
+// byte ranges streamed to the server during recording no longer match the
+// final file and the uploaded clip comes back corrupt. The fix is Apple's
+// segment API: the writer is created WITHOUT an output URL, produces discrete
+// fMP4 segments through `AVAssetWriterDelegate`, and WE append them to the
+// local file ourselves. AVFoundation never owns the file, so nothing is ever
+// rewritten — the file is append-only by construction and the live uploader
+// can safely tail it forever.
+// ---------------------------------------------------------------------------
+
+/// Owns the local recording file in segmented mode. The ObjC delegate appends
+/// every segment it receives; append order matches delivery order (delegate
+/// callbacks are serial, and the file mutex serializes any stragglers).
+pub(super) struct SegmentSink {
+    file: Mutex<std::fs::File>,
+    /// First write error, if any; surfaced by `finish()` so a failing disk
+    /// turns into a reported error instead of a silently truncated file.
+    failed: Mutex<Option<String>>,
+    segments: AtomicU64,
+}
+
+impl SegmentSink {
+    fn create(path: &Path) -> Result<Arc<Self>, String> {
+        let file = std::fs::File::create(path)
+            .map_err(|e| format!("could not create recording file {}: {e}", path.display()))?;
+        Ok(Arc::new(Self {
+            file: Mutex::new(file),
+            failed: Mutex::new(None),
+            segments: AtomicU64::new(0),
+        }))
+    }
+
+    fn append(&self, bytes: &[u8]) {
+        use std::io::Write;
+        let Ok(mut file) = self.file.lock() else {
+            return;
+        };
+        if let Err(err) = file.write_all(bytes) {
+            if let Ok(mut failed) = self.failed.lock() {
+                if failed.is_none() {
+                    eprintln!("[mixer] segment write failed: {err}");
+                    *failed = Some(format!("segment write failed: {err}"));
+                }
+            }
+            return;
+        }
+        let n = self.segments.fetch_add(1, Ordering::Relaxed) + 1;
+        if n == 1 {
+            eprintln!(
+                "[mixer] first output segment written ({} bytes)",
+                bytes.len()
+            );
+        }
+    }
+
+    fn failure(&self) -> Option<String> {
+        self.failed.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+/// Instance variables for the segment delegate: just the shared sink.
+struct SegmentDelegateIvars {
+    sink: Arc<SegmentSink>,
+}
+
+objc2::define_class!(
+    // SAFETY: NSObject has no subclassing requirements and the type has no
+    // Drop impl. Methods are called by AVFoundation on its own serial queue.
+    #[unsafe(super(objc2::runtime::NSObject))]
+    #[name = "ClipsSegmentWriterDelegate"]
+    #[ivars = SegmentDelegateIvars]
+    struct SegmentWriterDelegate;
+
+    impl SegmentWriterDelegate {
+        /// `AVAssetWriterDelegate` — receives each fMP4 segment (type 1 =
+        /// initialization, 2 = separable media) as it is produced.
+        #[unsafe(method(assetWriter:didOutputSegmentData:segmentType:))]
+        fn did_output_segment(
+            &self,
+            _writer: *mut objc2::runtime::AnyObject,
+            data: *mut objc2::runtime::AnyObject,
+            _segment_type: isize,
+        ) {
+            // Crossing the ObjC boundary: a Rust panic here would abort the
+            // whole process, so contain it.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if data.is_null() {
+                    return;
+                }
+                let (ptr, len): (*const std::ffi::c_void, usize) = unsafe {
+                    (
+                        objc2::msg_send![&*data, bytes],
+                        objc2::msg_send![&*data, length],
+                    )
+                };
+                if ptr.is_null() || len == 0 {
+                    return;
+                }
+                let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len) };
+                use objc2::DefinedClass;
+                self.ivars().sink.append(bytes);
+            }));
+        }
+    }
+);
+
+impl SegmentWriterDelegate {
+    fn new(sink: Arc<SegmentSink>) -> objc2::rc::Retained<Self> {
+        use objc2::AllocAnyThread;
+        let this = Self::alloc().set_ivars(SegmentDelegateIvars { sink });
+        unsafe { objc2::msg_send![super(this), init] }
+    }
+}
+
 /// Cheap-to-clone handle around one `AVAssetWriter` producing a fragmented
 /// MP4. SCK callbacks append through it from multiple dispatch queues; the
 /// stop path calls [`Self::finish`]. All clones share the same underlying
@@ -140,6 +259,22 @@ struct CustomScreenCaptureWriterState {
     /// Single output track used when mic + system audio are mixed live into one
     /// stream. Mutually exclusive with `system_audio_input` / `mic_audio_input`.
     mixed_audio_input: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
+    /// Segmented (delegate-fed) output mode; see the "Segmented output"
+    /// section. When true, `initialSegmentStartTime` must be set before
+    /// `startWriting`.
+    segmented: bool,
+    /// Local-file writer for segmented mode (we own the file, not
+    /// AVFoundation). `None` in plain file mode.
+    segment_sink: Option<Arc<SegmentSink>>,
+    /// Keeps the ObjC delegate alive — `AVAssetWriter.delegate` is weak.
+    #[allow(dead_code)]
+    segment_delegate: Option<objc2::rc::Retained<SegmentWriterDelegate>>,
+    /// First video frame's PTS as (value, timescale). In segmented mode the
+    /// writer session starts at ZERO and every sample is rebased against this
+    /// — the segment API preserves source timestamps verbatim, so appending
+    /// raw host-clock PTS would give the clip a media timeline starting at
+    /// "seconds since boot" (browsers then show wall-clock-like times).
+    session_start_time: Option<(i64, i32)>,
     finished: bool,
     failed: Option<String>,
 }
@@ -283,45 +418,85 @@ impl CustomScreenCaptureWriter {
         extern "C" {
             static AVFileTypeMPEG4: *const AnyObject;
             static AVMediaTypeVideo: *const AnyObject;
+            static AVFileTypeProfileMPEG4AppleHLS: *const AnyObject;
         }
+        // Force-load UniformTypeIdentifiers so the runtime UTType lookup in
+        // segmented mode resolves.
+        #[link(name = "UniformTypeIdentifiers", kind = "framework")]
+        extern "C" {}
 
+        let segmented = UPLOAD_CHUNKS_WHILE_RECORDING;
         unsafe {
-            let url = av_file_url(output_path).ok_or_else(|| {
-                format!("could not build output URL for {}", output_path.display())
-            })?;
             let writer_cls = av_class_named("AVAssetWriter")
                 .ok_or_else(|| "AVAssetWriter missing".to_string())?;
-            let allocated: *mut AnyObject = msg_send![writer_cls, alloc];
-            let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
-            let writer_raw: *mut AnyObject = msg_send![
-                allocated,
-                initWithURL: &*url,
-                fileType: AVFileTypeMPEG4,
-                error: &mut err_ptr
-            ];
-            if writer_raw.is_null() {
-                let detail = av_error_suffix(err_ptr);
-                if !allocated.is_null() {
-                    let _ = objc2::rc::Retained::from_raw(allocated);
+
+            let (writer, segment_sink, segment_delegate) = if segmented {
+                // Segmented mode: the writer has NO output URL. It produces
+                // discrete fMP4 segments through the delegate, and WE append
+                // them to the local file — so the file is append-only by
+                // construction and `finishWriting` cannot defragment/rewrite
+                // it (which would invalidate live-uploaded byte ranges).
+                let ident = av_ns_string_from("public.mpeg-4")
+                    .ok_or_else(|| "NSString for UTType failed".to_string())?;
+                let ut_cls =
+                    av_class_named("UTType").ok_or_else(|| "UTType missing".to_string())?;
+                let ut: *mut AnyObject = msg_send![ut_cls, typeWithIdentifier: &*ident];
+                if ut.is_null() {
+                    return Err("UTType public.mpeg-4 unavailable".into());
                 }
-                return Err(format!("AVAssetWriter init failed{detail}"));
-            }
-            let writer = objc2::rc::Retained::from_raw(writer_raw)
-                .ok_or_else(|| "AVAssetWriter retain failed".to_string())?;
-            // Fragmented MP4: AVAssetWriter writes an init segment up front
-            // then periodic moof/mdat fragments, appending only at the end
-            // and never rewriting earlier bytes. That append-only property
-            // is what makes uploading byte-range chunks during recording
-            // safe. `shouldOptimizeForNetworkUse` is intentionally left off
-            // because it would rewrite the file (move moov to the front) at
-            // finalize, invalidating already-uploaded chunks.
-            let interval = ObjcCMTime {
-                value: MOVIE_FRAGMENT_INTERVAL_SECONDS,
-                timescale: 1,
-                flags: 1,
-                epoch: 0,
+                let allocated: *mut AnyObject = msg_send![writer_cls, alloc];
+                let writer_raw: *mut AnyObject = msg_send![allocated, initWithContentType: ut];
+                if writer_raw.is_null() {
+                    if !allocated.is_null() {
+                        let _ = objc2::rc::Retained::from_raw(allocated);
+                    }
+                    return Err("AVAssetWriter initWithContentType failed".into());
+                }
+                let writer = objc2::rc::Retained::from_raw(writer_raw)
+                    .ok_or_else(|| "AVAssetWriter retain failed".to_string())?;
+
+                let interval = ObjcCMTime {
+                    value: OUTPUT_SEGMENT_INTERVAL_SECONDS,
+                    timescale: 1,
+                    flags: 1,
+                    epoch: 0,
+                };
+                let _: () = msg_send![&*writer, setPreferredOutputSegmentInterval: interval];
+                let _: () =
+                    msg_send![&*writer, setOutputFileTypeProfile: AVFileTypeProfileMPEG4AppleHLS];
+
+                let sink = SegmentSink::create(output_path)?;
+                let delegate = SegmentWriterDelegate::new(Arc::clone(&sink));
+                // `AVAssetWriter.delegate` is weak — the Retained delegate is
+                // stored in the writer state to keep it alive.
+                let _: () = msg_send![&*writer, setDelegate: &*delegate];
+                (writer, Some(sink), Some(delegate))
+            } else {
+                // Plain file mode: AVFoundation owns the file; faststart is
+                // safe because nothing tails the file during recording.
+                let url = av_file_url(output_path).ok_or_else(|| {
+                    format!("could not build output URL for {}", output_path.display())
+                })?;
+                let allocated: *mut AnyObject = msg_send![writer_cls, alloc];
+                let mut err_ptr: *mut AnyObject = std::ptr::null_mut();
+                let writer_raw: *mut AnyObject = msg_send![
+                    allocated,
+                    initWithURL: &*url,
+                    fileType: AVFileTypeMPEG4,
+                    error: &mut err_ptr
+                ];
+                if writer_raw.is_null() {
+                    let detail = av_error_suffix(err_ptr);
+                    if !allocated.is_null() {
+                        let _ = objc2::rc::Retained::from_raw(allocated);
+                    }
+                    return Err(format!("AVAssetWriter init failed{detail}"));
+                }
+                let writer = objc2::rc::Retained::from_raw(writer_raw)
+                    .ok_or_else(|| "AVAssetWriter retain failed".to_string())?;
+                let _: () = msg_send![&*writer, setShouldOptimizeForNetworkUse: true];
+                (writer, None, None)
             };
-            let _: () = msg_send![&*writer, setMovieFragmentInterval: interval];
             let input_cls = av_class_named("AVAssetWriterInput")
                 .ok_or_else(|| "AVAssetWriterInput missing".to_string())?;
             let video_settings = av_video_output_settings(width, height)?;
@@ -347,7 +522,12 @@ impl CustomScreenCaptureWriter {
             // left as the single captured source).
             let (system_audio_input, mic_audio_input, mixed_audio_input, mixer) = if mix_live {
                 let mixed = av_make_audio_writer_input(input_cls, &writer)?;
-                (None, None, Some(mixed), Some(LiveAudioMixer::new()?))
+                (
+                    None,
+                    None,
+                    Some(mixed),
+                    Some(LiveAudioMixer::new(segmented)?),
+                )
             } else {
                 let system_audio_input = if capture_system_audio {
                     Some(av_make_audio_writer_input(input_cls, &writer)?)
@@ -369,6 +549,10 @@ impl CustomScreenCaptureWriter {
                     system_audio_input,
                     mic_audio_input,
                     mixed_audio_input,
+                    segmented,
+                    segment_sink,
+                    segment_delegate,
+                    session_start_time: None,
                     finished: false,
                     failed: None,
                 })),
@@ -427,7 +611,27 @@ impl CustomScreenCaptureWriter {
             if !self.ensure_session_started(&mut guard, timing.presentation_time_stamp) {
                 return;
             }
-            self.append_sample_ptr(&mut guard, &input, sample.as_ptr());
+            if guard.segmented {
+                // Segmented mode runs a ZERO-based session timeline: append a
+                // copy with PTS/DTS rebased against the session start.
+                // Appending the raw buffer here would put host-clock times in
+                // the track — the writer then buffers/starves (frozen video)
+                // and browsers show wall-clock timestamps.
+                let Some(base) = guard.session_start_time else {
+                    return;
+                };
+                match retimed_sample_copy(sample, &timing, base) {
+                    Ok(copy) => {
+                        self.append_sample_ptr(&mut guard, &input, copy.as_ptr());
+                    }
+                    Err(err) => {
+                        drop(guard);
+                        self.fail(format!("sample retime failed: {err}"));
+                    }
+                }
+            } else {
+                self.append_sample_ptr(&mut guard, &input, sample.as_ptr());
+            }
         }
     }
 
@@ -528,8 +732,27 @@ impl CustomScreenCaptureWriter {
         // exceptions (e.g. invalid state). Catch them so they don't abort the
         // process from inside the realtime callback.
         let writer_ptr = &*guard.writer as *const objc2::runtime::AnyObject;
-        let start = ObjcCMTime::from(pts);
+        let segmented = guard.segmented;
+        // Segmented mode: the session runs on a ZERO-based timeline and every
+        // appended sample is rebased (see `session_start_time`). Plain file
+        // mode keeps the source clock — `startSessionAtSourceTime:` writes an
+        // implicit edit so playback still starts at zero there.
+        let start = if segmented {
+            ObjcCMTime {
+                value: 0,
+                timescale: pts.timescale.max(1),
+                flags: 1,
+                epoch: 0,
+            }
+        } else {
+            ObjcCMTime::from(pts)
+        };
         let outcome = objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            // Segmented output requires the initial segment start time to be
+            // set before writing starts; it must equal the session start.
+            if segmented {
+                let _: () = msg_send![&*writer_ptr, setInitialSegmentStartTime: start];
+            }
             let ok: bool = msg_send![&*writer_ptr, startWriting];
             if !ok {
                 return false;
@@ -539,6 +762,7 @@ impl CustomScreenCaptureWriter {
         }));
         match outcome {
             Ok(true) => {
+                guard.session_start_time = Some((pts.value, pts.timescale.max(1)));
                 // Publish the session start time before flipping `started` so
                 // lock-free readers that observe `started == true` always see
                 // a valid start time.
@@ -666,6 +890,7 @@ impl CustomScreenCaptureWriter {
             system_audio_input,
             mic_audio_input,
             mixed_audio_input,
+            segment_sink,
             started,
             failed,
         ) = {
@@ -680,6 +905,7 @@ impl CustomScreenCaptureWriter {
                 guard.system_audio_input.clone(),
                 guard.mic_audio_input.clone(),
                 guard.mixed_audio_input.clone(),
+                guard.segment_sink.clone(),
                 self.started.load(Ordering::SeqCst),
                 guard.failed.clone(),
             )
@@ -725,6 +951,14 @@ impl CustomScreenCaptureWriter {
                         av_writer_error_suffix(&writer)
                     ));
                 }
+            }
+        }
+        // Segmented mode: the delegate delivers the final segment before the
+        // completion handler fires, so by now the local file is complete —
+        // unless a disk write failed along the way.
+        if let Some(sink) = segment_sink.as_ref() {
+            if let Some(err) = sink.failure() {
+                return Err(err);
             }
         }
         eprintln!("[mixer] writer finish completed (wait={wait_for_finalize})");
@@ -824,6 +1058,12 @@ enum SourceBound {
 struct LiveAudioMixer {
     format_desc: screencapturekit::cm::CMFormatDescription,
     sample_rate: i32,
+    /// Subtract the writer session start from emitted PTS (segmented mode,
+    /// where the session timeline is zero-based). Plain file mode keeps
+    /// absolute source time to match `startSessionAtSourceTime:`.
+    rebase_output: bool,
+    /// Session start in source seconds, recorded by `set_min_start`.
+    session_start_seconds: Option<f64>,
     anchor_seconds: Option<f64>,
     out_pos: i64,
     system: MixerTimeline,
@@ -832,7 +1072,7 @@ struct LiveAudioMixer {
 }
 
 impl LiveAudioMixer {
-    fn new() -> Result<Self, String> {
+    fn new(rebase_output: bool) -> Result<Self, String> {
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i32;
         let asbd = AudioStreamBasicDescription {
             sample_rate: AUDIO_OUTPUT_SAMPLE_RATE as f64,
@@ -868,6 +1108,8 @@ impl LiveAudioMixer {
         Ok(Self {
             format_desc,
             sample_rate,
+            rebase_output,
+            session_start_seconds: None,
             anchor_seconds: None,
             out_pos: 0,
             system: MixerTimeline::new(),
@@ -915,6 +1157,7 @@ impl LiveAudioMixer {
     /// Advance the output cursor so we never emit audio earlier than the
     /// writer session start (the writer rejects samples before it).
     fn set_min_start(&mut self, start_seconds: f64) {
+        self.session_start_seconds = Some(start_seconds);
         if let Some(anchor) = self.anchor_seconds {
             // ceil, not round: rounding down would place the first emitted
             // sample a fraction of a frame BEFORE the session start, which
@@ -1042,7 +1285,14 @@ impl LiveAudioMixer {
         let block = screencapturekit::cm::CMBlockBuffer::create(bytes)
             .ok_or_else(|| "CMBlockBuffer create failed".to_string())?;
         let anchor = self.anchor_seconds.unwrap_or(0.0);
-        let pts_value = (anchor * self.sample_rate as f64).round() as i64 + start_frame;
+        // Zero-based session timeline: emit PTS relative to the session start
+        // (set_min_start guarantees emitted frames are never earlier than it).
+        let base = if self.rebase_output {
+            self.session_start_seconds.unwrap_or(anchor)
+        } else {
+            0.0
+        };
+        let pts_value = ((anchor - base) * self.sample_rate as f64).round() as i64 + start_frame;
         let pts = ObjcCMTime {
             value: pts_value,
             timescale: self.sample_rate,
@@ -1270,6 +1520,70 @@ struct AudioStreamBasicDescription {
     reserved: u32,
 }
 
+/// `CMSampleTimingInfo` mirror for the retiming FFI call.
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct ObjcCMSampleTimingInfo {
+    duration: ObjcCMTime,
+    presentation_time_stamp: ObjcCMTime,
+    decode_time_stamp: ObjcCMTime,
+}
+
+/// Rebase a timestamp onto the zero-based session timeline (subtract the
+/// first video frame's PTS). Invalid times pass through untouched.
+fn rebased_time(t: screencapturekit::cm::CMTime, base: (i64, i32)) -> ObjcCMTime {
+    const K_CMTIME_FLAG_VALID: u32 = 1;
+    if t.flags & K_CMTIME_FLAG_VALID == 0 {
+        return ObjcCMTime::from(t);
+    }
+    let (base_value, base_timescale) = base;
+    let base_in_t = if t.timescale == base_timescale {
+        base_value
+    } else {
+        // Convert the base into this timestamp's timescale before subtracting.
+        (i128::from(base_value) * i128::from(t.timescale) / i128::from(base_timescale.max(1)))
+            as i64
+    };
+    ObjcCMTime {
+        value: t.value - base_in_t,
+        timescale: t.timescale,
+        flags: t.flags,
+        epoch: t.epoch,
+    }
+}
+
+/// Copy a sample buffer with its PTS/DTS rebased onto the session timeline.
+/// One timing entry applies to every sample in the buffer (SCK video buffers
+/// hold one frame; audio buffers have uniform per-sample timing).
+fn retimed_sample_copy(
+    sample: &screencapturekit::cm::CMSampleBuffer,
+    timing: &screencapturekit::cm::CMSampleTimingInfo,
+    base: (i64, i32),
+) -> Result<screencapturekit::cm::CMSampleBuffer, String> {
+    let new_timing = ObjcCMSampleTimingInfo {
+        duration: ObjcCMTime::from(timing.duration),
+        presentation_time_stamp: rebased_time(timing.presentation_time_stamp, base),
+        decode_time_stamp: rebased_time(timing.decode_time_stamp, base),
+    };
+    let mut out: *mut std::ffi::c_void = std::ptr::null_mut();
+    let status = unsafe {
+        CMSampleBufferCreateCopyWithNewTiming(
+            std::ptr::null(),
+            sample.as_ptr(),
+            1,
+            &new_timing,
+            &mut out,
+        )
+    };
+    if status != 0 || out.is_null() {
+        return Err(format!(
+            "CMSampleBufferCreateCopyWithNewTiming failed (status={status})"
+        ));
+    }
+    screencapturekit::cm::CMSampleBuffer::from_raw(out)
+        .ok_or_else(|| "retimed CMSampleBuffer wrap failed".to_string())
+}
+
 // CoreMedia C API used to hand-build the mixer's LPCM output buffers —
 // the screencapturekit crate has no constructors for these.
 #[link(name = "CoreMedia", kind = "framework")]
@@ -1298,11 +1612,19 @@ extern "C" {
     fn CMAudioFormatDescriptionGetStreamBasicDescription(
         format_description: *mut std::ffi::c_void,
     ) -> *const AudioStreamBasicDescription;
+
+    fn CMSampleBufferCreateCopyWithNewTiming(
+        allocator: *const std::ffi::c_void,
+        original: *mut std::ffi::c_void,
+        num_timing_entries: isize,
+        timing_array: *const ObjcCMSampleTimingInfo,
+        sample_buffer_out: *mut *mut std::ffi::c_void,
+    ) -> i32;
 }
 
 /// Mirror of CoreMedia's `CMTime`, with objc2 `Encode` impls so it can be
 /// passed by value through `msg_send!` (e.g. `startSessionAtSourceTime:`,
-/// `setMovieFragmentInterval:`).
+/// `setPreferredOutputSegmentInterval:`).
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct ObjcCMTime {
@@ -1462,7 +1784,7 @@ unsafe fn av_video_output_settings(
     av_dict_set(&settings, AVVideoWidthKey, &width_value);
     av_dict_set(&settings, AVVideoHeightKey, &height_value);
 
-    // Fragmented output (movieFragmentInterval) needs monotonic video timing
+    // Segmented output (preferredOutputSegmentInterval) needs monotonic video timing
     // inside each fragment. The encoder's default B-frames (frame reordering)
     // intermittently kill the writer with -11800 / OSStatus -16341 when a
     // reordered frame group straddles a fragment boundary, truncating the
