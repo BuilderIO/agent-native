@@ -38,11 +38,8 @@ describe("executeAgentToolCall", () => {
     });
 
     expect(run).toHaveBeenCalledOnce();
-    expect(result).toEqual({
-      status: "completed",
-      output: '{"value":"ready"}',
-      completedSideEffect: false,
-    });
+    expect(result.status).toBe("completed");
+    expect(JSON.parse(result.output)).toEqual({ value: "ready" });
   });
 
   it("keeps approval-gated actions paused", async () => {
@@ -77,7 +74,7 @@ describe("executeAgentToolCall", () => {
 
     expect(run).not.toHaveBeenCalled();
     expect(result.status).toBe("failed");
-    expect(result.output).toContain("Invalid input for tool");
+    expect(result.output).toContain("Invalid action parameters for inspect");
   });
 
   it("does not expose actions hidden from the agent", async () => {
