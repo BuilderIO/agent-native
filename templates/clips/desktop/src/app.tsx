@@ -55,6 +55,7 @@ import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
+import { resolveDesktopMeetingJoinUrl } from "./lib/meeting-join-url";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
   isHardCapturePermissionError,
@@ -1028,7 +1029,7 @@ export function App() {
       const url = ev.payload?.joinUrl;
       if (!url) return;
       import("@tauri-apps/plugin-shell")
-        .then(({ open }) => open(url))
+        .then(({ open }) => open(resolveDesktopMeetingJoinUrl(url)))
         .catch((err) => {
           console.error("[clips-popover] open join url failed:", err);
         });
@@ -1159,9 +1160,11 @@ export function App() {
   const startMeetingNotesAndJoin = useCallback(
     (meeting: PopoverMeeting) => {
       if (meeting.joinUrl) {
-        openExternal(meeting.joinUrl).catch((err) => {
-          console.error("[clips-popover] open meeting join url failed:", err);
-        });
+        openExternal(resolveDesktopMeetingJoinUrl(meeting.joinUrl)).catch(
+          (err) => {
+            console.error("[clips-popover] open meeting join url failed:", err);
+          },
+        );
       }
       startMeetingNotes(meeting);
       hidePopover();
