@@ -1,5 +1,6 @@
+import { parseFigmaUrl } from "@shared/figma-url";
+
 const FIGMA_URL_RE = /https?:\/\/[^\s<>"']+/gi;
-const SUPPORTED_FIGMA_PATHS = new Set(["design", "file", "proto", "board"]);
 
 export interface FigmaLink {
   url: string;
@@ -30,21 +31,13 @@ export function extractFigmaLink(text: string): FigmaLink | null {
       continue;
     }
 
-    const hostname = parsed.hostname.toLowerCase();
-    if (hostname !== "figma.com" && !hostname.endsWith(".figma.com")) {
-      continue;
-    }
+    const parsedFigma = parseFigmaUrl(parsed.toString());
+    if (!parsedFigma.fileKey) continue;
 
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    if (!SUPPORTED_FIGMA_PATHS.has(segments[0] ?? "")) continue;
-    const fileKey = segments[1]?.trim();
-    if (!fileKey || !/^[A-Za-z0-9_-]+$/.test(fileKey)) continue;
-
-    const rawNodeId = parsed.searchParams.get("node-id")?.trim() ?? "";
-    const nodeId = rawNodeId || null;
+    const nodeId = parsedFigma.nodeId;
     return {
       url: raw,
-      fileKey,
+      fileKey: parsedFigma.fileKey,
       nodeId,
       kind: nodeId ? "frame" : "file",
     };

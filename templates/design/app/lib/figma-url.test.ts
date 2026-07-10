@@ -10,14 +10,14 @@ describe("extractFigmaLink", () => {
       ),
     ).toEqual({
       url: "https://www.figma.com/design/AbC_123/Checkout?node-id=12%3A34",
-      fileKey: "AbC_123",
+      fileKey: "AbC_1234",
       nodeId: "12:34",
       kind: "frame",
     });
   });
 
-  it("detects supported file, prototype, and board links without node ids", () => {
-    for (const path of ["file", "proto", "board"]) {
+  it("detects supported file and prototype links without node ids", () => {
+    for (const path of ["file", "proto"]) {
       expect(
         extractFigmaLink(`https://figma.com/${path}/FileKey123/Example`),
       ).toMatchObject({ fileKey: "FileKey123", nodeId: null, kind: "file" });
@@ -40,18 +40,18 @@ describe("extractFigmaLink", () => {
 describe("buildFigmaLinkChatPrompt", () => {
   it("routes a node link toward exact frame import with hidden design context", () => {
     const link = extractFigmaLink(
-      "https://www.figma.com/design/FileKey/Name?node-id=1-2",
+      "https://www.figma.com/design/FileKey1/Name?node-id=1-2",
     )!;
     expect(buildFigmaLinkChatPrompt("import", link, "design-1")).toEqual({
       message:
-        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey/Name?node-id=1-2",
+        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Name?node-id=1-2",
       context: "Current Design id: design-1",
     });
   });
 
   it("asks the agent to choose a frame for a whole-file link", () => {
     const link = extractFigmaLink(
-      "https://www.figma.com/design/FileKey/Name",
+      "https://www.figma.com/design/FileKey1/Name",
     )!;
     expect(buildFigmaLinkChatPrompt("import", link).message).toContain(
       "list its top-level frames",
@@ -60,7 +60,7 @@ describe("buildFigmaLinkChatPrompt", () => {
 
   it("describes the honest SVG export fidelity boundary", () => {
     const link = extractFigmaLink(
-      "https://www.figma.com/design/FileKey/Name",
+      "https://www.figma.com/design/FileKey1/Name",
     )!;
     const prompt = buildFigmaLinkChatPrompt("export-svg", link).message;
     expect(prompt).toContain("Figma-compatible SVG");

@@ -27,6 +27,45 @@ export const designs = table("designs", {
 
 export const designShares = createSharesTable("design_shares");
 
+/**
+ * Reusable starting points captured from a Design project. Template metadata
+ * stays light enough for the gallery list; the full design data and file
+ * contents load only when a template is instantiated.
+ */
+export const designTemplates = table("design_templates", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category", {
+    enum: ["ad", "one-pager", "landing-page", "social", "presentation", "other"],
+  })
+    .notNull()
+    .default("other"),
+  sourceDesignId: text("source_design_id"),
+  designSystemId: text("design_system_id"),
+  data: text("data").notNull().default("{}"),
+  width: integer("width"),
+  height: integer("height"),
+  lockedLayerCount: integer("locked_layer_count").notNull().default(0),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const designTemplateShares = createSharesTable(
+  "design_template_shares",
+);
+
+export const designTemplateFiles = table("design_template_files", {
+  id: text("id").primaryKey(),
+  templateId: text("template_id").notNull(),
+  filename: text("filename").notNull(),
+  content: text("content").notNull(),
+  fileType: text("file_type").notNull().default("html"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+});
+
 export const designSystems = table("design_systems", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
