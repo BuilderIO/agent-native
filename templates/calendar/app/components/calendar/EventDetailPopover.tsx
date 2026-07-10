@@ -1450,6 +1450,7 @@ export function EventDetailPopover({
                           const next = e.target.value;
                           setEditDate(next);
                           setEditEndDate((current) =>
+                            // i18n-ignore -- this expression selects a date; it is not visible copy.
                             isSingleDayWorkingLocation
                               ? next
                               : current < next
