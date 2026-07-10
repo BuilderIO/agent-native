@@ -55,7 +55,8 @@ import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { PlatformAdapter, IncomingMessage } from "./types.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
-const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 250;
+const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 1_500;
+const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
 
 type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
 
@@ -207,6 +208,7 @@ export async function handleWebhook(
   options: WebhookHandlerOptions,
 ): Promise<{ status: number; body: unknown }> {
   const { adapter, beforeProcess } = options;
+  const handlerStartedAt = Date.now();
 
   let incoming: IncomingMessage | null = options.incoming ?? null;
 
@@ -251,7 +253,7 @@ export async function handleWebhook(
         const outgoing = adapter.formatAgentResponse(result.responseText);
         await adapter.sendResponse(outgoing, incoming);
       }
-      return { status: 200, body: "ok" };
+      return immediateWebhookResponse(adapter, incoming);
     }
   }
 
@@ -265,7 +267,7 @@ export async function handleWebhook(
     // landed (e.g. Slack 3-second timeout) — return 200 so the platform
     // stops retrying. See H3 in the webhook security audit.
     if (isDuplicateEventError(err)) {
-      return { status: 200, body: "ok" };
+      return immediateWebhookResponse(adapter, incoming);
     }
     console.error(
       `[integrations] Failed to enqueue/dispatch ${incoming.platform} message:`,
@@ -277,12 +279,22 @@ export async function handleWebhook(
     return { status: 500, body: { error: "enqueue failed" } };
   }
 
-  return (
-    adapter.getImmediateWebhookResponse?.(incoming) ?? {
-      status: 200,
-      body: "ok",
-    }
-  );
+  return immediateWebhookResponse(adapter, incoming);
+}
+
+function immediateWebhookResponse(
+  adapter: PlatformAdapter,
+  incoming: IncomingMessage,
+): { status: number; body: unknown } {
+  if (adapter.capabilities?.deferredWebhookResponse) {
+    return (
+      adapter.getImmediateWebhookResponse?.(incoming) ?? {
+        status: 200,
+        body: "ok",
+      }
+    );
+  }
+  return { status: 200, body: "ok" };
 }
 
 /**
@@ -302,6 +314,7 @@ async function enqueueAndDispatch(
   event: H3Event,
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
+  handlerStartedAt = Date.now(),
 ): Promise<void> {
   const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -388,7 +401,13 @@ async function enqueueAndDispatch(
     console.error("[integrations] Failed to dispatch processor request:", err);
   });
   const settleWaitMs = options.adapter.capabilities?.deferredWebhookResponse
-    ? DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS
+    ? Math.min(
+        DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS,
+        Math.max(
+          0,
+          DEFERRED_RESPONSE_MAX_HANDLER_MS - (Date.now() - handlerStartedAt),
+        ),
+      )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
   await Promise.race([
     dispatchPromise,

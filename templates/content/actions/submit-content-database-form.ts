@@ -27,7 +27,6 @@ import {
 import {
   nanoid,
   parseDatabaseViewConfig,
-  serializePropertyDefinition,
 } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
@@ -216,7 +215,10 @@ export default defineAction({
       viewId,
     );
     const properties = definitions.map((definition) => ({
-      definition: serializePropertyDefinition(definition),
+      definition: {
+        id: definition.id,
+        type: definition.type as DocumentPropertyType,
+      },
     }));
     const questions = contentDatabaseFormQuestions(formView, properties);
     const enabledQuestions = questions.filter((question) => question.enabled);

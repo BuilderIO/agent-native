@@ -191,6 +191,13 @@ export interface PlatformAdapter {
   ): ImmediateWebhookResponse | null;
 
   /**
+   * Return pre-canonical thread ids used by older adapter versions. The
+   * integration handler checks these only when the canonical mapping is
+   * missing, then aliases a match to the canonical id without forking history.
+   */
+  getLegacyExternalThreadIds?(incoming: IncomingMessage): string[];
+
+  /**
    * Send the agent's response back to the messaging platform.
    *
    * If `opts.placeholderRef` is provided (returned earlier by
