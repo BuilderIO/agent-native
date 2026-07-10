@@ -645,6 +645,7 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "./design-editor/pending-edits";
 import { verifyPendingStructuresRuntime } from "./design-editor/pending-structure-verification";
+import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
 import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
@@ -3950,6 +3951,11 @@ function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // Long overview sessions (pan/zoom/select/undo across many screens) build
+  // up a very large native `performance.measure` buffer from React/Radix dev
+  // instrumentation (see performance-buffer-guard.ts) — bound it so a long
+  // session's JS heap doesn't grow from that alone.
+  usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;
     searchParams: URLSearchParams;

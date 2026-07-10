@@ -56,11 +56,21 @@ function countMatchesOutsideRanges(
   value: string,
   pattern: RegExp,
   ranges: RawTextScan["bodyRanges"],
+  requireMarkupStart = false,
 ): number {
-  return Array.from(value.matchAll(pattern)).filter(
-    (match) =>
-      match.index !== undefined && !matchFallsInsideRanges(match.index, ranges),
-  ).length;
+  return Array.from(value.matchAll(pattern)).filter((match) => {
+    // Root-tag-shaped strings inside quoted Alpine attributes and comments
+    // are data, not document structure. Counting them here made an otherwise
+    // valid document look like it had duplicate <html>/<body>/<head> roots.
+    // Every caller of this helper is counting a markup token, so require the
+    // tokenizer to agree that the candidate starts outside those contexts.
+    return (
+      match.index !== undefined &&
+      !matchFallsInsideRanges(match.index, ranges) &&
+      (!requireMarkupStart ||
+        matchStartsMarkupToken(value, match.index, ranges))
+    );
+  }).length;
 }
 
 function firstMatchOutsideRanges(
@@ -71,7 +81,8 @@ function firstMatchOutsideRanges(
   const match = Array.from(value.matchAll(pattern)).find(
     (candidate) =>
       candidate.index !== undefined &&
-      !matchFallsInsideRanges(candidate.index, ranges),
+      !matchFallsInsideRanges(candidate.index, ranges) &&
+      matchStartsMarkupToken(value, candidate.index, ranges),
   );
   return match?.index === undefined
     ? null
@@ -169,11 +180,13 @@ function tagCount(
       value,
       new RegExp(`<${tag}\\b[^>]*>`, "gi"),
       ranges,
+      true,
     ),
     close: countMatchesOutsideRanges(
       value,
       new RegExp(`<\\s*\\/\\s*${tag}\\s*>`, "gi"),
       ranges,
+      true,
     ),
   };
 }
@@ -184,27 +197,63 @@ function scanRawTextTags(value: string): RawTextScan {
   // seen, ignore every tag-like token except that element's own closer. This
   // mirrors browser tokenization closely enough to avoid rejecting code-heavy
   // Alpine documents while still detecting an orphaned closer/missing opener.
-  const token = /<\s*(\/?)\s*(style|script)\b[^>]*>/gi;
   let active: "style" | "script" | null = null;
-  let bodyStart = 0;
+  let bodyStart = -1;
   let severity = 0;
   const bodyRanges: RawTextScan["bodyRanges"] = [];
-  for (const match of value.matchAll(token)) {
-    if (match.index === undefined) continue;
-    const closing = match[1] === "/";
-    const tag = match[2]!.toLowerCase() as "style" | "script";
+  let cursor = 0;
+  while (cursor < value.length) {
     if (active) {
-      if (closing && tag === active) {
-        bodyRanges.push({ start: bodyStart, end: match.index });
-        active = null;
-      }
+      // HTML raw-text elements terminate at the first matching end-tag token,
+      // even when that text happens to look like a JavaScript/CSS string.
+      const closer = new RegExp(`<\\s*\\/\\s*${active}\\b[^>]*>`, "gi");
+      closer.lastIndex = cursor;
+      const match = closer.exec(value);
+      if (!match) break;
+      bodyRanges.push({ start: bodyStart, end: match.index });
+      active = null;
+      bodyStart = -1;
+      cursor = match.index + match[0].length;
       continue;
     }
-    if (closing) severity += 1;
-    else {
-      active = tag;
-      bodyStart = match.index + match[0].length;
+
+    const nextOpen = value.indexOf("<", cursor);
+    if (nextOpen === -1) break;
+    if (value.startsWith("<!--", nextOpen)) {
+      const commentEnd = value.indexOf("-->", nextOpen + 4);
+      cursor = commentEnd === -1 ? value.length : commentEnd + 3;
+      continue;
     }
+
+    // Consume one complete markup token while respecting quoted attributes.
+    // This is the important distinction from the former bare regex: an
+    // Alpine value such as x-data="{ sample: '<style></style>' }" must not
+    // open raw-text mode halfway through the surrounding start tag.
+    let quote: '"' | "'" | null = null;
+    let tokenEnd = nextOpen + 1;
+    for (; tokenEnd < value.length; tokenEnd += 1) {
+      const character = value[tokenEnd];
+      if (quote) {
+        if (character === quote) quote = null;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === ">") {
+        tokenEnd += 1;
+        break;
+      }
+    }
+    const token = value.slice(nextOpen, tokenEnd);
+    const match = token.match(/^<\s*(\/?)\s*(style|script)\b/i);
+    if (match) {
+      const closing = match[1] === "/";
+      const tag = match[2]!.toLowerCase() as "style" | "script";
+      if (closing) severity += 1;
+      else {
+        active = tag;
+        bodyStart = tokenEnd;
+      }
+    }
+    cursor = Math.max(tokenEnd, nextOpen + 1);
   }
   if (active) bodyRanges.push({ start: bodyStart, end: value.length });
   return { severity: severity + (active ? 1 : 0), bodyRanges };
@@ -227,6 +276,7 @@ function markerCounts(
       value,
       new RegExp(`<${tag}\\b[^>]*\\b${escapedMarker}\\b[^>]*>`, "gi"),
       ranges,
+      true,
     ),
   };
 }

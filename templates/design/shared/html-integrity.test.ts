@@ -115,6 +115,25 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("does not count root or raw-text tags inside Alpine attributes and comments", () => {
+    const withMarkupExamples = DOCUMENT.replace(
+      '<body x-data="{ open: true }">',
+      `<body x-data="{ open: true, sample: '<style></style><body></body>' }">
+        <!-- example only: <script></script><html><head></head><body></body></html> -->`,
+    );
+
+    expect(inspectDesignHtmlDocumentIntegrity(withMarkupExamples)).toEqual({
+      valid: true,
+    });
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: DOCUMENT,
+        nextContent: withMarkupExamples,
+        fileType: "html",
+      }),
+    ).not.toThrow();
+  });
+
   it("allows a malformed legacy document to be repaired but not re-saved malformed", () => {
     const corrupted = DOCUMENT.replace(
       "</style>",
