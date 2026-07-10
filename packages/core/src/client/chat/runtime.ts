@@ -1544,10 +1544,7 @@ function appendRuntimeContentPart(
     part = last;
   }
   if (!part) {
-    const nextPart: Extract<
-      ContentPart,
-      { type: "text" | "reasoning" }
-    > =
+    const nextPart: Extract<ContentPart, { type: "text" | "reasoning" }> =
       input.type === "reasoning"
         ? { type: "reasoning", text: "" }
         : { type: "text", text: "" };
