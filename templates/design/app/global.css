@@ -79,7 +79,7 @@
   );
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
-  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-measure-color: hsl(24 95% 53%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
   --design-editor-control-bg: hsl(var(--muted));
@@ -157,7 +157,7 @@
   --design-editor-panel-divider-color: hsl(0 0% 22%);
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
-  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-measure-color: hsl(24 95% 53%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
   --design-editor-control-bg: hsl(0 0% 18%);

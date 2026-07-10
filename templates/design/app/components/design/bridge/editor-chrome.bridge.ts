@@ -1700,6 +1700,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
+  // Tag as an edit overlay so the content-replacement path preserves it (only
+  // [data-agent-native-edit-overlay] nodes survive a body rebuild).
+  measurementOverlay.setAttribute(
+    "data-agent-native-edit-overlay",
+    "measurement",
+  );
   measurementOverlay.style.cssText =
     "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
   document.body.appendChild(measurementOverlay);
@@ -3941,6 +3947,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     }
     var selectedRect = a.getBoundingClientRect();
     var hoverRect = b.getBoundingClientRect();
+    // A content re-render can rebuild document.body and drop this overlay;
+    // re-attach it before drawing so the lines always render.
+    if (!measurementOverlay.isConnected) {
+      document.body.appendChild(measurementOverlay);
+    }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
 
@@ -9853,7 +9864,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       } else {
         hideMeasurements();
       }
-      if (hoveredEl !== lastHoverInfoPostedEl) {
+      // While Alt is held (measurement mode) keep hover local: posting it would
+      // update the host's hoveredSelector, re-run replayIframeEditorState, and
+      // echo selection/hover back every move — a loop that jitters selection
+      // and flickers the measurement lines.
+      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
         (window.parent as Window).postMessage(
@@ -9915,7 +9930,19 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   window.addEventListener(
     "keyup",
     function (e) {
-      if (e.key === "Alt") hideMeasurements();
+      if (e.key === "Alt") {
+        hideMeasurements();
+        // Re-sync the hover suppressed during measurement so the host isn't
+        // left on a stale element until the next pointermove.
+        lastHoverInfoPostedEl = hoveredEl;
+        (window.parent as Window).postMessage(
+          {
+            type: "element-hover",
+            payload: hoveredEl ? getLightElementInfo(hoveredEl) : null,
+          },
+          "*",
+        );
+      }
     },
     true,
   );

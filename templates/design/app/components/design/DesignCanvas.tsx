@@ -4686,17 +4686,29 @@ function SingleScreenCreationOverlay({
         />
       ) : null}
       {previewRect ? (
-        <div
-          data-creation-preview-rect
-          className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
-          style={{
-            left: previewRect.x,
-            top: previewRect.y,
-            width: Math.max(1, previewRect.width),
-            height: Math.max(1, previewRect.height),
-            borderRadius: tool === "ellipse" ? "9999px" : undefined,
-          }}
-        />
+        <>
+          <div
+            data-creation-preview-rect
+            className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
+            style={{
+              left: previewRect.x,
+              top: previewRect.y,
+              width: Math.max(1, previewRect.width),
+              height: Math.max(1, previewRect.height),
+              borderRadius: tool === "ellipse" ? "9999px" : undefined,
+            }}
+          />
+          <span
+            data-creation-preview-size
+            className="pointer-events-none absolute z-10 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            style={{
+              left: previewRect.x + previewRect.width / 2,
+              top: previewRect.y + previewRect.height,
+            }}
+          >
+            {Math.round(previewRect.width)} × {Math.round(previewRect.height)}
+          </span>
+        </>
       ) : null}
       {previewLine ? (
         <svg
