@@ -907,7 +907,7 @@ describe("recap setup planning", () => {
 
       const output = writes.join("");
       expect(output).toContain(
-        "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+        "invalid VISUAL_RECAP_MODEL value (must be 1-200 characters without whitespace or controls)",
       );
       expect(output).not.toContain(
         "VISUAL_RECAP_MODEL: would set to bad model!.",
@@ -2056,6 +2056,32 @@ describe("recap gate decision", () => {
   it("accepts a valid VISUAL_RECAP_MODEL value", () => {
     const result = evaluateRecapGate(ok({ model: "gpt-5.6-sol" }));
     expect(result.run).toBe(true);
+  });
+
+  it("accepts a slash-qualified OpenAI-compatible model value", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        baseUrl: "https://api.example.com/v1",
+        model: "openai/gpt-oss-120b",
+      }),
+    );
+    expect(result.run).toBe(true);
+    expect(result.reasons).toEqual([]);
+  });
+
+  it("rejects control characters in an OpenAI-compatible model value", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        baseUrl: "https://api.example.com/v1",
+        model: "provider/model\u001b[31m",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "invalid VISUAL_RECAP_MODEL value (must be 1-200 characters without whitespace or controls)",
+    );
   });
 
   it("skips an invalid VISUAL_RECAP_SKILL_SOURCE value", () => {

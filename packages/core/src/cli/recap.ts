@@ -472,6 +472,7 @@ const OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS = [
 ] as const satisfies readonly RecapVariableRequirement[];
 
 const RECAP_MODEL_PATTERN = /^[a-zA-Z0-9._-]{1,80}$/;
+const OPENAI_COMPATIBLE_RECAP_MODEL_PATTERN = /^[^\p{C}\p{Z}]{1,200}$/u;
 
 export function validateOpenAiCompatibleRecapVariables(input: {
   baseUrl?: string;
@@ -500,11 +501,11 @@ export function validateOpenAiCompatibleRecapVariables(input: {
       requirement: modelRequirement,
       reason: "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
     });
-  } else if (!RECAP_MODEL_PATTERN.test(rawModel)) {
+  } else if (!OPENAI_COMPATIBLE_RECAP_MODEL_PATTERN.test(rawModel)) {
     problems.push({
       requirement: modelRequirement,
       reason:
-        "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+        "invalid VISUAL_RECAP_MODEL value (must be 1-200 characters without whitespace or controls)",
     });
   }
 
