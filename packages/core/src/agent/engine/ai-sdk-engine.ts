@@ -17,10 +17,7 @@ import {
   readDeployCredentialEnv,
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
-import {
-  normalizeReasoningEffortForModel,
-  resolvesToDefaultThinking,
-} from "../../shared/reasoning-effort.js";
+import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
   clampThinkingBudgetTokens,
@@ -312,12 +309,15 @@ class AISDKEngine implements AgentEngine {
     );
     if (reasoningEffort) {
       if (this.provider === "anthropic") {
+        const explicitThinking = (
+          providerOpts.anthropic as { thinking?: unknown } | undefined
+        )?.thinking;
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
-          thinking: (
-            providerOpts.anthropic as { thinking?: unknown } | undefined
-          )?.thinking ?? { type: "adaptive" },
-          outputConfig: { effort: reasoningEffort },
+          thinking: explicitThinking ?? { type: "adaptive" },
+          ...(explicitThinking
+            ? {}
+            : { outputConfig: { effort: reasoningEffort } }),
         };
       } else if (this.provider === "openai") {
         providerOpts.openai = {
@@ -355,15 +355,6 @@ class AISDKEngine implements AgentEngine {
               },
         };
       }
-    } else if (
-      this.provider === "anthropic" &&
-      !opts.providerOptions?.anthropic?.thinking &&
-      resolvesToDefaultThinking(opts.model, opts.reasoningEffort)
-    ) {
-      providerOpts.anthropic = {
-        ...((providerOpts.anthropic as object) ?? {}),
-        thinking: { type: "adaptive" },
-      };
     }
 
     let assistantContent: EngineContentPart[] = [];

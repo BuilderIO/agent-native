@@ -11,6 +11,13 @@ export const REASONING_EFFORTS = [
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
+/**
+ * Shared chat always chooses an explicit reasoning tier. Keep `auto` in the
+ * accepted type only so older persisted selections and external callers can
+ * migrate cleanly; new UI and engine defaults resolve it to Medium.
+ */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
   none: "None",
@@ -23,7 +30,6 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
 };
 
 const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = [
-  "auto",
   "low",
   "medium",
   "high",
@@ -73,10 +79,9 @@ export function normalizeReasoningEffortForModel(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort | undefined {
-  if (!model || !effort || effort === "auto") {
-    return undefined;
-  }
-  let normalized = effort;
+  if (!model) return undefined;
+  let normalized =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
   if (
     normalized === "xhigh" &&
     isClaudeReasoningModel(model) &&
@@ -95,30 +100,33 @@ export function normalizeReasoningEffortForModel(
 }
 
 export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
-  return REASONING_EFFORT_LABELS[effort ?? "auto"];
+  return REASONING_EFFORT_LABELS[
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort
+  ];
 }
 
 /**
- * True when an unset/"auto" effort should resolve to default-on adaptive
- * thinking for this model — i.e. the model is one of the Claude 4.6+/5-era
- * models with built-in adaptive thinking + output_config effort support
- * (mirrors supportsClaudeXHigh's family plus opus-4-6 and the haiku-4-5
- * era). Explicit efforts ("none" through "max") are never adaptive-by-default
- * here; callers keep handling those through normalizeReasoningEffortForModel.
+ * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
+ * and tiers unsupported by the newly selected model all become Medium.
+ * Non-reasoning models still retain Medium in persisted chat state so moving
+ * back to a reasoning model has a predictable default; their engines omit the
+ * effort through `normalizeReasoningEffortForModel`.
  */
-export function resolvesToDefaultThinking(
+export function resolveReasoningEffortSelection(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
-): boolean {
-  if (!model || (effort !== undefined && effort !== "auto")) {
-    return false;
-  }
-  return isClaudeReasoningModel(model) && supportsAdaptiveThinking(model);
+): ReasoningEffort {
+  const requested =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  const options = getReasoningEffortOptionsForModel(model);
+  return options.length === 0 || options.includes(requested)
+    ? requested
+    : DEFAULT_REASONING_EFFORT;
 }
 
 /**
- * One tier down from each effort, stopping at "minimal" — "none"/"auto"
- * (not really "tiers") and "minimal" itself are left unchanged. Used by the
+ * One tier down from each effort, stopping at "minimal" — legacy `auto`,
+ * "none", and "minimal" itself are left unchanged. Used by the
  * empty-final-response retry so a retried turn asks for meaningfully less
  * reasoning instead of repeating the exact request that came back empty.
  */
@@ -144,7 +152,12 @@ function isGPTReasoningModel(model: string) {
 }
 
 function isClaudeReasoningModel(model: string) {
-  return /^claude-/.test(model);
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  if (id.includes("haiku-4-5")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
 }
 
 function supportsClaudeXHigh(model: string) {
@@ -161,19 +174,6 @@ function supportsClaudeXHigh(model: string) {
   if (opusMatch) {
     return parseInt(opusMatch[1], 10) >= 7;
   }
-  return false;
-}
-
-/**
- * Models with built-in adaptive thinking (Anthropic's `thinking: {type:
- * "adaptive"}`). Superset of supportsClaudeXHigh: also includes opus-4-6
- * and the haiku-4-5 era, which support adaptive thinking without the xhigh
- * effort tier.
- */
-function supportsAdaptiveThinking(model: string) {
-  if (supportsClaudeXHigh(model)) return true;
-  if (model.includes("opus-4-6")) return true;
-  if (model.includes("haiku-4-5")) return true;
   return false;
 }
 

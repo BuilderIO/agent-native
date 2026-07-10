@@ -27,6 +27,7 @@ import React, {
 } from "react";
 
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   reasoningEffortLabel,
   type ReasoningEffort,
@@ -869,7 +870,7 @@ export interface ComposerImageModelMenu {
 
 function ModelSelector({
   model,
-  effort = "auto",
+  effort = DEFAULT_REASONING_EFFORT,
   engines,
   onChange,
   onEffortChange,
@@ -906,7 +907,6 @@ function ModelSelector({
   const effortOptions =
     model === "auto"
       ? ([
-          "auto",
           "low",
           "medium",
           "high",
@@ -1154,11 +1154,10 @@ function ModelSelector({
                       onChange(m, group.engine);
                       const nextOptions = getReasoningEffortOptionsForModel(m);
                       if (
-                        effort !== "auto" &&
                         nextOptions.length > 0 &&
                         !nextOptions.includes(effort)
                       ) {
-                        onEffortChange?.("auto");
+                        onEffortChange?.(DEFAULT_REASONING_EFFORT);
                       }
                       setOpen(false);
                     }}

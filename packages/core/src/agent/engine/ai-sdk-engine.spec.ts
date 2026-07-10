@@ -84,7 +84,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
   });
 
-  it("defaults to adaptive thinking for a reasoning-capable Claude model when effort is auto/unset", async () => {
+  it("defaults to adaptive thinking at medium effort for a reasoning-capable Claude model", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();
 
@@ -98,6 +98,34 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toEqual({
+      effort: "medium",
+    });
+  });
+
+  it("does not add an implicit effort beside explicit Anthropic thinking", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-sonnet-5",
+        providerOptions: {
+          anthropic: {
+            thinking: { type: "enabled", budgetTokens: 4_000 },
+          },
+        },
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toMatchObject({
+      type: "enabled",
     });
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
@@ -234,7 +262,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("does not emit thinkingConfig when no reasoningEffort is set for Google", async () => {
+  it("defaults to medium reasoning when no reasoningEffort is set for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -248,9 +276,10 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       }),
     );
 
-    // No providerOptions should be emitted when there's no reasoning effort
     const call = streamText.mock.calls[0][0];
-    expect(call.providerOptions?.google?.thinkingConfig).toBeUndefined();
+    expect(call.providerOptions?.google?.thinkingConfig).toEqual({
+      thinkingLevel: "high",
+    });
   });
 });
 

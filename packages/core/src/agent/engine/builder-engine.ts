@@ -22,7 +22,6 @@ import {
 } from "../../server/credential-provider.js";
 import {
   normalizeReasoningEffortForModel,
-  resolvesToDefaultThinking,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
@@ -151,17 +150,13 @@ class BuilderEngine implements AgentEngine {
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
-    const explicitReasoningEffort = normalizeReasoningEffortForModel(
+    const reasoningEffort = normalizeReasoningEffortForModel(
       opts.model,
-      opts.reasoningEffort,
+      opts.reasoningEffort ??
+        (typeof thinkingBudget === "number"
+          ? mapReasoningEffort(thinkingBudget)
+          : undefined),
     );
-    const reasoningEffort =
-      explicitReasoningEffort ??
-      (typeof thinkingBudget === "number"
-        ? mapReasoningEffort(thinkingBudget)
-        : resolvesToDefaultThinking(opts.model, opts.reasoningEffort)
-          ? "auto"
-          : undefined);
 
     // Apply prompt caching to system + tools (stable prefix) and to the last
     // user message (moving cache breakpoint so growing history gets cached

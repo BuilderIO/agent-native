@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
-  resolvesToDefaultThinking,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
   stepDownReasoningEffort,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
+  it("uses Medium as the default and never exposes legacy Auto", () => {
+    expect(DEFAULT_REASONING_EFFORT).toBe("medium");
+    expect(getReasoningEffortOptionsForModel("claude-sonnet-5")).not.toContain(
+      "auto",
+    );
+    expect(reasoningEffortLabel("auto")).toBe("Medium");
+  });
+
   it("includes xhigh for claude-opus-4-7", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-7");
     expect(opts).toContain("xhigh");
@@ -64,10 +74,13 @@ describe("normalizeReasoningEffortForModel", () => {
     );
   });
 
-  it("returns undefined for auto effort", () => {
+  it("normalizes legacy auto and missing effort to medium", () => {
     expect(
       normalizeReasoningEffortForModel("claude-opus-4-8", "auto"),
-    ).toBeUndefined();
+    ).toBe("medium");
+    expect(
+      normalizeReasoningEffortForModel("claude-opus-4-8", undefined),
+    ).toBe("medium");
   });
 
   it("returns undefined for models that do not support reasoning", () => {
@@ -75,42 +88,29 @@ describe("normalizeReasoningEffortForModel", () => {
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
+    expect(
+      normalizeReasoningEffortForModel("claude-3-5-haiku-20241022", undefined),
+    ).toBeUndefined();
   });
 });
 
-describe("resolvesToDefaultThinking", () => {
-  it("is true for auto effort on claude-fable-5", () => {
-    expect(resolvesToDefaultThinking("claude-fable-5", "auto")).toBe(true);
-  });
-
-  it("is true for unset effort on claude-sonnet-5", () => {
-    expect(resolvesToDefaultThinking("claude-sonnet-5", undefined)).toBe(true);
-  });
-
-  it("is true for auto effort on the haiku-4-5 era", () => {
-    expect(resolvesToDefaultThinking("claude-haiku-4-5-20251001", "auto")).toBe(
-      true,
+describe("resolveReasoningEffortSelection", () => {
+  it("migrates legacy auto and missing selections to medium", () => {
+    expect(resolveReasoningEffortSelection("claude-sonnet-5", "auto")).toBe(
+      "medium",
+    );
+    expect(resolveReasoningEffortSelection("claude-sonnet-5", undefined)).toBe(
+      "medium",
     );
   });
 
-  it("is true for auto effort on opus-4-6", () => {
-    expect(resolvesToDefaultThinking("claude-opus-4-6", "auto")).toBe(true);
-  });
-
-  it("is false for auto effort on a non-reasoning-capable model", () => {
-    expect(resolvesToDefaultThinking("llama-3.3-70b-versatile", "auto")).toBe(
-      false,
+  it("keeps supported explicit selections and resets unsupported ones", () => {
+    expect(resolveReasoningEffortSelection("claude-sonnet-5", "high")).toBe(
+      "high",
     );
-    expect(resolvesToDefaultThinking(undefined, "auto")).toBe(false);
-  });
-
-  it("is false for an explicit non-auto effort", () => {
-    expect(resolvesToDefaultThinking("claude-sonnet-5", "high")).toBe(false);
-  });
-
-  it("is false when effort is explicitly none or minimal", () => {
-    expect(resolvesToDefaultThinking("claude-sonnet-5", "none")).toBe(false);
-    expect(resolvesToDefaultThinking("claude-sonnet-5", "minimal")).toBe(false);
+    expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
+      "medium",
+    );
   });
 });
 

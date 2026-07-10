@@ -17,8 +17,10 @@ import React, {
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
@@ -129,7 +131,10 @@ function readStoredModelSelection(key: string): ModelSelection | undefined {
     }
     const selection: ModelSelection = {
       model: parsed.model,
-      effort: isReasoningEffort(parsed.effort) ? parsed.effort : "auto",
+      effort: resolveReasoningEffortSelection(
+        parsed.model,
+        isReasoningEffort(parsed.effort) ? parsed.effort : undefined,
+      ),
     };
     if (typeof parsed.engine === "string") selection.engine = parsed.engine;
     return selection;
@@ -151,14 +156,12 @@ function resolveModelSelection(
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
   if (groups.length === 0) {
-    const requestedEffort = selection.effort ?? "auto";
-    const effortOptions = getReasoningEffortOptionsForModel(selection.model);
     return {
       model: selection.model,
-      effort:
-        requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-          ? requestedEffort
-          : "auto",
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
     };
   }
   const preferredGroup = groups.find(
@@ -176,12 +179,10 @@ function resolveModelSelection(
     preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
   if (!engine && groups.length > 0) return undefined;
 
-  const requestedEffort = selection.effort ?? "auto";
-  const effortOptions = getReasoningEffortOptionsForModel(selection.model);
-  const effort =
-    requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-      ? requestedEffort
-      : "auto";
+  const effort = resolveReasoningEffortSelection(
+    selection.model,
+    selection.effort,
+  );
   const resolved: ModelSelection = { model: selection.model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
@@ -1200,12 +1201,7 @@ export function MultiTabAssistantChat({
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
       const existing = threadModelRef.current.get(threadId);
-      const existingEffort = existing?.effort ?? "auto";
-      const effortOptions = getReasoningEffortOptionsForModel(model);
-      const effort =
-        existingEffort === "auto" || effortOptions.includes(existingEffort)
-          ? existingEffort
-          : "auto";
+      const effort = resolveReasoningEffortSelection(model, existing?.effort);
       const selection = { model, engine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
@@ -1819,13 +1815,10 @@ export function MultiTabAssistantChat({
             g.models.includes(model),
           );
           if (matchedGroup) {
-            const requestedEffort = isReasoningEffort(effort) ? effort : "auto";
-            const effortOptions = getReasoningEffortOptionsForModel(model);
-            const selectedEffort =
-              requestedEffort === "auto" ||
-              effortOptions.includes(requestedEffort)
-                ? requestedEffort
-                : "auto";
+            const selectedEffort = resolveReasoningEffortSelection(
+              model,
+              isReasoningEffort(effort) ? effort : undefined,
+            );
             threadModelRef.current.set(threadId, {
               model,
               engine: matchedGroup.engine,
@@ -2774,7 +2767,9 @@ export function MultiTabAssistantChat({
                   onSlashCommand={handleSlashCommand}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
-                  selectedEffort={modelSelection?.effort ?? "auto"}
+                  selectedEffort={
+                    modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
+                  }
                   composerSlot={composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}

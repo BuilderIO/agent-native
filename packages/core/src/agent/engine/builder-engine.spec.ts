@@ -1161,7 +1161,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort auto by default for a reasoning-capable Claude model", async () => {
+  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1177,7 +1177,7 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("auto");
+    expect(body.reasoning_effort).toBe("medium");
   });
 
   it("omits reasoning_effort by default for a non-reasoning model", async () => {

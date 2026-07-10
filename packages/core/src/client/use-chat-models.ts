@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
@@ -87,7 +89,10 @@ export function useChatModels({
     initialPersisted.engine ?? "",
   );
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort>(
-    initialPersisted.effort ?? "auto",
+    resolveReasoningEffortSelection(
+      initialPersisted.model ?? DEFAULT_MODEL,
+      initialPersisted.effort,
+    ),
   );
   const selectionRef = useRef({
     selectedModel,
@@ -110,10 +115,9 @@ export function useChatModels({
       setSelectedModel(model);
       setSelectedEngine(engine);
       setSelectedEffort((prevEffort) => {
-        const next =
-          prevEffort === "auto" || effortOptions.includes(prevEffort)
-            ? prevEffort
-            : "auto";
+        const next = effortOptions.includes(prevEffort)
+          ? prevEffort
+          : DEFAULT_REASONING_EFFORT;
         writePersisted(storageKey, { model, engine, effort: next });
         return next;
       });
@@ -180,12 +184,10 @@ export function useChatModels({
             defaultGroup?.models[0] ??
             nextDefaultModel;
           const nextEngine = defaultGroup?.engine ?? "";
-          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
-          const nextEffort =
-            selection.selectedEffort === "auto" ||
-            effortOptions.includes(selection.selectedEffort)
-              ? selection.selectedEffort
-              : "auto";
+          const nextEffort = resolveReasoningEffortSelection(
+            nextModel,
+            selection.selectedEffort,
+          );
           setSelectedModel(nextModel);
           setSelectedEngine(nextEngine);
           setSelectedEffort(nextEffort);
@@ -207,12 +209,10 @@ export function useChatModels({
             defaultGroup?.models[0] ??
             nextDefaultModel;
           const nextEngine = defaultGroup?.engine ?? "";
-          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
-          const nextEffort =
-            selection.selectedEffort === "auto" ||
-            effortOptions.includes(selection.selectedEffort)
-              ? selection.selectedEffort
-              : "auto";
+          const nextEffort = resolveReasoningEffortSelection(
+            nextModel,
+            selection.selectedEffort,
+          );
           setSelectedModel(nextModel);
           setSelectedEngine(nextEngine);
           setSelectedEffort(nextEffort);
