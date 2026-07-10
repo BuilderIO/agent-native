@@ -284,30 +284,27 @@ export default defineAction({
     const createdBy = getRequestUserEmail() ?? database.ownerEmail;
 
     await db.transaction(async (tx) => {
-      const [[maxDocumentPosition], [maxItemPosition], inheritedShares] =
-        await Promise.all([
-          tx
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.ownerEmail, database.ownerEmail),
-                eq(schema.documents.parentId, database.documentId),
-              ),
-            ),
-          tx
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
-          tx
-            .select({
-              principalType: schema.documentShares.principalType,
-              principalId: schema.documentShares.principalId,
-              role: schema.documentShares.role,
-            })
-            .from(schema.documentShares)
-            .where(eq(schema.documentShares.resourceId, database.documentId)),
-        ]);
+      const [maxDocumentPosition] = await tx
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, database.ownerEmail),
+            eq(schema.documents.parentId, database.documentId),
+          ),
+        );
+      const [maxItemPosition] = await tx
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+      const inheritedShares = await tx
+        .select({
+          principalType: schema.documentShares.principalType,
+          principalId: schema.documentShares.principalId,
+          role: schema.documentShares.role,
+        })
+        .from(schema.documentShares)
+        .where(eq(schema.documentShares.resourceId, database.documentId));
 
       await tx.insert(schema.documents).values({
         id: documentId,
@@ -417,12 +414,39 @@ export default defineAction({
         ([propertyId, value]) =>
           savedByPropertyId.get(propertyId) === serializePropertyValue(value),
       );
+      const savedAdditionalBlocks =
+        additionalBlocks.length === 0
+          ? []
+          : await tx
+              .select({
+                propertyId: schema.documentBlockFieldContents.propertyId,
+                content: schema.documentBlockFieldContents.content,
+              })
+              .from(schema.documentBlockFieldContents)
+              .where(
+                and(
+                  eq(schema.documentBlockFieldContents.documentId, documentId),
+                  inArray(
+                    schema.documentBlockFieldContents.propertyId,
+                    additionalBlocks.map(([propertyId]) => propertyId),
+                  ),
+                ),
+              );
+      const savedBlockByPropertyId = new Map(
+        savedAdditionalBlocks.map((value) => [value.propertyId, value.content]),
+      );
+      const additionalBlocksVerified = additionalBlocks.every(
+        ([propertyId, value]) =>
+          savedBlockByPropertyId.get(propertyId) ===
+          (typeof value === "string" ? value : ""),
+      );
       if (
         !savedDocument ||
         !savedItem ||
         savedDocument.title !== normalizedTitle ||
         savedDocument.content !== documentContent ||
-        !standardValuesVerified
+        !standardValuesVerified ||
+        !additionalBlocksVerified
       ) {
         throw new Error("The form submission could not be verified; no row was saved.");
       }

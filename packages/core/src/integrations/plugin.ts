@@ -35,8 +35,10 @@ import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
+  MAX_PENDING_TASK_ATTEMPTS,
   markTaskCompleted,
   markTaskFailed,
+  markTaskRetryable,
 } from "./pending-tasks-store.js";
 import {
   claimNextRemoteCommand,
@@ -1349,12 +1351,14 @@ export function createIntegrationsPlugin(
           });
           return { ok: true, taskId };
         } catch (err: any) {
-          await markTaskFailed(
-            taskId,
-            err?.message
-              ? String(err.message).slice(0, 1000)
-              : "processor failed",
-          );
+          const errorMessage = err?.message
+            ? String(err.message).slice(0, 1000)
+            : "processor failed";
+          if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
+            await markTaskFailed(taskId, errorMessage);
+          } else {
+            await markTaskRetryable(taskId, errorMessage);
+          }
           // Log the detail server-side; never return the raw error message
           // to the caller. Raw messages have leaked DB error codes, schema
           // names, and stack hints in the past (L3 in the webhook security

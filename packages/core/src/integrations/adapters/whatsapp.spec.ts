@@ -74,7 +74,8 @@ afterEach(() => {
 
 describe("whatsappAdapter parseIncomingMessage", () => {
   it("normalizes a valid text message", async () => {
-    const msg = await whatsappAdapter().parseIncomingMessage(
+    const adapter = whatsappAdapter();
+    const msg = await adapter.parseIncomingMessage(
       eventWithRaw(JSON.stringify(textWebhook())),
     );
 
@@ -94,6 +95,9 @@ describe("whatsappAdapter parseIncomingMessage", () => {
       from: "15551234567",
       timestamp: "1700000000",
     });
+    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual([
+      "15551234567",
+    ]);
   });
 
   it("returns null for malformed JSON", async () => {
@@ -151,6 +155,38 @@ describe("whatsappAdapter parseIncomingMessage", () => {
       ),
     );
     expect(msg?.text).toBe("hi");
+  });
+});
+
+describe("whatsappAdapter getStatus", () => {
+  it("requires the app secret in addition to delivery credentials", async () => {
+    process.env.WHATSAPP_ACCESS_TOKEN = "example-access-token";
+    process.env.WHATSAPP_VERIFY_TOKEN = "example-verify-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "example-phone-id";
+
+    const status = await whatsappAdapter().getStatus();
+
+    expect(status.configured).toBe(false);
+    expect(status.details).toMatchObject({
+      hasAccessToken: true,
+      hasVerifyToken: true,
+      hasPhoneNumberId: true,
+      hasAppSecret: false,
+    });
+    expect(status.error).toContain("WHATSAPP_APP_SECRET");
+  });
+
+  it("reports configured when all four required secrets are present", async () => {
+    process.env.WHATSAPP_ACCESS_TOKEN = "example-access-token";
+    process.env.WHATSAPP_VERIFY_TOKEN = "example-verify-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "example-phone-id";
+    process.env.WHATSAPP_APP_SECRET = "example-app-secret";
+
+    const status = await whatsappAdapter().getStatus();
+
+    expect(status.configured).toBe(true);
+    expect(status.details).toMatchObject({ hasAppSecret: true });
+    expect(status.error).toBeUndefined();
   });
 });
 

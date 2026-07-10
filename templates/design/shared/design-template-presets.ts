@@ -69,9 +69,9 @@ function presetHtml({
   </head>
   <body>
     <main class="artboard" data-agent-native-node-id="template-artboard">
-      <div class="backdrop" data-agent-native-node-id="template-background" data-agent-native-layer-name="Background" data-agent-native-locked="true"></div>
-      <div class="brand" data-agent-native-node-id="template-logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">
-        <span class="brand-mark"></span><span>Northstar</span>
+      <div class="backdrop" style="position:absolute;inset:0;background:radial-gradient(circle at 82% 18%, rgba(255,90,54,.28), transparent 30%),linear-gradient(145deg, transparent 55%, rgba(17,17,15,.07));pointer-events:none" data-agent-native-node-id="template-background" data-agent-native-layer-name="Background" data-agent-native-locked="true"></div>
+      <div class="brand" style="position:absolute;top:${isPage ? 48 : 36}px;left:${isPage ? 56 : 42}px;z-index:2;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase" data-agent-native-node-id="template-logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">
+        <span class="brand-mark" style="width:24px;height:24px;border-radius:50% 50% 8% 50%;background:#11110f"></span><span>Northstar</span>
       </div>
       <section class="content" data-agent-native-node-id="template-content">
         <div class="hero">
@@ -93,7 +93,8 @@ export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
   {
     id: "preset-social-square",
     title: "Social ad — square",
-    description: "A 1080 × 1080 campaign unit with locked brand and background layers.",
+    description:
+      "A 1080 × 1080 campaign unit with locked brand and background layers.",
     category: "social",
     width: 1080,
     height: 1080,
@@ -116,7 +117,8 @@ export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
   {
     id: "preset-display-ad",
     title: "Display ad — landscape",
-    description: "A 1200 × 628 ad unit with a fixed brand signature and editable offer.",
+    description:
+      "A 1200 × 628 ad unit with a fixed brand signature and editable offer.",
     category: "ad",
     width: 1200,
     height: 628,
@@ -139,7 +141,8 @@ export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
   {
     id: "preset-one-pager",
     title: "Product one-pager",
-    description: "An 816 × 1056 letter-format brief for launches, sales, and handouts.",
+    description:
+      "An 816 × 1056 letter-format brief for launches, sales, and handouts.",
     category: "one-pager",
     width: 816,
     height: 1056,
@@ -162,7 +165,8 @@ export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
   {
     id: "preset-landing-page",
     title: "Launch landing page",
-    description: "A 1440 × 1024 responsive hero starter with a protected brand frame.",
+    description:
+      "A 1440 × 1024 responsive hero starter with a protected brand frame.",
     category: "landing-page",
     width: 1440,
     height: 1024,

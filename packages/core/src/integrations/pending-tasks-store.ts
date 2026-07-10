@@ -18,6 +18,7 @@ import {
 } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
+export const MAX_PENDING_TASK_ATTEMPTS = 3;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -276,6 +277,26 @@ export async function markTaskCompleted(id: string): Promise<void> {
     // Discord interaction token. Once terminal, no retry needs the inbound
     // body, so erase it instead of retaining secrets or user text indefinitely.
     args: ["completed", now, now, "{}", id],
+  });
+}
+
+/**
+ * Return a transiently failed task to the retryable queue without erasing its
+ * payload. The payload may contain the only copy of the inbound message and is
+ * scrubbed only when the task reaches a permanent terminal state.
+ */
+export async function markTaskRetryable(
+  id: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, updated_at = ?, error_message = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: ["pending", now, errorMessage.slice(0, 2000), id],
   });
 }
 

@@ -104,17 +104,25 @@ async function getManifest(): Promise<unknown> {
       cache = { data, ts: Date.now() };
       return data;
     } catch {
-      // Cache the fallback (inert or last good) so we don't re-hit GitHub
-      // — and re-pay the 10s timeout — on every request after a failure.
-      const fallback = cache?.data ?? INERT_MANIFEST;
-      cache = { data: fallback, ts: Date.now() };
-      return fallback;
+      // A validation or network failure may serve the last good manifest (or
+      // inert fallback), but it must not make that fallback fresh again.
+      // Otherwise an incomplete release manifest can indefinitely extend the
+      // stale cache window on every failed refresh.
+      return cache?.data ?? INERT_MANIFEST;
     } finally {
       inFlight = null;
     }
   })();
   return inFlight;
 }
+
+export const __clipsUpdaterTest = {
+  getManifest,
+  reset() {
+    cache = null;
+    inFlight = null;
+  },
+};
 
 export default defineEventHandler(async (event) => {
   const manifest = await getManifest();

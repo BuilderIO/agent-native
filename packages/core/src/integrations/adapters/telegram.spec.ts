@@ -78,7 +78,8 @@ describe("telegramAdapter parseIncomingMessage", () => {
   });
 
   it("uses the Telegram topic as canonical thread identity", async () => {
-    const msg = await telegramAdapter().parseIncomingMessage(
+    const adapter = telegramAdapter();
+    const msg = await adapter.parseIncomingMessage(
       eventWithBody(update({ message_thread_id: 99 })),
     );
 
@@ -88,6 +89,7 @@ describe("telegramAdapter parseIncomingMessage", () => {
       replyRef: "42",
       platformContext: { messageThreadId: 99 },
     });
+    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual(["555"]);
   });
 
   it("joins first and last name for senderName", async () => {
@@ -166,6 +168,48 @@ describe("telegramAdapter parseIncomingMessage", () => {
       eventWithBody(null),
     );
     expect(msg).toBeNull();
+  });
+});
+
+describe("telegramAdapter getStatus", () => {
+  it("requires both the bot token and webhook secret", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "123:abc";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ ok: true, result: { username: "example_bot" } }),
+        ),
+      ),
+    );
+
+    const status = await telegramAdapter().getStatus();
+
+    expect(status.configured).toBe(false);
+    expect(status.details).toMatchObject({
+      hasToken: true,
+      hasWebhookSecret: false,
+      botUsername: "example_bot",
+    });
+    expect(status.error).toContain("TELEGRAM_WEBHOOK_SECRET");
+  });
+
+  it("reports configured only when the webhook secret is present", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "123:abc";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "telegram-webhook-secret-example";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+    );
+
+    const status = await telegramAdapter().getStatus();
+
+    expect(status.configured).toBe(true);
+    expect(status.details).toMatchObject({
+      hasToken: true,
+      hasWebhookSecret: true,
+    });
+    expect(status.error).toBeUndefined();
   });
 });
 

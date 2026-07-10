@@ -584,6 +584,64 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("aliases legacy external thread mappings to the canonical id", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const task = pendingTask({
+      id: "task-legacy-thread",
+      platform: "telegram",
+      externalThreadId: "chat:555:thread:99",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "telegram",
+          externalThreadId: "chat:555:thread:99",
+          text: "continue this conversation",
+          senderId: "777",
+          threadRef: "99",
+          platformContext: { chatId: 555, messageThreadId: 99 },
+          timestamp: 1008,
+        },
+      }),
+    });
+    getThreadMappingMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        platform: "telegram",
+        externalThreadId: "555",
+        internalThreadId: "thread-existing",
+        platformContext: { chatId: 555 },
+        createdAt: 1,
+        updatedAt: 2,
+      });
+    const adapter = {
+      ...createAdapter(),
+      platform: "telegram",
+      getLegacyExternalThreadIds: () => ["555"],
+    };
+
+    await processIntegrationTask(task, {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(getThreadMappingMock).toHaveBeenNthCalledWith(
+      1,
+      "telegram",
+      "chat:555:thread:99",
+    );
+    expect(getThreadMappingMock).toHaveBeenNthCalledWith(2, "telegram", "555");
+    expect(saveThreadMappingMock).toHaveBeenCalledWith(
+      "telegram",
+      "chat:555:thread:99",
+      "thread-existing",
+      expect.objectContaining({ chatId: 555, messageThreadId: 99 }),
+    );
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it("reruns the agent loop when a previously queued continuation task is retried", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =

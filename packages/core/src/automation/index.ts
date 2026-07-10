@@ -210,7 +210,10 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function bytesToString(chunks: readonly Uint8Array[], byteCount: number): string {
+function bytesToString(
+  chunks: readonly Uint8Array[],
+  byteCount: number,
+): string {
   const bytes = new Uint8Array(byteCount);
   let offset = 0;
   for (const chunk of chunks) {
@@ -568,6 +571,7 @@ export function createAutomationRuntime(
           );
           continue;
         }
+        break;
       } finally {
         clearTimeout(timer);
       }
@@ -726,10 +730,7 @@ export function createAutomationCallbackHandler(runtime: AutomationRuntime) {
     }
     try {
       const workflow = runtime.getWorkflow(workflowId);
-      if (
-        !workflow?.inbound ||
-        !workflow.capabilities.receivesCallback
-      ) {
+      if (!workflow?.inbound || !workflow.capabilities.receivesCallback) {
         throw new AutomationConnectorError(
           workflow ? "unsupported_direction" : "unknown_workflow",
           "Unknown automation callback.",
