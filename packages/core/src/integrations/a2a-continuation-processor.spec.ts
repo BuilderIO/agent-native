@@ -270,11 +270,13 @@ describe("A2A continuation processor", () => {
     const complete = vi.fn(async () => {
       throw new Error("chat.stopStream rejected");
     });
+    const fail = vi.fn(async () => undefined);
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
       onEvent: vi.fn(async () => undefined),
       complete,
+      fail,
     }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
@@ -296,6 +298,9 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
     );
+    expect(fail).toHaveBeenCalledWith(
+      "I couldn't update the live response, but I posted the final result in this thread.",
+    );
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "https://slides.agent-native.test/deck/deck-qa",
@@ -304,6 +309,47 @@ describe("A2A continuation processor", () => {
       { placeholderRef: undefined },
     );
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
+  it("still posts the final answer when closing a failed resumed stream also fails", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => {
+      throw new Error("chat.stopStream rejected");
+    });
+    const fail = vi.fn(async () => {
+      throw new Error("chat.stopStream rejected again");
+    });
+    const resumedAdapter = adapter(sendResponse);
+    resumedAdapter.resumeRunProgress = vi.fn(async () => ({
+      ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      onEvent: vi.fn(async () => undefined),
+      complete,
+      fail,
+    }));
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", resumedAdapter]]),
+    });
+
+    expect(fail).toHaveBeenCalledTimes(1);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "https://slides.agent-native.test/deck/deck-qa",
+      }),
+      expect.objectContaining({ platform: "slack" }),
+      { placeholderRef: undefined },
+    );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 

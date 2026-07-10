@@ -873,8 +873,9 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         let keepSlackInputWindow = false;
+        let queuedA2AContinuation = false;
         try {
-          const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -1048,6 +1049,10 @@ async function processIncomingMessage(
             `[integrations] Error sending response to ${incoming.platform}:`,
             err,
           );
+          // A queued continuation owns the final platform response. Later
+          // bookkeeping failures (for example, persisting this parent run)
+          // must not close its resumable native stream with a false failure.
+          if (queuedA2AContinuation) return;
           // Last-ditch: try to post a brief apology so the thread isn't silent.
           try {
             await progress?.fail?.(

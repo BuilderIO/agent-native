@@ -404,7 +404,16 @@ async function deliverA2AContinuationResponse(
     } catch {
       // A resumed Slack stream can no longer be finalized (for example when
       // chat.stopStream rejects). Preserve the final answer with the same
-      // thread reply fallback used by the initial webhook run.
+      // thread reply fallback used by the initial webhook run. Also ask the
+      // adapter to terminate the native stream: otherwise Slack can keep the
+      // task card in its working state after the thread fallback succeeds.
+      try {
+        await progress.fail?.(
+          "I couldn't update the live response, but I posted the final result in this thread.",
+        );
+      } catch {
+        // The thread reply below is still the authoritative final answer.
+      }
     }
   }
   await adapter.sendResponse(message, continuation.incoming, {
