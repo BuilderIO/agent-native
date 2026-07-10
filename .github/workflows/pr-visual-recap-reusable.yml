@@ -38,10 +38,10 @@ on:
         required: false
         type: string
         default: "claude"
-      # Optional model override passed to the agent CLI via --model.  Must
-      # match [a-zA-Z0-9._-]{1,80}.  Leave empty to use the CLI default.
+      # Model override passed to the agent CLI via --model. Must match
+      # [a-zA-Z0-9._-]{1,80}; required when agent=openai-compatible.
       model:
-        description: "Model name passed to the agent CLI (leave empty for CLI default)"
+        description: "Model name passed to the agent CLI (required for openai-compatible)"
         required: false
         type: string
         default: ""
@@ -175,6 +175,7 @@ jobs:
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
             } else {
               if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
+              if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
               const baseUrl = process.env.VISUAL_RECAP_BASE_URL || '';
               try {
                 const parsed = new URL(baseUrl);

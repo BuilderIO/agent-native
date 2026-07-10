@@ -1880,13 +1880,32 @@ describe("recap gate decision", () => {
 
   it("runs an OpenAI-compatible backend with a valid endpoint", () => {
     const result = evaluateRecapGate(
-      ok({ agentRaw: "DeepSeek", hasOpenaiCompatible: true }),
+      ok({
+        agentRaw: "DeepSeek",
+        hasOpenaiCompatible: true,
+        model: "deepseek-chat",
+      }),
     );
     expect(result).toEqual({
       run: true,
       agent: "openai-compatible",
       reasons: [],
     });
+  });
+
+  it("requires a model for an OpenAI-compatible backend", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: true,
+        baseUrl: "https://api.example.com/v1",
+        model: "",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
+    );
   });
 
   it("requires the generic key and endpoint for an OpenAI-compatible backend", () => {

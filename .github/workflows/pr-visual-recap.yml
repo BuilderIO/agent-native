@@ -92,6 +92,7 @@ jobs:
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
             } else {
               if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
+              if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
               const baseUrl = process.env.VISUAL_RECAP_BASE_URL || '';
               try {
                 const parsed = new URL(baseUrl);

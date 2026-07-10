@@ -3443,6 +3443,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
       reasons.push(
         "VISUAL_RECAP_API_KEY not configured (openai-compatible backend)",
       );
+    if (!input.model?.trim())
+      reasons.push(
+        "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
+      );
     try {
       const parsed = normalizeOpenAiBaseUrl(input.baseUrl ?? "");
       if (!parsed) throw new Error("empty");
