@@ -191,6 +191,31 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(html).toContain("letter-spacing: 1px");
       },
     );
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const entries = (
+            window as typeof window & {
+              __designClipboardLineageForQa?: () => Array<
+                [string, { content: string; generation: number }]
+              >;
+            }
+          ).__designClipboardLineageForQa?.();
+          const target = entries?.find(([, value]) =>
+            value.content.includes("Target Screen"),
+          )?.[1];
+          return target
+            ? {
+                cards:
+                  target.content.split(
+                    'data-agent-native-layer-name="Copy Card"',
+                  ).length - 1,
+                generation: target.generation,
+              }
+            : null;
+        }),
+      )
+      .toMatchObject({ cards: 0, generation: expect.any(Number) });
 
     // Rapid consecutive undo: paste two distinct clones from the same live
     // system clipboard, then remove the latest and the prior clone with two

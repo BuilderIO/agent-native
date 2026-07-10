@@ -4473,6 +4473,19 @@ function DesignEditor() {
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardUndoBaselineRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const debugWindow = window as typeof window & {
+      __designClipboardLineageForQa?: () => Array<
+        [string, { content: string; generation: number }]
+      >;
+    };
+    debugWindow.__designClipboardLineageForQa = () =>
+      Array.from(latestClipboardMutationContentRef.current.entries());
+    return () => {
+      delete debugWindow.__designClipboardLineageForQa;
+    };
+  }, []);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
