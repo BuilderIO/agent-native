@@ -6,10 +6,10 @@ import {
 import {
   IconActivity,
   IconArrowUpRight,
-  IconBug,
   IconDatabase,
   IconHistory,
   IconMessages,
+  IconSend,
 } from "@tabler/icons-react";
 import { Link, useSearchParams } from "react-router";
 
@@ -43,7 +43,7 @@ function OperationsShortcuts() {
     },
     {
       to: "/destinations",
-      icon: IconBug,
+      icon: IconSend,
       title: t("dispatch.pages.deliveryQueue"),
     },
   ];
@@ -51,7 +51,7 @@ function OperationsShortcuts() {
   return (
     <section className="border-t pt-5">
       <h2 className="text-sm font-semibold text-foreground">
-        {t("dispatch.pages.relatedOperatorTools")}
+        {t("dispatch.nav.advanced", { defaultValue: "Related tools" })}
       </h2>
       <div className="mt-2 grid gap-x-6 gap-y-1 lg:grid-cols-3">
         {tools.map(({ to, icon: Icon, title }) => (
