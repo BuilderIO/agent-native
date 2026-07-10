@@ -48,11 +48,39 @@ const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
   readEntries: typeof readBuilderCmsContentEntries = readBuilderCmsContentEntries,
+  fieldPaths: readonly string[] = [],
 ) {
   return readEntries({
     model: sourceTable,
+    fieldPaths,
     maxPages: BUILDER_CMS_ATTACH_INITIAL_PAGES,
   });
+}
+
+export async function readInitialBuilderCmsAttachSource(
+  sourceTable: string,
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  let modelFields: BuilderCmsModelFieldSummary[] = [];
+  let modelFieldsError: unknown = null;
+  try {
+    modelFields = await readModelFields({ model: sourceTable });
+  } catch (error) {
+    modelFieldsError = error;
+  }
+  const read = await readInitialBuilderCmsAttachEntries(
+    sourceTable,
+    readEntries,
+    modelFields.map((field) => `data.${field.name}`),
+  );
+  if (modelFieldsError) throw modelFieldsError;
+  return { read, modelFields };
 }
 
 function builderReadHasMore(read: BuilderCmsReadResult | null | undefined) {
@@ -238,9 +266,10 @@ export default defineAction({
       let modelFields: BuilderCmsModelFieldSummary[];
       let builderRead: BuilderCmsReadResult | null = null;
       if (sourceType === "builder-cms") {
-        builderRead = await readInitialBuilderCmsAttachEntries(sourceTable);
+        const initial = await readInitialBuilderCmsAttachSource(sourceTable);
+        modelFields = initial.modelFields;
+        builderRead = initial.read;
         entries = builderRead.state === "live" ? builderRead.entries : [];
-        modelFields = await readBuilderCmsModelFields({ model: sourceTable });
       } else if (sourceType === "local-table") {
         // sourceTable carries the target database id for a local-table source.
         ({ entries, modelFields } = await readLocalTableEntries(sourceTable, {
@@ -327,13 +356,12 @@ export default defineAction({
       if (await databaseSourceExistsForTable(database.id, sourceTable)) {
         throw new Error(`"${sourceTable}" is already attached as a source.`);
       }
-      const additionalRead =
-        await readInitialBuilderCmsAttachEntries(sourceTable);
+      const additionalInitial =
+        await readInitialBuilderCmsAttachSource(sourceTable);
+      const additionalModelFields = additionalInitial.modelFields;
+      const additionalRead = additionalInitial.read;
       const additionalEntries =
         additionalRead.state === "live" ? additionalRead.entries : [];
-      const additionalModelFields = await readBuilderCmsModelFields({
-        model: sourceTable,
-      });
       const additionalSourceId = await insertSecondarySource({
         database,
         sourceType,
@@ -436,6 +464,10 @@ export default defineAction({
     const existingSourceRows = existingSource
       ? await getSourceRows(existingSource.id)
       : [];
+    const builderInitial =
+      sourceType === "builder-cms"
+        ? await readInitialBuilderCmsAttachSource(sourceTable)
+        : null;
     const sourceId = await replaceSourceMetadata({
       database,
       source: existingSource,
@@ -444,18 +476,10 @@ export default defineAction({
       sourceTable,
       now,
     });
-    const builderRead =
-      sourceType === "builder-cms"
-        ? await readInitialBuilderCmsAttachEntries(sourceTable)
-        : null;
+    const builderModelFields = builderInitial?.modelFields ?? [];
+    const builderRead = builderInitial?.read ?? null;
     const builderEntries =
       builderRead?.state === "live" ? builderRead.entries : [];
-    const builderModelFields =
-      sourceType === "builder-cms"
-        ? await readBuilderCmsModelFields({
-            model: sourceTable,
-          })
-        : [];
     let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
     if (builderRead?.state === "live") {
       const importResult = await importBuilderCmsEntriesAsDatabaseItems({
