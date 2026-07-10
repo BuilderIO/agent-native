@@ -1145,7 +1145,8 @@ export function shouldShowGlobalRunningStatus({
       ? (latestMessage as { role?: unknown; content?: unknown })
       : null;
   const latestMessageHasReasoning =
-    message?.role === "assistant" && contentHasVisibleReasoning(message.content);
+    message?.role === "assistant" &&
+    contentHasVisibleReasoning(message.content);
 
   return (
     !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
