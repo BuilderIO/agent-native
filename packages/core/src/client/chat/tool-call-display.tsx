@@ -956,7 +956,7 @@ export function ReconnectStreamMessage({
  * disclosure. Reasoning cells inside it render their prose directly so
  * opening that summary never reveals a redundant second disclosure.
  */
-export const WorkSummaryContentContext = React.createContext(false);
+const WorkSummaryContentContext = React.createContext(false);
 
 export function ReasoningCell({
   text,
