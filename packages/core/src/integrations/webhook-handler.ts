@@ -796,6 +796,7 @@ async function processIncomingMessage(
                   attempts: opts.attempts,
                   incoming,
                   placeholderRef: opts.placeholderRef,
+                  progressRef: progress?.ref,
                   scopeId: incoming.integrationScopeId,
                   principalType: opts.principalType ?? "user",
                   lineage: {
@@ -988,24 +989,35 @@ async function processIncomingMessage(
               keepSlackInputWindow = true;
             }
           } else if (progress) {
-            // The downstream agent owns the eventual reply, but this parent
-            // integration run owns the native progress stream it opened. End
-            // that stream now so Slack does not leave an eternal task card;
-            // the continuation processor will post the final result into the
-            // same thread when the downstream task completes.
-            const deferred = adapter.formatAgentResponse(
-              "The delegated agent is still working. I’ll post its final result in this thread automatically.",
-            );
-            try {
-              await progress.complete(deferred);
-            } catch {
-              // A failed complete must still terminate a provider-native
-              // stream when the adapter offers a failure lifecycle. Do not
-              // duplicate the deferred text as a regular reply: a later
-              // continuation delivery is authoritative.
-              await progress.fail?.(
+            // A continuation owns the eventual final response. If the adapter
+            // supplied a durable progress reference, leave the same native
+            // stream open for the continuation processor to update and close;
+            // ending it here discards the plan/task UI before the delegated
+            // work has actually finished.
+            if (progress.ref) {
+              await progress.onEvent({
+                type: "agent_call_progress",
+                agent:
+                  getQueuedA2AContinuationAgent(completedRun) ??
+                  "delegated agent",
+                state: "working",
+                elapsedSeconds: 0,
+                detail: "Continuing in the background",
+              });
+            } else {
+              // Older adapters have no resumable native surface. Close their
+              // stream cleanly; the continuation will deliver one standard
+              // final reply when the downstream task is terminal.
+              const deferred = adapter.formatAgentResponse(
                 "The delegated agent is still working. I’ll post its final result in this thread automatically.",
               );
+              try {
+                await progress.complete(deferred);
+              } catch {
+                await progress.fail?.(
+                  "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+                );
+              }
             }
           }
 
@@ -1320,6 +1332,17 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function getQueuedA2AContinuationAgent(completedRun: ActiveRun): string | null {
+  for (let i = completedRun.events.length - 1; i >= 0; i--) {
+    const event = completedRun.events[i]!.event;
+    if (event.type !== "agent_call") continue;
+    if (typeof event.agent === "string" && event.agent.trim()) {
+      return event.agent;
+    }
+  }
+  return null;
 }
 
 function extractSlackInputRequest(

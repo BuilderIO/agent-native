@@ -923,6 +923,53 @@ describe("integration webhook handler engine resolution", () => {
     expect(updateThreadDataMock).toHaveBeenCalled();
   });
 
+  it("keeps a resumable native progress stream open for a queued A2A continuation", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+        onEvent,
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "agent_call", agent: "Design", status: "start" });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-stream-continuation" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_progress",
+        agent: "Design",
+        state: "working",
+      }),
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
   it("projects a successful Slack ask-question call into a reply window", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();

@@ -43,6 +43,7 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
       timestamp: 1,
     }),
     placeholder_ref: null,
+    progress_ref: null,
     owner_email: "alice+qa@agent-native.test",
     org_id: null,
     agent_name: "Slides",
@@ -83,6 +84,9 @@ describe("A2A continuations store", () => {
     expect(dedupeAlterIndex).toBeGreaterThan(-1);
     expect(dedupeIndexIndex).toBeGreaterThan(-1);
     expect(dedupeAlterIndex).toBeLessThan(dedupeIndexIndex);
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN progress_ref"),
+    );
   });
 
   it("does not swallow non-duplicate column migration errors", async () => {
@@ -224,6 +228,10 @@ describe("A2A continuations store", () => {
                 agent_name: "Analytics",
                 agent_url: "https://analytics.agent-native.test",
                 a2a_task_id: "a2a-task-new",
+                progress_ref: JSON.stringify({
+                  kind: "slack-stream",
+                  streamTs: "1719000000.000001",
+                }),
               }),
             ],
             rowsAffected: 0,
@@ -245,6 +253,7 @@ describe("A2A continuations store", () => {
         responseContext: { interactionToken: "active-token-example" },
         timestamp: 1,
       },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
       ownerEmail: "alice+qa@agent-native.test",
       agentName: "Analytics",
       agentUrl: "https://analytics.agent-native.test",
@@ -254,6 +263,10 @@ describe("A2A continuations store", () => {
     expect(continuation.integrationTaskId).toBe("task-existing");
     expect(continuation.agentName).toBe("Analytics");
     expect(continuation.a2aTaskId).toBe("a2a-task-new");
+    expect(continuation.progressRef).toEqual({
+      kind: "slack-stream",
+      streamTs: "1719000000.000001",
+    });
     const insertCall = executeMock.mock.calls.find(([query]) =>
       querySql(query)
         .trim()
@@ -263,6 +276,34 @@ describe("A2A continuations store", () => {
     expect(JSON.parse(String(queryArgs(insertCall![0])[4]))).toMatchObject({
       responseContext: { interactionToken: "active-token-example" },
     });
+    expect(queryArgs(insertCall![0])[6]).toBe(
+      JSON.stringify({ kind: "slack-stream", streamTs: "1719000000.000001" }),
+    );
+  });
+
+  it("treats invalid stored progress references as unavailable", async () => {
+    const { getA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [continuationRow({ id: args[0], progress_ref: "not-json" })],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation = await getA2AContinuation("cont-invalid-progress");
+
+    expect(continuation?.progressRef).toBeNull();
   });
 
   it("scrubs short-lived delivery context from terminal continuation rows", async () => {
@@ -283,6 +324,7 @@ describe("A2A continuations store", () => {
     for (const update of terminalUpdates) {
       expect(update.sql).toContain("incoming_payload = ?");
       expect(update.sql).toContain("a2a_auth_token = NULL");
+      expect(update.sql).toContain("progress_ref = NULL");
     }
     expect(terminalUpdates[0].args).toEqual([
       "completed",

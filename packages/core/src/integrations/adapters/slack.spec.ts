@@ -577,6 +577,10 @@ describe("slackAdapter", () => {
     });
 
     expect(progress).not.toBeNull();
+    expect(progress?.ref).toEqual({
+      kind: "slack-stream",
+      streamTs: "999.000",
+    });
     await progress?.onEvent({
       type: "tool_start",
       tool: "create-report",
@@ -640,6 +644,179 @@ describe("slackAdapter", () => {
         markdown_text: "Report complete.",
       },
     });
+  });
+
+  it("resumes a Slack stream without starting a second task card", async () => {
+    const requests: Array<{ method: string; body: Record<string, any> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({
+          method: new URL(url).pathname.split("/").at(-1)!,
+          body: init?.body ? JSON.parse(String(init.body)) : {},
+        });
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).resumeRunProgress?.(
+      {
+        platform: "slack",
+        externalThreadId: "A123:T123:C123:111.222",
+        text: "build it",
+        senderId: "U123",
+        tenantId: "T123",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "111.222" },
+      },
+      { kind: "slack-stream", streamTs: "999.003" },
+    );
+
+    await progress?.onEvent({
+      type: "agent_call_progress",
+      agent: "Design",
+      state: "working",
+      elapsedSeconds: 20,
+      detail: "Continuing in the background",
+    });
+    await progress?.onEvent({
+      type: "agent_call",
+      agent: "Design",
+      status: "done",
+    });
+    await progress?.complete({
+      text: "Created the Design Ask.",
+      platformContext: {},
+    });
+
+    expect(progress?.ref).toEqual({
+      kind: "slack-stream",
+      streamTs: "999.003",
+    });
+    expect(
+      requests.find((request) => request.method === "chat.startStream"),
+    ).toBeUndefined();
+    expect(
+      requests.filter((request) => request.method === "chat.appendStream"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.objectContaining({
+            ts: "999.003",
+            chunks: [
+              expect.objectContaining({
+                type: "task_update",
+                title: "Ask Design",
+                status: "in_progress",
+              }),
+            ],
+          }),
+        }),
+      ]),
+    );
+    expect(
+      requests.find((request) => request.method === "chat.stopStream"),
+    ).toMatchObject({
+      body: expect.objectContaining({ ts: "999.003" }),
+    });
+  });
+
+  it("does not resume an invalid Slack progress reference", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).resumeRunProgress?.(
+      {
+        platform: "slack",
+        externalThreadId: "A123:T123:C123:111.222",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "111.222" },
+      },
+      { kind: "not-slack", streamTs: "999.003" },
+    );
+
+    expect(progress).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("records a safe diagnostic when Slack rejects starting a native stream", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: "missing_scope" })),
+      ),
+    );
+
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "build it",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    expect(progress).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "[slack] chat.startStream failed; using standard reply",
+      {
+        errorCode: "missing_scope",
+        hasRecipientTeam: true,
+        hasRecipientUser: true,
+        isDirectMessage: false,
+      },
+    );
+  });
+
+  it("records a safe diagnostic when a native stream progress append fails", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        if (method === "chat.startStream") {
+          return new Response(JSON.stringify({ ok: true, ts: "999.002" }));
+        }
+        if (method === "chat.appendStream") {
+          return new Response(
+            JSON.stringify({ ok: false, error: "invalid_arguments" }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "build it",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    await progress?.onEvent({
+      type: "tool_start",
+      tool: "create-report",
+      id: "call-1",
+      input: {},
+    } as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(warn).toHaveBeenCalledWith(
+      "[slack] chat.appendStream failed; progress may be stale",
+      { chunkType: "task_update", errorCode: "invalid_arguments" },
+    );
   });
 
   it("keeps one Slack task card updated with downstream A2A progress", async () => {
