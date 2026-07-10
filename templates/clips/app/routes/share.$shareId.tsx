@@ -78,12 +78,12 @@ import {
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   buildClipsShareMeta,
   clipsSharePageTitle,
   displayRecordingTitle,
 } from "../../shared/share-meta";
-import { privateShareLoaderData } from "../../shared/share-loader-response";
 
 type SharePageMetaRecording = {
   id: string;

@@ -13,10 +13,8 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("../../lib/credentials", () => ({
   resolveCredential: vi.fn(),
   withRequestContextFromEvent: vi.fn(
-    async (
-      _event: unknown,
-      run: (ctx: typeof mocks.ctx) => Promise<unknown>,
-    ) => run(mocks.ctx),
+    async (_event: unknown, run: (ctx: typeof mocks.ctx) => Promise<unknown>) =>
+      run(mocks.ctx),
   ),
 }));
 
@@ -27,8 +25,7 @@ vi.mock("../../lib/provider-credentials", () => ({
     "HUBSPOT_ACCESS_TOKEN",
   ],
   resolveAnalyticsGongCredentials: vi.fn(),
-  resolveAnalyticsProviderCredential:
-    mocks.resolveAnalyticsProviderCredential,
+  resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
 }));
 
 import handler from "./test-connection.post";
@@ -44,9 +41,7 @@ describe("test-connection Clay credentials", () => {
     mocks.resolveAnalyticsProviderCredential.mockResolvedValue({
       value: "clay-example-token",
     });
-    vi.mocked(fetch).mockResolvedValue(
-      new Response("{}", { status: 200 }),
-    );
+    vi.mocked(fetch).mockResolvedValue(new Response("{}", { status: 200 }));
 
     await expect(handler({} as never)).resolves.toEqual({ ok: true });
 
@@ -55,12 +50,9 @@ describe("test-connection Clay credentials", () => {
       keys: ["CLAY_PUBLIC_API_KEY"],
       ctx: mocks.ctx,
     });
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.clay.com/public/v0/me",
-      {
-        headers: { "clay-api-key": "clay-example-token" },
-      },
-    );
+    expect(fetch).toHaveBeenCalledWith("https://api.clay.com/public/v0/me", {
+      headers: { "clay-api-key": "clay-example-token" },
+    });
   });
 
   it("does not call Clay without a scoped credential", async () => {

@@ -642,10 +642,21 @@ function renderBox(node: FigmaSvgNode, ctx: RenderCtx): string {
   // on top, so emit layers in reverse (last CSS layer first). Only the
   // topmost (last-emitted) shape carries the shadow filter — lower layers
   // must not double-apply it.
+  //
+  // A box with no fills, no border, and no shadow filter is a pure layout
+  // wrapper — a flex container div, or <body> itself when exporting a whole
+  // screen — that paints nothing in the browser. Emitting a `fill="none"`
+  // placeholder shape for it anyway produces a phantom layer Figma imports
+  // as a real (if invisible) shape at whatever oversized bounds that
+  // wrapper happens to have (e.g. <body>'s own box stretching to the full
+  // render viewport width). Only synthesize a shapeless carrier rect when a
+  // shadow filter needs geometry to attach to.
   const layers =
     fills.length > 0
       ? fills
-      : [{ kind: "solid", color: "none" } as FigmaSvgFillLayer];
+      : filterId
+        ? [{ kind: "solid", color: "none" } as FigmaSvgFillLayer]
+        : [];
   const reversedLayers = layers.slice().reverse();
   let body = reversedLayers
     .map((f, i) => {
