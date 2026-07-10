@@ -442,7 +442,9 @@ jobs:
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
-        run: timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
+        # Match the deployed Netlify environment so failed best-effort local
+        # SQLite setup cannot call process.exit during this import-only probe.
+        run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
 
   guards:
     name: Security guards
