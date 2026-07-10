@@ -127,10 +127,11 @@ pins its committed `visual-recap` folder, set the repository variable
 
 Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repository variable:
 
-| `VISUAL_RECAP_AGENT` | Coding agent     | Required API key    |
-| -------------------- | ---------------- | ------------------- |
-| `claude` _(default)_ | Claude Code CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `VISUAL_RECAP_AGENT` | Coding agent                   | Required API key       |
+| -------------------- | ------------------------------ | ---------------------- |
+| `claude` _(default)_ | Claude Code CLI                | `ANTHROPIC_API_KEY`    |
+| `codex`              | OpenAI Codex CLI               | `OPENAI_API_KEY`       |
+| `openai-compatible`  | Agent-Native Code + OpenAI API | `VISUAL_RECAP_API_KEY` |
 
 If the variable is unset, the action uses `claude`.
 
@@ -140,9 +141,12 @@ Beyond the backend, two repository variables tune _how_ the agent runs:
 
 - **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.6-sol` for Codex, or a Claude model id. Leave it unset to use the CLI's own default model.
 - **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
+- **`VISUAL_RECAP_BASE_URL`** selects the HTTP(S) base URL for the `openai-compatible` backend. Use the provider's OpenAI-compatible endpoint, such as DeepSeek or Kimi, without embedding credentials in the URL.
 - **`VISUAL_RECAP_SKILL_SOURCE`** controls prompt freshness: `auto`/unset uses the latest bundled skill guidance, while `repo` pins to the committed repo-local `visual-recap` skill folder.
 
 For example, to run the recap on Codex with GPT-5.6 Sol at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol`, and `VISUAL_RECAP_REASONING=high`.
+
+For DeepSeek, set `VISUAL_RECAP_AGENT=openai-compatible`, `VISUAL_RECAP_BASE_URL=https://api.deepseek.com/v1`, `VISUAL_RECAP_MODEL=deepseek-chat`, and the `VISUAL_RECAP_API_KEY` secret. Kimi works the same way with its OpenAI-compatible base URL and model id. Other OpenAI-compatible providers use the same three settings.
 
 ## Secrets and variables
 
@@ -190,7 +194,9 @@ real token.
 | Secret / variable        | Default                         | When you need it                                                                                                                                |
 | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude` or `codex`).                                                                               |
+| `VISUAL_RECAP_API_KEY`   | —                               | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                              |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                         |
+| `VISUAL_RECAP_BASE_URL`  | —                               | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                         |
 | `VISUAL_RECAP_MODEL`     | each CLI's default              | Variable. Pins the model — e.g. `gpt-5.6-sol` for Codex, or a Claude model id. Unset uses the CLI's own default.                                |
 | `VISUAL_RECAP_REASONING` | each model's default            | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                |
 | `RECAP_CLI_VERSION`      | `latest`                        | Variable. Pins the `@agent-native/core` CLI version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant). |
@@ -214,7 +220,7 @@ This also means you can merge the workflow file **before** the secrets exist: wi
 
 If you want to generate recaps for fork PRs, a second workflow file is available: `.github/workflows/pr-visual-recap-fork.yml`. It uses `pull_request_target` (which runs with base-repo secrets) but never checks out or executes fork code. Trusted fork authors with GitHub author association `OWNER`, `MEMBER`, or `COLLABORATOR` run automatically. Outside fork PRs require an explicit **per-head maintainer opt-in** via a fresh `recap` label event before the recap agent runs.
 
-To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same secrets (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) apply.
+To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same backend secrets apply, including `VISUAL_RECAP_API_KEY` when using an OpenAI-compatible provider.
 
 <Diagram id="doc-block-h3lne0" title="Fork PR consent gate" summary={"Fork PRs get no secrets by default; trusted authors run automatically, and outside contributors require a fresh maintainer recap label."}>
 
@@ -454,10 +460,12 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
       agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version

@@ -719,6 +719,7 @@ describe("recap setup planning", () => {
   it("normalizes the supported recap agents", () => {
     expect(normalizeRecapAgent(undefined)).toBe("claude");
     expect(normalizeRecapAgent("Codex")).toBe("codex");
+    expect(normalizeRecapAgent("deepseek")).toBe("openai-compatible");
     expect(() => normalizeRecapAgent("gpt")).toThrow(/Unsupported recap agent/);
   });
 
@@ -730,6 +731,10 @@ describe("recap setup planning", () => {
     expect(recapRequiredSecrets("codex")).toEqual([
       "PLAN_RECAP_TOKEN",
       "OPENAI_API_KEY",
+    ]);
+    expect(recapRequiredSecrets("openai-compatible")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "VISUAL_RECAP_API_KEY",
     ]);
   });
 
@@ -774,6 +779,38 @@ describe("recap setup planning", () => {
         OPENAI_API_KEY: "example-openai-key",
         PLAN_RECAP_APP_URL: "https://plans.example.com",
       });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the generic secret and endpoint variable for compatible providers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-compatible-"));
+    try {
+      const plan = buildRecapSetupPlan({
+        baseDir: root,
+        agent: "kimi",
+        env: {
+          PLAN_RECAP_TOKEN: "example-plan-token",
+          VISUAL_RECAP_API_KEY: "example-compatible-key",
+          VISUAL_RECAP_BASE_URL: "https://api.moonshot.ai/v1",
+          VISUAL_RECAP_MODEL: "moonshot-v1-8k",
+        } as NodeJS.ProcessEnv,
+      });
+
+      expect(plan.agent).toBe("openai-compatible");
+      expect(plan.requiredSecrets).toEqual([
+        "PLAN_RECAP_TOKEN",
+        "VISUAL_RECAP_API_KEY",
+      ]);
+      expect(plan.variableValues).toMatchObject({
+        VISUAL_RECAP_AGENT: "openai-compatible",
+        VISUAL_RECAP_BASE_URL: "https://api.moonshot.ai/v1",
+        VISUAL_RECAP_MODEL: "moonshot-v1-8k",
+      });
+      expect(plan.secretValues.VISUAL_RECAP_API_KEY).toBe(
+        "example-compatible-key",
+      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -1688,8 +1725,10 @@ describe("recap gate decision", () => {
     hasPlan: true,
     hasAnthropic: true,
     hasOpenai: true,
+    hasOpenaiCompatible: true,
     agentRaw: "claude",
     model: undefined,
+    baseUrl: "https://api.example.com/v1",
     skillSource: "auto",
     changedFiles: ["app/page.tsx"],
     ...over,
@@ -1817,11 +1856,47 @@ describe("recap gate decision", () => {
     );
   });
 
+  it("runs an OpenAI-compatible backend with a valid endpoint", () => {
+    const result = evaluateRecapGate(
+      ok({ agentRaw: "DeepSeek", hasOpenaiCompatible: true }),
+    );
+    expect(result).toEqual({
+      run: true,
+      agent: "openai-compatible",
+      reasons: [],
+    });
+  });
+
+  it("requires the generic key and endpoint for an OpenAI-compatible backend", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: false,
+        baseUrl: "https://api.example.com/v1",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "VISUAL_RECAP_API_KEY not configured (openai-compatible backend)",
+    );
+
+    const invalidUrl = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: true,
+        baseUrl: "not-a-url",
+      }),
+    );
+    expect(invalidUrl.reasons).toContain(
+      "VISUAL_RECAP_BASE_URL must be a valid http(s) URL without credentials",
+    );
+  });
+
   it("skips an unsupported agent value with the raw value in the reason", () => {
     const result = evaluateRecapGate(ok({ agentRaw: "gpt" }));
     expect(result.run).toBe(false);
     expect(result.reasons).toContain(
-      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude" or "codex")',
+      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude", "codex", or "openai-compatible")',
     );
   });
 
@@ -2264,6 +2339,11 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "npx -y @openai/codex@0 login --with-api-key",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Run agent (OpenAI-compatible)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_API_KEY");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("OPENAI_BASE_URL");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
       "mcp__agent-native-plans__",
@@ -2630,10 +2710,14 @@ describe("reusable caller workflow builder", () => {
     // or self-hosting without changing the workflow YAML.
     expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(yml).toContain(
+      "VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}",
+    );
+    expect(yml).toContain(
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
     );
     expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
+    expect(yml).toContain("base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}");
     expect(yml).toContain(
       "reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}",
     );
