@@ -4,6 +4,7 @@ description: >-
   Secure coding practices for agent-native apps: input validation, SQL
   injection, XSS, secrets, data scoping, and auth. Use when writing any action,
   route, or component that touches user data or external input.
+scope: dev
 metadata:
   internal: true
 ---
@@ -49,6 +50,13 @@ export default defineAction({
 ```
 
 The legacy `parameters:` field (plain JSON Schema) has no runtime validation — do not use it for new code.
+
+## Large Payloads
+
+Do not accept or persist unbounded base64/file blobs through actions, SQL writes,
+or `application_state`. Route uploads through the file-upload provider and store
+references. This prevents database bloat, slow hot paths, and accidental secret
+or customer-data embedding inside binary payloads.
 
 ## SQL Injection
 

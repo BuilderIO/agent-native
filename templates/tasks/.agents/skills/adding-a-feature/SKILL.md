@@ -3,6 +3,7 @@ name: adding-a-feature
 description: >-
   The four-area checklist every new feature must complete. Use when adding any
   feature, integration, or capability to ensure the agent and UI stay in parity.
+scope: dev
 metadata:
   internal: true
 ---
@@ -73,6 +74,11 @@ Builder/internal data, or customer data in the action, UI, seed data, fixtures,
 docs, prompts, or generated extension/app content. Register required secrets,
 use OAuth helpers, or read scoped values from the vault/credential store.
 
+If the feature involves attachments, images, recordings, screenshots, exports,
+or other file-like payloads, design the upload path in the same change:
+provider upload first, then URL/id/blob handle in SQL. Do not add base64/binary
+columns or stuff files into `application_state`.
+
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
 ### 3. Skills / Instructions
@@ -84,6 +90,10 @@ Reusable actions are part of the app contract, not just implementation detail. W
 Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
 placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
 real keys, internal data, or customer data into instructions as examples.
+
+If the feature adds or changes visible UI copy, prompts, toasts, labels, empty
+states, or formatting, read `internationalization` and update the app's i18n
+catalogs in the same change.
 
 For app-backed skills, declare skill visibility in the app-skill manifest:
 
@@ -176,3 +186,4 @@ TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSh
 - **create-skill** — How to create skills for new patterns (area 3 in detail)
 - **storing-data** — Where to store the feature's data
 - **real-time-sync** — How the UI stays in sync when the agent writes data
+- **internationalization** — How to update localized UI copy and catalogs

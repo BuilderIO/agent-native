@@ -6,6 +6,7 @@ description: >-
   applications (websites, landing pages, dashboards, React components,
   HTML/CSS layouts, or when styling/beautifying any web UI). Generates
   creative, polished UI that avoids generic AI aesthetics.
+scope: dev
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
 metadata:
@@ -51,6 +52,8 @@ Default to Apple/Linear-level restraint: make the primary workflow obvious, then
 - **Composition**: Match the workflow. Operational apps should be dense and scannable; marketing or portfolio pages can be more immersive.
 - **Visual assets**: Websites, games, and object-focused pages need real or generated media when images help users understand the subject.
 - **Responsive fit**: Text must not overflow buttons, cards, tabs, sidebars, or fixed-format tools. Use stable dimensions for boards, grids, toolbars, and counters.
+
+**Beat convergence, not just defaults.** You sample toward the "on-distribution" center, so naming what to avoid is not enough: every "don't" needs a "do", or you converge on the next safe option (ban Inter and you reach for Roboto; ban purple gradients and you reach for Space Grotesk + a teal accent on every screen). Commit to one named direction, pair any reference with the reason it fits ("Linear: the quiet confidence of its spacing" — a bare "Linear" collapses back to the average), and match implementation effort to the vision: maximalist wants elaborate motion and effects, minimal wants restraint and precise spacing. When building on an existing app, inspect its tokens/type/components first and treat any drift back to a default as a missing token to pin, not something to re-prompt.
 
 ## Agent-Native UI Rules
 

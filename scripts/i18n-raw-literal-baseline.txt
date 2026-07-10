@@ -24,6 +24,41 @@ templates/design/app/components/design/code-workbench/workspace/types.ts|` or `l
 templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, existingScreenIds: ReadonlySet
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, liveScreenIds: ReadonlySet
-templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/DesignEditor.tsx|Migration failed
+templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Create new field
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Field title
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Field type
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Multi-select
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|New field title
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Rich text
+templates/tasks/app/components/custom-fields/FieldCreateBar.tsx|Single-select
+templates/tasks/app/components/custom-fields/FieldsList.tsx|Field created.
+templates/tasks/app/components/custom-fields/FieldsList.tsx|Fields list
+templates/tasks/app/components/custom-fields/FieldsList.tsx|Task card fields
+templates/tasks/app/components/custom-fields/FieldsListSkeleton.tsx|Fields list
+templates/tasks/app/components/custom-fields/editor/FieldTitleSection.tsx|Edit field title
+templates/tasks/app/components/custom-fields/editor/config/NumberConfigControl.tsx|Positive numbers only
+templates/tasks/app/components/custom-fields/editor/config/SelectConfigControl.tsx|Add option
+templates/tasks/app/components/inbox/InboxList.tsx|Add to inbox...
+templates/tasks/app/components/inbox/InboxList.tsx|Could not delete selected inbox items.
+templates/tasks/app/components/inbox/InboxList.tsx|Inbox list
+templates/tasks/app/components/inbox/InboxListRow.tsx|Mark ready
+templates/tasks/app/components/layout/Header.tsx|Open navigation
+templates/tasks/app/components/layout/Layout.tsx|App navigation links
+templates/tasks/app/components/layout/Layout.tsx|Open navigation
+templates/tasks/app/components/shared/ListViewHeader.tsx|Show all
+templates/tasks/app/components/shared/dnd/ListRowPreview.tsx|Mark ready
+templates/tasks/app/components/shared/selection/ListSelectionBar.tsx|Could not mark selected items ready.
+templates/tasks/app/components/shared/selection/ListSelectionBar.tsx|Could not update selected tasks.
+templates/tasks/app/components/shared/selection/ListSelectionBar.tsx|Mark complete
+templates/tasks/app/components/shared/selection/ListSelectionBar.tsx|Mark incomplete
+templates/tasks/app/components/shared/selection/ListSelectionBar.tsx|Mark ready
+templates/tasks/app/components/shared/selection/ListSelectionToolbar.tsx|Exit selection mode
+templates/tasks/app/components/tasks/TaskList.tsx|Could not delete selected tasks.
+templates/tasks/app/components/tasks/TaskListRow.tsx|Visible task fields
+templates/tasks/app/components/tasks/fields/TaskFieldsSidebar.tsx|No fields defined.
+templates/tasks/app/components/tasks/fields/TaskTitleSection.tsx|Edit task title
+templates/tasks/app/components/tasks/fields/controls/RichTextValueControl.tsx|Bulleted list
+templates/tasks/app/components/tasks/fields/controls/RichTextValueControl.tsx|Numbered list
