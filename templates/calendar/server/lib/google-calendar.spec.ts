@@ -700,14 +700,19 @@ describe("calendar working-location updates", () => {
       workingLocationProperties: { type: "homeOffice", homeOffice: {} },
     });
 
-    await updateEvent("working-location-1", {
-      accountEmail: "steve@example.com",
-      location: "Pier 57",
-      workingLocationProperties: {
-        type: "officeLocation",
-        officeLocation: { label: "Pier 57" },
+    await updateEvent(
+      "working-location-1",
+      {
+        accountEmail: "steve@example.com",
+        location: "Pier 57",
+        attachments: [{ fileUrl: "https://example.com/brief", title: "Brief" }],
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
       },
-    });
+      { sendUpdates: "none" },
+    );
 
     expect(calendarUpdateEventMock).toHaveBeenCalledWith(
       "access-token",
@@ -722,6 +727,11 @@ describe("calendar working-location updates", () => {
           officeLocation: { label: "Pier 57" },
         },
       }),
+      {
+        sendUpdates: "none",
+        conferenceDataVersion: undefined,
+        supportsAttachments: true,
+      },
     );
     expect(calendarPatchEventMock).not.toHaveBeenCalled();
   });

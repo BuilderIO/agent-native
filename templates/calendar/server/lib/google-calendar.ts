@@ -1232,14 +1232,25 @@ export async function updateEvent(
   // partial PATCH can reject otherwise valid working-location changes because
   // required eventType/start/end fields are absent from the request body.
   const response = eventPatch.workingLocationProperties
-    ? await calendarUpdateEvent(client.accessToken, "primary", targetEventId, {
-        ...(await calendarGetEvent(
-          client.accessToken,
-          "primary",
-          targetEventId,
-        )),
-        ...requestBody,
-      })
+    ? await calendarUpdateEvent(
+        client.accessToken,
+        "primary",
+        targetEventId,
+        {
+          ...(await calendarGetEvent(
+            client.accessToken,
+            "primary",
+            targetEventId,
+          )),
+          ...requestBody,
+        },
+        {
+          sendUpdates: options?.sendUpdates,
+          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          supportsAttachments:
+            eventPatch.attachments !== undefined ? true : undefined,
+        },
+      )
     : await calendarPatchEvent(
         client.accessToken,
         "primary",
