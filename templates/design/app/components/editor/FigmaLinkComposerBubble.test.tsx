@@ -1,0 +1,145 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { extractFigmaLink } from "@/lib/figma-url";
+
+import { FigmaLinkComposerBubble } from "./FigmaLinkComposerBubble";
+
+const connectionMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  save: vi.fn(),
+}));
+const sendToDesignAgentChat = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client", () => ({
+  useT:
+    () =>
+    (key: string, options?: Record<string, unknown>): string =>
+      options ? `${key}:${JSON.stringify(options)}` : key,
+}));
+
+vi.mock("@/lib/figma-connection", () => ({
+  getFigmaConnectionStatus: (...args: unknown[]) =>
+    connectionMocks.get(...args),
+  saveFigmaAccessToken: (...args: unknown[]) => connectionMocks.save(...args),
+}));
+
+vi.mock("@/lib/agent-chat", () => ({
+  sendToDesignAgentChat: (...args: unknown[]) => sendToDesignAgentChat(...args),
+}));
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+
+const frameLink = extractFigmaLink(
+  "https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+)!;
+
+beforeEach(() => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  connectionMocks.get.mockReset();
+  connectionMocks.save.mockReset();
+  sendToDesignAgentChat.mockReset();
+});
+
+afterEach(async () => {
+  if (root) await act(async () => root?.unmount());
+  root = null;
+  container?.remove();
+  container = null;
+  document.body.replaceChildren();
+});
+
+async function renderBubble(designId?: string) {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <FigmaLinkComposerBubble link={frameLink} designId={designId} />,
+    );
+    await Promise.resolve();
+  });
+}
+
+function button(label: string): HTMLButtonElement {
+  const match = [...container!.querySelectorAll("button")].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (!match) throw new Error(`Missing button: ${label}`);
+  return match;
+}
+
+describe("FigmaLinkComposerBubble", () => {
+  it("asks for a token when Figma is not connected and saves it outside chat", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: false,
+      status: "unset",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    connectionMocks.save.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      last4: "1234",
+    });
+    await renderBubble("design-1");
+
+    const input = container!.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    )!;
+    await act(async () => {
+      input.value = "figma-token-example";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("chat.figmaLink.connect").click();
+      await Promise.resolve();
+    });
+
+    expect(connectionMocks.save).toHaveBeenCalledWith("figma-token-example");
+    expect(sendToDesignAgentChat).not.toHaveBeenCalled();
+    expect(container!.querySelector('input[type="password"]')).toBeNull();
+    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
+  });
+
+  it("prefills an explicit import request with scoped design context", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      last4: "5678",
+    });
+    await renderBubble("design-42");
+
+    await act(async () => button("chat.figmaLink.importFrame").click());
+
+    expect(sendToDesignAgentChat).toHaveBeenCalledWith({
+      message:
+        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+      context: "Current Design id: design-42",
+      submit: false,
+      openSidebar: false,
+    });
+  });
+
+  it("does not offer an export action when no Design is open", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    await renderBubble();
+
+    expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
+  });
+});

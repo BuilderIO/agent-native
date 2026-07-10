@@ -10,12 +10,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
   type FigmaConnectionStatus,
 } from "@/lib/figma-connection";
-import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   buildFigmaLinkChatPrompt,
   extractFigmaLink,
@@ -234,9 +234,7 @@ export function FigmaLinkComposerBubble({
               className="h-7 px-2 text-[11px]"
               disabled={!token.trim() || saving}
             >
-              {saving ? (
-                <IconLoader2 className="size-3 animate-spin" />
-              ) : null}
+              {saving ? <IconLoader2 className="size-3 animate-spin" /> : null}
               {saving
                 ? t("chat.figmaLink.connecting")
                 : t("chat.figmaLink.connect")}
