@@ -437,6 +437,49 @@ describe("DesignEditor pending visual style edits", () => {
     ]);
   });
 
+  it("keeps localhost base and interaction-state edits independent for the same runtime target", () => {
+    const base = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "#cta",
+      sourceId: "runtime-cta",
+      classes: [],
+      styles: { color: "blue" },
+      originalStyles: { color: "" },
+      updatedAt: 1,
+    };
+    const hover = {
+      ...base,
+      interactionState: "hover" as const,
+      styles: { color: "red" },
+      baseStyles: { color: "blue" },
+      updatedAt: 2,
+    };
+    const focusVisible = {
+      ...base,
+      interactionState: "focus-visible" as const,
+      styles: { outline: "2px solid blue" },
+      originalStyles: { outline: "" },
+      updatedAt: 3,
+    };
+
+    expect(mergePendingVisualStyleEdits([base, hover, focusVisible])).toEqual([
+      base,
+      hover,
+      focusVisible,
+    ]);
+    expect(buildPendingVisualStyleRevertPatches([hover])).toEqual([
+      {
+        screenId: "home",
+        selector: "#cta",
+        sourceId: "runtime-cta",
+        styles: { color: "" },
+        interactionState: "hover",
+      },
+    ]);
+  });
+
   it("derives original live-edit values from authored inline styles", () => {
     expect(
       originalStylesForPendingVisualEdit(
@@ -507,6 +550,30 @@ describe("DesignEditor pending visual style edits", () => {
     );
     expect(prompt).toContain('"screenId": "home"');
     expect(prompt).toContain('"color": "rgb(37, 99, 235)"');
+  });
+
+  it("marks localhost interaction-state styles as pseudo-class edits in the guarded source handoff", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      edits: [
+        {
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: "#cta",
+          sourceId: "runtime-cta",
+          classes: [],
+          styles: { transform: "scale(0.98)" },
+          originalStyles: { transform: "" },
+          interactionState: "active",
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"interactionState": "active"');
+    expect(prompt).toContain("pseudo-class overrides, not base styles");
+    expect(prompt).toContain("preserving the element's default styling");
   });
 
   it("formats pending live text and structure edits in the handoff prompt", () => {

@@ -31,6 +31,12 @@ export interface ImportResult {
   guidance?: string;
 }
 
+export interface ImportResultNotification {
+  variant: "success" | "warning";
+  title: string;
+  description?: string;
+}
+
 export const VISUAL_EDIT_CONNECT_COMMAND =
   "npx @agent-native/core@latest design connect --url 'http://localhost:<port>' --root . --daemon";
 
@@ -38,8 +44,11 @@ export const VISUAL_EDIT_INSTALL_COMMAND =
   "npx @agent-native/core@latest skills add visual-edit";
 
 export function hasFigmaClipboardPayload(value: string): boolean {
-  return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-    value,
+  return (
+    /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(value) ||
+    /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
+      value,
+    )
   );
 }
 
@@ -68,6 +77,36 @@ export function importResultSummary(
   if (count === 0) return fallback;
   if (count === 1) return `Imported ${result!.files![0]!.filename}.`;
   return `Imported ${count} screens.`;
+}
+
+function isGenericFigFormatCaveat(warning: string): boolean {
+  return /Figma's \.fig format is proprietary and undocumented/i.test(warning);
+}
+
+/**
+ * Builds one import notification instead of stacking a success toast and a
+ * warning toast. The generic experimental `.fig` caveat is already disclosed
+ * beside the upload control, so only actionable conversion warnings belong in
+ * the transient result notification.
+ */
+export function importResultNotification(
+  result: ImportResult | undefined,
+  fallback: string,
+): ImportResultNotification {
+  const title = importResultSummary(result, fallback);
+  const actionableWarnings = (result?.warnings ?? [])
+    .filter((warning) => !isGenericFigFormatCaveat(warning))
+    .slice(0, 3);
+
+  if (actionableWarnings.length === 0) {
+    return { variant: "success", title };
+  }
+
+  return {
+    variant: "warning",
+    title,
+    description: actionableWarnings.join("\n"),
+  };
 }
 
 // --- R83: safe fetch-response parsing for the file upload path ---

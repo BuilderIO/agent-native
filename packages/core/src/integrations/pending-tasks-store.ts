@@ -270,9 +270,12 @@ export async function markTaskCompleted(id: string): Promise<void> {
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, completed_at = ?
+          SET status = ?, updated_at = ?, completed_at = ?, payload = ?
           WHERE id = ?`,
-    args: ["completed", now, now, id],
+    // The payload can contain short-lived provider credentials such as a
+    // Discord interaction token. Once terminal, no retry needs the inbound
+    // body, so erase it instead of retaining secrets or user text indefinitely.
+    args: ["completed", now, now, "{}", id],
   });
 }
 
@@ -286,8 +289,8 @@ export async function markTaskFailed(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?
           WHERE id = ?`,
-    args: ["failed", now, errorMessage.slice(0, 2000), id],
+    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });
 }

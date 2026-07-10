@@ -304,6 +304,7 @@ const messages = {
     insights: "Connaissances",
     downloadForMac: "Télécharger pour Mac",
     downloadForWindows: "Télécharger pour Windows",
+    downloadForLinux: "Télécharger pour Linux",
     downloadDesktopApp: "Téléchargez l'application de bureau",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "est une alternative gratuite,",
@@ -559,7 +560,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Télécharger Clips Desktop",
     description:
-      "Enregistrez votre écran à partir de la barre de menu. Application de bureau à mise à jour automatique pour macOS et Windows.",
+      "Enregistrez votre écran depuis la barre d’état système. Application de bureau à mise à jour automatique pour macOS, Windows et Linux.",
     macSublabel: "Universel (Apple Silicon + Intel)",
     windowsSublabel: "Programme d'installation de MSI 64 bits",
     downloadFor: "Télécharger pour {{platform}}",

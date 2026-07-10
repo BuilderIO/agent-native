@@ -64,12 +64,20 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   var scaleToolEnabled = false;
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
-  // "Forced-preview mechanism" doc comment). Tracks which single node id
-  // currently carries the `data-an-state-preview` attribute so a later
-  // `state-preview` message for a DIFFERENT node clears the previous one
-  // first — only one element can be force-previewing a state at a time,
-  // matching the inspector's single-selection InteractionStatePanel.
-  var statePreviewNodeId: string | null = null;
+  // "Forced-preview mechanism" doc comment). Keep the actual element rather
+  // than only its node id: localhost React layers can resolve through runtime
+  // selectors/provenance without carrying data-agent-native-node-id, and a
+  // DOM replacement may retire the old element between preview messages.
+  var statePreviewElement: HTMLElement | null = null;
+  type RuntimeInteractionStatePreview = {
+    element: HTMLElement;
+    key: string;
+    state: string;
+    styles: Record<string, string>;
+  };
+  var runtimeInteractionStatePreviews: RuntimeInteractionStatePreview[] = [];
+  var runtimeInteractionStatePreviewSequence = 0;
+  var runtimeInteractionStatePreviewStyle: HTMLStyleElement | null = null;
   var editorChromeScaleX = Math.max(
     0.05,
     Number(__EDITOR_CHROME_SCALE_X__) || 1,
@@ -106,6 +114,133 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   }
 
   ensureEditorChromeStyle();
+
+  function isSupportedInteractionState(value: string): boolean {
+    return (
+      value === "hover" ||
+      value === "focus" ||
+      value === "focus-visible" ||
+      value === "active" ||
+      value === "disabled"
+    );
+  }
+
+  function normalizeInteractionStateProperty(property: string): string {
+    return String(property || "")
+      .trim()
+      .replace(/[A-Z]/g, function (match) {
+        return "-" + match.toLowerCase();
+      });
+  }
+
+  function isSafeInteractionStatePreviewValue(value: string): boolean {
+    return (
+      value.trim().length > 0 &&
+      !/[;{}<>]|\/\*|\*\/|\burl\s*\(/i.test(value) &&
+      !/[\u0000-\u001f\u007f]/.test(value)
+    );
+  }
+
+  function renderRuntimeInteractionStatePreviews(): void {
+    runtimeInteractionStatePreviews = runtimeInteractionStatePreviews.filter(
+      function (entry) {
+        return (
+          entry.element.isConnected && Object.keys(entry.styles).length > 0
+        );
+      },
+    );
+    if (runtimeInteractionStatePreviewStyle?.isConnected) {
+      runtimeInteractionStatePreviewStyle.remove();
+    }
+    runtimeInteractionStatePreviewStyle = null;
+    if (runtimeInteractionStatePreviews.length === 0) return;
+
+    var style = document.createElement("style");
+    style.setAttribute("data-agent-native-runtime-state-previews", "");
+    (document.head || document.documentElement).appendChild(style);
+    runtimeInteractionStatePreviewStyle = style;
+    var sheet = style.sheet;
+    if (!sheet) return;
+    runtimeInteractionStatePreviews.forEach(function (entry) {
+      var selector =
+        '[data-an-state-preview-key="' +
+        entry.key +
+        '"][data-an-state-preview="' +
+        entry.state +
+        '"]';
+      try {
+        var index = sheet.insertRule(selector + "{}", sheet.cssRules.length);
+        var rule = sheet.cssRules[index] as CSSStyleRule;
+        Object.keys(entry.styles).forEach(function (rawProperty) {
+          var property = normalizeInteractionStateProperty(rawProperty);
+          var value = String(entry.styles[rawProperty] || "").trim();
+          if (!/^-?[a-z][a-z0-9-]*$/i.test(property) || !value) return;
+          rule.style.setProperty(property, value, "important");
+        });
+      } catch (_err) {}
+    });
+  }
+
+  function updateRuntimeInteractionStatePreview(
+    element: HTMLElement,
+    state: string,
+    styles: Record<string, unknown> | null,
+    replace: boolean,
+  ): void {
+    if (!isSupportedInteractionState(state)) return;
+    var key = element.getAttribute("data-an-state-preview-key");
+    if (!key) {
+      runtimeInteractionStatePreviewSequence += 1;
+      key = String(runtimeInteractionStatePreviewSequence);
+      element.setAttribute("data-an-state-preview-key", key);
+    }
+    var existingIndex = runtimeInteractionStatePreviews.findIndex(
+      function (entry) {
+        return entry.element === element && entry.state === state;
+      },
+    );
+    var nextStyles: Record<string, string> =
+      !replace && existingIndex >= 0
+        ? { ...runtimeInteractionStatePreviews[existingIndex]!.styles }
+        : {};
+    if (styles && typeof styles === "object") {
+      Object.keys(styles).forEach(function (property) {
+        var value = styles[property];
+        if (typeof value !== "string" || value.trim() === "") {
+          delete nextStyles[property];
+        } else if (isSafeInteractionStatePreviewValue(value)) {
+          nextStyles[property] = value;
+        }
+      });
+    }
+    if (existingIndex >= 0) {
+      if (Object.keys(nextStyles).length === 0) {
+        runtimeInteractionStatePreviews.splice(existingIndex, 1);
+      } else {
+        runtimeInteractionStatePreviews[existingIndex] = {
+          element: element,
+          key: key,
+          state: state,
+          styles: nextStyles,
+        };
+      }
+    } else if (Object.keys(nextStyles).length > 0) {
+      runtimeInteractionStatePreviews.push({
+        element: element,
+        key: key,
+        state: state,
+        styles: nextStyles,
+      });
+    }
+    if (
+      !runtimeInteractionStatePreviews.some(function (entry) {
+        return entry.element === element;
+      })
+    ) {
+      element.removeAttribute("data-an-state-preview-key");
+    }
+    renderRuntimeInteractionStatePreviews();
+  }
 
   function runtimeHeadHtmlWithoutEditorChrome(): string {
     if (!document.head) return "";
@@ -374,6 +509,95 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     nodeCount: number;
   } | null {
     if (!document.body) return null;
+    // Keep this list export-focused and bounded. The runtime snapshot is also
+    // the hosted/cross-origin Design→Figma fallback: inlining the resolved
+    // paint/layout values lets the parent reconstruct the already-rendered
+    // frame without loading the app's CSS or running its scripts again.
+    var snapshotComputedProperties = [
+      "box-sizing",
+      "display",
+      "position",
+      "inset",
+      "top",
+      "right",
+      "bottom",
+      "left",
+      "width",
+      "height",
+      "min-width",
+      "min-height",
+      "max-width",
+      "max-height",
+      "margin",
+      "padding",
+      "flex",
+      "flex-flow",
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis",
+      "align-items",
+      "align-self",
+      "align-content",
+      "justify-content",
+      "justify-items",
+      "justify-self",
+      "gap",
+      "grid-template-columns",
+      "grid-template-rows",
+      "grid-column",
+      "grid-row",
+      "order",
+      "overflow",
+      "overflow-x",
+      "overflow-y",
+      "background-color",
+      "background-image",
+      "background-position",
+      "background-size",
+      "background-repeat",
+      "border",
+      "border-top",
+      "border-right",
+      "border-bottom",
+      "border-left",
+      "border-radius",
+      "box-shadow",
+      "opacity",
+      "transform",
+      "transform-origin",
+      "color",
+      "font-family",
+      "font-size",
+      "font-style",
+      "font-weight",
+      "line-height",
+      "letter-spacing",
+      "text-align",
+      "text-decoration",
+      "text-transform",
+      "white-space",
+      "object-fit",
+      "object-position",
+      "clip-path",
+      "visibility",
+    ];
+    function inlineSnapshotComputedStyle(
+      sourceNode: Element,
+      cloneNode: Element,
+    ): void {
+      var computed = getComputedStyle(sourceNode);
+      var parts: string[] = [];
+      for (
+        var propertyIndex = 0;
+        propertyIndex < snapshotComputedProperties.length;
+        propertyIndex += 1
+      ) {
+        var property = snapshotComputedProperties[propertyIndex];
+        var value = computed.getPropertyValue(property);
+        if (value) parts.push(property + ":" + value);
+      }
+      cloneNode.setAttribute("style", parts.join(";"));
+    }
     var sourceNodes = Array.prototype.slice.call(
       document.body.querySelectorAll("*"),
     ) as Element[];
@@ -397,6 +621,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         "data-agent-native-node-id",
         ensureRuntimeLayerNodeId(sourceNode),
       );
+      inlineSnapshotComputedStyle(sourceNode, cloneNode);
       var provenance = reactDebugProvenance(sourceNode);
       if (provenance) {
         cloneNode.setAttribute("data-source-file", provenance.sourceFile);
@@ -419,14 +644,44 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         node.remove();
       });
     cloneBody
-      .querySelectorAll("script,style,template,noscript,link,meta,title")
+      .querySelectorAll(
+        "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set",
+      )
       .forEach(function (node) {
         node.remove();
+      });
+    // Snapshots cross a trust boundary into parent-owned srcdoc. Strip active
+    // attributes here even though the receiver repeats the same policy and
+    // renders under a no-script sandbox + restrictive CSP.
+    [cloneBody]
+      .concat(
+        Array.prototype.slice.call(
+          cloneBody.querySelectorAll("*"),
+        ) as Element[],
+      )
+      .forEach(function (node: Element) {
+        Array.prototype.slice.call(node.attributes).forEach(function (
+          attribute: Attr,
+        ) {
+          var name = String(attribute.name || "").toLowerCase();
+          var value = String(attribute.value || "");
+          if (
+            name.indexOf("on") === 0 ||
+            name === "srcdoc" ||
+            name === "autofocus" ||
+            name === "action" ||
+            name === "formaction" ||
+            /javascript\s*:/i.test(value)
+          ) {
+            node.removeAttribute(attribute.name);
+          }
+        });
       });
     cloneBody.setAttribute(
       "data-agent-native-node-id",
       ensureRuntimeLayerNodeId(document.body),
     );
+    inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
     var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
     if (html.length > 2_000_000) return null;
@@ -9209,8 +9464,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   );
 
   function hasFigmaClipboardPayload(value) {
-    return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-      String(value || ""),
+    var content = String(value || "");
+    return (
+      /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(content) ||
+      /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
+        content,
+      )
     );
   }
 
@@ -10090,15 +10349,46 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       hideGradientOverlay();
       return;
     }
+    if (e.data.type === "interaction-state-style-preview") {
+      var interactionPreviewState =
+        typeof e.data.state === "string" ? e.data.state : "";
+      if (!isSupportedInteractionState(interactionPreviewState)) return;
+      var interactionPreviewCandidates = Array.isArray(
+        e.data.selectorCandidates,
+      )
+        ? e.data.selectorCandidates.slice()
+        : [];
+      if (e.data.nodeId) {
+        interactionPreviewCandidates.push(
+          '[data-agent-native-node-id="' +
+            escapeAttribute(e.data.nodeId) +
+            '"]',
+        );
+      }
+      var interactionPreviewElement = findRuntimeTarget(
+        String(e.data.selector || ""),
+        interactionPreviewCandidates,
+      ) as HTMLElement | null;
+      if (!interactionPreviewElement) return;
+      updateRuntimeInteractionStatePreview(
+        interactionPreviewElement,
+        interactionPreviewState,
+        e.data.styles && typeof e.data.styles === "object" ? e.data.styles : {},
+        false,
+      );
+      if (statePreviewElement === interactionPreviewElement) {
+        interactionPreviewElement.setAttribute(
+          "data-an-state-preview",
+          interactionPreviewState,
+        );
+      }
+      return;
+    }
     // state-preview: force-render one element's interaction-state styling by
-    // setting/removing the `data-an-state-preview="<state>"` attribute — see
-    // `shared/interaction-states.ts`'s "Forced-preview mechanism" doc comment
-    // for the full contract this implements. This bridge does ZERO CSS work:
-    // the twin `[data-agent-native-node-id="…"][data-an-state-preview="…"]`
-    // rule already lives in the persisted `<style data-agent-native-states>`
-    // block (written by `duplicateStatePreviewRules`), so setting the
-    // attribute is the entire preview mechanism. `state: null` (or a missing/
-    // empty `nodeId`) clears any currently-previewing element.
+    // setting/removing the `data-an-state-preview="<state>"` attribute. Inline
+    // HTML gets its styles from the persisted twin rule; localhost previews
+    // can carry `previewStyles`, held in a temporary CSSOM rule so no runtime
+    // source/URL content is rewritten before the guarded source handoff.
     if (e.data.type === "state-preview") {
       var statePreviewTargetNodeId =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
@@ -10107,30 +10397,41 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       // Clear the PREVIOUS target first — only one element force-previews a
       // state at a time, and the new message may target a different node
       // (e.g. the selection changed) or clear entirely.
-      if (statePreviewNodeId) {
-        var previousStatePreviewEl = document.querySelector(
-          '[data-agent-native-node-id="' +
-            String(statePreviewNodeId)
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"') +
-            '"]',
-        ) as HTMLElement | null;
-        if (previousStatePreviewEl) {
-          previousStatePreviewEl.removeAttribute("data-an-state-preview");
-        }
-        statePreviewNodeId = null;
+      if (statePreviewElement) {
+        statePreviewElement.removeAttribute("data-an-state-preview");
+        statePreviewElement = null;
       }
-      if (!statePreviewTargetNodeId || !statePreviewState) return;
-      var statePreviewEl = document.querySelector(
-        '[data-agent-native-node-id="' +
-          String(statePreviewTargetNodeId)
-            .replace(/\\/g, "\\\\")
-            .replace(/"/g, '\\"') +
-          '"]',
+      if (!isSupportedInteractionState(statePreviewState)) return;
+      var statePreviewCandidates = Array.isArray(e.data.selectorCandidates)
+        ? e.data.selectorCandidates.slice()
+        : [];
+      if (statePreviewTargetNodeId) {
+        statePreviewCandidates.push(
+          '[data-agent-native-node-id="' +
+            escapeAttribute(statePreviewTargetNodeId) +
+            '"]',
+        );
+      }
+      var nextStatePreviewElement = findRuntimeTarget(
+        String(e.data.selector || ""),
+        statePreviewCandidates,
       ) as HTMLElement | null;
-      if (!statePreviewEl) return;
-      statePreviewEl.setAttribute("data-an-state-preview", statePreviewState);
-      statePreviewNodeId = statePreviewTargetNodeId;
+      if (!nextStatePreviewElement) return;
+      if (Object.prototype.hasOwnProperty.call(e.data, "previewStyles")) {
+        updateRuntimeInteractionStatePreview(
+          nextStatePreviewElement,
+          statePreviewState,
+          e.data.previewStyles && typeof e.data.previewStyles === "object"
+            ? e.data.previewStyles
+            : {},
+          true,
+        );
+      }
+      nextStatePreviewElement.setAttribute(
+        "data-an-state-preview",
+        statePreviewState,
+      );
+      statePreviewElement = nextStatePreviewElement;
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {

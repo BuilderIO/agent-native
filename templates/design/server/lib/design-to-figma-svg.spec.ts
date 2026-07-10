@@ -12,7 +12,7 @@
  * that file's docblock).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildFigmaSvgDocument,
@@ -20,13 +20,16 @@ import {
   buildLinearGradientDef,
   buildRadialGradientDef,
   buildShadowFilterDef,
+  embedRemoteImages,
   escapeXmlAttr,
   escapeXmlText,
+  fetchImageAsDataUri,
   type FigmaSvgNode,
   gradientAngleToRotation,
   hydrateRawFigmaSvgNode,
   insetRadiiForStroke,
   insetRectForStroke,
+  isAllowedFigmaSvgRenderRequest,
   isUniformRadius,
   isZeroRadii,
   objectFitToPreserveAspectRatio,
@@ -34,10 +37,115 @@ import {
   parseComputedLinearGradient,
   parseComputedRadialGradient,
   type RawFigmaSvgNode,
+  MAX_EMBEDDED_IMAGE_BYTES,
   roundedRectPath,
   safeFigmaSvgFilename,
   splitTopLevelCommas,
 } from "./design-to-figma-svg.js";
+
+describe("secure image embedding", () => {
+  it("uses the SSRF-safe fetch seam and embeds bounded image bytes", async () => {
+    const safeFetch = vi.fn(async () =>
+      Promise.resolve(
+        new Response(new Uint8Array([137, 80, 78, 71]), {
+          headers: { "content-type": "image/png" },
+        }),
+      ),
+    );
+
+    await expect(
+      fetchImageAsDataUri(
+        "https://images.example.com/a.png",
+        safeFetch as never,
+      ),
+    ).resolves.toBe("data:image/png;base64,iVBORw==");
+    expect(safeFetch).toHaveBeenCalledWith(
+      "https://images.example.com/a.png",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      { maxRedirects: 3 },
+    );
+  });
+
+  it("rejects non-image MIME types and advertised oversized bodies", async () => {
+    const htmlFetch = vi.fn(async () =>
+      Promise.resolve(
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      ),
+    );
+    await expect(
+      fetchImageAsDataUri("https://example.com/not-image", htmlFetch as never),
+    ).resolves.toBeNull();
+
+    const hugeFetch = vi.fn(async () =>
+      Promise.resolve(
+        new Response(new Uint8Array([1]), {
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES + 1),
+          },
+        }),
+      ),
+    );
+    await expect(
+      fetchImageAsDataUri("https://example.com/huge.png", hugeFetch as never),
+    ).resolves.toBeNull();
+  });
+
+  it("never leaves expiring remote URLs in a self-contained export", async () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 100, height: 100 },
+      fills: [
+        { kind: "image", href: "https://figma.example/expiring", fit: "cover" },
+      ],
+      children: [
+        {
+          id: "hero",
+          name: "Hero",
+          kind: "image",
+          rect: { x: 0, y: 0, width: 100, height: 100 },
+          image: {
+            href: "https://figma.example/also-expiring",
+            fit: "cover",
+          },
+        },
+      ],
+    };
+    const omitted = await embedRemoteImages(root, async () => null);
+
+    expect(root.fills?.[0]).toMatchObject({ href: "" });
+    expect(root.children?.[0].image?.href).toBe("");
+    expect(omitted).toHaveLength(2);
+  });
+});
+
+describe("isAllowedFigmaSvgRenderRequest", () => {
+  it("allows inert local schemes without DNS and blocks private HTTP targets", async () => {
+    const blocked = vi.fn(async (url: string) => url.includes("127.0.0.1"));
+    await expect(
+      isAllowedFigmaSvgRenderRequest("data:image/png;base64,AA", blocked),
+    ).resolves.toBe(true);
+    await expect(
+      isAllowedFigmaSvgRenderRequest("http://127.0.0.1/secret", blocked),
+    ).resolves.toBe(false);
+    expect(blocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed for malformed URLs and DNS validation errors", async () => {
+    await expect(
+      isAllowedFigmaSvgRenderRequest("not a url", vi.fn()),
+    ).resolves.toBe(false);
+    await expect(
+      isAllowedFigmaSvgRenderRequest(
+        "https://example.com/image.png",
+        vi.fn().mockRejectedValue(new Error("DNS unavailable")),
+      ),
+    ).resolves.toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Formatting / escaping

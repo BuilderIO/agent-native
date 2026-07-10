@@ -4,12 +4,52 @@ import {
   type DesignClipboardPayload,
   getFigmaClipboardContent,
   hasFigmaClipboardPayload,
+  importResultNotification,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
   parseUploadResponse,
   serializeDesignClipboardPayload,
 } from "./design-import";
+
+describe("import result notifications", () => {
+  it("keeps a clean .fig import to one success notification", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Page-Frame.html" }],
+          warnings: [
+            "Figma's .fig format is proprietary and undocumented. Unsupported features may render differently.",
+          ],
+        },
+        "File imported",
+      ),
+    ).toEqual({
+      variant: "success",
+      title: "Imported Page-Frame.html.",
+    });
+  });
+
+  it("shows actionable warnings without the generic format caveat", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Page-Frame.html" }],
+          warnings: [
+            "Figma's .fig format is proprietary and undocumented. Unsupported features may render differently.",
+            "2 embedded images were omitted because file storage is unavailable.",
+          ],
+        },
+        "File imported",
+      ),
+    ).toEqual({
+      variant: "warning",
+      title: "Imported Page-Frame.html.",
+      description:
+        "2 embedded images were omitted because file storage is unavailable.",
+    });
+  });
+});
 
 function clipboardData(values: Record<string, string>) {
   return {
@@ -24,6 +64,15 @@ describe("design import clipboard helpers", () => {
     expect(
       hasFigmaClipboardPayload('<div data-metadata="(figmeta)"></div>'),
     ).toBe(true);
+  });
+
+  it("detects current bare-comment Figma clipboard markers", () => {
+    const html =
+      '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
+    expect(hasFigmaClipboardPayload(html)).toBe(true);
+    expect(getFigmaClipboardContent(clipboardData({ "text/html": html }))).toBe(
+      html,
+    );
   });
 
   it("prefers Figma HTML over plain text", () => {

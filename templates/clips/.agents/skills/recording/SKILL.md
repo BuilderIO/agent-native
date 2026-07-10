@@ -32,7 +32,11 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 5. **Upload each chunk.** `ondataavailable` POSTs the chunk bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`. Don't retry inline — buffer failed chunks in `IndexedDB` and let a background worker re-send.
 6. **Live transcription.** Alongside the MediaRecorder, `useLiveTranscription` runs the Web Speech API to accumulate transcript text in real time. On stop, the client calls `save-browser-transcript` to persist the result immediately — no API key needed. Desktop recordings use local Whisper/macOS speech first when available, and fall back to Web Speech in the webview on non-mac before relying on upload transcription.
 7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, makes the media seekable (see below), uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
-8. **Navigate.** Once the row is `ready` the UI navigates to `/r/:id`.
+8. **Navigate immediately.** Desktop recorders open `/r/:id` as soon as Stop
+   starts finalization. The recording row already exists, so the page can show
+   the title, share link, and upload progress while it polls from `uploading` or
+   `processing` to `ready`. Do not wait for the upload/finalize response before
+   opening the page.
 
 ## Seekable playback (don't ship raw MediaRecorder output)
 

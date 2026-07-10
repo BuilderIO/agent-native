@@ -501,8 +501,10 @@ const enUS = {
       figmaPasteHtmlLabel: "Imported from clipboard preview",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
-        "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
+        "Experimental: Figma's .fig format is proprietary and may change. Supported layers become editable screens; some features may differ. Maximum 50 MB.",
       chooseFigFile: "Choose .fig file",
+      figUploadUploading: "Uploading {{progress}}%",
+      figUploadProcessing: "Converting…",
       htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
@@ -527,6 +529,8 @@ const enUS = {
         importFailed: "Import failed",
         figmaPasteFailed: "Figma paste import failed",
         uploadFailed: "File upload failed",
+        invalidFigFile: "Choose a file ending in .fig.",
+        figFileTooLarge: ".fig files must be 50 MB or smaller.",
       },
     },
     generationMayHaveStopped:
@@ -717,6 +721,7 @@ const enUS = {
     downloadHtml: "Download HTML",
     downloadPng: "Download PNG",
     downloadSvg: "Download SVG",
+    downloadFigmaSvg: "Download for Figma (SVG)",
     downloadZip: "Download ZIP",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
@@ -846,6 +851,7 @@ const enUS = {
       svgDownloaded: "SVG downloaded",
       svgExportError: "Could not export SVG",
       figmaSvgCopied: "Copied as Figma SVG",
+      figmaSvgDownloaded: "Figma SVG downloaded",
       figmaSvgUnsupported:
         "This browser can't copy SVG images to the clipboard",
       figmaSvgBlocked: "Allow clipboard access to copy this SVG",
@@ -1090,6 +1096,8 @@ const enUS = {
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
     openingDesign: "Opening design...",
+    skipToEditor: "Skip to editor",
+    failedToCreateDesign: "Failed to create design",
     describeBuild: "Describe what you want to build...",
     selected: "{{count}} selected",
     clearVisibleSelection: "Clear visible selection",
@@ -1276,11 +1284,31 @@ const enUS = {
     updateError: "Could not update design system",
     bulkDeleteError: "Could not delete selected design systems",
     selectedLabel: "selected",
+    yoursTitle: "Your design systems",
     newCardDescription: "Set up your brand",
     defaultBadge: "Default",
     selectAria: "Select {{title}}",
     currentlyDefault: "Currently default",
     moreActionsAria: "More actions for {{title}}",
+    showcase: {
+      title: "Production-ready starting points",
+      description:
+        "Use a source-linked snapshot of an established public design system. Each copy includes real tokens, type scales, spacing, shapes, state guidance, and attribution.",
+      useTemplate: "Use this system",
+      adding: "Adding...",
+      openSource: "Open the {{title}} source documentation",
+      license: "Source license: {{license}}",
+      addSuccess: "Design system added",
+      addError: "Could not add design system",
+      descriptions: {
+        material3:
+          "Google’s baseline light roles, Roboto type scale, 4 dp spacing, and Material shape system.",
+        carbon:
+          "IBM’s Carbon v11 White theme, IBM Plex typography, enterprise color roles, and 2/4/8 spacing.",
+        primer:
+          "GitHub’s Primer light tokens, Mona Sans, compact developer-tool density, and responsive spacing.",
+      },
+    },
     actions: {
       done: "Done",
       select: "Select",
@@ -1562,6 +1590,7 @@ const designLocaleOverrides = {
       downloadHtml: "下载 HTML",
       downloadPng: "下载 PNG",
       downloadSvg: "下载 SVG",
+      downloadFigmaSvg: "下载用于 Figma 的 SVG",
       downloadZip: "下载 ZIP",
       copyCodingHandoff: "复制编码交接",
       pickDirection: "选择一个方向",
@@ -1711,11 +1740,31 @@ const designLocaleOverrides = {
       updateError: "无法更新设计系统",
       bulkDeleteError: "无法删除选定的设计系统",
       selectedLabel: "已选择",
+      yoursTitle: "您的设计系统",
       newCardDescription: "建立您的品牌",
       defaultBadge: "默认",
       selectAria: "选择{{title}}",
       currentlyDefault: "目前默认",
       moreActionsAria: "{{title}} 的更多操作",
+      showcase: {
+        title: "可用于生产的起点",
+        description:
+          "使用成熟公共设计系统的来源链接快照。每个副本都包含真实令牌、字号、间距、形状、状态指南和署名。",
+        useTemplate: "使用此系统",
+        adding: "正在添加...",
+        openSource: "打开 {{title}} 来源文档",
+        license: "源许可证：{{license}}",
+        addSuccess: "已添加设计系统",
+        addError: "无法添加设计系统",
+        descriptions: {
+          material3:
+            "Google 的基准浅色角色、Roboto 字号、4 dp 间距和 Material 形状系统。",
+          carbon:
+            "IBM Carbon v11 White 主题、IBM Plex 排版、企业色彩角色和 2/4/8 间距。",
+          primer:
+            "GitHub Primer 浅色令牌、Mona Sans、紧凑的开发者工具密度和响应式间距。",
+        },
+      },
       actions: {
         done: "完毕",
         select: "选择",
@@ -2107,11 +2156,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "No se pudieron eliminar los sistemas de diseño seleccionados",
       selectedLabel: "seleccionado",
+      yoursTitle: "Tus sistemas de diseño",
       newCardDescription: "Configura tu marca",
       defaultBadge: "Por defecto",
       selectAria: "Seleccione {{title}}",
       currentlyDefault: "Actualmente predeterminado",
       moreActionsAria: "Otras acciones para {{title}}",
+      showcase: {
+        title: "Puntos de partida listos para producción",
+        description:
+          "Usa una copia con fuentes enlazadas de un sistema de diseño público consolidado. Cada copia incluye tokens, escalas tipográficas, espaciado, formas, estados y atribución reales.",
+        useTemplate: "Usar este sistema",
+        adding: "Añadiendo...",
+        openSource: "Abrir la documentación fuente de {{title}}",
+        license: "Licencia de origen: {{license}}",
+        addSuccess: "Sistema de diseño añadido",
+        addError: "No se pudo añadir el sistema de diseño",
+        descriptions: {
+          material3:
+            "Roles claros base de Google, escala Roboto, espaciado de 4 dp y sistema de formas Material.",
+          carbon:
+            "Tema White de IBM Carbon v11, tipografía IBM Plex, roles de color empresariales y espaciado 2/4/8.",
+          primer:
+            "Tokens claros de GitHub Primer, Mona Sans, densidad compacta para herramientas y espaciado adaptable.",
+        },
+      },
       actions: {
         done: "Hecho",
         select: "Seleccionar",
@@ -2510,11 +2579,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Impossible de supprimer les systèmes de conception sélectionnés",
       selectedLabel: "choisi",
+      yoursTitle: "Vos systèmes de conception",
       newCardDescription: "Configurez votre marque",
       defaultBadge: "Défaut",
       selectAria: "Sélectionnez {{title}}",
       currentlyDefault: "Actuellement par défaut",
       moreActionsAria: "Plus de propositions pour {{title}}",
+      showcase: {
+        title: "Points de départ prêts pour la production",
+        description:
+          "Utilisez une copie reliée à ses sources d’un système de conception public reconnu. Chaque copie inclut de vrais jetons, échelles typographiques, espacements, formes, états et attributions.",
+        useTemplate: "Utiliser ce système",
+        adding: "Ajout...",
+        openSource: "Ouvrir la documentation source de {{title}}",
+        license: "Licence source : {{license}}",
+        addSuccess: "Système de conception ajouté",
+        addError: "Impossible d’ajouter le système de conception",
+        descriptions: {
+          material3:
+            "Rôles clairs de base de Google, échelle Roboto, espacement de 4 dp et système de formes Material.",
+          carbon:
+            "Thème White d’IBM Carbon v11, typographie IBM Plex, rôles colorimétriques d’entreprise et espacement 2/4/8.",
+          primer:
+            "Jetons clairs de GitHub Primer, Mona Sans, densité compacte pour outils et espacement adaptatif.",
+        },
+      },
       actions: {
         done: "Fait",
         select: "Sélectionner",
@@ -2914,11 +3003,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Ausgewählte Designsysteme konnten nicht gelöscht werden",
       selectedLabel: "ausgewählt",
+      yoursTitle: "Ihre Designsysteme",
       newCardDescription: "Richten Sie Ihre Marke ein",
       defaultBadge: "Standard",
       selectAria: "Wählen Sie {{title}}",
       currentlyDefault: "Derzeit Standard",
       moreActionsAria: "Weitere Aktionen für {{title}}",
+      showcase: {
+        title: "Produktionsreife Ausgangspunkte",
+        description:
+          "Nutzen Sie eine mit Quellen verknüpfte Kopie eines etablierten öffentlichen Designsystems. Jede Kopie enthält echte Tokens, Typografieskalen, Abstände, Formen, Zustände und Quellenangaben.",
+        useTemplate: "Dieses System verwenden",
+        adding: "Wird hinzugefügt...",
+        openSource: "Quelldokumentation für {{title}} öffnen",
+        license: "Quelllizenz: {{license}}",
+        addSuccess: "Designsystem hinzugefügt",
+        addError: "Designsystem konnte nicht hinzugefügt werden",
+        descriptions: {
+          material3:
+            "Googles helle Basisrollen, Roboto-Typografieskala, 4-dp-Abstände und Material-Formensystem.",
+          carbon:
+            "IBM Carbon v11 White Theme, IBM Plex, Farbrollen für Unternehmenssoftware und 2/4/8-Abstände.",
+          primer:
+            "GitHub Primer Light Tokens, Mona Sans, kompakte Werkzeugdichte und responsive Abstände.",
+        },
+      },
       actions: {
         done: "Erledigt",
         select: "Wählen",
@@ -3314,11 +3423,31 @@ const designLocaleOverrides = {
       updateError: "デザインシステムを更新できませんでした",
       bulkDeleteError: "選択したデザイン システムを削除できませんでした",
       selectedLabel: "選択された",
+      yoursTitle: "あなたのデザインシステム",
       newCardDescription: "ブランドを設定する",
       defaultBadge: "デフォルト",
       selectAria: "{{title}}を選択します",
       currentlyDefault: "現在のデフォルト",
       moreActionsAria: "{{title}} のその他のアクション",
+      showcase: {
+        title: "本番対応の出発点",
+        description:
+          "確立された公開デザインシステムの、出典付きスナップショットを使用できます。各コピーには実際のトークン、書体、間隔、形状、状態ガイド、出典が含まれます。",
+        useTemplate: "このシステムを使用",
+        adding: "追加中...",
+        openSource: "{{title}} の公式ドキュメントを開く",
+        license: "ソースライセンス: {{license}}",
+        addSuccess: "デザインシステムを追加しました",
+        addError: "デザインシステムを追加できませんでした",
+        descriptions: {
+          material3:
+            "Google の基準ライトロール、Roboto タイプスケール、4 dp 間隔、Material シェイプシステム。",
+          carbon:
+            "IBM Carbon v11 White テーマ、IBM Plex、業務向けカラー役割、2/4/8 間隔。",
+          primer:
+            "GitHub Primer のライトトークン、Mona Sans、開発ツール向けの密度、レスポンシブ間隔。",
+        },
+      },
       actions: {
         done: "終わり",
         select: "選択",
@@ -3707,11 +3836,31 @@ const designLocaleOverrides = {
       updateError: "디자인 시스템을 업데이트할 수 없습니다.",
       bulkDeleteError: "선택한 디자인 시스템을 삭제할 수 없습니다.",
       selectedLabel: "선택된",
+      yoursTitle: "내 디자인 시스템",
       newCardDescription: "브랜드 설정",
       defaultBadge: "기본",
       selectAria: "{{title}} 선택",
       currentlyDefault: "현재 기본값",
       moreActionsAria: "{{title}}에 대한 추가 작업",
+      showcase: {
+        title: "프로덕션 준비 시작점",
+        description:
+          "검증된 공개 디자인 시스템의 출처 연결 스냅샷을 사용하세요. 각 사본에는 실제 토큰, 타입 스케일, 간격, 형태, 상태 지침 및 출처가 포함됩니다.",
+        useTemplate: "이 시스템 사용",
+        adding: "추가 중...",
+        openSource: "{{title}} 원본 문서 열기",
+        license: "원본 라이선스: {{license}}",
+        addSuccess: "디자인 시스템이 추가되었습니다",
+        addError: "디자인 시스템을 추가할 수 없습니다",
+        descriptions: {
+          material3:
+            "Google 기준 라이트 역할, Roboto 타입 스케일, 4dp 간격 및 Material 형태 시스템.",
+          carbon:
+            "IBM Carbon v11 White 테마, IBM Plex, 엔터프라이즈 색상 역할 및 2/4/8 간격.",
+          primer:
+            "GitHub Primer 라이트 토큰, Mona Sans, 개발 도구용 밀도 및 반응형 간격.",
+        },
+      },
       actions: {
         done: "완료",
         select: "선택하다",
@@ -4105,11 +4254,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Não foi possível excluir os sistemas de design selecionados",
       selectedLabel: "selecionado",
+      yoursTitle: "Seus sistemas de design",
       newCardDescription: "Configure sua marca",
       defaultBadge: "Padrão",
       selectAria: "Selecione {{title}}",
       currentlyDefault: "Atualmente padrão",
       moreActionsAria: "Mais ações para {{title}}",
+      showcase: {
+        title: "Pontos de partida prontos para produção",
+        description:
+          "Use uma cópia com fontes vinculadas de um sistema de design público consolidado. Cada cópia inclui tokens, escalas tipográficas, espaçamento, formas, estados e atribuição reais.",
+        useTemplate: "Usar este sistema",
+        adding: "Adicionando...",
+        openSource: "Abrir a documentação de origem de {{title}}",
+        license: "Licença da fonte: {{license}}",
+        addSuccess: "Sistema de design adicionado",
+        addError: "Não foi possível adicionar o sistema de design",
+        descriptions: {
+          material3:
+            "Papéis claros básicos do Google, escala Roboto, espaçamento de 4 dp e sistema de formas Material.",
+          carbon:
+            "Tema White do IBM Carbon v11, tipografia IBM Plex, papéis de cor empresariais e espaçamento 2/4/8.",
+          primer:
+            "Tokens claros do GitHub Primer, Mona Sans, densidade compacta para ferramentas e espaçamento responsivo.",
+        },
+      },
       actions: {
         done: "Feito",
         select: "Selecione",
@@ -4495,11 +4664,31 @@ const designLocaleOverrides = {
       updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",
       bulkDeleteError: "चयनित डिज़ाइन सिस्टम को हटाया नहीं जा सका",
       selectedLabel: "चयनित",
+      yoursTitle: "आपके डिज़ाइन सिस्टम",
       newCardDescription: "अपना ब्रांड स्थापित करें",
       defaultBadge: "गलती करना",
       selectAria: "{{title}} चुनें",
       currentlyDefault: "वर्तमान में डिफ़ॉल्ट",
       moreActionsAria: "{{title}} के लिए और अधिक कार्रवाइयां",
+      showcase: {
+        title: "प्रोडक्शन के लिए तैयार शुरुआती बिंदु",
+        description:
+          "स्थापित सार्वजनिक डिज़ाइन सिस्टम की स्रोत-लिंक्ड कॉपी उपयोग करें। हर कॉपी में वास्तविक टोकन, टाइप स्केल, स्पेसिंग, आकार, स्टेट मार्गदर्शन और श्रेय शामिल हैं।",
+        useTemplate: "इस सिस्टम का उपयोग करें",
+        adding: "जोड़ा जा रहा है...",
+        openSource: "{{title}} का स्रोत दस्तावेज़ खोलें",
+        license: "स्रोत लाइसेंस: {{license}}",
+        addSuccess: "डिज़ाइन सिस्टम जोड़ा गया",
+        addError: "डिज़ाइन सिस्टम नहीं जोड़ा जा सका",
+        descriptions: {
+          material3:
+            "Google की बेसलाइन लाइट भूमिकाएँ, Roboto टाइप स्केल, 4 dp स्पेसिंग और Material आकार सिस्टम।",
+          carbon:
+            "IBM Carbon v11 White थीम, IBM Plex, एंटरप्राइज़ रंग भूमिकाएँ और 2/4/8 स्पेसिंग।",
+          primer:
+            "GitHub Primer लाइट टोकन, Mona Sans, कॉम्पैक्ट डेवलपर-टूल घनत्व और रिस्पॉन्सिव स्पेसिंग।",
+        },
+      },
       actions: {
         done: "हो गया",
         select: "चुनना",
@@ -4885,11 +5074,31 @@ const designLocaleOverrides = {
       updateError: "لا يمكن تحديث نظام التصميم",
       bulkDeleteError: "لا يمكن حذف أنظمة التصميم المحددة",
       selectedLabel: "مختارة",
+      yoursTitle: "أنظمة التصميم الخاصة بك",
       newCardDescription: "قم بإعداد علامتك التجارية",
       defaultBadge: "تقصير",
       selectAria: "حدد {{title}}",
       currentlyDefault: "الافتراضي حاليا",
       moreActionsAria: "المزيد من الإجراءات لـ {{title}}",
+      showcase: {
+        title: "نقاط بداية جاهزة للإنتاج",
+        description:
+          "استخدم نسخة مرتبطة بالمصدر من نظام تصميم عام راسخ. تتضمن كل نسخة رموزا ومقاييس كتابة ومسافات وأشكالا وإرشادات حالات ونسبا حقيقية.",
+        useTemplate: "استخدام هذا النظام",
+        adding: "جار الإضافة...",
+        openSource: "فتح وثائق مصدر {{title}}",
+        license: "رخصة المصدر: {{license}}",
+        addSuccess: "تمت إضافة نظام التصميم",
+        addError: "تعذرت إضافة نظام التصميم",
+        descriptions: {
+          material3:
+            "أدوار Google الأساسية الفاتحة ومقياس Roboto ومسافات 4 dp ونظام أشكال Material.",
+          carbon:
+            "سمة IBM Carbon v11 White وخط IBM Plex وأدوار ألوان المؤسسات ومسافات 2/4/8.",
+          primer:
+            "رموز GitHub Primer الفاتحة وخط Mona Sans وكثافة أدوات المطورين المدمجة والمسافات المتجاوبة.",
+        },
+      },
       actions: {
         done: "منتهي",
         select: "يختار",
@@ -5056,6 +5265,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "新设计",
       createDesignProject: "创建一个设计项目",
       openingDesign: "正在打开设计...",
+      skipToEditor: "直接进入编辑器",
+      failedToCreateDesign: "无法创建设计",
       describeBuild: "描述您想要构建的内容...",
       selected: "已选择 {{count}}",
       clearVisibleSelection: "清晰可见的选择",
@@ -5213,6 +5424,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Nuevo diseño",
       createDesignProject: "Crear un proyecto de diseño.",
       openingDesign: "Abriendo diseño...",
+      skipToEditor: "Ir al editor",
+      failedToCreateDesign: "No se pudo crear el diseño",
       describeBuild: "Describe lo que quieres crear...",
       selected: "{{count}} seleccionado",
       clearVisibleSelection: "Borrar selección visible",
@@ -5371,6 +5584,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Nouveau design",
       createDesignProject: "Créer un projet de conception",
       openingDesign: "Ouverture du design...",
+      skipToEditor: "Accéder à l’éditeur",
+      failedToCreateDesign: "Impossible de créer le design",
       describeBuild: "Décrivez ce que vous voulez créer...",
       selected: "{{count}} sélectionné",
       clearVisibleSelection: "Effacer la sélection visible",
@@ -5530,6 +5745,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Neues Design",
       createDesignProject: "Erstellen Sie ein Designprojekt",
       openingDesign: "Design wird geöffnet...",
+      skipToEditor: "Direkt zum Editor",
+      failedToCreateDesign: "Design konnte nicht erstellt werden",
       describeBuild: "Beschreiben Sie, was Sie erstellen möchten...",
       selected: "{{count}} ausgewählt",
       clearVisibleSelection: "Klare sichtbare Auswahl",
@@ -5685,6 +5902,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "新しいデザイン",
       createDesignProject: "デザインプロジェクトを作成する",
       openingDesign: "デザインを開いています...",
+      skipToEditor: "エディターに移動",
+      failedToCreateDesign: "デザインを作成できませんでした",
       describeBuild: "作成したいものを説明してください...",
       selected: "{{count}} が選択されました",
       clearVisibleSelection: "表示されている選択範囲をクリアします",
@@ -5838,6 +6057,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "새로운 디자인",
       createDesignProject: "디자인 프로젝트 만들기",
       openingDesign: "디자인을 여는 중...",
+      skipToEditor: "편집기로 이동",
+      failedToCreateDesign: "디자인을 만들지 못했습니다",
       describeBuild: "만들고 싶은 것을 설명하세요...",
       selected: "{{count}} 선택됨",
       clearVisibleSelection: "보이는 선택 항목 지우기",
@@ -5995,6 +6216,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Novo design",
       createDesignProject: "Crie um projeto de design",
       openingDesign: "Abrindo design...",
+      skipToEditor: "Ir para o editor",
+      failedToCreateDesign: "Não foi possível criar o design",
       describeBuild: "Descreva o que você quer criar...",
       selected: "{{count}} selecionado",
       clearVisibleSelection: "Limpar seleção visível",
@@ -6149,6 +6372,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "नया डिज़ाइन",
       createDesignProject: "एक डिज़ाइन प्रोजेक्ट बनाएं",
       openingDesign: "डिज़ाइन खोला जा रहा है...",
+      skipToEditor: "एडिटर पर जाएँ",
+      failedToCreateDesign: "डिज़ाइन नहीं बनाया जा सका",
       describeBuild: "बताएँ कि आप क्या बनाना चाहते हैं...",
       selected: "{{count}} चयनित",
       clearVisibleSelection: "स्पष्ट दृश्यमान चयन",
@@ -6302,6 +6527,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "تصميم جديد",
       createDesignProject: "إنشاء مشروع تصميم",
       openingDesign: "جارٍ فتح التصميم...",
+      skipToEditor: "الانتقال إلى المحرر",
+      failedToCreateDesign: "تعذر إنشاء التصميم",
       describeBuild: "صف ما تريد إنشاءه...",
       selected: "تم تحديد {{count}}",
       clearVisibleSelection: "مسح التحديد المرئي",
@@ -6435,6 +6662,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG 已下载",
         svgExportError: "无法导出 SVG",
         figmaSvgCopied: "已复制为 Figma SVG",
+        figmaSvgDownloaded: "Figma SVG 已下载",
         figmaSvgUnsupported: "此浏览器无法将 SVG 图像复制到剪贴板",
         figmaSvgBlocked: "请允许访问剪贴板以复制此 SVG",
         figmaSvgWriteError: "无法将 SVG 复制到剪贴板",
@@ -6473,6 +6701,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Descargar HTML",
       downloadPng: "Descargar PNG",
       downloadSvg: "Descargar SVG",
+      downloadFigmaSvg: "Descargar para Figma (SVG)",
       downloadZip: "Descargar ZIP",
       generateDesign: "Generar diseño",
       generatePlaceholder: "Describe lo que quieres crear...",
@@ -6527,6 +6756,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
         figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgDownloaded: "SVG de Figma descargado",
         figmaSvgUnsupported:
           "Este navegador no puede copiar imágenes SVG al portapapeles",
         figmaSvgBlocked:
@@ -6567,6 +6797,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Télécharger HTML",
       downloadPng: "Télécharger PNG",
       downloadSvg: "Télécharger SVG",
+      downloadFigmaSvg: "Télécharger pour Figma (SVG)",
       downloadZip: "Télécharger ZIP",
       generateDesign: "Générer un design",
       generatePlaceholder: "Décrivez ce que vous voulez créer...",
@@ -6623,6 +6854,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d’exporter SVG",
         figmaSvgCopied: "Copié en tant que SVG Figma",
+        figmaSvgDownloaded: "SVG Figma téléchargé",
         figmaSvgUnsupported:
           "Ce navigateur ne peut pas copier d’images SVG dans le presse-papiers",
         figmaSvgBlocked:
@@ -6664,6 +6896,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML herunterladen",
       downloadPng: "PNG herunterladen",
       downloadSvg: "SVG herunterladen",
+      downloadFigmaSvg: "Für Figma herunterladen (SVG)",
       downloadZip: "ZIP herunterladen",
       generateDesign: "Design generieren",
       generatePlaceholder: "Beschreiben Sie, was Sie erstellen möchten...",
@@ -6720,6 +6953,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
         figmaSvgCopied: "Als Figma-SVG kopiert",
+        figmaSvgDownloaded: "Figma-SVG heruntergeladen",
         figmaSvgUnsupported:
           "Dieser Browser kann SVG-Bilder nicht in die Zwischenablage kopieren",
         figmaSvgBlocked:
@@ -6761,6 +6995,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML をダウンロード",
       downloadPng: "PNG をダウンロード",
       downloadSvg: "SVG をダウンロード",
+      downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
       downloadZip: "ZIP をダウンロード",
       generateDesign: "デザインを生成",
       generatePlaceholder: "作成したいものを説明してください...",
@@ -6816,6 +7051,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG をダウンロードしました",
         svgExportError: "SVG をエクスポートできませんでした",
         figmaSvgCopied: "Figma SVG としてコピーしました",
+        figmaSvgDownloaded: "Figma SVG をダウンロードしました",
         figmaSvgUnsupported:
           "このブラウザでは SVG 画像をクリップボードにコピーできません",
         figmaSvgBlocked:
@@ -6856,6 +7092,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML 다운로드",
       downloadPng: "PNG 다운로드",
       downloadSvg: "SVG 다운로드",
+      downloadFigmaSvg: "Figma용으로 다운로드(SVG)",
       downloadZip: "ZIP 다운로드",
       generateDesign: "디자인 생성",
       generatePlaceholder: "만들고 싶은 것을 설명하세요...",
@@ -6909,6 +7146,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없음",
         figmaSvgCopied: "Figma SVG로 복사됨",
+        figmaSvgDownloaded: "Figma SVG 다운로드됨",
         figmaSvgUnsupported:
           "이 브라우저에서는 SVG 이미지를 클립보드에 복사할 수 없음",
         figmaSvgBlocked: "이 SVG를 복사하려면 클립보드 접근을 허용하세요",
@@ -6948,6 +7186,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Baixar HTML",
       downloadPng: "Baixar PNG",
       downloadSvg: "Baixar SVG",
+      downloadFigmaSvg: "Baixar para o Figma (SVG)",
       downloadZip: "Baixar ZIP",
       generateDesign: "Gerar design",
       generatePlaceholder: "Descreva o que você quer criar...",
@@ -7003,6 +7242,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
         figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgDownloaded: "SVG do Figma baixado",
         figmaSvgUnsupported:
           "Este navegador não pode copiar imagens SVG para a área de transferência",
         figmaSvgBlocked:
@@ -7044,6 +7284,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML डाउनलोड करें",
       downloadPng: "PNG डाउनलोड करें",
       downloadSvg: "SVG डाउनलोड करें",
+      downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
       downloadZip: "ZIP डाउनलोड करें",
       generateDesign: "डिज़ाइन जनरेट करें",
       generatePlaceholder: "बताएँ कि आप क्या बनाना चाहते हैं...",
@@ -7096,6 +7337,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG डाउनलोड हुआ",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
         figmaSvgCopied: "Figma SVG के रूप में कॉपी हुआ",
+        figmaSvgDownloaded: "Figma SVG डाउनलोड हुआ",
         figmaSvgUnsupported:
           "यह ब्राउज़र SVG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
         figmaSvgBlocked: "इस SVG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
@@ -7135,6 +7377,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "تنزيل HTML",
       downloadPng: "تنزيل PNG",
       downloadSvg: "تنزيل SVG",
+      downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
       downloadZip: "تنزيل ZIP",
       generateDesign: "إنشاء التصميم",
       generatePlaceholder: "صف ما تريد إنشاءه...",
@@ -7186,6 +7429,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
         figmaSvgCopied: "تم النسخ كملف Figma SVG",
+        figmaSvgDownloaded: "تم تنزيل ملف Figma SVG",
         figmaSvgUnsupported: "لا يمكن لهذا المتصفح نسخ صور SVG إلى الحافظة",
         figmaSvgBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف SVG هذا",
         figmaSvgWriteError: "تعذر نسخ SVG إلى الحافظة",
@@ -11055,8 +11299,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
-          "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
+          "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
         chooseFigFile: "選擇 .fig 檔案",
+        figUploadUploading: "上傳中 {{progress}}%",
+        figUploadProcessing: "轉換中…",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -11080,6 +11326,8 @@ const designImportOverrides = {
           importFailed: "匯入失敗",
           figmaPasteFailed: "Figma 貼上匯入失敗",
           uploadFailed: "檔案上傳失敗",
+          invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+          figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
         },
       },
     },
@@ -11100,8 +11348,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
-          "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
+          "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 50 MB。",
         chooseFigFile: "选择 .fig 文件",
+        figUploadUploading: "正在上传 {{progress}}%",
+        figUploadProcessing: "正在转换…",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -11125,6 +11375,8 @@ const designImportOverrides = {
           importFailed: "导入失败",
           figmaPasteFailed: "Figma 粘贴导入失败",
           uploadFailed: "文件上传失败",
+          invalidFigFile: "请选择以 .fig 结尾的文件。",
+          figFileTooLarge: ".fig 文件必须为 50 MB 或更小。",
         },
       },
     },
@@ -11147,8 +11399,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
-          "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
+          "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo 50 MB.",
         chooseFigFile: "Elegir archivo .fig",
+        figUploadUploading: "Subiendo {{progress}}%",
+        figUploadProcessing: "Convirtiendo…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -11174,6 +11428,8 @@ const designImportOverrides = {
           importFailed: "Error al importar",
           figmaPasteFailed: "Error al importar el pegado de Figma",
           uploadFailed: "Error al subir el archivo",
+          invalidFigFile: "Elige un archivo que termine en .fig.",
+          figFileTooLarge: "Los archivos .fig deben tener 50 MB o menos.",
         },
       },
     },
@@ -11196,8 +11452,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
-          "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
+          "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum 50 Mo.",
         chooseFigFile: "Choisir un fichier .fig",
+        figUploadUploading: "Téléversement {{progress}} %",
+        figUploadProcessing: "Conversion…",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -11223,6 +11481,8 @@ const designImportOverrides = {
           importFailed: "Échec de l’import",
           figmaPasteFailed: "Échec de l’import du collage Figma",
           uploadFailed: "Échec du téléversement",
+          invalidFigFile: "Choisissez un fichier se terminant par .fig.",
+          figFileTooLarge: "Les fichiers .fig doivent faire 50 Mo ou moins.",
         },
       },
     },
@@ -11245,8 +11505,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
-          "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
+          "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal 50 MB.",
         chooseFigFile: ".fig-Datei wählen",
+        figUploadUploading: "Wird hochgeladen: {{progress}} %",
+        figUploadProcessing: "Wird konvertiert…",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -11271,6 +11533,8 @@ const designImportOverrides = {
           importFailed: "Import fehlgeschlagen",
           figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
           uploadFailed: "Dateiupload fehlgeschlagen",
+          invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
+          figFileTooLarge: ".fig-Dateien dürfen höchstens 50 MB groß sein.",
         },
       },
     },
@@ -11293,8 +11557,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
-          "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
+          "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 50 MB。",
         chooseFigFile: ".fig ファイルを選択",
+        figUploadUploading: "アップロード中 {{progress}}%",
+        figUploadProcessing: "変換中…",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -11320,6 +11586,8 @@ const designImportOverrides = {
           importFailed: "インポートに失敗しました",
           figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
           uploadFailed: "ファイルのアップロードに失敗しました",
+          invalidFigFile: ".fig で終わるファイルを選択してください。",
+          figFileTooLarge: ".fig ファイルは 50 MB 以下にしてください。",
         },
       },
     },
@@ -11342,8 +11610,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
-          "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
+          "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 50MB.",
         chooseFigFile: ".fig 파일 선택",
+        figUploadUploading: "업로드 중 {{progress}}%",
+        figUploadProcessing: "변환 중…",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -11369,6 +11639,8 @@ const designImportOverrides = {
           importFailed: "가져오기 실패",
           figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
           uploadFailed: "파일 업로드 실패",
+          invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
+          figFileTooLarge: ".fig 파일은 50MB 이하여야 합니다.",
         },
       },
     },
@@ -11392,8 +11664,10 @@ const designImportOverrides = {
           "Importado da pré-visualização da área de transferência",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
-          "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
+          "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de 50 MB.",
         chooseFigFile: "Escolher arquivo .fig",
+        figUploadUploading: "Enviando {{progress}}%",
+        figUploadProcessing: "Convertendo…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -11419,6 +11693,8 @@ const designImportOverrides = {
           importFailed: "Falha ao importar",
           figmaPasteFailed: "Falha ao importar colagem do Figma",
           uploadFailed: "Falha no upload do arquivo",
+          invalidFigFile: "Escolha um arquivo que termine em .fig.",
+          figFileTooLarge: "Arquivos .fig devem ter 50 MB ou menos.",
         },
       },
     },
@@ -11441,8 +11717,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
-          "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
+          "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम 50 MB।",
         chooseFigFile: ".fig file चुनें",
+        figUploadUploading: "अपलोड हो रहा है {{progress}}%",
+        figUploadProcessing: "बदला जा रहा है…",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -11468,6 +11746,8 @@ const designImportOverrides = {
           importFailed: "आयात विफल रहा",
           figmaPasteFailed: "Figma paste आयात विफल रहा",
           uploadFailed: "File upload विफल रहा",
+          invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
+          figFileTooLarge: ".fig files 50 MB या उससे छोटी होनी चाहिए।",
         },
       },
     },
@@ -11489,8 +11769,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
-          "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
+          "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى 50 ميغابايت.",
         chooseFigFile: "اختر ملف .fig",
+        figUploadUploading: "جار الرفع {{progress}}%",
+        figUploadProcessing: "جار التحويل…",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
@@ -11515,6 +11797,8 @@ const designImportOverrides = {
           importFailed: "فشل الاستيراد",
           figmaPasteFailed: "فشل استيراد لصق Figma",
           uploadFailed: "فشل رفع الملف",
+          invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
+          figFileTooLarge: "يجب ألا يتجاوز ملف .fig حجم 50 ميغابايت.",
         },
       },
     },

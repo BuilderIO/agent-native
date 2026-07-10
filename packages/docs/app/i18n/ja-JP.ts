@@ -21,6 +21,7 @@ const jaJP = {
   },
   footer: {
     download: "ダウンロード",
+    brand: "ブランド",
     privacy: "プライバシー",
     terms: "利用規約",
   },
@@ -1233,6 +1234,37 @@ const jaJP = {
         appImage: "AppImage をダウンロード",
         deb: ".deb をダウンロード",
         note: "アーカイブは FUSE なしで動作します。一部のディストリビューションでは AppImage に FUSE 2 が必要な場合があります。",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "ブランド素材",
+    title: "Agent-Native ロゴ",
+    body: "記事、プレゼンテーション、コミュニティプロジェクト向けの公式ロゴとマークをダウンロードできます。SVG ファイルはどのサイズでも鮮明で、透明な背景に対応しています。",
+    horizontal: {
+      title: "横長ロゴ",
+      body: "記事のヘッダー、ウェブサイト、プレゼンテーションなど、横長の配置に推奨されるロックアップです。",
+    },
+    symbol: {
+      title: "シンボル",
+      body: "単体のマークは、アバター、アプリアイコン、コンパクトな配置に使用してください。",
+    },
+    lightBackground: "明るい背景用",
+    darkBackground: "暗い背景用",
+    downloadSvg: "SVG をダウンロード",
+    usage: {
+      title: "ブランドの使用方法",
+      clear: {
+        title: "余白を保つ",
+        body: "ロゴの比率を維持し、周囲に十分な余白を確保してください。",
+      },
+      contrast: {
+        title: "コントラストを選ぶ",
+        body: "明るい背景には濃色版、暗い背景には明色版を使用してください。",
+      },
+      original: {
+        title: "オリジナル素材を使用する",
+        body: "ロゴやシンボルの色変更、切り抜き、回転、変形、再配置はしないでください。",
       },
     },
   },

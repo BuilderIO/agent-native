@@ -24,7 +24,7 @@ import {
 import { propNameToDataAttribute } from "@shared/component-model";
 import {
   listInteractionStates,
-  readStateStyles,
+  readResolvedStateStyles,
   type InteractionState,
 } from "@shared/interaction-states";
 import {
@@ -186,7 +186,7 @@ import {
 } from "./edit-panel/element-classification";
 import {
   deriveLockedAspectSize,
-  elementIdentityKey,
+  interactionStateSelectionKey,
   useAspectRatioLock,
 } from "./edit-panel/element-identity";
 import {
@@ -227,6 +227,7 @@ import {
 } from "./edit-panel/inspector-controls";
 import {
   authoredStyleValue,
+  elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./edit-panel/interaction-state-helpers";
 import {
@@ -1384,6 +1385,14 @@ export const EditPanel = memo(function EditPanel({
   // silently active (matches the export-settings reset effect below).
   const [interactionState, setInteractionState] =
     useState<ActiveInteractionState>(null);
+  // Own the Radix menu state above InteractionStatePanel's conditional
+  // element subtree. A source commit can briefly remove/recreate that subtree
+  // while the selected runtime element is reconciled; panel-local uncontrolled
+  // state interpreted that refresh as an outside close immediately after the
+  // user's click. This state survives the transient remount and is reset only
+  // when the stable selection identity genuinely changes.
+  const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
+    useState(false);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -1450,8 +1459,25 @@ export const EditPanel = memo(function EditPanel({
     !selectionAlreadyComponent,
   );
   const selectedElementKey = inspectorElement
-    ? `${selectedCount}:${elementIdentityKey(inspectorElement)}`
+    ? interactionStateSelectionKey(inspectorElement, fileId, selectedCount)
     : "none";
+  // A committed source update can make the projected inspector element
+  // disappear for one render before the iframe's refreshed element-select
+  // payload restores the exact same stable selection. Keep the state picker
+  // mounted through that gap while a non-default state or its menu is active;
+  // unmounting Radix's root synchronously reports onOpenChange(false), which
+  // otherwise closes a menu the user opened during the refresh. A genuine
+  // selection change still resets both values in the selectedElementKey
+  // effect below, so this cache cannot carry a picker to another element.
+  const lastInteractionStateSourceIdRef = useRef<string | null>(null);
+  if (selectedCount <= 1 && inspectorElement?.sourceId) {
+    lastInteractionStateSourceIdRef.current = inspectorElement.sourceId;
+  }
+  const shouldRenderInteractionStatePanel = Boolean(
+    (selectedCount <= 1 && inspectorElement?.sourceId) ||
+    ((interactionState !== null || interactionStateMenuOpen) &&
+      lastInteractionStateSourceIdRef.current),
+  );
   const selectionHasTextElement = effectiveSelectedElements.some((element) =>
     isTextElement(element),
   );
@@ -1493,6 +1519,7 @@ export const EditPanel = memo(function EditPanel({
   // "multi-selection", both of which the state selector doesn't support.
   useEffect(() => {
     setInteractionState(null);
+    setInteractionStateMenuOpen(false);
     onInteractionStateChange?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omits onInteractionStateChange: this only needs to fire when the SELECTION changes, not when the parent passes a new callback identity.
   }, [selectedElementKey]);
@@ -1533,13 +1560,30 @@ export const EditPanel = memo(function EditPanel({
     }
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
-    return readStateStyles(activeContent, nodeId, interactionState);
+    return readResolvedStateStyles(
+      activeContent,
+      nodeId,
+      interactionState,
+      breakpointContext?.activeWidthPx,
+    );
   }, [
     activeContent,
     interactionState,
     selectedCount,
     inspectorElement?.sourceId,
+    breakpointContext?.activeWidthPx,
   ]);
+
+  const stateResolvedInspectorElement = useMemo(
+    () =>
+      inspectorElement
+        ? elementWithInteractionStateStyles(
+            inspectorElement,
+            activeInteractionStateStyles,
+          )
+        : null,
+    [activeInteractionStateStyles, inspectorElement],
+  );
 
   // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
   // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
@@ -1788,26 +1832,21 @@ export const EditPanel = memo(function EditPanel({
               />
             )}
 
+            {shouldRenderInteractionStatePanel ? (
+              <InteractionStatePanel
+                activeState={interactionState}
+                onActiveStateChange={handleInteractionStateChange}
+                open={interactionStateMenuOpen}
+                onOpenChange={setInteractionStateMenuOpen}
+                availableStates={availableInteractionStates}
+                statesWithOverrides={interactionStatesWithOverrides}
+              />
+            ) : null}
+
             {inspectorElement && (
               <>
-                {/* Element interaction-state selector (Default / Hover /
-                    Focus / Focus-visible / Pressed / Disabled) — Webflow-
-                    style state picker for THIS element's pseudo-class
-                    styling. Distinct from the app-level Design states in
-                    StatesPanel (Loading/Empty/Error/fixtures/captures),
-                    which apply to the whole screen, not one element. Only
-                    offered for a single, source-backed selection (needs a
-                    stable node id — see shared/interaction-states.ts). */}
-                {selectedCount <= 1 && inspectorElement.sourceId && (
-                  <InteractionStatePanel
-                    activeState={interactionState}
-                    onActiveStateChange={handleInteractionStateChange}
-                    availableStates={availableInteractionStates}
-                    statesWithOverrides={interactionStatesWithOverrides}
-                  />
-                )}
                 <PositionLayoutProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   onAlignSelection={onAlignSelection}
@@ -1815,26 +1854,26 @@ export const EditPanel = memo(function EditPanel({
                   breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <LayoutContextProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   motionKeyframeContext={motionKeyframeFieldContext}
                   breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <AppearanceProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   motionKeyframeContext={motionKeyframeFieldContext}
                   breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 {selectionHasTextElement ? (
                   <TypographyProperties
-                    element={inspectorElement}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}
                 <FillProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   documentColorPalette={documentColorPalette}
@@ -1843,26 +1882,26 @@ export const EditPanel = memo(function EditPanel({
                   breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <StrokeProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   motionKeyframeContext={motionKeyframeFieldContext}
                   breakpointOverrideContext={breakpointOverrideFieldContext}
                 />
                 <EffectsProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   glslShaderContext={glslShaderContext}
                   motionKeyframeContext={motionKeyframeFieldContext}
                 />
                 <SelectionColorsProperties
-                  element={inspectorElement}
+                  element={stateResolvedInspectorElement ?? inspectorElement}
                   onStyleChange={onStyleChange}
                 />
                 {selectionHasContainerElement ? (
                   <LayoutGuideProperties
-                    element={inspectorElement}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                   />
                 ) : null}

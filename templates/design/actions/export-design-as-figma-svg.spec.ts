@@ -79,7 +79,16 @@ vi.mock("../server/lib/playwright-runtime.js", () => ({
 
 import action, {
   chromiumUnavailableReason,
+  figmaSvgNodeSelector,
 } from "./export-design-as-figma-svg.js";
+
+describe("figmaSvgNodeSelector", () => {
+  it("escapes quotes, slashes, and newlines in runtime node ids", () => {
+    expect(figmaSvgNodeSelector('a"b\\c\nd')).toBe(
+      '[data-agent-native-node-id="a\\"b\\\\c\\a d"]',
+    );
+  });
+});
 
 describe("chromiumUnavailableReason", () => {
   it("names export-svg/export-html as the fallback", () => {

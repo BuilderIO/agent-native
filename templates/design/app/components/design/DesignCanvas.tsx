@@ -373,6 +373,7 @@ interface DesignCanvasProps {
       selector: string;
       sourceId?: string | null;
       styles: Record<string, string>;
+      interactionState?: string;
     }>;
   } | null;
   styleBaselineResetRequest?: number | null;
@@ -603,11 +604,12 @@ interface DesignCanvasProps {
   /**
    * Interaction-state forced preview (Figma/Webflow parity, phase 2 — see
    * `shared/interaction-states.ts`'s "Forced-preview mechanism" doc comment).
-   * When set, posts `{ type: "state-preview", nodeId, state }` into the
-   * iframe so the editor-chrome bridge sets `data-an-state-preview="<state>"`
-   * on the matching `[data-agent-native-node-id]` element — the persisted
-   * twin CSS rule (written by `duplicateStatePreviewRules`) does the actual
-   * styling, so the bridge does zero CSS work of its own.
+   * When set, posts `{ type: "state-preview", ... }` into the iframe so the
+   * editor-chrome bridge sets `data-an-state-preview="<state>"` on the exact
+   * selected element. Inline HTML uses the persisted twin CSS rule written by
+   * `duplicateStatePreviewRules`; localhost screens can additionally pass
+   * `previewStyles`, which the bridge holds in a temporary CSSOM rule until
+   * the guarded source handoff is applied or discarded.
    * `null`/`undefined` posts `{ type: "state-preview", nodeId: null, state:
    * null }`, clearing whichever element is currently force-previewing.
    * Mirrors `gradientEditTarget`'s postMessage-sync-effect pattern exactly —
@@ -616,6 +618,9 @@ interface DesignCanvasProps {
   statePreviewTarget?: {
     nodeId: string;
     state: string;
+    selector?: string | null;
+    selectorCandidates?: string[];
+    previewStyles?: Record<string, string> | null;
   } | null;
   /**
    * Called when the user clicks the component-instance source tag (the
@@ -1301,10 +1306,18 @@ export function DesignCanvas({
     bridgeKey: liveEditBridgeKey,
     registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
   });
+  // Edit mode deliberately keeps `renderedContent` stable while same-screen
+  // source writes echo back, because the bridge already applied them and a
+  // srcdoc rebuild would flash/reload the canvas. Interact mode has no editor
+  // bridge, so crossing that boundary must use the latest persisted `content`
+  // or native hover/focus/pressed behavior would run against the stale HTML
+  // from before the inspector edits.
   const iframeRenderContent =
     !hasAuthenticatedLiveEditExternalFrame && activeExternalSnapshotHtml
       ? activeExternalSnapshotHtml
-      : renderedContent;
+      : interactMode
+        ? content
+        : renderedContent;
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
     (hasLiveEditExternalFrame
@@ -2698,6 +2711,17 @@ export function DesignCanvas({
         "*",
       );
     }
+    iframe.contentWindow?.postMessage(
+      {
+        type: "state-preview",
+        nodeId: statePreviewTarget?.nodeId ?? null,
+        selector: statePreviewTarget?.selector ?? "",
+        selectorCandidates: statePreviewTarget?.selectorCandidates ?? [],
+        state: statePreviewTarget?.state ?? null,
+        previewStyles: statePreviewTarget?.previewStyles ?? null,
+      },
+      "*",
+    );
   }, [
     handToolActive,
     hoveredSelector,
@@ -2713,6 +2737,7 @@ export function DesignCanvas({
     selectedSelectorGroups,
     shaderFillPreview,
     spacePanActive,
+    statePreviewTarget,
     tweakValues,
   ]);
 
@@ -2845,17 +2870,15 @@ export function DesignCanvas({
   // `statePreviewTarget` prop doc comment and shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment for the full contract).
   useEffect(() => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    win.postMessage(
-      {
-        type: "state-preview",
-        nodeId: statePreviewTarget?.nodeId ?? null,
-        state: statePreviewTarget?.state ?? null,
-      },
-      "*",
-    );
-  }, [statePreviewTarget]);
+    postOneShotBridgeMessage({
+      type: "state-preview",
+      nodeId: statePreviewTarget?.nodeId ?? null,
+      selector: statePreviewTarget?.selector ?? "",
+      selectorCandidates: statePreviewTarget?.selectorCandidates ?? [],
+      state: statePreviewTarget?.state ?? null,
+      previewStyles: statePreviewTarget?.previewStyles ?? null,
+    });
+  }, [postOneShotBridgeMessage, statePreviewTarget]);
 
   // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
   // overview zoom settles. This is intentionally separate from the srcdoc build so
@@ -3094,6 +3117,26 @@ export function DesignCanvas({
     [postOneShotBridgeMessage],
   );
 
+  const sendInteractionStatePreviewStyle = useCallback(
+    (args: {
+      selector: string;
+      selectorCandidates?: string[];
+      nodeId?: string | null;
+      state: string;
+      styles: Record<string, string>;
+    }) => {
+      postOneShotBridgeMessage({
+        type: "interaction-state-style-preview",
+        selector: args.selector,
+        selectorCandidates: args.selectorCandidates ?? [],
+        nodeId: args.nodeId ?? "",
+        state: args.state,
+        styles: args.styles,
+      });
+    },
+    [postOneShotBridgeMessage],
+  );
+
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!styleRevertRequest) return;
@@ -3105,9 +3148,21 @@ export function DesignCanvas({
       const selectorCandidates = [
         patch.selector,
         patch.sourceId
-          ? `[data-agent-native-node-id="${String(patch.sourceId).replace(/"/g, '\\"')}"]`
+          ? `[data-agent-native-node-id="${String(patch.sourceId)
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"')}"]`
           : "",
       ].filter(Boolean);
+      if (patch.interactionState) {
+        sendInteractionStatePreviewStyle({
+          selector: patch.selector,
+          selectorCandidates,
+          nodeId: patch.sourceId,
+          state: patch.interactionState,
+          styles: patch.styles,
+        });
+        continue;
+      }
       for (const [property, value] of Object.entries(patch.styles)) {
         postOneShotBridgeMessage({
           type: "style-change",
@@ -3119,7 +3174,11 @@ export function DesignCanvas({
         });
       }
     }
-  }, [postOneShotBridgeMessage, styleRevertRequest]);
+  }, [
+    postOneShotBridgeMessage,
+    sendInteractionStatePreviewStyle,
+    styleRevertRequest,
+  ]);
 
   const lastStyleBaselineResetRequestRef = useRef<number | null>(null);
   useEffect(() => {
@@ -3354,6 +3413,8 @@ export function DesignCanvas({
   useEffect(() => {
     if (!registerRuntimeBridge) return;
     (window as any).__designCanvasSendStyle = sendStyleChange;
+    (window as any).__designCanvasSendInteractionStatePreviewStyle =
+      sendInteractionStatePreviewStyle;
     (window as any).__designCanvasReplaceContent = replacePreviewContent;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
@@ -3370,6 +3431,12 @@ export function DesignCanvas({
       // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChange) {
         delete (window as any).__designCanvasSendStyle;
+      }
+      if (
+        (window as any).__designCanvasSendInteractionStatePreviewStyle ===
+        sendInteractionStatePreviewStyle
+      ) {
+        delete (window as any).__designCanvasSendInteractionStatePreviewStyle;
       }
       if (
         (window as any).__designCanvasReplaceContent === replacePreviewContent
@@ -3412,6 +3479,7 @@ export function DesignCanvas({
     registerRuntimeBridge,
     replacePreviewContent,
     sendStyleChange,
+    sendInteractionStatePreviewStyle,
     sendMotionPreview,
     clearMotionPreview,
     sendShaderFillPreview,

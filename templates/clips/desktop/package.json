@@ -2,7 +2,7 @@
   "name": "clips-desktop",
   "version": "0.1.1",
   "private": true,
-  "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
+  "description": "Clips cross-platform tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
   "type": "module",
   "scripts": {
     "check:prereqs": "node ./scripts/check-tauri-prereqs.mjs",

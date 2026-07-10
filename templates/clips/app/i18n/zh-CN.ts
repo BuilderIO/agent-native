@@ -283,6 +283,7 @@ const messages = {
     insights: "洞察",
     downloadForMac: "下载 Mac",
     downloadForWindows: "下载 Windows",
+    downloadForLinux: "下载 Linux",
     downloadDesktopApp: "下载桌面应用程序",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "是一款免费的",
@@ -524,7 +525,8 @@ const messages = {
   },
   downloadRoute: {
     pageTitle: "下载 Clips Desktop",
-    description: "从菜单栏录制屏幕。自动更新 macOS 和 Windows 的桌面应用程序。",
+    description:
+      "从系统托盘录制屏幕。适用于 macOS、Windows 和 Linux 的自动更新桌面应用程序。",
     macSublabel: "通用（Apple Silicon + Intel）",
     windowsSublabel: "64 位 MSI 安装程序",
     downloadFor: "下载 {{platform}}",

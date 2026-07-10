@@ -119,6 +119,25 @@ fingerprint.
 
 If this is the user's first design system, it is automatically set as the default.
 
+### Starting from an established public system
+
+Use the curated production templates instead of recreating familiar systems
+from memory:
+
+```bash
+pnpm action create-design-system --templateId material-3
+pnpm action create-design-system --templateId carbon-white
+pnpm action create-design-system --templateId primer-light
+```
+
+Each template is a source-linked, versioned snapshot with real semantic tokens,
+type scales, spacing, shapes, CSS variables, state guidance, attribution, and
+brand-misrepresentation guardrails. The action may accept a custom `title`,
+`description`, or additional `customInstructions`, but it intentionally rejects
+`data` overrides when `templateId` is present so the named snapshot cannot
+silently become a lookalike. Use `get-design-system` after creation when the
+full stored snapshot is needed.
+
 ### Reading a Design System
 
 ```bash
@@ -298,11 +317,11 @@ copied frame **link** carry fundamentally different information:
 
 - **A copied frame link** (`?node-id=...`) names an exact node. Always exact —
   use `import-figma-frame`.
-- **A plain clipboard paste** only carries Figma's `figmeta` marker, which is
-  `{fileKey, pasteID, dataType}` — **no node id at all**, and `pasteID` is an
-  ephemeral, server-side identifier that the public REST API can't resolve
-  back to a node. So a clipboard paste can only ever get an exact node import
-  on a **best-effort match**, never a guarantee.
+- **A current Figma clipboard paste** carries `figmeta.selectedNodeData`; each
+  comma-separated entry begins with the exact REST node id. Design imports
+  those selected nodes directly, including multi-selection. This field is not
+  a public Figma contract, so older or future clipboard formats may still need
+  the conservative matching fallback below.
 
 The canvas paste listener (`app/lib/figma-clipboard.ts` +
 `import-figma-clipboard`) handles this automatically:
@@ -312,10 +331,10 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
    `import-figma-clipboard` (figmeta present) or the legacy
    `import-design-source` HTML path (no figmeta — not a Figma paste, or an
    older Figma client that doesn't emit the marker).
-2. `import-figma-clipboard` fetches the file's shallow structure (top-level
-   frames + their direct children, `server/lib/figma-node-import.ts`'s
-   `fetchFileStructure(fileKey, 3)`) and heuristically matches it against the
-   pasted content's visible text (`server/lib/figma-clipboard-match.ts`):
+2. When `selectedNodeData` is present, `import-figma-clipboard` fetches those
+   exact node ids immediately. Otherwise it fetches the file's shallow
+   structure and heuristically matches it against pasted visible text
+   (`server/lib/figma-clipboard-match.ts`):
    a frame is only imported when its **name** or at least **two distinct
    text-layer contents** appear verbatim in the paste. Anything ambiguous or
    unmatched imports **nothing structural** — it never guesses and never
@@ -330,9 +349,9 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
    both cases: connect the Figma access token, or paste a frame **link**
    instead for a guaranteed-exact import.
 
-Tell users who want guaranteed pixel-exact imports to copy a frame **link**
-("Copy link to selection" in Figma), not just Cmd+C — a plain paste is
-convenient but only best-effort.
+Tell users who need a path based only on Figma's public contract to copy a
+frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
+when `selectedNodeData` is present, with conservative fallback if it changes.
 
 ### Source: Brand Analysis (combines website + notes)
 

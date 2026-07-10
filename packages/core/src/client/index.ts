@@ -896,6 +896,21 @@ export {
   type SetupConnectionsPageProps,
 } from "./setup-connections/index.js";
 export {
+  listIntegrationEnvStatuses,
+  listIntegrationStatuses,
+  saveIntegrationEnvVars,
+  setIntegrationEnabled,
+  setupIntegration,
+  IntegrationClientError,
+  type ClientIntegrationStatus,
+  type IntegrationEnvStatus,
+  type SavedEnvVarsResult,
+} from "./integrations/index.js";
+export {
+  invokeConfiguredAutomationWorkflow,
+  type InvokeConfiguredAutomationWorkflowInput,
+} from "./automation.js";
+export {
   ChangelogDialog,
   ChangelogSettingsCard,
   useChangelogSeen,

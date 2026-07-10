@@ -5,6 +5,7 @@ import {
 import {
   duplicateStatePreviewRules,
   type InteractionState,
+  upsertResponsiveStateStyles,
   upsertStateStyles,
 } from "@shared/interaction-states";
 import {
@@ -36,6 +37,18 @@ export interface PendingVisualStyleEdit {
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
+  /**
+   * Element pseudo-class being authored. Omitted for ordinary/base styles.
+   * Localhost screens cannot persist the editor's managed HTML block because
+   * their DesignFile content is the route URL, so interaction-state edits use
+   * the same guarded coding-agent handoff as other live visual edits while the
+   * iframe bridge keeps a temporary state-scoped preview.
+   */
+  interactionState?: InteractionState;
+  /** Base computed values used only to restore inspector fields after the
+   * first pending state override is undone. Runtime preview cleanup still
+   * uses `originalStyles` (empty values remove the temporary CSSOM rule). */
+  baseStyles?: Record<string, string>;
   /**
    * Inline style values to replay when the user discards the live preview.
    * Missing authored inline values are stored as "" so the bridge removes the
@@ -301,6 +314,7 @@ function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
     edit.screenId,
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
+    edit.interactionState ?? "default",
   ].join("::");
 }
 
@@ -322,6 +336,7 @@ export function mergePendingVisualStyleEdit(
         ...nextEdit.originalStyles,
         ...edit.originalStyles,
       },
+      baseStyles: edit.baseStyles ?? nextEdit.baseStyles,
     };
   });
   return merged ? next : [...edits, nextEdit];
@@ -392,6 +407,7 @@ export function buildPendingVisualStyleRevertPatches(
   selector: string;
   sourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 }> {
   return edits
     .map((edit) => ({
@@ -399,6 +415,9 @@ export function buildPendingVisualStyleRevertPatches(
       selector: edit.selector,
       sourceId: edit.sourceId,
       styles: edit.originalStyles,
+      ...(edit.interactionState
+        ? { interactionState: edit.interactionState }
+        : {}),
     }))
     .filter((patch) => Object.keys(patch.styles).length > 0);
 }
@@ -442,6 +461,9 @@ export function formatPendingVisualStylePrompt(args: {
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    ...(edit.interactionState
+      ? { interactionState: edit.interactionState }
+      : {}),
     ...(edit.breakpoint ? { breakpoint: edit.breakpoint } : {}),
   }));
   const hasBreakpointScopedEdits = args.edits.some(
@@ -543,6 +565,9 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     hasBreakpointScopedEdits
       ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports."
+      : "",
+    args.edits.some((edit) => edit.interactionState)
+      ? "Edits that carry an `interactionState` field are pseudo-class overrides, not base styles. Apply each property only to that exact state (`hover`, `focus`, `focus-visible`, `active`, or `disabled`) while preserving the element's default styling and its other states."
       : "",
     "",
     "Pending style edits:",
@@ -728,7 +753,17 @@ export function applyInteractionStateStyleCommit(
   nodeId: string,
   state: InteractionState,
   styles: Record<string, string>,
+  maxWidthPx?: number | null,
 ): string {
+  if (maxWidthPx != null) {
+    return upsertResponsiveStateStyles(
+      content,
+      nodeId,
+      state,
+      maxWidthPx,
+      styles,
+    );
+  }
   const withStateStyles = upsertStateStyles(content, nodeId, state, styles);
   return duplicateStatePreviewRules(withStateStyles);
 }

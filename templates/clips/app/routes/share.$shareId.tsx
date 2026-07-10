@@ -291,13 +291,14 @@ const CLIPS_AGENT_DOCS_URL =
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
 
-type ViewerPlatform = "mac" | "windows";
+type ViewerPlatform = "mac" | "windows" | "linux";
 
 function detectViewerPlatform(): ViewerPlatform | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
   if (/Mac/i.test(ua)) return "mac";
+  if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
   return null;
 }
 
@@ -1152,7 +1153,9 @@ function PublicAgentEmptyState({
       ? t("sharePage.downloadForMac")
       : platform === "windows"
         ? t("sharePage.downloadForWindows")
-        : t("sharePage.downloadDesktopApp");
+        : platform === "linux"
+          ? t("sharePage.downloadForLinux")
+          : t("sharePage.downloadDesktopApp");
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">

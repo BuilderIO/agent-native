@@ -158,6 +158,8 @@ export interface FigmaNode {
   clipsContent?: boolean;
   characters?: string;
   style?: FigmaTypeStyle;
+  characterStyleOverrides?: number[];
+  styleOverrideTable?: Record<string, FigmaTypeStyle>;
   fills?: FigmaPaint[];
   strokes?: FigmaPaint[];
   strokeWeight?: number;
@@ -167,6 +169,7 @@ export interface FigmaNode {
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
   layoutMode?: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
+  layoutPositioning?: "AUTO" | "ABSOLUTE";
   primaryAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
   counterAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "BASELINE";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
@@ -1118,6 +1121,73 @@ export function collectImageFillRefs(node: FigmaNode): string[] {
   return [...refs];
 }
 
+function textOverrideCss(
+  style: FigmaTypeStyle | undefined,
+): Record<string, string | undefined> {
+  const solidFill = [...(style?.fills ?? [])]
+    .reverse()
+    .find((fill) => fill.visible !== false && fill.type === "SOLID");
+  return {
+    "font-family": style?.fontFamily
+      ? `"${style.fontFamily.replace(/"/g, "")}", sans-serif`
+      : undefined,
+    "font-size": px(style?.fontSize),
+    "font-weight":
+      typeof style?.fontWeight === "number"
+        ? String(style.fontWeight)
+        : undefined,
+    "font-style": style?.italic ? "italic" : undefined,
+    "line-height": style ? resolveLineHeight(style) : undefined,
+    "letter-spacing":
+      typeof style?.letterSpacing === "number"
+        ? px(style.letterSpacing)
+        : undefined,
+    "text-transform": textTransformCss(style?.textCase),
+    "text-decoration": textDecorationCss(style?.textDecoration),
+    color: solidFill
+      ? (colorToCss(solidFill.color, solidFill.opacity ?? 1) ?? undefined)
+      : undefined,
+  };
+}
+
+/** Render contiguous Figma character-style override runs as inline spans. */
+function buildMixedTextHtml(
+  node: FigmaNode,
+  characters: string,
+  tracker: FidelityTracker,
+): string {
+  const overrideIds = node.characterStyleOverrides ?? [];
+  const table = node.styleOverrideTable ?? {};
+  if (
+    characters.length === 0 ||
+    !overrideIds.some((id) => id !== 0 && table[String(id)])
+  ) {
+    return escapeHtml(characters);
+  }
+
+  const runs: Array<{ id: number; text: string }> = [];
+  for (let index = 0; index < characters.length; index += 1) {
+    const id = overrideIds[index] ?? 0;
+    const previous = runs[runs.length - 1];
+    if (previous?.id === id) previous.text += characters[index] ?? "";
+    else runs.push({ id, text: characters[index] ?? "" });
+  }
+
+  tracker.record(
+    node,
+    "exact",
+    "Mixed character style overrides were preserved as inline text runs.",
+  );
+  return runs
+    .map((run) => {
+      if (run.id === 0) return escapeHtml(run.text);
+      const style = table[String(run.id)];
+      if (!style) return escapeHtml(run.text);
+      return `<span style="${styleAttr(textOverrideCss(style))}">${escapeHtml(run.text)}</span>`;
+    })
+    .join("");
+}
+
 // ---------------------------------------------------------------------------
 // Main mapper
 // ---------------------------------------------------------------------------
@@ -1169,10 +1239,12 @@ function buildNode(
       "image-fallback",
       `Node type "${node.type}" cannot be reproduced structurally (vector network / boolean op / unsupported type); rendered as an exact PNG (scale=2) instead of an approximated structural guess.`,
     );
+    const isFlowChild =
+      !isRoot && parentHasAutoLayout && node.layoutPositioning !== "ABSOLUTE";
     const styles: Record<string, string | undefined> = {
-      position: isRoot ? "relative" : "absolute",
-      left: isRoot ? undefined : px(box.left),
-      top: isRoot ? undefined : px(box.top),
+      position: isRoot || isFlowChild ? "relative" : "absolute",
+      left: isRoot || isFlowChild ? undefined : px(box.left),
+      top: isRoot || isFlowChild ? undefined : px(box.top),
       width: px(box.width),
       height: px(box.height),
       opacity:
@@ -1223,7 +1295,8 @@ function buildNode(
   // container, in which case it's a normal flex item (relative, no left/top)
   // -- this mirrors Figma's own rule that auto-layout children give up
   // manual x/y in favor of flex flow.
-  const isFlexChild = !isRoot && parentHasAutoLayout;
+  const isFlexChild =
+    !isRoot && parentHasAutoLayout && node.layoutPositioning !== "ABSOLUTE";
 
   const baseStyles: Record<string, string | undefined> = {
     position: isRoot ? "relative" : isFlexChild ? "relative" : "absolute",
@@ -1280,6 +1353,10 @@ function buildNode(
       baseStyles["white-space"] = "nowrap";
       baseStyles.overflow = "hidden";
       baseStyles["text-overflow"] = "ellipsis";
+    } else {
+      // Figma preserves explicit newlines and repeated spaces. Normal HTML
+      // whitespace collapsing changes both wrapping and measured geometry.
+      baseStyles["white-space"] = "pre-wrap";
     }
     baseStyles.display = "flex";
     baseStyles["flex-direction"] = "column";
@@ -1289,7 +1366,8 @@ function buildNode(
     tracker.record(node, "exact", "Text styling mapped from TypeStyle fields.");
 
     const characters = node.characters ?? "";
-    return `<div${idAttr}${typeAttr}${nameAttr} style="${styleAttr(baseStyles)}">${escapeHtml(characters)}</div>`;
+    const textHtml = buildMixedTextHtml(node, characters, tracker);
+    return `<div${idAttr}${typeAttr}${nameAttr} style="${styleAttr(baseStyles)}"><span>${textHtml}</span></div>`;
   }
 
   tracker.record(

@@ -435,7 +435,9 @@ POST /_agent-native/integrations/telegram/setup
 | Correo electrónico | `EMAIL_AGENT_ADDRESS`, más uno de `RESEND_API_KEY` o `SENDGRID_API_KEY`      | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | WhatsApp           | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
-Todas las credenciales residen en env vars: nunca la base de datos, nunca el código fuente. Utilice la configuración de la barra lateral UI o el panel ambiental de su proveedor de hosting.
+Las credenciales de integración se resuelven primero desde secretos con ámbito del propietario de la integración (usuario, organización y después espacio de trabajo); las variables de entorno de despliegue son una alternativa para instalaciones locales o deliberadamente de un solo tenant. La UI de configuración guarda secretos con ámbito; los valores nunca se devuelven al navegador ni se guardan en el código fuente.
+
+Los adaptadores de runtime integrados son **Slack**, **Telegram**, **WhatsApp Cloud API** y correo electrónico basado en webhooks de proveedor (Resend o SendGrid). Discord y Microsoft Teams no son conectables hasta implementar y registrar un adaptador verificado.
 
 ### Subprocesos e identidad {#threading-and-identity}
 
@@ -481,13 +483,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +509,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +540,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

@@ -21,6 +21,7 @@ const zhCN = {
   },
   footer: {
     download: "下载",
+    brand: "品牌",
     privacy: "隐私",
     terms: "条款",
   },
@@ -1220,6 +1221,37 @@ const zhCN = {
         appImage: "下载 AppImage",
         deb: "下载 .deb",
         note: "归档包无需 FUSE 即可使用。某些发行版上的 AppImage 可能需要 FUSE 2。",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "品牌资源",
+    title: "Agent-Native 标志",
+    body: "下载用于文章、演示文稿和社区项目的官方标志与图形。SVG 文件在任何尺寸下都保持清晰，并支持透明背景。",
+    horizontal: {
+      title: "横版标志",
+      body: "推荐用于文章标题、网站、演示文稿及其他横向版面。",
+    },
+    symbol: {
+      title: "图形标记",
+      body: "独立图形适用于头像、应用图标和紧凑版面。",
+    },
+    lightBackground: "用于浅色背景",
+    darkBackground: "用于深色背景",
+    downloadSvg: "下载 SVG",
+    usage: {
+      title: "品牌使用规范",
+      clear: {
+        title: "保持清晰",
+        body: "保持标志的原始比例，并在周围留出足够空间。",
+      },
+      contrast: {
+        title: "确保对比度",
+        body: "浅色背景使用深色版本，深色背景使用浅色版本。",
+      },
+      original: {
+        title: "使用原始素材",
+        body: "请勿改色、裁剪、旋转、拉伸或重新排列标志和图形。",
       },
     },
   },

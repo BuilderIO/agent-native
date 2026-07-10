@@ -59,6 +59,14 @@ export function chromiumUnavailableReason(err: unknown): string {
   );
 }
 
+export function figmaSvgNodeSelector(nodeId: string): string {
+  const escaped = nodeId
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, "\\a ");
+  return `[data-agent-native-node-id="${escaped}"]`;
+}
+
 export default defineAction({
   description:
     "Export a design screen (or a selected element's subtree via nodeId) as a " +
@@ -193,7 +201,7 @@ export default defineAction({
         width: width ?? 1440,
         height: height ?? 1200,
         title: designRow?.title ?? file.filename,
-        rootSelector: nodeId ? `[data-agent-native-node-id="${nodeId}"]` : null,
+        rootSelector: nodeId ? figmaSvgNodeSelector(nodeId) : null,
         embedImages: embedImages ?? true,
       });
     } catch (err) {

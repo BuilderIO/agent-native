@@ -21,6 +21,7 @@ const koKR = {
   },
   footer: {
     download: "다운로드",
+    brand: "브랜드",
     privacy: "개인정보",
     terms: "약관",
   },
@@ -1233,6 +1234,37 @@ const koKR = {
         appImage: "AppImage 다운로드",
         deb: ".deb 다운로드",
         note: "아카이브는 FUSE 없이 동작합니다. 일부 배포판에서는 AppImage에 FUSE 2가 필요할 수 있습니다.",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "브랜드 자료",
+    title: "Agent-Native 로고",
+    body: "기사, 프레젠테이션, 커뮤니티 프로젝트에 사용할 공식 로고와 심볼을 다운로드하세요. SVG 파일은 어떤 크기에서도 선명하며 투명 배경을 지원합니다.",
+    horizontal: {
+      title: "가로형 로고",
+      body: "기사 헤더, 웹사이트, 프레젠테이션 등 가로로 넓은 공간에 권장되는 조합입니다.",
+    },
+    symbol: {
+      title: "심볼",
+      body: "단독 심볼은 아바타, 앱 아이콘, 작은 공간에 사용하세요.",
+    },
+    lightBackground: "밝은 배경용",
+    darkBackground: "어두운 배경용",
+    downloadSvg: "SVG 다운로드",
+    usage: {
+      title: "브랜드 사용 안내",
+      clear: {
+        title: "여백 유지",
+        body: "로고의 비율을 유지하고 주변에 충분한 여백을 두세요.",
+      },
+      contrast: {
+        title: "대비에 맞게 선택",
+        body: "밝은 배경에는 어두운 버전을, 어두운 배경에는 밝은 버전을 사용하세요.",
+      },
+      original: {
+        title: "원본 아트워크 사용",
+        body: "로고나 심볼의 색상을 바꾸거나 자르고, 회전하고, 늘이거나 재배치하지 마세요.",
       },
     },
   },

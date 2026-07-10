@@ -15,13 +15,14 @@ const GITHUB_MANIFEST_URL =
 const CACHE_TTL_MS = 5 * 60_000;
 
 // Tauri throws a red-banner error if the requesting client's target triple is
-// missing from `platforms`. We ship Universal-macOS + Windows, so the manifest
-// must always carry both — if upstream is missing either, fall back to inert
-// so no client sees a hard error.
-const REQUIRED_PLATFORM_KEYS = [
+// missing from `platforms`. We ship Universal macOS, Windows, and Linux, so the
+// manifest must always carry all targets — if upstream is incomplete, fall
+// back to inert so no client sees a hard error.
+export const REQUIRED_PLATFORM_KEYS = [
   "darwin-aarch64",
   "darwin-x86_64",
   "windows-x86_64",
+  "linux-x86_64",
 ];
 
 const INERT_PLATFORM = {
@@ -29,7 +30,7 @@ const INERT_PLATFORM = {
   signature: "updates-disabled",
 };
 
-const INERT_MANIFEST = {
+export const INERT_MANIFEST = {
   version: "0.0.0",
   notes:
     "Automatic updates are temporarily unavailable. Download the latest Clips installer from https://clips.agent-native.com/download.",
@@ -42,6 +43,8 @@ const INERT_MANIFEST = {
     "windows-x86_64-nsis": INERT_PLATFORM,
     "windows-x86_64-msi": INERT_PLATFORM,
     "windows-x86_64": INERT_PLATFORM,
+    "linux-x86_64-appimage": INERT_PLATFORM,
+    "linux-x86_64": INERT_PLATFORM,
   },
 };
 
@@ -62,7 +65,7 @@ function isManifestLike(value: unknown): value is Record<string, unknown> {
   return !!obj.platforms && typeof obj.platforms === "object";
 }
 
-function hasAllRequiredPlatforms(value: unknown): boolean {
+export function hasAllRequiredPlatforms(value: unknown): boolean {
   if (!isManifestLike(value)) return false;
   const platforms = value.platforms as Record<string, unknown> | undefined;
   if (!platforms || typeof platforms !== "object") return false;

@@ -20,7 +20,7 @@ describe("DesignImportPanel", () => {
     expect(localIndex).toBeLessThan(moreSourcesIndex);
   });
 
-  it("uses canvas paste guidance for Figma imports", () => {
+  it("uses canvas paste guidance and offers an experimental .fig upload", () => {
     expect(source).toContain(
       "Copy a frame in Figma, then paste into the canvas.",
     );
@@ -29,7 +29,20 @@ describe("DesignImportPanel", () => {
     );
     expect(source).not.toContain("paste here");
     expect(source).not.toContain("Paste Figma content here");
-    expect(source).not.toContain('id="fig-file-import"');
+    expect(source).toContain('id="fig-file-import"');
+    expect(source).toContain('accept=".fig,application/octet-stream"');
+    expect(source).toContain("uploadDesignFile({");
+    expect(source).toContain("validateFigUploadFile(file)");
+    expect(source).toContain('role="progressbar"');
+    expect(source).toContain("figUploadProgress === 100");
+  });
+
+  it("shows one result toast and leaves generic .fig caveats to the upload UI", () => {
+    expect(source).toContain("importResultNotification(result, fallback)");
+    expect(source).toContain('notification.variant === "warning"');
+    expect(source).not.toContain(
+      'toast.warning(t("designEditor.import.warningsToast")',
+    );
   });
 
   it("supports canvas-level Figma paste through the editor paste handler", () => {

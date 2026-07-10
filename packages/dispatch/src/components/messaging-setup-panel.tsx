@@ -1,4 +1,18 @@
-import { agentNativePath } from "@agent-native/core/client";
+import {
+  listIntegrationEnvStatuses,
+  listIntegrationStatuses,
+  saveIntegrationEnvVars,
+  setIntegrationEnabled,
+  setupIntegration,
+  type ClientIntegrationStatus,
+  type IntegrationEnvStatus,
+} from "@agent-native/core/client";
+import {
+  listBuiltInChannelIntegrations,
+  type IntegrationCatalogEntry,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+} from "@agent-native/core/integrations";
 import {
   IconBrandSlack,
   IconBrandTelegram,
@@ -23,121 +37,40 @@ import {
 import { Input } from "./ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-interface EnvStatus {
-  key: string;
-  label: string;
-  required: boolean;
-  configured: boolean;
-  helpText?: string;
-}
+const CHANNELS = listBuiltInChannelIntegrations();
 
-interface RequiredEnvKey {
-  key: string;
-  label: string;
-  required: boolean;
-  helpText?: string;
-}
+const PLATFORM_ICONS: Record<IntegrationIconKey, typeof IconBrandSlack> = {
+  slack: IconBrandSlack,
+  telegram: IconBrandTelegram,
+  whatsapp: IconBrandWhatsapp,
+  email: IconMail,
+};
 
-interface IntegrationStatus {
-  platform: string;
-  label: string;
-  enabled: boolean;
-  configured: boolean;
-  webhookUrl?: string;
-  requiredEnvKeys?: RequiredEnvKey[];
-}
+function hasMissingRequiredCredentials(
+  credentials: readonly IntegrationCredentialRequirement[],
+  envStatusByKey: Map<string, IntegrationEnvStatus>,
+) {
+  const alternatives = new Map<
+    string,
+    readonly IntegrationCredentialRequirement[]
+  >();
 
-interface PlatformDefinition {
-  id: "slack" | "telegram" | "email" | "whatsapp";
-  label: string;
-  icon: typeof IconBrandSlack;
-  description: string;
-  /** Our own docs anchor — keep these on /docs/messaging so users land on
-   *  the page that explains the platform in plain English. */
-  docsUrl: string;
-  /** Optional external link (e.g. to the platform's developer console). */
-  externalUrl?: string;
-  externalLabel?: string;
-  setupSteps: string[];
-  /** Fallback env keys when the adapter doesn't surface them via
-   *  `IntegrationStatus.requiredEnvKeys`. The panel prefers adapter-supplied
-   *  keys when present so optional fields (webhook secrets, etc.) appear
-   *  automatically. */
-  envKeys: string[];
-}
+  for (const credential of credentials) {
+    if (!credential.required) continue;
+    if (!credential.alternativeGroup) {
+      if (!envStatusByKey.get(credential.key)?.configured) return true;
+      continue;
+    }
+    const group = alternatives.get(credential.alternativeGroup) ?? [];
+    alternatives.set(credential.alternativeGroup, [...group, credential]);
+  }
 
-const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
-  {
-    id: "slack",
-    label: "Slack",
-    icon: IconBrandSlack,
-    description: "Receive mentions and DMs in one workspace-aware dispatch.",
-    docsUrl: "/docs/messaging#slack",
-    externalUrl: "https://api.slack.com/apps",
-    externalLabel: "Open Slack apps",
-    envKeys: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
-    setupSteps: [
-      "Create or open a Slack app at api.slack.com/apps.",
-      "Save the bot token and signing secret below — the webhook URL appears once they're saved.",
-      "Back in Slack, enable Event Subscriptions and paste the webhook URL.",
-      "Subscribe to app_mention and message.im events, then install the app.",
-      "Optional but recommended: Basic Information → Display Information → upload an app icon and pick a background color so the bot has a clean avatar in every channel.",
-    ],
-  },
-  {
-    id: "telegram",
-    label: "Telegram",
-    icon: IconBrandTelegram,
-    description: "Chat with dispatch through a Telegram bot.",
-    docsUrl: "/docs/messaging#telegram",
-    externalUrl: "https://t.me/BotFather",
-    externalLabel: "Open BotFather",
-    envKeys: ["TELEGRAM_BOT_TOKEN"],
-    setupSteps: [
-      "Open @BotFather in Telegram and send /newbot.",
-      "Save the bot token here, then click Set up webhook below.",
-      "DM the bot in Telegram to test.",
-    ],
-  },
-  {
-    id: "email",
-    label: "Email",
-    icon: IconMail,
-    description:
-      "Give your agent an email address. People can email it directly or CC it on threads.",
-    docsUrl: "/docs/messaging#email",
-    externalUrl: "https://resend.com/webhooks",
-    externalLabel: "Open Resend webhooks",
-    envKeys: ["EMAIL_AGENT_ADDRESS"],
-    setupSteps: [
-      "Save your Resend or SendGrid API key (Vault or onboarding).",
-      "Pick an email address — the easiest is a free <slug>.resend.app address.",
-      "If using your own domain, add MX records pointing to your provider.",
-      "Save the address here, then register the webhook URL below in Resend (event: email.received).",
-    ],
-  },
-  {
-    id: "whatsapp",
-    label: "WhatsApp",
-    icon: IconBrandWhatsapp,
-    description:
-      "Receive WhatsApp messages and reply through a Meta-managed phone number.",
-    docsUrl: "/docs/messaging#whatsapp",
-    externalUrl: "https://developers.facebook.com/apps",
-    externalLabel: "Open Meta developer console",
-    envKeys: [
-      "WHATSAPP_ACCESS_TOKEN",
-      "WHATSAPP_VERIFY_TOKEN",
-      "WHATSAPP_PHONE_NUMBER_ID",
-    ],
-    setupSteps: [
-      "Create a Meta app and add the WhatsApp product.",
-      "Save the access token, verify token, and phone number ID below.",
-      "In Meta's WhatsApp configuration, paste the webhook URL and your verify token.",
-      "Subscribe to the messages field, then enable here.",
-    ],
-  },
-];
+  return [...alternatives.values()].some((group) =>
+    group.every(
+      (credential) => !envStatusByKey.get(credential.key)?.configured,
+    ),
+  );
+}
 
 function HelpTooltip({ content }: { content: string }) {
   return (
@@ -211,9 +144,9 @@ function ConnectionStatus({
 }
 
 export function MessagingSetupPanel() {
-  const [statuses, setStatuses] = useState<IntegrationStatus[]>([]);
+  const [statuses, setStatuses] = useState<ClientIntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [envStatuses, setEnvStatuses] = useState<EnvStatus[]>([]);
+  const [envStatuses, setEnvStatuses] = useState<IntegrationEnvStatus[]>([]);
   const [envLoading, setEnvLoading] = useState(true);
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [savingKeysFor, setSavingKeysFor] = useState<string | null>(null);
@@ -224,11 +157,7 @@ export function MessagingSetupPanel() {
   const refreshStatuses = async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/integrations/status"),
-      );
-      const rows = res.ok ? await res.json() : [];
-      setStatuses(Array.isArray(rows) ? rows : []);
+      setStatuses(await listIntegrationStatuses());
     } finally {
       setLoading(false);
     }
@@ -236,11 +165,10 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch(agentNativePath("/_agent-native/integrations/status"))
-      .then((res) => (res.ok ? res.json() : []))
+    listIntegrationStatuses()
       .then((rows) => {
         if (active) {
-          setStatuses(Array.isArray(rows) ? rows : []);
+          setStatuses(rows);
           setLoading(false);
         }
       })
@@ -254,11 +182,10 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch(agentNativePath("/_agent-native/env-status"))
-      .then((res) => (res.ok ? res.json() : []))
+    listIntegrationEnvStatuses()
       .then((rows) => {
         if (active) {
-          setEnvStatuses(Array.isArray(rows) ? rows : []);
+          setEnvStatuses(rows);
           setEnvLoading(false);
         }
       })
@@ -282,15 +209,16 @@ export function MessagingSetupPanel() {
   const refreshEnvStatus = async () => {
     setEnvLoading(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-status"));
-      const rows = res.ok ? await res.json() : [];
-      setEnvStatuses(Array.isArray(rows) ? rows : []);
+      setEnvStatuses(await listIntegrationEnvStatuses());
     } finally {
       setEnvLoading(false);
     }
   };
 
-  const saveEnvKeys = async (platform: PlatformDefinition, keys: string[]) => {
+  const saveEnvKeys = async (
+    platform: IntegrationCatalogEntry,
+    keys: string[],
+  ) => {
     const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
@@ -302,18 +230,9 @@ export function MessagingSetupPanel() {
 
     setSavingKeysFor(platform.id);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
-      });
+      await saveIntegrationEnvVars(vars);
 
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || "Failed to save credentials");
-      }
-
-      toast.success(`${platform.label} credentials saved`);
+      toast.success(`${platform.name} credentials saved`);
       setEnvValues((current) => {
         const next = { ...current };
         for (const key of keys) delete next[key];
@@ -331,28 +250,17 @@ export function MessagingSetupPanel() {
   };
 
   const togglePlatform = async (
-    platform: PlatformDefinition,
+    platform: IntegrationCatalogEntry,
     enabled: boolean,
   ) => {
     setTogglingPlatform(platform.id);
     try {
       const action = enabled ? "disable" : "enable";
-      const res = await fetch(
-        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
-        {
-          method: "POST",
-        },
-      );
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(
-          payload.error || `Failed to ${action} ${platform.label}`,
-        );
-      }
+      await setIntegrationEnabled(platform.id, !enabled);
       toast.success(
         enabled
-          ? `${platform.label} disconnected`
-          : `${platform.label} connected`,
+          ? `${platform.name} disconnected`
+          : `${platform.name} connected`,
       );
       await refreshStatuses();
     } catch (error) {
@@ -364,30 +272,21 @@ export function MessagingSetupPanel() {
     }
   };
 
-  const runSetup = async (platform: PlatformDefinition) => {
+  const runSetup = async (platform: IntegrationCatalogEntry) => {
     setSetupPlatform(platform.id);
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/integrations/${platform.id}/setup`),
-        {
-          method: "POST",
-        },
-      );
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || `Failed to set up ${platform.label}`);
-      }
+      await setupIntegration(platform.id);
       toast.success(
         platform.id === "telegram"
           ? "Telegram webhook registered"
-          : `${platform.label} setup complete`,
+          : `${platform.name} setup complete`,
       );
       await refreshStatuses();
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : `Failed to set up ${platform.label}`,
+          : `Failed to set up ${platform.name}`,
       );
     } finally {
       setSetupPlatform(null);
@@ -404,21 +303,16 @@ export function MessagingSetupPanel() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-2">
-        {PLATFORM_DEFINITIONS.map((platform) => {
+        {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
           const configured = !!status?.configured;
           const enabled = !!status?.enabled;
-          // Prefer adapter-supplied env keys (includes optional fields like
-          // webhook secrets); fall back to the static list.
-          const adapterKeys = status?.requiredEnvKeys;
-          const envKeys: RequiredEnvKey[] =
-            adapterKeys && adapterKeys.length > 0
-              ? adapterKeys
-              : platform.envKeys.map((key) => ({
-                  key,
-                  label: key,
-                  required: true,
-                }));
+          const envKeys = platform.credentialRequirements;
+          const missingRequiredCredentials = hasMissingRequiredCredentials(
+            envKeys,
+            envStatusByKey,
+          );
+          const Icon = PLATFORM_ICONS[platform.iconKey];
 
           return (
             <section
@@ -428,12 +322,12 @@ export function MessagingSetupPanel() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-muted/30 text-foreground">
-                    <platform.icon size={18} />
+                    <Icon size={18} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-semibold text-foreground">
-                        {platform.label}
+                        {platform.name}
                       </h3>
                       <ConnectionStatus
                         configured={configured}
@@ -452,12 +346,16 @@ export function MessagingSetupPanel() {
                     size="sm"
                     className="h-7 px-2 text-xs text-muted-foreground"
                   >
-                    <a href={platform.docsUrl} target="_blank" rel="noreferrer">
+                    <a
+                      href={platform.documentation.href}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Docs
                       <IconExternalLink className="ml-1 h-3 w-3" />
                     </a>
                   </Button>
-                  {platform.externalUrl ? (
+                  {platform.documentation.externalHref ? (
                     <Button
                       asChild
                       variant="ghost"
@@ -465,11 +363,11 @@ export function MessagingSetupPanel() {
                       className="h-7 px-2 text-xs text-muted-foreground"
                     >
                       <a
-                        href={platform.externalUrl}
+                        href={platform.documentation.externalHref}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {platform.externalLabel ?? "Open"}
+                        {platform.documentation.externalLabel ?? "Open"}
                         <IconExternalLink className="ml-1 h-3 w-3" />
                       </a>
                     </Button>
@@ -485,7 +383,7 @@ export function MessagingSetupPanel() {
                 <CollapsibleContent>
                   <div className="mt-2 rounded-xl border bg-muted/20 p-4">
                     <ol className="space-y-2 text-sm text-muted-foreground">
-                      {platform.setupSteps.map((step, index) => (
+                      {platform.setup.steps.map((step, index) => (
                         <li key={step} className="flex gap-2">
                           <span className="text-muted-foreground/60">
                             {index + 1}.
@@ -568,7 +466,7 @@ export function MessagingSetupPanel() {
                     );
                   })}
                 </div>
-                {envKeys.some((k) => !envStatusByKey.get(k.key)?.configured) ? (
+                {missingRequiredCredentials ? (
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -604,7 +502,7 @@ export function MessagingSetupPanel() {
                       variant="outline"
                       size="icon"
                       onClick={() => copyWebhook(status.webhookUrl!)}
-                      aria-label={`Copy ${platform.label} webhook URL`}
+                      aria-label={`Copy ${platform.name} webhook URL`}
                     >
                       {copiedWebhook === status.webhookUrl ? (
                         <IconCheck className="h-4 w-4" />

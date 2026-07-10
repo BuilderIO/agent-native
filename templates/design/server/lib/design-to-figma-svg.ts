@@ -35,8 +35,22 @@
  *     file's spec docblock for the rationale).
  */
 
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
+
 import { parseCssColorExtended } from "../../shared/color-utils.js";
 import { importPlaywright, launchChromium } from "./playwright-runtime.js";
+
+export const MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024;
+const EMBEDDED_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
 
 // ---------------------------------------------------------------------------
 // Scene types
@@ -1281,22 +1295,43 @@ export interface RenderFigmaSvgOptions {
   embedImages?: boolean;
 }
 
-async function embedRemoteImages(node: FigmaSvgNode): Promise<void> {
+export async function embedRemoteImages(
+  node: FigmaSvgNode,
+  fetchImage: (url: string) => Promise<string | null> = fetchImageAsDataUri,
+): Promise<Array<{ node: string; reason: string }>> {
   const jobs: Array<Promise<void>> = [];
+  const omitted: Array<{ node: string; reason: string }> = [];
 
   function visit(n: FigmaSvgNode) {
     if (n.kind === "image" && n.image && /^https?:\/\//i.test(n.image.href)) {
       jobs.push(
-        fetchAsDataUri(n.image.href).then((dataUri) => {
-          if (dataUri && n.image) n.image.href = dataUri;
+        fetchImage(n.image.href).then((dataUri) => {
+          if (!n.image) return;
+          if (dataUri) {
+            n.image.href = dataUri;
+          } else {
+            n.image.href = "";
+            omitted.push({
+              node: n.name || n.id,
+              reason: "Remote image could not be safely embedded",
+            });
+          }
         }),
       );
     }
     for (const fill of n.fills ?? []) {
       if (fill.kind === "image" && /^https?:\/\//i.test(fill.href)) {
         jobs.push(
-          fetchAsDataUri(fill.href).then((dataUri) => {
-            if (dataUri) fill.href = dataUri;
+          fetchImage(fill.href).then((dataUri) => {
+            if (dataUri) {
+              fill.href = dataUri;
+            } else {
+              fill.href = "";
+              omitted.push({
+                node: n.name || n.id,
+                reason: "Remote background image could not be safely embedded",
+              });
+            }
           }),
         );
       }
@@ -1305,17 +1340,86 @@ async function embedRemoteImages(node: FigmaSvgNode): Promise<void> {
   }
   visit(node);
   await Promise.all(jobs);
+  return omitted;
 }
 
-async function fetchAsDataUri(url: string): Promise<string | null> {
+type SafeImageFetch = typeof ssrfSafeFetch;
+
+export async function fetchImageAsDataUri(
+  url: string,
+  safeFetch: SafeImageFetch = ssrfSafeFetch,
+): Promise<string | null> {
   try {
-    const res = await fetch(url);
+    const res = await safeFetch(
+      url,
+      { signal: AbortSignal.timeout(10_000) },
+      { maxRedirects: 3 },
+    );
     if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") || "image/png";
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = (res.headers.get("content-type") || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (!EMBEDDED_IMAGE_MIME_TYPES.has(contentType)) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const advertisedLength = Number(res.headers.get("content-length") || 0);
+    if (
+      Number.isFinite(advertisedLength) &&
+      advertisedLength > MAX_EMBEDDED_IMAGE_BYTES
+    ) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.byteLength > MAX_EMBEDDED_IMAGE_BYTES) return null;
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_EMBEDDED_IMAGE_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    const buffer = Buffer.concat(
+      chunks.map((chunk) => Buffer.from(chunk)),
+      total,
+    );
     return `data:${contentType};base64,${buffer.toString("base64")}`;
   } catch {
     return null;
+  }
+}
+
+export async function isAllowedFigmaSvgRenderRequest(
+  url: string,
+  isBlocked: typeof isBlockedExtensionUrlWithDns = isBlockedExtensionUrlWithDns,
+): Promise<boolean> {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol === "data:" ||
+      parsed.protocol === "blob:" ||
+      parsed.protocol === "about:"
+    ) {
+      return true;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    return !(await isBlocked(parsed.href));
+  } catch {
+    return false;
   }
 }
 
@@ -1369,6 +1473,17 @@ export async function renderDesignToFigmaSvg(
     const context = await browser.newContext({
       viewport: { width: options.width, height: options.height },
     });
+    // Stored HTML is untrusted input. Its <img>, CSS, font, script, and iframe
+    // URLs must not turn headless Chromium into an SSRF primitive. Validate
+    // every request, including redirects initiated by the browser, and fail
+    // closed when DNS validation itself fails.
+    await context.route("**/*", async (route) => {
+      if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
+        await route.continue();
+      } else {
+        await route.abort("blockedbyclient");
+      }
+    });
     const page = await context.newPage();
     try {
       await page.setContent(options.html, { waitUntil: "networkidle" });
@@ -1393,16 +1508,18 @@ export async function renderDesignToFigmaSvg(
       await rasterizeUnsupportedNodes(page, scene.root, scene.originOffset);
 
       const root = hydrateRawFigmaSvgNode(scene.root);
-      if (options.embedImages) {
-        await embedRemoteImages(root);
-      }
+      const embeddedImageOmissions = options.embedImages
+        ? await embedRemoteImages(root)
+        : [];
 
-      return buildFigmaSvgDocument({
+      const result = buildFigmaSvgDocument({
         width: options.width,
         height: options.height,
         title: options.title,
         root,
       });
+      result.report.omitted.push(...embeddedImageOmissions);
+      return result;
     } finally {
       await context.close().catch(() => {});
     }

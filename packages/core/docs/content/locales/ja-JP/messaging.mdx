@@ -435,7 +435,9 @@ POST /_agent-native/integrations/telegram/setup
 | メール           | `EMAIL_AGENT_ADDRESS`、および `RESEND_API_KEY` または `SENDGRID_API_KEY` のいずれか | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | WhatsApp         | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`        | —                                                     |
 
-すべての資格情報は環境変数内に存在します。データベースやソース コードには決して存在しません。サイドバー設定 UI またはホスティング プロバイダーの環境パネルを使用します。
+統合資格情報は、まず統合所有者のスコープ付きシークレット（ユーザー、組織、ワークスペースの順）から解決されます。デプロイ環境変数は、ローカルまたは意図的な単一テナント構成のフォールバックです。設定 UI はスコープ付きシークレットを保存し、値がブラウザーに返されたりソースコードに保存されたりすることはありません。
+
+組み込みランタイムアダプターは **Slack**、**Telegram**、**WhatsApp Cloud API**、およびプロバイダー webhook 電子メール（Resend または SendGrid）です。Discord と Microsoft Teams は、検証済みアダプターが実装・登録されるまで接続できません。
 
 ### スレッドとアイデンティティ {#threading-and-identity}
 
@@ -481,13 +483,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +509,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +540,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

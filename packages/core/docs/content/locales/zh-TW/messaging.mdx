@@ -435,7 +435,9 @@ POST /_agent-native/integrations/telegram/setup
 | 電子郵件 | `EMAIL_AGENT_ADDRESS`，加上 `RESEND_API_KEY` 或 `SENDGRID_API_KEY` 之一      | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
-所有憑證都存在於環境變數中——不是資料庫，也不是來源程式碼。使用側邊欄設定 UI 或託管提供者的環境面板。
+整合憑證會先從整合擁有者的範圍限定密鑰中解析（使用者、組織、再到工作區）；部署環境變數是本機或刻意單一租戶部署的後備方案。設定 UI 會儲存範圍限定密鑰；值絕不會傳回瀏覽器，也不會存入來源程式碼。
+
+內建執行階段轉接器包含 **Slack**、**Telegram**、**WhatsApp Cloud API** 和提供者 webhook 電子郵件（Resend 或 SendGrid）。在實作並註冊已驗證的轉接器之前，Discord 和 Microsoft Teams 無法連線。
 
 ### 對話串和身分 {#threading-and-identity}
 
@@ -481,13 +483,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +509,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +540,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

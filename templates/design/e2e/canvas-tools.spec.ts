@@ -1317,7 +1317,20 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
   });
   await expectIframePaintStable(page, "stable-overview-paint");
   await page.keyboard.press("Escape");
-  await expect(page.locator("[data-draw-overlay]")).toHaveCount(0);
+  // The overview annotation surface is intentionally retained while hidden:
+  // keeping the same canvas node mounted preserves its bitmap/model across
+  // overview↔focused transitions and avoids the white/repaint flash this test
+  // exists to guard. Escape must make it inert and inaccessible, not destroy
+  // the retained surface.
+  await expect(page.locator("[data-draw-overlay]")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+  await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
+  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   await expect(shell).toBeVisible();
   await expect.poll(readIframeIdentity).toEqual({
     identity: "stable-overview-frame",

@@ -491,8 +491,10 @@ const messages = {
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
+        "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
       chooseFigFile: "選擇 .fig 檔案",
+      figUploadUploading: "上傳中 {{progress}}%",
+      figUploadProcessing: "轉換中…",
       htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -516,6 +518,8 @@ const messages = {
         importFailed: "匯入失敗",
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
+        invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+        figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
       },
     },
     generationMayHaveStopped:
@@ -585,6 +589,7 @@ const messages = {
     downloadHtml: "下載 HTML",
     downloadPng: "下載 PNG",
     downloadSvg: "下載 SVG",
+    downloadFigmaSvg: "下載用於 Figma 的 SVG",
     downloadZip: "下載 ZIP",
     exportHtml: "匯出HTML",
     exportPdf: "匯出PDF",
@@ -711,6 +716,7 @@ const messages = {
       svgDownloaded: "SVG 已下載",
       svgExportError: "無法匯出 SVG",
       figmaSvgCopied: "已複製為 Figma SVG",
+      figmaSvgDownloaded: "Figma SVG 已下載",
       figmaSvgUnsupported: "此瀏覽器無法將 SVG 圖像複製到剪貼簿",
       figmaSvgBlocked: "請允許存取剪貼簿以複製此 SVG",
       figmaSvgWriteError: "無法將 SVG 複製到剪貼簿",
@@ -932,6 +938,8 @@ const messages = {
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
     openingDesign: "正在開啟設計...",
+    skipToEditor: "直接進入編輯器",
+    failedToCreateDesign: "無法建立設計",
     describeBuild: "描述您想要建置的內容...",
     selected: "已選取 {{count}}",
     clearVisibleSelection: "清晰可見的選取",
@@ -1099,11 +1107,31 @@ const messages = {
     updateError: "無法更新設計系統",
     bulkDeleteError: "無法刪除選定的設計系統",
     selectedLabel: "已選取",
+    yoursTitle: "您的設計系統",
     newCardDescription: "建立您的品牌",
     defaultBadge: "預設",
     selectAria: "選取{{title}}",
     currentlyDefault: "目前預設",
     moreActionsAria: "{{title}} 的更多操作",
+    showcase: {
+      title: "可用於正式產品的起點",
+      description:
+        "使用成熟公共設計系統的來源連結快照。每個副本都包含真實權杖、字級、間距、形狀、狀態指引和署名。",
+      useTemplate: "使用此系統",
+      adding: "正在新增...",
+      openSource: "開啟 {{title}} 來源文件",
+      license: "來源授權：{{license}}",
+      addSuccess: "已新增設計系統",
+      addError: "無法新增設計系統",
+      descriptions: {
+        material3:
+          "Google 的基準淺色角色、Roboto 字級、4 dp 間距和 Material 形狀系統。",
+        carbon:
+          "IBM Carbon v11 White 主題、IBM Plex 排版、企業色彩角色和 2/4/8 間距。",
+        primer:
+          "GitHub Primer 淺色權杖、Mona Sans、緊湊的開發者工具密度和響應式間距。",
+      },
+    },
     actions: {
       done: "完畢",
       select: "選取",

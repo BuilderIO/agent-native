@@ -307,6 +307,7 @@ const messages = {
     insights: "Einblicke",
     downloadForMac: "Herunterladen für Mac",
     downloadForWindows: "Herunterladen für Windows",
+    downloadForLinux: "Für Linux herunterladen",
     downloadDesktopApp: "Laden Sie die Desktop-App herunter",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "ist eine kostenlose,",
@@ -562,7 +563,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Laden Sie Clips Desktop herunter",
     description:
-      "Zeichnen Sie Ihren Bildschirm über die Menüleiste auf. Automatisch aktualisierende Desktop-App für macOS und Windows.",
+      "Zeichnen Sie Ihren Bildschirm über die Systemleiste auf. Automatisch aktualisierende Desktop-App für macOS, Windows und Linux.",
     macSublabel: "Universell (Apple Silicon + Intel)",
     windowsSublabel: "64-Bit-MSI-Installationsprogramm",
     downloadFor: "Herunterladen für {{platform}}",

@@ -203,16 +203,19 @@ export async function handleWebhook(
   // Otherwise skip it — h3's body stream has already been consumed and a
   // second readBody call hangs on streaming providers.
   if (!incoming) {
-    // Step 1: Handle platform-specific verification challenges
+    // Step 1: Let the adapter cache the raw body and identify any challenge.
+    // The response is intentionally withheld until signature verification
+    // succeeds; Discord routinely probes endpoints with invalid PING
+    // signatures and Slack challenges are signed like normal events.
     const verification = await adapter.handleVerification(event);
-    if (verification.handled) {
-      return { status: 200, body: verification.response ?? "ok" };
-    }
 
     // Step 2: Verify webhook signature
     const isValid = await adapter.verifyWebhook(event);
     if (!isValid) {
       return { status: 401, body: { error: "Invalid webhook signature" } };
+    }
+    if (verification.handled) {
+      return { status: 200, body: verification.response ?? "ok" };
     }
 
     // Step 3: Parse the incoming message
@@ -263,7 +266,12 @@ export async function handleWebhook(
     return { status: 500, body: { error: "enqueue failed" } };
   }
 
-  return { status: 200, body: "ok" };
+  return (
+    adapter.getImmediateWebhookResponse?.(incoming) ?? {
+      status: 200,
+      body: "ok",
+    }
+  );
 }
 
 /**

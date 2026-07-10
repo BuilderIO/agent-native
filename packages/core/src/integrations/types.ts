@@ -31,6 +31,16 @@ export interface IncomingMessage {
   senderVerified?: boolean;
   /** Raw platform-specific context needed for routing responses */
   platformContext: Record<string, unknown>;
+  /**
+   * Short-lived delivery context needed only while the queued task is active.
+   * Secrets such as Discord interaction tokens belong here, never in
+   * `platformContext`, thread mappings, logs, or agent-visible context.
+   */
+  responseContext?: Record<string, unknown>;
+  /** Provider-native thread/topic reference, when one exists. */
+  threadRef?: string;
+  /** Provider-native message/activity reference for contextual replies. */
+  replyRef?: string;
   /** Message timestamp (epoch ms) */
   timestamp: number;
 }
@@ -82,6 +92,38 @@ export interface IntegrationStatus {
   requiredEnvKeys?: import("../server/create-server.js").EnvKeyConfig[];
 }
 
+export interface PlatformAdapterCapabilities {
+  /** The adapter can deliver a response to the current inbound event. */
+  replyText: boolean;
+  /** The adapter can send without an active inbound event. */
+  proactiveMessages: boolean;
+  /** The adapter preserves a provider-native thread or topic reference. */
+  nativeThreads: boolean;
+  /** The adapter can quote/reply to a specific inbound message. */
+  contextualReplies: boolean;
+  /** The provider requires an immediate deferred webhook acknowledgement. */
+  deferredWebhookResponse: boolean;
+  /** The adapter only receives explicit interactions, not ordinary messages. */
+  interactionOnly?: boolean;
+}
+
+export interface ImmediateWebhookResponse {
+  status: number;
+  body: unknown;
+}
+
+export class UnsupportedPlatformCapabilityError extends Error {
+  readonly code = "UNSUPPORTED_PLATFORM_CAPABILITY";
+
+  constructor(
+    readonly platform: string,
+    readonly capability: keyof PlatformAdapterCapabilities,
+  ) {
+    super(`Platform ${platform} does not support ${capability}`);
+    this.name = "UnsupportedPlatformCapabilityError";
+  }
+}
+
 /**
  * Platform adapter interface — implement this for each messaging platform.
  *
@@ -96,6 +138,8 @@ export interface PlatformAdapter {
   readonly platform: string;
   /** Human-readable label */
   readonly label: string;
+  /** Explicit runtime behavior. Missing fields are treated as unsupported. */
+  readonly capabilities?: Partial<PlatformAdapterCapabilities>;
 
   /** Env keys this adapter needs (tokens, secrets, etc.) */
   getRequiredEnvKeys(): EnvKeyConfig[];
@@ -121,6 +165,15 @@ export interface PlatformAdapter {
    * Return null to silently ignore the event (bot messages, edits, etc.).
    */
   parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null>;
+
+  /**
+   * Provider-specific response returned only after a message is verified and
+   * durably enqueued. Discord uses this to return a type-5 deferred response
+   * within its three-second interaction deadline.
+   */
+  getImmediateWebhookResponse?(
+    incoming: IncomingMessage,
+  ): ImmediateWebhookResponse | null;
 
   /**
    * Send the agent's response back to the messaging platform.
@@ -175,6 +228,18 @@ export interface PlatformAdapter {
 
   /** Return current connection/configuration status for the settings UI. */
   getStatus(baseUrl?: string): Promise<IntegrationStatus>;
+}
+
+export function assertPlatformCapability(
+  adapter: PlatformAdapter,
+  capability: keyof PlatformAdapterCapabilities,
+): void {
+  if (adapter.capabilities?.[capability] !== true) {
+    throw new UnsupportedPlatformCapabilityError(
+      adapter.platform,
+      capability,
+    );
+  }
 }
 
 /**

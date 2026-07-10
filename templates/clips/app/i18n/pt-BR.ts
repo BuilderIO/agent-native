@@ -301,6 +301,7 @@ const messages = {
     insights: "Percepções",
     downloadForMac: "Baixar para Mac",
     downloadForWindows: "Baixar para Windows",
+    downloadForLinux: "Baixar para Linux",
     downloadDesktopApp: "Baixe o aplicativo para desktop",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "é uma alternativa gratuita,",
@@ -556,7 +557,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Baixar Clips Desktop",
     description:
-      "Grave sua tela na barra de menu. Aplicativo de desktop com atualização automática para macOS e Windows.",
+      "Grave sua tela pela bandeja do sistema. Aplicativo de desktop com atualização automática para macOS, Windows e Linux.",
     macSublabel: "Universais (Apple Silicon + Intel)",
     windowsSublabel: "Instalador MSI de 64 bits",
     downloadFor: "Baixar para {{platform}}",

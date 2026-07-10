@@ -2203,6 +2203,16 @@ async function startNativeFullscreenRecording(
           },
         );
         uploadPromise.catch(() => {});
+        // The recording row already exists, so open its page as soon as the
+        // native stop command has started. Upload/finalize continues in this
+        // webview while the page polls from `uploading` to `ready`.
+        await openNativeUploadUrl(
+          id,
+          `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+        );
+        invoke("hide_finalizing").catch((err) =>
+          console.error("[clips-recorder] hide_finalizing failed:", err),
+        );
         try {
           await Promise.race([
             recorderFinalized,
@@ -2263,10 +2273,6 @@ async function startNativeFullscreenRecording(
                 authToken: params.authToken,
               })
             ) {
-              await openNativeUploadUrl(
-                id,
-                `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-              );
               return { recordingId: id, viewUrl };
             }
             await abortRecordingUpload(
@@ -2274,27 +2280,9 @@ async function startNativeFullscreenRecording(
               id,
               err instanceof Error ? err.message : String(err),
             );
-            // Still take the user to the clip status page. If the server
-            // marked the upload failed, that page shows the failure state; if
-            // the abort request could not land, it keeps polling instead of
-            // leaving the user on an empty desktop.
-            try {
-              await openExternal(
-                `${params.serverUrl.replace(
-                  /\/+$/,
-                  "",
-                )}${viewUrl}?saveFailed=1`,
-              );
-            } catch (openErr) {
-              console.error("[clips-recorder] openExternal failed:", openErr);
-            }
             throw err;
           }
 
-          await openNativeUploadUrl(
-            uploadResult.recordingId,
-            `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-          );
           return {
             recordingId: uploadResult.recordingId,
             viewUrl,
@@ -3223,15 +3211,6 @@ async function startRecordingInner(
     }).catch(() => {});
   }
 
-  async function openFailedRecordingPage() {
-    const viewUrl = `/r/${id}?saveFailed=1`;
-    try {
-      await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
-    } catch (err) {
-      console.error("[clips-recorder] openExternal failed:", err);
-    }
-  }
-
   // 5. Wire toolbar events.
   const toolbarUnlistens = await Promise.all([
     listen("clips:recorder-pause", () => {
@@ -3346,6 +3325,7 @@ async function startRecordingInner(
       // chunk — but NOT the transcript-finalize + thumbnail + upload awaits that
       // follow, which add ~seconds and would overstate the saved duration.
       let stoppedAt = 0;
+      const viewUrl = `/r/${id}`;
       console.log("[clips-recorder] stop requested");
       showFinalizingFeedback();
       if (tickHandle) clearInterval(tickHandle);
@@ -3354,12 +3334,20 @@ async function startRecordingInner(
 
       // Flush the in-flight recorder buffer, then wait for it to fully stop
       // so we get the trailing dataavailable event.
-      await new Promise<void>((resolve) => {
+      const recorderStopped = new Promise<void>((resolve) => {
         if (recorder.state === "inactive") {
+          stoppedAt = Date.now();
           resolve();
           return;
         }
-        recorder.addEventListener("stop", () => resolve(), { once: true });
+        recorder.addEventListener(
+          "stop",
+          () => {
+            stoppedAt = Date.now();
+            resolve();
+          },
+          { once: true },
+        );
         try {
           if (recorder.state === "paused") {
             recorder.resume();
@@ -3380,10 +3368,21 @@ async function startRecordingInner(
           // ignore
         }
       });
+      // `recorder.stop()` has already been requested, so recorded duration is
+      // fixed even if launching the browser takes a moment. Open the existing
+      // recording row now and let its page poll while upload/finalize continues.
+      try {
+        await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
+      } catch (err) {
+        console.error("[clips-recorder] openExternal failed:", err);
+      }
+      invoke("hide_finalizing").catch((err) =>
+        console.error("[clips-recorder] hide_finalizing failed:", err),
+      );
+      await recorderStopped;
       // Recorder has fully stopped and flushed its trailing chunk — this is the
       // true end of recorded content. Everything after (transcript, thumbnail,
       // upload) is post-processing and must not count toward duration.
-      stoppedAt = Date.now();
 
       const thumbnailUploadPromise = captureAndUploadRecordingThumbnail({
         serverUrl: params.serverUrl,
@@ -3523,7 +3522,6 @@ async function startRecordingInner(
         invoke("hide_finalizing").catch((err) =>
           console.error("[clips-recorder] hide_finalizing failed:", err),
         );
-        await openFailedRecordingPage();
         throw failed;
       }
 
@@ -3602,27 +3600,11 @@ async function startRecordingInner(
         invoke("hide_finalizing").catch((hideErr) =>
           console.error("[clips-recorder] hide_finalizing failed:", hideErr),
         );
-        await openFailedRecordingPage();
         throw error;
       }
       await deleteBrowserRecordingBackup(id).catch((err) => {
         console.warn("[clips-recorder] local backup cleanup failed:", err);
       });
-
-      // Finalize done (or tried and failed — the player page shows a clear
-      // error state in either case). Open the browser to the playback URL
-      // and THEN close the finalizing spinner. Closing before the browser
-      // opens would leave the user staring at an empty desktop for the
-      // brief moment while the OS launches / focuses the default browser.
-      const viewUrl = `/r/${id}`;
-      try {
-        await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
-      } catch (err) {
-        console.error("[clips-recorder] openExternal failed:", err);
-      }
-      invoke("hide_finalizing").catch((err) =>
-        console.error("[clips-recorder] hide_finalizing failed:", err),
-      );
 
       return { recordingId: id, viewUrl };
     },

@@ -2210,6 +2210,118 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge previews localhost interaction states by selector and clears temporary styles without touching base inline styles",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body>
+    <button id="runtime-button" style="color: rgb(0, 0, 255); opacity: 1">Runtime</button>
+    <button id="escaped-target">Escaped</button>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "state-preview",
+            selector: "#runtime-button",
+            selectorCandidates: ["#runtime-button"],
+            nodeId: "runtime-only-source-id",
+            state: "focus-visible",
+            previewStyles: {
+              color: "rgb(255, 0, 0)",
+              opacity: "0.4",
+            },
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+      expect(
+        await page.locator("#runtime-button").evaluate((el) => ({
+          color: getComputedStyle(el).color,
+          opacity: getComputedStyle(el).opacity,
+          previewKey: el.getAttribute("data-an-state-preview-key"),
+        })),
+      ).toMatchObject({ color: "rgb(255, 0, 0)", opacity: "0.4" });
+      expect(
+        await page
+          .locator("#runtime-button")
+          .getAttribute("data-an-state-preview"),
+      ).toBe("focus-visible");
+
+      // A discard/undo sends empty values for the state-scoped properties.
+      // The bridge removes only its temporary CSSOM rule; the app's authored
+      // inline styles remain byte-for-byte untouched.
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "interaction-state-style-preview",
+            selector: "#runtime-button",
+            state: "focus-visible",
+            styles: { color: "", opacity: "" },
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+      expect(
+        await page.locator("#runtime-button").evaluate((el) => ({
+          color: getComputedStyle(el).color,
+          opacity: getComputedStyle(el).opacity,
+        })),
+      ).toEqual({ color: "rgb(0, 0, 255)", opacity: "1" });
+      expect(
+        await page.locator("#runtime-button").getAttribute("style"),
+      ).toContain("color: rgb(0, 0, 255)");
+
+      // Runtime ids are arbitrary source strings. Backslashes and quotes must
+      // be escaped as CSS attribute-selector data, never parsed as selector
+      // syntax or allowed to make the exact target silently unreachable.
+      await page.evaluate(() => {
+        document
+          .querySelector("#escaped-target")!
+          .setAttribute("data-agent-native-node-id", 'runtime\\"quoted');
+        window.postMessage(
+          {
+            type: "state-preview",
+            nodeId: 'runtime\\"quoted',
+            state: "hover",
+            previewStyles: { opacity: "0.25" },
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+      expect(
+        await page
+          .locator("#escaped-target")
+          .evaluate((el) => getComputedStyle(el).opacity),
+      ).toBe("0.25");
+      expect(
+        await page
+          .locator("#escaped-target")
+          .getAttribute("data-an-state-preview"),
+      ).toBe("hover");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── padding-handle hit-area / hover-hatch / value-box (Steve test batch 3,
 // item 6) and the restored drop-insertion line (item 4) ────────────────────
 
@@ -5546,6 +5658,15 @@ it(
   <body><h1 id="react-heading">How can I help?</h1></body>
 </html>`);
       await page.locator("#react-heading").evaluate((element) => {
+        element.setAttribute("onerror", "window.__snapshotAttack=1");
+        element.setAttribute("srcdoc", "<script>bad()</script>");
+        element.setAttribute("formaction", "javascript:bad()");
+        const iframe = document.createElement("iframe");
+        iframe.id = "malicious-snapshot-frame";
+        iframe.srcdoc = "<p>frame</p>";
+        element.appendChild(iframe);
+      });
+      await page.locator("#react-heading").evaluate((element) => {
         Object.defineProperty(element, "__reactFiber$bridgeguard", {
           configurable: true,
           enumerable: true,
@@ -5581,6 +5702,9 @@ it(
       expect(runtimeSnapshot.html).toContain("How can I help?");
       expect(runtimeSnapshot.html).toContain(
         'data-source-file="app/routes/_index.tsx"',
+      );
+      expect(runtimeSnapshot.html).not.toMatch(
+        /<iframe|\sonerror=|\ssrcdoc=|javascript:/i,
       );
       const runtimeIdentity = await page.evaluate((snapshotHtml) => {
         const live = document.querySelector("#react-heading");

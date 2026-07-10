@@ -1,0 +1,257 @@
+import { createHmac } from "node:crypto";
+
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  AutomationConnectorError,
+  createAutomationRuntime,
+  type AutomationWorkflowDefinition,
+} from "./index.js";
+
+const workflow: AutomationWorkflowDefinition = {
+  id: "notify-release",
+  connectorId: "n8n",
+  name: "Notify release",
+  inputSchema: { type: "object" },
+  outputSchema: { type: "object" },
+  response: { mode: "asynchronous" },
+  capabilities: {
+    invokesExternalWorkflow: true,
+    receivesCallback: true,
+    supportsIdempotency: true,
+    supportsSynchronousResponse: false,
+    supportsAsynchronousResponse: true,
+    mayCauseExternalSideEffects: true,
+  },
+  outbound: {
+    baseUrl: "https://workflow.example.test",
+    path: "/webhook/release",
+    headers: { authorization: "${automationSecret.N8N_WEBHOOK_CREDENTIAL}" },
+    idempotencyHeader: "idempotency-key",
+    retry: { maxAttempts: 2, retryDelayMs: 0 },
+  },
+  inbound: {
+    authentication: {
+      kind: "hmac-sha256",
+      secretRef: "AUTOMATION_CALLBACK_SECRET",
+      header: "x-signature",
+    },
+    eventIdHeader: "x-event-id",
+    triggersAgentExecution: true,
+  },
+};
+
+function makeRuntime(
+  overrides: Parameters<typeof createAutomationRuntime>[0] = {},
+) {
+  return createAutomationRuntime({
+    workflows: [workflow],
+    resolveSecret: async () => "test-only-secret-not-real",
+    fetch: vi.fn(
+      async () =>
+        new Response(JSON.stringify({ receipt: "test-only-secret-not-real" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+    claimInboundEvent: vi.fn(async () => true),
+    enqueueInboundEvent: vi.fn(async () => {}),
+    ...overrides,
+  });
+}
+
+describe("automation runtime", () => {
+  it("only invokes static allow-listed workflow targets and redacts credentials", async () => {
+    const runtime = makeRuntime();
+    const result = await runtime.invoke({
+      workflowId: "notify-release",
+      userEmail: "owner@example.test",
+      input: { release: "v1" },
+      idempotencyKey: "event-release-0001",
+    });
+
+    expect(result).toMatchObject({
+      status: "accepted",
+      httpStatus: 202,
+      output: { receipt: "[REDACTED]" },
+    });
+
+    const blocked = makeRuntime({
+      workflows: [
+        {
+          ...workflow,
+          outbound: {
+            ...workflow.outbound!,
+            path: "https://untrusted.example.test/webhook",
+          },
+        },
+      ],
+    });
+    await expect(
+      blocked.invoke({
+        workflowId: "notify-release",
+        userEmail: "owner@example.test",
+        input: {},
+        idempotencyKey: "event-release-0002",
+      }),
+    ).rejects.toMatchObject({ code: "blocked_target" });
+  });
+
+  it("bounds request and response payloads", async () => {
+    const runtime = makeRuntime({
+      workflows: [
+        {
+          ...workflow,
+          outbound: {
+            ...workflow.outbound!,
+            maxRequestBytes: 8,
+            maxResponseBytes: 4,
+          },
+        },
+      ],
+    });
+
+    await expect(
+      runtime.invoke({
+        workflowId: "notify-release",
+        userEmail: "owner@example.test",
+        input: { too: "large" },
+        idempotencyKey: "event-release-0003",
+      }),
+    ).rejects.toMatchObject({ code: "payload_too_large" });
+
+    const bounded = makeRuntime({
+      workflows: [
+        {
+          ...workflow,
+          outbound: { ...workflow.outbound!, maxResponseBytes: 4 },
+        },
+      ],
+      fetch: vi.fn(async () => new Response("response-is-intentionally-long")),
+    });
+    await expect(
+      bounded.invoke({
+        workflowId: "notify-release",
+        userEmail: "owner@example.test",
+        input: {},
+        idempotencyKey: "event-release-0004",
+      }),
+    ).resolves.toMatchObject({ responseTruncated: true, output: "resp" });
+  });
+
+  it("retries transient failures but not arbitrary errors", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response('{"queued":true}', { status: 202 }));
+    const runtime = makeRuntime({ fetch });
+
+    await expect(
+      runtime.invoke({
+        workflowId: "notify-release",
+        userEmail: "owner@example.test",
+        input: {},
+        idempotencyKey: "event-release-0005",
+      }),
+    ).resolves.toMatchObject({ attempts: 2, output: { queued: true } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("aborts timed-out requests without exposing request credentials", async () => {
+    const fetch = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+    const runtime = makeRuntime({
+      workflows: [
+        {
+          ...workflow,
+          outbound: {
+            ...workflow.outbound!,
+            timeoutMs: 1,
+            retry: { maxAttempts: 1 },
+          },
+        },
+      ],
+      fetch,
+    });
+
+    await expect(
+      runtime.invoke({
+        workflowId: "notify-release",
+        userEmail: "owner@example.test",
+        input: {},
+        idempotencyKey: "event-release-0006",
+      }),
+    ).rejects.toMatchObject({ code: "timeout" });
+  });
+
+  it("rejects unauthenticated callbacks before enqueueing agent work", async () => {
+    const enqueueInboundEvent = vi.fn(async () => {});
+    const runtime = makeRuntime({ enqueueInboundEvent });
+
+    await expect(
+      runtime.receiveCallback({
+        workflowId: "notify-release",
+        rawBody: '{"release":"v1"}',
+        headers: new Headers({ "x-signature": "wrong" }),
+      }),
+    ).rejects.toMatchObject({ code: "authentication_failed" });
+    expect(enqueueInboundEvent).not.toHaveBeenCalled();
+  });
+
+  it("claims callback event IDs durably before enqueueing", async () => {
+    const claimInboundEvent = vi.fn(async () => false);
+    const enqueueInboundEvent = vi.fn(async () => {});
+    const runtime = makeRuntime({ claimInboundEvent, enqueueInboundEvent });
+    const rawBody = '{"release":"v1"}';
+    const signature = `sha256=${createHmac(
+      "sha256",
+      "test-only-secret-not-real",
+    )
+      .update(rawBody)
+      .digest("hex")}`;
+
+    await expect(
+      runtime.receiveCallback({
+        workflowId: "notify-release",
+        rawBody,
+        headers: new Headers({
+          "x-event-id": "provider-event-1",
+          "x-signature": signature,
+        }),
+      }),
+    ).resolves.toEqual({
+      accepted: true,
+      duplicate: true,
+      eventId: "provider-event-1",
+    });
+    expect(enqueueInboundEvent).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when agent-triggering callbacks lack durable handlers", async () => {
+    const runtime = createAutomationRuntime({
+      workflows: [workflow],
+      resolveSecret: async () => "test-only-secret-not-real",
+    });
+    const rawBody = "{}";
+    const signature = `sha256=${createHmac(
+      "sha256",
+      "test-only-secret-not-real",
+    )
+      .update(rawBody)
+      .digest("hex")}`;
+
+    await expect(
+      runtime.receiveCallback({
+        workflowId: "notify-release",
+        rawBody,
+        headers: new Headers({ "x-signature": signature }),
+      }),
+    ).rejects.toBeInstanceOf(AutomationConnectorError);
+  });
+});

@@ -78,6 +78,12 @@ export const credentialKeys: CredentialKeyConfig[] = [
   { key: "GONG_API_BASE", label: "Gong API Base URL", required: false },
   // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
+  // Clay
+  {
+    key: "CLAY_PUBLIC_API_KEY",
+    label: "Clay Public API Key",
+    required: false,
+  },
   // GitHub
   { key: "GITHUB_TOKEN", label: "GitHub token", required: false },
   // Jira
@@ -233,6 +239,11 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     requiredKeys: ["APOLLO_API_KEY"],
   },
   {
+    provider: "clay",
+    label: "Clay",
+    requiredKeys: ["CLAY_PUBLIC_API_KEY"],
+  },
+  {
     provider: "github",
     label: "GitHub",
     requiredKeys: ["GITHUB_TOKEN"],
@@ -309,6 +320,7 @@ const credentialAliases: Record<string, string[]> = {
   amplitude: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
   apollo: ["APOLLO_API_KEY"],
   bigquery: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
+  clay: ["CLAY_PUBLIC_API_KEY"],
   commonroom: ["COMMONROOM_API_TOKEN"],
   dataforseo: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],

@@ -438,7 +438,9 @@ POST /_agent-native/integrations/telegram/setup
 | 이메일   | `EMAIL_AGENT_ADDRESS`와 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY` 중 하나     | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | 왓츠앱   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
-모든 자격 증명은 환경 변수에 있습니다. 절대 데이터베이스나 소스 코드가 아닙니다. 사이드바 설정 UI 또는 호스팅 제공업체의 환경 패널을 사용하세요.
+통합 자격 증명은 먼저 통합 소유자의 범위 지정 시크릿(사용자, 조직, 그다음 워크스페이스)에서 확인됩니다. 배포 환경 변수는 로컬 또는 의도적인 단일 테넌트 설치를 위한 대체 수단입니다. 설정 UI는 범위 지정 시크릿을 저장하며, 값이 브라우저로 반환되거나 소스 코드에 저장되지는 않습니다.
+
+기본 제공 런타임 어댑터는 **Slack**, **Telegram**, **WhatsApp Cloud API**, 그리고 공급자 webhook 이메일(Resend 또는 SendGrid)입니다. 검증된 어댑터를 구현하고 등록하기 전까지 Discord와 Microsoft Teams는 연결할 수 없습니다.
 
 ### 스레딩 및 ID {#threading-and-identity}
 
@@ -484,13 +486,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -510,10 +512,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -541,10 +543,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

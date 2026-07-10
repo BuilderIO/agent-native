@@ -304,6 +304,7 @@ const messages = {
     insights: "Perspectivas",
     downloadForMac: "Descargar para Mac",
     downloadForWindows: "Descargar para Windows",
+    downloadForLinux: "Descargar para Linux",
     downloadDesktopApp: "Descargar la aplicación de escritorio",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "es una alternativa gratuita,",
@@ -559,7 +560,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Descargar Clips Desktop",
     description:
-      "Graba tu pantalla desde la barra de menú. Aplicación de escritorio de actualización automática para macOS y Windows.",
+      "Graba tu pantalla desde la bandeja del sistema. Aplicación de escritorio con actualización automática para macOS, Windows y Linux.",
     macSublabel: "Traducido: Universal (Apple Silicon + Intel)",
     windowsSublabel: "Instalador MSI de 64 bits",
     downloadFor: "Descargar para {{platform}}",

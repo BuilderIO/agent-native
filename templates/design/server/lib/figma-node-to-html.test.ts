@@ -259,6 +259,43 @@ describe("mapFigmaNodeToHtml - text", () => {
     const { html } = mapFigmaNodeToHtml(root);
     expect(html).toContain("line-height: 24px");
   });
+
+  it("preserves explicit newlines, repeated spaces, and mixed character style runs", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 240, 100),
+      children: [
+        {
+          id: "3:3",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 240, 60),
+          characters: "A  B\nC",
+          style: { fontFamily: "Inter", fontSize: 16, fontWeight: 400 },
+          characterStyleOverrides: [1, 1, 0, 0, 2, 2],
+          styleOverrideTable: {
+            "1": { fontWeight: 700 },
+            "2": {
+              italic: true,
+              fills: [
+                {
+                  type: "SOLID",
+                  color: { r: 1, g: 0, b: 0, a: 1 },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("white-space: pre-wrap");
+    expect(html).toContain('style="font-weight: 700">A ');
+    expect(html).toContain("font-style: italic");
+    expect(html).toContain("color: rgba(255, 0, 0, 1)");
+    expect(html).toContain(">\nC</span>");
+  });
 });
 
 describe("mapFigmaNodeToHtml - auto layout", () => {
@@ -303,6 +340,30 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
     expect(html).not.toMatch(/data-figma-node-id="4:1"[^>]*left:/);
     // FILL sizing child grows along the main axis.
     expect(html).toContain("flex-grow: 1");
+  });
+
+  it("keeps layoutPositioning ABSOLUTE children out of auto-layout flow", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(100, 100, 400, 200),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "4:absolute",
+          type: "RECTANGLE",
+          layoutPositioning: "ABSOLUTE",
+          absoluteBoundingBox: box(420, 120, 40, 40),
+        },
+      ],
+    };
+
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toMatch(
+      /data-figma-node-id="4:absolute"[^>]*position: absolute/,
+    );
+    expect(html).toMatch(/data-figma-node-id="4:absolute"[^>]*left: 320px/);
+    expect(html).toMatch(/data-figma-node-id="4:absolute"[^>]*top: 20px/);
   });
 
   it("maps horizontal FILL sizing to align-self: stretch (not flex-grow) under a VERTICAL (column) parent", () => {

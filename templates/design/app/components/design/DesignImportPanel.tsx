@@ -7,6 +7,7 @@ import {
   IconCode,
   IconCopy,
   IconHtml,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState, type ReactNode } from "react";
@@ -17,7 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  importResultSummary,
+  uploadDesignFile,
+  validateFigUploadFile,
+} from "@/lib/design-file-upload";
+import {
+  importResultNotification,
   looksLikeStandaloneHtml,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
@@ -31,17 +36,23 @@ interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
 }
 
-type ImportMode = "figma-paste" | "html" | "local-app";
+type ImportMode = "figma-paste" | "fig-upload" | "html" | "local-app";
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
+  const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
   const [htmlText, setHtmlText] = useState("");
   const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
+  const [figUploadName, setFigUploadName] = useState<string | null>(null);
+  const [figUploadProgress, setFigUploadProgress] = useState<number | null>(
+    null,
+  );
+  const [figUploadBusy, setFigUploadBusy] = useState(false);
 
   const finishImport = useCallback(
     async (result: ImportResult | undefined, fallback: string) => {
@@ -51,15 +62,17 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
         queryClient.invalidateQueries({ queryKey: ["action"] }),
       ]);
-      toast.success(importResultSummary(result, fallback));
-      if (result?.warnings?.length) {
-        toast.warning(t("designEditor.import.warningsToast"), {
-          description: result.warnings[0],
+      const notification = importResultNotification(result, fallback);
+      if (notification.variant === "warning") {
+        toast.warning(notification.title, {
+          description: notification.description,
         });
+      } else {
+        toast.success(notification.title);
       }
       navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
     },
-    [context.designId, navigate, queryClient, t],
+    [context.designId, navigate, queryClient],
   );
 
   const importHtmlString = useCallback(
@@ -109,6 +122,52 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [importHtmlString],
   );
 
+  const handleFigFileChange = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      setActiveMode("fig-upload");
+      const validationError = validateFigUploadFile(file);
+      if (validationError === "invalid-extension") {
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description: t("designEditor.import.errors.invalidFigFile"),
+        });
+        if (figFileInputRef.current) figFileInputRef.current.value = "";
+        return;
+      }
+      if (validationError === "too-large") {
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description: t("designEditor.import.errors.figFileTooLarge"),
+        });
+        if (figFileInputRef.current) figFileInputRef.current.value = "";
+        return;
+      }
+
+      setFigUploadName(file.name);
+      setFigUploadProgress(0);
+      setFigUploadBusy(true);
+      try {
+        const result = await uploadDesignFile({
+          designId: context.designId,
+          file,
+          fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+          onProgress: ({ percent }) => setFigUploadProgress(percent),
+        });
+        await finishImport(result, t("designEditor.import.uploadSuccess"));
+      } catch (error) {
+        toast.error(t("designEditor.import.errors.uploadFailed"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        });
+      } finally {
+        setFigUploadBusy(false);
+        setFigUploadName(null);
+        setFigUploadProgress(null);
+        if (figFileInputRef.current) figFileInputRef.current.value = "";
+      }
+    },
+    [context.designId, finishImport, t],
+  );
+
   const copyVisualEditCommand = useCallback(
     async (command: string) => {
       try {
@@ -121,7 +180,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [t],
   );
 
-  const busy = importSource.isPending;
+  const busy = importSource.isPending || figUploadBusy;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -154,6 +213,78 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                   "Click the canvas first, then paste with the same shortcut you use for copied Design content." /* i18n-ignore */
                 }
               </p>
+            </div>
+          </ImportSourceRow>
+
+          <ImportSourceRow
+            id="fig-file-import"
+            icon={<IconUpload className="size-3.5" />}
+            title={t("designEditor.import.figUploadTitle")}
+            description={t("designEditor.import.figUploadDescription")}
+            isOpen={activeMode === "fig-upload"}
+            onToggle={() =>
+              setActiveMode((mode) =>
+                mode === "fig-upload" ? null : "fig-upload",
+              )
+            }
+          >
+            <div className="space-y-2 p-2">
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {t("designEditor.import.figUploadDescription")}
+              </p>
+              <input
+                ref={figFileInputRef}
+                type="file"
+                accept=".fig,application/octet-stream"
+                className="hidden"
+                onChange={(event) =>
+                  void handleFigFileChange(event.target.files?.[0])
+                }
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-full px-2"
+                disabled={busy}
+                onClick={() => figFileInputRef.current?.click()}
+              >
+                {t("designEditor.import.chooseFigFile")}
+              </Button>
+              {figUploadBusy && figUploadName ? (
+                <div
+                  className="space-y-1.5 rounded-md border border-border/70 bg-muted/30 p-2"
+                  aria-live="polite"
+                >
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      title={figUploadName}
+                    >
+                      {figUploadName}
+                    </span>
+                    <span className="tabular-nums">
+                      {figUploadProgress === 100
+                        ? t("designEditor.import.figUploadProcessing")
+                        : t("designEditor.import.figUploadUploading", {
+                            progress: figUploadProgress ?? 0,
+                          })}
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label={t("designEditor.import.figUploadTitle")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={figUploadProgress ?? 0}
+                    className="h-1 overflow-hidden rounded-full bg-muted"
+                  >
+                    <div
+                      className="h-full rounded-full bg-foreground/70 transition-[width] duration-150"
+                      style={{ width: `${figUploadProgress ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </ImportSourceRow>
 

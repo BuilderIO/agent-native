@@ -300,6 +300,7 @@ const messages = {
     insights: "インサイト",
     downloadForMac: "Mac 用のダウンロード",
     downloadForWindows: "Windows 用のダウンロード",
+    downloadForLinux: "Linux 用のダウンロード",
     downloadDesktopApp: "デスクトップアプリをダウンロード",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "は無料の",
@@ -554,7 +555,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "ダウンロード",
     description:
-      "メニューバーから画面を録画します。 macOS および Windows のデスクトップ アプリを自動更新します。",
+      "システムトレイから画面を録画します。macOS、Windows、Linux 向けの自動更新デスクトップアプリです。",
     macSublabel: "ユニバーサル (Apple Silicon + Intel)",
     windowsSublabel: "64 ビット MSI インストーラー",
     downloadFor: "翻訳済み: Download for {{platform}}",

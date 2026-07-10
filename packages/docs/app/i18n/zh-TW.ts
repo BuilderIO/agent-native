@@ -19,6 +19,7 @@ const messages = {
   },
   footer: {
     download: "下載",
+    brand: "品牌",
     privacy: "隱私",
     terms: "條款",
   },
@@ -1218,6 +1219,37 @@ const messages = {
         appImage: "下載 AppImage",
         deb: "下載 .deb",
         note: "封存包無需 FUSE 即可使用。某些發行版上的 AppImage 可能需要 FUSE 2。",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "品牌資源",
+    title: "Agent-Native 標誌",
+    body: "下載適用於文章、簡報和社群專案的官方標誌與圖形。SVG 檔案在任何尺寸下都能保持清晰，並支援透明背景。",
+    horizontal: {
+      title: "橫式標誌",
+      body: "建議用於文章標題、網站、簡報及其他橫向版面。",
+    },
+    symbol: {
+      title: "圖形標記",
+      body: "獨立圖形適用於頭像、應用程式圖示和緊湊版面。",
+    },
+    lightBackground: "用於淺色背景",
+    darkBackground: "用於深色背景",
+    downloadSvg: "下載 SVG",
+    usage: {
+      title: "品牌使用規範",
+      clear: {
+        title: "保持清晰",
+        body: "保留標誌的原始比例，並在周圍留出足夠空間。",
+      },
+      contrast: {
+        title: "確保對比度",
+        body: "淺色背景使用深色版本，深色背景使用淺色版本。",
+      },
+      original: {
+        title: "使用原始素材",
+        body: "請勿改色、裁切、旋轉、拉伸或重新排列標誌和圖形。",
       },
     },
   },

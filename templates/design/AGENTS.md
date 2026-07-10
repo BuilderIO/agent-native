@@ -16,13 +16,19 @@ patterns live in `.agents/skills/`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
-- Treat repository import actions as shortcuts, not capability limits. When the
-  exact GitHub endpoint, search query, request body, pagination mode, metadata
-  field, or API version matters, use `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` against the real GitHub API.
-  The provider API resolves auth from the saved `GITHUB_TOKEN` secret and never
-  exposes the token value. For large scans, stage results with `stageAs` and
-  analyze them with `query-staged-dataset`.
+- When a user wants an established public system as a starting point, call
+  `create-design-system` with `templateId: material-3`, `carbon-white`, or
+  `primer-light`. These are source-linked, versioned token snapshots with
+  system-specific generation guidance; preserve that data instead of
+  reconstructing a lookalike palette.
+- Treat provider-specific actions as shortcuts, not capability limits. Use
+  `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` for
+  open-ended GitHub and Figma API questions. Auth resolves from the saved,
+  user-scoped `GITHUB_TOKEN` or `FIGMA_ACCESS_TOKEN` and never exposes secret
+  values. Stage large reads with `stageAs` and analyze them through
+  `query-staged-dataset`. Figma REST can read files, nodes, components, styles,
+  images, comments, versions, and Enterprise variables, but it cannot create
+  arbitrary canvas layers; non-read Figma requests require human approval.
 - In dev, call actions with `pnpm action <name>`; in production, call the native
   tool. The action schema is the source of truth for parameters.
 - Call `view-screen` before editing a specific design if the current design or
@@ -64,9 +70,11 @@ patterns live in `.agents/skills/`.
   `insert-figma-library-asset`, preserving `fileKey`, `nodeId`, `componentKey`,
   `sourceUrl`, and the rendered URL. This path requires the saved
   `FIGMA_ACCESS_TOKEN` secret; never ask the user to paste that token into chat
-  or pass it as an action parameter. Figma styles and variables are design-system
-  inputs, not draggable media assets; route full file/design-system extraction
-  through Builder-backed indexing.
+  or pass it as an action parameter. Token setup needs `current_user:read` for
+  validation and `file_content:read` for frame/node import; add library or
+  Enterprise variable scopes only when needed. Figma styles and variables are
+  design-system inputs, not draggable media assets; route reusable system
+  extraction through Builder-backed indexing.
 - To import a Figma frame/screen as a real, editable Design screen (not a
   rendered image), use `import-figma-frame` with a `figmaUrl` (or
   `fileKey`/`nodeId`) — it maps position, auto-layout, text, fills/gradients,
@@ -78,6 +86,13 @@ patterns live in `.agents/skills/`.
   the Enterprise Variables API; full token extraction still routes through
   Builder-backed indexing). See the `design-systems` skill's "Import from
   Figma" section.
+- A current Figma Cmd+C clipboard includes exact selected node ids in
+  `figmeta.selectedNodeData`; `import-figma-clipboard` uses those before any
+  heuristic matching and supports multi-selection. Clipboard metadata is not a
+  public Figma contract, so a copied frame link remains the stable exact path
+  if Figma changes that field. Without a token, current Figma's binary-only
+  clipboard has no browser-readable HTML fallback; give setup guidance instead
+  of claiming a successful import.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a
@@ -110,7 +125,8 @@ patterns live in `.agents/skills/`.
   explicit user instructions in the current turn still win.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
-  through `index-design-system-with-builder` or `import-file --format fig`.
+  through `index-design-system-with-builder` or the Design System Setup `.fig`
+  upload.
   Pass readable `design.md` content as `designMd`, use the returned local design
   system id in Design flows, and call `get-design-system` before generation to
   hydrate Builder docs/tokens when available. Do not create a duplicate local

@@ -105,6 +105,43 @@ export {
   mountAgentNativeEmbedded,
   type AgentNativeEmbeddedPluginOptions,
 } from "./server/embedded.js";
+export {
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type AutomationCapabilities,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
+} from "./integrations/catalog.js";
+export {
+  AutomationConnectorError,
+  createAutomationCallbackHandler,
+  createAutomationRuntime,
+  createInvokeAutomationWorkflowAction,
+  type AutomationCallbackAuthentication,
+  type AutomationCallbackInput,
+  type AutomationCallbackResult,
+  type AutomationInboundDefinition,
+  type AutomationInvocation,
+  type AutomationInvocationResult,
+  type AutomationInvocationStatus,
+  type AutomationOutboundDefinition,
+  type AutomationResponseMode,
+  type AutomationRetryPolicy,
+  type AutomationRuntime,
+  type AutomationRuntimeOptions,
+  type AutomationWorkflowCapabilities,
+  type AutomationWorkflowDefinition,
+  type JsonSchema,
+} from "./automation/index.js";
 
 // Server
 export {

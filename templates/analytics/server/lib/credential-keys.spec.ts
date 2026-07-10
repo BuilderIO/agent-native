@@ -25,6 +25,7 @@ describe("credential key lookup", () => {
       "BIGQUERY_PROJECT_ID",
     ]);
     expect(keysFor("github")).toEqual(["GITHUB_TOKEN"]);
+    expect(keysFor("clay")).toEqual(["CLAY_PUBLIC_API_KEY"]);
     expect(keysFor("hubspot")).toEqual([
       "HUBSPOT_PRIVATE_APP_TOKEN",
       "HUBSPOT_ACCESS_TOKEN",

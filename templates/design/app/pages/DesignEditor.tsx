@@ -372,7 +372,10 @@ import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
   canCopyFigmaSvgToClipboard,
   copyDesignAsFigmaSvg,
+  exportDesignAsFigmaSvg,
   FigmaSvgCopyError,
+  type LiveFigmaSvgSnapshot,
+  type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
 import {
   clearPendingGeneration,
@@ -2832,7 +2835,7 @@ function DesignWorkspaceRail({
   return (
     <nav
       aria-label={t("designEditor.leftRail.label")}
-      className="flex w-[57px] shrink-0 flex-col items-center border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
+      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
     >
       <div className="mb-3 flex h-8 items-center justify-center">
         {projectMenu}
@@ -3615,7 +3618,7 @@ function DesignBottomToolbar({
   return (
     <div
       data-design-bottom-toolbar
-      className="fixed left-1/2 z-[70] flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none"
+      className="fixed left-1/2 z-[70] hidden max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none md:flex"
       style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
     >
       <div className="flex min-w-0 items-center gap-0.5">
@@ -4899,6 +4902,7 @@ function DesignEditor() {
   const [figmaSvgExporting, setFigmaSvgExporting] = useState(false);
   const pngExportingRef = useRef(false);
   const figmaSvgExportingRef = useRef(false);
+  const figmaPasteImportingRef = useRef(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -9574,7 +9578,10 @@ function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
-      metadata?: { originalStyles?: Record<string, string> },
+      metadata?: {
+        originalStyles?: Record<string, string>;
+        interactionState?: InteractionState;
+      },
     ) => {
       if (!canEditDesign) return;
       const entries = Object.entries(styles).filter(
@@ -9592,13 +9599,21 @@ function DesignEditor() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const [firstProperty, firstValue] = entries[0];
-      const originalStyles =
-        metadata?.originalStyles ??
-        originalStylesForPendingVisualEdit(
-          stylePatch,
-          screenId === activeFile?.id ? selectedElement : null,
-          elementInfo,
-        );
+      const baseStyles = metadata?.interactionState
+        ? originalStylesForPendingVisualEdit(
+            stylePatch,
+            screenId === activeFile?.id ? selectedElement : null,
+            elementInfo,
+          )
+        : undefined;
+      const originalStyles = metadata?.interactionState
+        ? Object.fromEntries(entries.map(([property]) => [property, ""]))
+        : (metadata?.originalStyles ??
+          originalStylesForPendingVisualEdit(
+            stylePatch,
+            screenId === activeFile?.id ? selectedElement : null,
+            elementInfo,
+          ));
       pendingVisualStyleRedoStackRef.current = [];
       pendingLiveTextRedoStackRef.current = [];
       const nextEdit: PendingVisualStyleEdit = {
@@ -9627,6 +9642,9 @@ function DesignEditor() {
         classes: elementInfo?.classes ?? [],
         styles: stylePatch,
         originalStyles,
+        ...(metadata?.interactionState
+          ? { interactionState: metadata.interactionState, baseStyles }
+          : {}),
         updatedAt: Date.now(),
         // §6.4 — stamp the active breakpoint scope so the agent applies
         // these as width-scoped overrides, not base writes.
@@ -14166,6 +14184,23 @@ function DesignEditor() {
   // selection (a stable `sourceId`) — returns false (caller falls through to
   // the normal path) otherwise, same gating EditPanel itself already applies
   // before attaching `meta.interactionState` in the first place.
+  const previewInteractionStateStyles = useCallback(
+    (state: InteractionState, styles: Record<string, string>) => {
+      if (!selectedElement) return;
+      const sendPreview = (window as any)
+        .__designCanvasSendInteractionStatePreviewStyle;
+      if (typeof sendPreview !== "function") return;
+      sendPreview({
+        selector: selectedCanvasSelector ?? selectedElement.selector ?? "",
+        selectorCandidates: selectedCanvasSelectorCandidates,
+        nodeId: selectedElement.sourceId ?? "",
+        state,
+        styles,
+      });
+    },
+    [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+  );
+
   const commitInteractionStateStyles = useCallback(
     (state: InteractionState, styles: Record<string, string>): boolean => {
       if (!canEditDesign || !activeFile?.id || !selectedElement?.sourceId) {
@@ -14176,32 +14211,63 @@ function DesignEditor() {
       );
       if (entries.length === 0) return false;
       const nodeId = selectedElement.sourceId;
+      if (activeCanvasSourceType === "localhost") {
+        recordPendingVisualStyleEdit(
+          activeFile.id,
+          selectedCanvasSelector ?? selectedElement.selector ?? "",
+          Object.fromEntries(entries),
+          selectedElement,
+          { interactionState: state },
+        );
+        previewInteractionStateStyles(state, Object.fromEntries(entries));
+        return true;
+      }
       const baseContent = getFreshActiveContent();
       const nextContent = applyInteractionStateStyleCommit(
         baseContent,
         nodeId,
         state,
         Object.fromEntries(entries),
+        activeBreakpointUpperBoundPx,
       );
       if (nextContent === baseContent) return true;
       applyFileContentUpdate(activeFile.id, nextContent, {
         refreshPreview: false,
         forcePreviewFullDocument: true,
       });
+      // Any pointer-drag/color-picker preview ticks used a temporary CSSOM
+      // override in the live iframe. The persisted managed rule now owns the
+      // value, so remove only the properties committed by this gesture.
+      previewInteractionStateStyles(
+        state,
+        Object.fromEntries(entries.map(([property]) => [property, ""])),
+      );
       return true;
     },
     [
+      activeCanvasSourceType,
+      activeBreakpointUpperBoundPx,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
       getFreshActiveContent,
+      previewInteractionStateStyles,
+      recordPendingVisualStyleEdit,
+      selectedCanvasSelector,
       selectedElement?.sourceId,
+      selectedElement?.selector,
     ],
   );
 
   const handleStyleChange = useCallback(
     (property: string, value: string, meta?: StyleChangeMeta) => {
       if (meta?.interactionState) {
+        if (meta.phase === "preview") {
+          previewInteractionStateStyles(meta.interactionState, {
+            [property]: value,
+          });
+          return;
+        }
         if (
           commitInteractionStateStyles(meta.interactionState, {
             [property]: value,
@@ -14294,6 +14360,7 @@ function DesignEditor() {
     },
     [
       commitInteractionStateStyles,
+      previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
       commitVisualStyles,
@@ -14409,6 +14476,10 @@ function DesignEditor() {
       // multi-property commit made while a state is active (e.g. a shadow
       // popover's X/Y/blur/spread) is still exactly one history step.
       if (meta?.interactionState) {
+        if (meta.phase === "preview") {
+          previewInteractionStateStyles(meta.interactionState, styles);
+          return;
+        }
         if (commitInteractionStateStyles(meta.interactionState, styles)) {
           return;
         }
@@ -14505,6 +14576,7 @@ function DesignEditor() {
     },
     [
       commitInteractionStateStyles,
+      previewInteractionStateStyles,
       commitRelativeStyleDeltaToSelectedLayers,
       commitStylesToSelectedLayers,
       commitVisualStyles,
@@ -15993,6 +16065,14 @@ function DesignEditor() {
         toast.error("Import requires editor access" /* i18n-ignore */);
         return;
       }
+      if (figmaPasteImportingRef.current) {
+        toast.info(t("designEditor.import.figUploadProcessing"));
+        return;
+      }
+      figmaPasteImportingRef.current = true;
+      const loadingToastId = toast.loading(
+        t("designEditor.import.figUploadProcessing"),
+      );
       try {
         const figmaPasteCall = resolveFigmaPasteImportCall(content);
         const result = (await callAction(figmaPasteCall.action, {
@@ -16000,6 +16080,14 @@ function DesignEditor() {
           ...figmaPasteCall.payload,
         })) as ImportResult;
         if (result?.error) throw new Error(result.error);
+        if (!result?.files?.length) {
+          toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+            description:
+              result?.guidance ??
+              t("designEditor.import.figmaPasteMatchGuidance"),
+          });
+          return;
+        }
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
           queryClient.invalidateQueries({ queryKey: ["action"] }),
@@ -16034,6 +16122,9 @@ function DesignEditor() {
           description:
             error instanceof Error ? error.message : t("common.genericError"),
         });
+      } finally {
+        figmaPasteImportingRef.current = false;
+        toast.dismiss(loadingToastId);
       }
     },
     [canEditDesign, id, navigate, queryClient, t],
@@ -19534,7 +19625,16 @@ function DesignEditor() {
           sourceId: revertedStyleSourceId,
           selector: revertedStyleSelector,
         } = pendingStyleUndo.edit;
-        const revertedStyles = pendingStyleUndo.revertStyles;
+        const revertedStyles = pendingStyleUndo.edit.interactionState
+          ? Object.fromEntries(
+              Object.entries(pendingStyleUndo.revertStyles).map(
+                ([property, value]) => [
+                  property,
+                  value || pendingStyleUndo.edit.baseStyles?.[property] || "",
+                ],
+              ),
+            )
+          : pendingStyleUndo.revertStyles;
         setSelectedElement((prev) => {
           if (!prev) return prev;
           if (
@@ -19983,6 +20083,7 @@ function DesignEditor() {
             selector: pendingLiveRedo.edit.selector,
             sourceId: pendingLiveRedo.edit.sourceId,
             styles: pendingLiveRedo.edit.styles,
+            interactionState: pendingLiveRedo.edit.interactionState,
           },
         ],
       });
@@ -21855,6 +21956,9 @@ function DesignEditor() {
         selector: edit.selector,
         sourceId: edit.sourceId,
         styles: edit.styles,
+        ...(edit.interactionState
+          ? { interactionState: edit.interactionState }
+          : {}),
       }))
       .filter((patch) => Object.keys(patch.styles).length > 0);
     sendToDesignAgentChat({
@@ -22319,6 +22423,86 @@ function DesignEditor() {
     }
   }, [renderPngBlob, showPngCaptureError, t]);
 
+  const resolveLiveFigmaSvgSource = useCallback(
+    (targetFileId: string | undefined): LiveFigmaSvgSource | null => {
+      const iframe =
+        (targetFileId
+          ? document.querySelector<HTMLIFrameElement>(
+              `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(targetFileId)}"]`,
+            )
+          : null) ?? canvasIframeRef.current;
+      if (!iframe) return null;
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+        if (!doc?.documentElement) doc = null;
+      } catch {
+        doc = null;
+      }
+      if (!doc) return null;
+      const screen = targetFileId
+        ? overviewScreens.find((candidate) => candidate.id === targetFileId)
+        : null;
+      const geometry = targetFileId
+        ? canvasFrameGeometryById[targetFileId]
+        : undefined;
+      return {
+        document: doc,
+        title: design?.title ?? activeFile?.filename ?? null,
+        // Selected-layer SVGs size themselves to their live bounding box.
+        // Whole-screen exports prefer stored screen geometry over the iframe's
+        // transient viewport so responsive/local-edit downloads keep the exact
+        // authored frame dimensions.
+        width: selectedElementLayerId
+          ? null
+          : (geometry?.width ?? screen?.width ?? activeScreenBaseWidthPx),
+        height: selectedElementLayerId
+          ? null
+          : (geometry?.height ?? screen?.height ?? null),
+      };
+    },
+    [
+      activeFile?.filename,
+      activeScreenBaseWidthPx,
+      canvasFrameGeometryById,
+      canvasIframeRef,
+      design?.title,
+      overviewScreens,
+      selectedElementLayerId,
+    ],
+  );
+
+  const resolveLiveFigmaSvgSnapshot = useCallback(
+    (targetFileId: string | undefined): LiveFigmaSvgSnapshot | null => {
+      if (!targetFileId) return null;
+      const snapshot = runtimeLayerSnapshotsById[targetFileId];
+      if (!snapshot?.html) return null;
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === targetFileId,
+      );
+      const geometry = canvasFrameGeometryById[targetFileId];
+      return {
+        html: snapshot.html,
+        title: design?.title ?? activeFile?.filename ?? null,
+        width: selectedElementLayerId
+          ? null
+          : (geometry?.width ?? screen?.width ?? activeScreenBaseWidthPx),
+        height: selectedElementLayerId
+          ? null
+          : (geometry?.height ?? screen?.height ?? null),
+      };
+    },
+    [
+      activeFile?.filename,
+      activeScreenBaseWidthPx,
+      canvasFrameGeometryById,
+      design?.title,
+      overviewScreens,
+      runtimeLayerSnapshotsById,
+      selectedElementLayerId,
+    ],
+  );
+
   const handleCopyAsFigmaSvg = useCallback(async () => {
     if (figmaSvgExportingRef.current) return;
     if (!canCopyFigmaSvgToClipboard()) {
@@ -22339,11 +22523,17 @@ function DesignEditor() {
       // the action guess. Regression: "Copy as SVG" on any non-index.html
       // screen failed with "Design file not found".
       const targetFileId = activeFile?.id ?? selectedScreenIds[0] ?? undefined;
-      await copyDesignAsFigmaSvg({
-        designId: id,
-        fileId: targetFileId,
-        nodeId: selectedElementLayerId ?? undefined,
-      });
+      await copyDesignAsFigmaSvg(
+        {
+          designId: id,
+          fileId: targetFileId,
+          nodeId: selectedElementLayerId ?? undefined,
+        },
+        {
+          liveSource: resolveLiveFigmaSvgSource(targetFileId),
+          liveSnapshot: resolveLiveFigmaSvgSnapshot(targetFileId),
+        },
+      );
       toast.success(t("designEditor.toasts.figmaSvgCopied"));
     } catch (error) {
       if (error instanceof FigmaSvgCopyError) {
@@ -22367,7 +22557,63 @@ function DesignEditor() {
       figmaSvgExportingRef.current = false;
       setFigmaSvgExporting(false);
     }
-  }, [activeFile?.id, id, selectedElementLayerId, selectedScreenIds, t]);
+  }, [
+    activeFile?.id,
+    id,
+    resolveLiveFigmaSvgSource,
+    resolveLiveFigmaSvgSnapshot,
+    selectedElementLayerId,
+    selectedScreenIds,
+    t,
+  ]);
+
+  const handleDownloadFigmaSvg = useCallback(async () => {
+    if (figmaSvgExportingRef.current) return;
+    const targetFileId = activeFile?.id ?? selectedScreenIds[0] ?? undefined;
+    if (!targetFileId) {
+      toast.error(t("designEditor.toasts.openScreenSvg"));
+      return;
+    }
+    figmaSvgExportingRef.current = true;
+    setFigmaSvgExporting(true);
+    try {
+      const result = await exportDesignAsFigmaSvg(
+        {
+          designId: id,
+          fileId: targetFileId,
+          nodeId: selectedElementLayerId ?? undefined,
+        },
+        {
+          liveSource: resolveLiveFigmaSvgSource(targetFileId),
+          liveSnapshot: resolveLiveFigmaSvgSnapshot(targetFileId),
+        },
+      );
+      triggerBlobDownload(
+        new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" }),
+        result.filename || fallbackExportName("svg", "figma"),
+      );
+      toast.success(t("designEditor.toasts.figmaSvgDownloaded"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("designEditor.toasts.figmaSvgExportError"),
+      );
+    } finally {
+      figmaSvgExportingRef.current = false;
+      setFigmaSvgExporting(false);
+    }
+  }, [
+    activeFile?.id,
+    fallbackExportName,
+    id,
+    resolveLiveFigmaSvgSource,
+    resolveLiveFigmaSvgSnapshot,
+    selectedElementLayerId,
+    selectedScreenIds,
+    t,
+    triggerBlobDownload,
+  ]);
 
   const handleDownloadSvg = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
@@ -24017,19 +24263,38 @@ ${serializedHtml}
   // (deriveStatePreviewTarget) so the derivation the postMessage pipeline
   // depends on is directly unit-testable end-to-end without rendering the
   // whole editor — see DesignEditor.interactionStates.test.ts.
-  const statePreviewTarget = useMemo(
-    () =>
-      deriveStatePreviewTarget(
-        activeInteractionStateState,
-        inScreenGradientEditScreenId,
-        inScreenGradientEditNodeId,
-      ),
-    [
+  const statePreviewTarget = useMemo(() => {
+    const target = deriveStatePreviewTarget(
       activeInteractionStateState,
-      inScreenGradientEditNodeId,
       inScreenGradientEditScreenId,
-    ],
-  );
+      inScreenGradientEditNodeId,
+    );
+    if (!target) return null;
+    const pendingStateEdit =
+      activeCanvasSourceType === "localhost"
+        ? pendingVisualStyleEdits.find(
+            (edit) =>
+              edit.screenId === target.screenId &&
+              edit.interactionState === target.state &&
+              (edit.sourceId === target.nodeId ||
+                edit.selector === selectedCanvasSelector),
+          )
+        : undefined;
+    return {
+      ...target,
+      selector: selectedCanvasSelector,
+      selectorCandidates: selectedCanvasSelectorCandidates,
+      previewStyles: pendingStateEdit?.styles ?? null,
+    };
+  }, [
+    activeCanvasSourceType,
+    activeInteractionStateState,
+    inScreenGradientEditNodeId,
+    inScreenGradientEditScreenId,
+    pendingVisualStyleEdits,
+    selectedCanvasSelector,
+    selectedCanvasSelectorCandidates,
+  ]);
   // EditPanel resets its own interaction-state selector back to Default (and
   // calls this with `null`) whenever the SELECTION changes — see EditPanel's
   // matching effect keyed on `selectedElementKey`. Storing the mirror here is
@@ -26708,6 +26973,13 @@ ${serializedHtml}
               {t("designEditor.downloadSvg")}
             </DropdownMenuItem>
             <DropdownMenuItem
+              onClick={() => void handleDownloadFigmaSvg()}
+              disabled={!activeFile || figmaSvgExporting}
+            >
+              <IconFileExport className="mr-2 h-4 w-4" />
+              {t("designEditor.downloadFigmaSvg")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
               onClick={handleDownloadZip}
               disabled={!activeFile || exportZipMutation.isPending}
             >
@@ -27298,7 +27570,7 @@ ${serializedHtml}
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out"
+              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
               style={{ width: leftContentWidth }}
             >
               <div
@@ -28367,7 +28639,7 @@ ${serializedHtml}
         {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
-            className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
+            className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
             <div

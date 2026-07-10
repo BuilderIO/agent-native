@@ -5,7 +5,28 @@ export type {
   OutgoingMessage,
   IntegrationStatus,
   IntegrationsPluginOptions,
+  ImmediateWebhookResponse,
+  PlatformAdapterCapabilities,
+  UnsupportedPlatformCapabilityError,
 } from "./types.js";
+export { assertPlatformCapability } from "./types.js";
+
+export {
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type BuiltInChannelId,
+  type AutomationCapabilities,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
+} from "./catalog.js";
 
 // Plugin
 export {
@@ -42,6 +63,12 @@ export type {
 export { slackAdapter } from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
+export { discordAdapter } from "./adapters/discord.js";
+export {
+  clearMicrosoftTeamsAccessTokenCache,
+  getMicrosoftTeamsAccessToken,
+  microsoftTeamsAdapter,
+} from "./adapters/microsoft-teams.js";
 export { googleDocsAdapter } from "./adapters/google-docs.js";
 export { emailAdapter } from "./adapters/email.js";
 

@@ -293,6 +293,7 @@ const messages = {
     insights: "Insights",
     downloadForMac: "Download for Mac",
     downloadForWindows: "Download for Windows",
+    downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "is a free,",
@@ -543,7 +544,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Download Clips Desktop",
     description:
-      "Record your screen from the menu bar. Auto-updating desktop app for macOS and Windows.",
+      "Record your screen from the system tray. Auto-updating desktop app for macOS, Windows, and Linux.",
     macSublabel: "Universal (Apple Silicon + Intel)",
     windowsSublabel: "64-bit MSI installer",
     downloadFor: "Download for {{platform}}",

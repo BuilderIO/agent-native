@@ -37,6 +37,25 @@ export function elementStableKey(element: ElementInfo): string {
 }
 
 /**
+ * Stable identity for inspector interaction-state UI (Default / Hover /
+ * Focus / Focus visible / Pressed / Disabled).
+ *
+ * Unlike `elementIdentityKey`, this intentionally excludes the bounding box:
+ * editing width/height/position while a non-default state is selected must
+ * not look like a new selection and snap the picker back to Default. The file
+ * id is included because generated node ids are only document-local; moving
+ * between two screens that both contain `button_1` is a real selection change
+ * and must clear the previous screen's forced preview.
+ */
+export function interactionStateSelectionKey(
+  element: ElementInfo,
+  fileId: string | null | undefined,
+  selectedCount: number,
+): string {
+  return `${fileId || "no-file"}:${selectedCount}:${elementStableKey(element)}`;
+}
+
+/**
  * Module-level aspect-ratio lock state, keyed by elementStableKey. Module
  * scope (not React state) so the lock survives EditPanel remounts across
  * selection changes, matching this file's existing convention of using

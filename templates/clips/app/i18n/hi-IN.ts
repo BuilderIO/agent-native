@@ -291,6 +291,7 @@ const messages = {
     insights: "इनसाइट्स",
     downloadForMac: "Mac के लिए डाउनलोड करें",
     downloadForWindows: "Windows के लिए डाउनलोड करें",
+    downloadForLinux: "Linux के लिए डाउनलोड करें",
     downloadDesktopApp: "डेस्कटॉप ऐप डाउनलोड करें",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "एक मुफ्त,",
@@ -539,7 +540,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Clips Desktop डाउनलोड करें",
     description:
-      "मेनू बार से अपनी स्क्रीन रिकॉर्ड करें. macOS और Windows के लिए डेस्कटॉप ऐप को ऑटो-अपडेट करना।",
+      "सिस्टम ट्रे से अपनी स्क्रीन रिकॉर्ड करें। macOS, Windows और Linux के लिए ऑटो-अपडेटिंग डेस्कटॉप ऐप।",
     macSublabel: "यूनिवर्सल (Apple Silicon + Intel)",
     windowsSublabel: "64-बिट MSI इंस्टॉलर",
     downloadFor: "{{platform}} के लिए डाउनलोड करें",

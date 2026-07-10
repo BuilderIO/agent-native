@@ -121,7 +121,7 @@ export function Layout({ children }: LayoutProps) {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             <div className="agent-layout-main-surface design-editor-main-surface flex h-full flex-1 flex-col overflow-hidden">
               <main className="agent-native-app-main flex-1 overflow-hidden">
                 {children}
@@ -152,7 +152,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={browserTabId}
           threadFooterSlot={designQuestionsWaitingSlot}
         >
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             {!isDesignEditor && mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"

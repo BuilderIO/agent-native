@@ -44,14 +44,14 @@ registerRequiredSecret({
   },
 });
 
-// Optional: enables browsing reusable Figma components/component sets in the
-// Design asset rail. The provider API injects this server-side as
+// Optional: connects Figma frame import, library browsing, and open-ended REST
+// reads in agent chat. The provider API injects this server-side as
 // X-Figma-Token; never pass it through action parameters or chat.
 registerRequiredSecret({
   key: "FIGMA_ACCESS_TOKEN",
   label: "Figma access token",
   description:
-    "Optional. Enables browsing and inserting Figma library components from files you can access.",
+    "Connect Figma frame links, exact clipboard paste, libraries, styles, and open-ended agent queries. Generate a personal access token with current_user:read and file_content:read; add library_content:read or Enterprise file_variables:read only when needed.",
   docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
   scope: "user",
   kind: "api-key",
@@ -69,7 +69,7 @@ registerRequiredSecret({
       if (res.status === 401 || res.status === 403) {
         return {
           ok: false,
-          error: `Figma rejected this token (${res.status}). Check that it is active and has access to the file.`,
+          error: `Figma rejected this token (${res.status}). Check that it is active and includes current_user:read; frame import also needs file_content:read.`,
         };
       }
       return { ok: false, error: `Figma returned ${res.status}.` };

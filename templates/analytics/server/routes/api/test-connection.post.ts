@@ -94,6 +94,16 @@ export default defineEventHandler(async (event) => {
           return { ok: true };
         }
 
+        case "clay": {
+          const key = await resolveCredential("CLAY_PUBLIC_API_KEY", ctx);
+          if (!key) return { ok: false, error: "Missing Clay Public API key" };
+          const res = await fetch("https://api.clay.com/public/v0/me", {
+            headers: { "clay-api-key": key },
+          });
+          if (!res.ok) return { ok: false, error: "Invalid Clay API key" };
+          return { ok: true };
+        }
+
         case "hubspot": {
           const credential = await resolveAnalyticsProviderCredential({
             provider: "hubspot",

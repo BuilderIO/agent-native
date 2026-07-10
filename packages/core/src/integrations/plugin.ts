@@ -20,7 +20,9 @@ import {
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
 import { emailAdapter } from "./adapters/email.js";
+import { discordAdapter } from "./adapters/discord.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
+import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
@@ -156,12 +158,14 @@ function getDefaultAdapters(): PlatformAdapter[] {
     slackAdapter(),
     telegramAdapter(),
     whatsappAdapter(),
+    microsoftTeamsAdapter(),
+    discordAdapter(),
     googleDocsAdapter(),
     emailAdapter(),
   ];
 }
 
-const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Telegram, WhatsApp, etc.).
+const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp, etc.).
 
 You have the same capabilities as the web chat agent. Use your tools to help the user.
 
@@ -1534,20 +1538,13 @@ export function createIntegrationsPlugin(
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
 
-          // Handle platform verification challenges (e.g. Slack url_verification)
-          // before checking enable state or parsing the message.
+          // Let the adapter cache the raw request and identify setup
+          // challenges, but never return a challenge response until the
+          // provider signature has been verified.
           const verification = await withCredentialContext(
             credentialContext,
             () => adapter.handleVerification(event),
           );
-          if (verification.handled) {
-            return verification.response ?? "ok";
-          }
-
-          if (!config?.configData?.enabled) {
-            setResponseStatus(event, 404);
-            return { error: `Integration ${platform} is not enabled` };
-          }
 
           // Verify the webhook signature BEFORE parsing. We pre-parse the
           // body here (so handleWebhook can skip its second readBody, which
@@ -1560,6 +1557,15 @@ export function createIntegrationsPlugin(
           if (!isValid) {
             setResponseStatus(event, 401);
             return { error: "Invalid webhook signature" };
+          }
+          if (verification.handled) {
+            setResponseStatus(event, 200);
+            return verification.response ?? "ok";
+          }
+
+          if (!config?.configData?.enabled) {
+            setResponseStatus(event, 404);
+            return { error: `Integration ${platform} is not enabled` };
           }
 
           const incoming = await withCredentialContext(credentialContext, () =>
@@ -1646,11 +1652,15 @@ export function createIntegrationsPlugin(
               toCredentialContext(ctx),
               () => resolveSecret("TELEGRAM_BOT_TOKEN"),
             );
-            if (!token) {
+            const webhookSecret = await withCredentialContext(
+              toCredentialContext(ctx),
+              () => resolveSecret("TELEGRAM_WEBHOOK_SECRET"),
+            );
+            if (!token || !webhookSecret) {
               setResponseStatus(event, 400);
               return {
                 error:
-                  "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+                  "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
               };
             }
             try {
@@ -1659,7 +1669,10 @@ export function createIntegrationsPlugin(
                 {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ url: webhookUrl }),
+                  body: JSON.stringify({
+                    url: webhookUrl,
+                    secret_token: webhookSecret,
+                  }),
                 },
               );
               const data = await res.json();

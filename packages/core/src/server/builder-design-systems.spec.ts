@@ -53,6 +53,35 @@ describe("Builder design-system helpers", () => {
     expect(files.map((file) => file.name)).toEqual(["ok.css", "also-ok.css"]);
   });
 
+  it("can fail loudly instead of silently dropping an over-budget binary file", () => {
+    expect(() =>
+      buildBuilderDesignSystemIndexFiles({
+        maxTotalCodeBytes: 8,
+        overflowBehavior: "throw",
+        codeFiles: [
+          {
+            filename: "brand.fig",
+            content: Buffer.from("larger than eight bytes").toString("base64"),
+            encoding: "base64",
+          },
+        ],
+      }),
+    ).toThrow(/brand\.fig.*inline upload budget/i);
+  });
+
+  it("fails loudly when a strict caller exceeds the file-count cap", () => {
+    expect(() =>
+      buildBuilderDesignSystemIndexFiles({
+        maxCodeFiles: 1,
+        overflowBehavior: "throw",
+        codeFiles: [
+          { filename: "one.css", content: "a" },
+          { filename: "two.css", content: "b" },
+        ],
+      }),
+    ).toThrow(/too many design-system files/i);
+  });
+
   it("base64-decodes a binary .fig file instead of UTF-8-mangling it (regression: .fig upload silently corrupted binary bytes)", () => {
     // A real .fig is a zip container -- PK\x03\x04 magic, per the fig-writer
     // spike's own README -- and its bytes are NOT valid UTF-8 (many bytes
