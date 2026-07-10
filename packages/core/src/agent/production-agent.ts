@@ -136,6 +136,7 @@ import {
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  setRunError,
   setRunTerminalReason,
   claimBackgroundRun,
   readBackgroundRunClaim,
@@ -4881,18 +4882,47 @@ export function shouldChainBackgroundContinuation(opts: {
 export async function markBackgroundContinuationChunkTerminal(opts: {
   runId: string;
   continuationReason: AgentLoopContinuationReason;
+  terminalEvent?: AgentChatEvent;
   deps?: {
     updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+    setRunError?: typeof setRunError;
     setRunTerminalReason?: typeof setRunTerminalReason;
   };
 }): Promise<boolean> {
   const updateStatus =
     opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const persistError = opts.deps?.setRunError ?? setRunError;
   const setTerminalReason =
     opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
-  const updated = await updateStatus(opts.runId, "completed");
+  const terminalEvent = opts.terminalEvent;
+  const isTerminalFailure =
+    terminalEvent?.type === "error" ||
+    terminalEvent?.type === "missing_api_key";
+  const terminalReason =
+    terminalEvent?.type === "error"
+      ? `error:${terminalEvent.errorCode || "unknown"}`
+      : terminalEvent?.type === "missing_api_key"
+        ? "missing_api_key"
+        : opts.continuationReason;
+  const updated = await updateStatus(
+    opts.runId,
+    isTerminalFailure ? "errored" : "completed",
+  );
   if (updated) {
-    await setTerminalReason(opts.runId, opts.continuationReason);
+    await setTerminalReason(opts.runId, terminalReason);
+    if (terminalEvent?.type === "error") {
+      await persistError(
+        opts.runId,
+        terminalEvent.errorCode,
+        terminalEvent.details || terminalEvent.error,
+      );
+    } else if (terminalEvent?.type === "missing_api_key") {
+      await persistError(
+        opts.runId,
+        LLM_MISSING_CREDENTIALS_ERROR_CODE,
+        LLM_MISSING_CREDENTIALS_MESSAGE,
+      );
+    }
   }
   return updated;
 }
@@ -5513,6 +5543,7 @@ export async function chainServerDrivenContinuation(opts: {
       .markBackgroundContinuationChunkTerminal({
         runId,
         continuationReason,
+        terminalEvent: run.events.at(-1)?.event,
       })
       .catch(() => {});
   } catch (chainErr) {

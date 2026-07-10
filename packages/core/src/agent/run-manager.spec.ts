@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -630,6 +633,90 @@ describe("run manager soft timeout", () => {
         "boom",
       );
     });
+  });
+
+  it("persists missing credential terminal events as errored runs", async () => {
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async () => {});
+    const run = startRun(
+      "run-missing-credential-terminal",
+      "thread-missing-credential-terminal",
+      async (send) => {
+        send({ type: "missing_api_key" });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-missing-credential-terminal",
+        "errored",
+      ),
+    );
+
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      "completed",
+    );
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      0,
+      JSON.stringify({ type: "missing_api_key" }),
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      "missing_api_key",
+    );
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      LLM_MISSING_CREDENTIALS_MESSAGE,
+    );
+    expect(events).toContainEqual({ type: "missing_api_key" });
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({ event: { type: "missing_api_key" } }),
+        ],
+      }),
+    );
+  });
+
+  it("passes an emitted terminal error to completion callbacks as errored", async () => {
+    const onComplete = vi.fn(async () => {});
+
+    startRun(
+      "run-error-terminal-callback",
+      "thread-error-terminal-callback",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Provider failed",
+          errorCode: "provider_failed",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "provider_failed",
+            }),
+          }),
+        ],
+      }),
+    );
   });
 
   it("maps exhausted provider 429s to a terminal rate-limit error code", async () => {
