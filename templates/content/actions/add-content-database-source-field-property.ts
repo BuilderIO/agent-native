@@ -201,10 +201,7 @@ export function sourceFieldPropertyOptions(args: {
 }
 
 function builderFieldNameForSourceKey(sourceFieldKey: string) {
-  return sourceFieldKey
-    .replace(/^data\./, "")
-    .trim()
-    .toLowerCase();
+  return sourceFieldKey.replace(/^data\./, "").trim();
 }
 
 function builderModelFieldsFromMetadata(
@@ -231,15 +228,15 @@ function builderModelFieldsFromMetadata(
   }
 }
 
-function builderMetadataForSourceField(args: {
+export function builderMetadataForSourceField(args: {
   sourceFieldKey: string;
   sourceMetadataJson: string | null | undefined;
 }) {
   const fieldName = builderFieldNameForSourceKey(args.sourceFieldKey);
-  const sourceFieldKey = args.sourceFieldKey.trim().toLowerCase();
+  const sourceFieldKey = args.sourceFieldKey.trim();
   return (
     builderModelFieldsFromMetadata(args.sourceMetadataJson).find((field) => {
-      const name = field.name.trim().toLowerCase();
+      const name = field.name.trim();
       return name === fieldName || `data.${name}` === sourceFieldKey;
     }) ?? null
   );
