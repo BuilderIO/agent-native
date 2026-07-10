@@ -120,18 +120,16 @@ describe("code agent connector computer bridge", () => {
   });
 
   it("uses the MCP revoke tool for the control kill switch", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "result-1",
-            result: { ok: true },
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: "result-1",
+          result: { ok: true },
+        }),
+        { status: 200 },
+      ),
+    );
     await callLocalComputerBridgeTool(
       bridgeConfig(),
       "computer_revoke_control",
