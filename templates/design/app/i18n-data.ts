@@ -4679,8 +4679,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "图像、PDF、文本/代码",
       pickAsset: "选择资产",
       pickAssetDescription: "浏览或生成图像",
-      failedToSubmitPrompt: "提交提示失败",
-      skipPrompt: "跳过提示",
     },
     visualEditor: {
       typeAnnotation: "键入注释...",
@@ -4833,8 +4831,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Imágenes, PDF, texto/código",
       pickAsset: "Elegir activo",
       pickAssetDescription: "Explorar o generar imágenes",
-      failedToSubmitPrompt: "No se pudo enviar el prompt",
-      skipPrompt: "Omitir prompt",
     },
     visualEditor: {
       typeAnnotation: "Escriba anotación...",
@@ -4990,8 +4986,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Images, PDF, texte/code",
       pickAsset: "Choisir un actif",
       pickAssetDescription: "Parcourir ou générer des images",
-      failedToSubmitPrompt: "Échec de l'envoi du prompt",
-      skipPrompt: "Ignorer le prompt",
     },
     visualEditor: {
       typeAnnotation: "Tapez l'annotation...",
@@ -5147,8 +5141,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Bilder, PDFs, Text/Code",
       pickAsset: "Wählen Sie ein Asset aus",
       pickAssetDescription: "Durchsuchen oder generieren Sie Bilder",
-      failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
-      skipPrompt: "Prompt überspringen",
     },
     visualEditor: {
       typeAnnotation: "Anmerkung eingeben...",
@@ -5304,8 +5296,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "画像、PDF、テキスト/コード",
       pickAsset: "アセットを選択",
       pickAssetDescription: "画像の参照または生成",
-      failedToSubmitPrompt: "プロンプトの送信に失敗しました",
-      skipPrompt: "プロンプトをスキップ",
     },
     visualEditor: {
       typeAnnotation: "注釈を入力...",
@@ -5456,8 +5446,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "이미지, PDF, 텍스트/코드",
       pickAsset: "자산 선택",
       pickAssetDescription: "이미지 찾아보기 또는 생성",
-      failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다.",
-      skipPrompt: "프롬프트 건너뛰기",
     },
     visualEditor: {
       typeAnnotation: "주석 입력...",
@@ -5610,8 +5598,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Imagens, PDFs, texto/código",
       pickAsset: "Escolher ativo",
       pickAssetDescription: "Navegue ou gere imagens",
-      failedToSubmitPrompt: "Falha ao enviar o prompt",
-      skipPrompt: "Pular prompt",
     },
     visualEditor: {
       typeAnnotation: "Digite anotação...",
@@ -5765,8 +5751,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "छवियाँ, PDFs, पाठ/कोड",
       pickAsset: "संपत्ति चुनें",
       pickAssetDescription: "छवियाँ ब्राउज़ करें या उत्पन्न करें",
-      failedToSubmitPrompt: "प्रॉम्प्ट सबमिट करने में विफल",
-      skipPrompt: "प्रॉम्प्ट छोड़ें",
     },
     visualEditor: {
       typeAnnotation: "एनोटेशन टाइप करें...",
@@ -5917,8 +5901,6 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "الصور، PDFs، النص/الرمز",
       pickAsset: "اختر الأصول",
       pickAssetDescription: "تصفح أو توليد الصور",
-      failedToSubmitPrompt: "فشل إرسال المطالبة",
-      skipPrompt: "تخطي المطالبة",
     },
     visualEditor: {
       typeAnnotation: "اكتب تعليقًا توضيحيًا...",
@@ -6946,9 +6928,6 @@ const designModeFeatureOverrides = {
           detail: "可能超出此畫布編輯範圍。",
         },
       },
-      queuedCommentsDiscarded:
-        "離開此檢視時，{{count}} 則未傳送的評論草稿已被捨棄。",
-      staleAnchorDetail: "原始元素已不在畫布中。",
     },
   },
   "zh-CN": {
