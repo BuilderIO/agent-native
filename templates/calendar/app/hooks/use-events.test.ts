@@ -7,7 +7,11 @@ import {
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
-import { mergeAttendeeLists, shouldShowEventsSkeleton } from "./use-events";
+import {
+  mergeAttendeeLists,
+  shouldDeferOptimisticEventUpdate,
+  shouldShowEventsSkeleton,
+} from "./use-events";
 
 function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -337,5 +341,32 @@ describe("shouldShowEventsSkeleton", () => {
         rangeKey: week,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldDeferOptimisticEventUpdate", () => {
+  it("waits for Google before moving a working-location event", () => {
+    const event = calendarEvent({ eventType: "workingLocation", allDay: true });
+
+    expect(shouldDeferOptimisticEventUpdate(event, false)).toBe(true);
+  });
+
+  it("keeps timed working-location moves optimistic", () => {
+    const event = calendarEvent({
+      eventType: "workingLocation",
+      allDay: false,
+    });
+
+    expect(shouldDeferOptimisticEventUpdate(event, false)).toBe(false);
+  });
+
+  it("waits for provider confirmation for working-location detail changes", () => {
+    expect(shouldDeferOptimisticEventUpdate(undefined, true)).toBe(true);
+  });
+
+  it("keeps ordinary event updates optimistic", () => {
+    expect(shouldDeferOptimisticEventUpdate(calendarEvent(), false)).toBe(
+      false,
+    );
   });
 });

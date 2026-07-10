@@ -85,7 +85,9 @@ import {
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
+  normalizeAllDayEditEndDate,
   remindersToDraftState,
+  resolveTimeEditScope,
   type AttachmentDraft,
   type RecurrencePreset,
   type ReminderDraft,
@@ -457,6 +459,7 @@ export function EventDetailPopover({
     setFocusedEvent,
   } = useCalendarContext();
   const isWorkingLocation = isWorkingLocationEvent(event);
+  const isSingleDayWorkingLocation = isWorkingLocation && event.allDay;
   const editableLocationValue = event.location || "";
 
   // Inline editing state
@@ -955,7 +958,12 @@ export function EventDetailPopover({
   );
 
   const handleSaveTime = useCallback(() => {
-    const allDayEnd = new Date(`${editEndDate}T00:00:00`);
+    const normalizedEndDate = normalizeAllDayEditEndDate(
+      isSingleDayWorkingLocation,
+      editDate,
+      editEndDate,
+    );
+    const allDayEnd = new Date(`${normalizedEndDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const newStart = event.allDay
       ? new Date(`${editDate}T00:00:00`).toISOString()
@@ -983,7 +991,11 @@ export function EventDetailPopover({
         allDay: event.allDay,
         startTimeZone: event.allDay ? undefined : editTimezone,
         endTimeZone: event.allDay ? undefined : editTimezone,
-        scope: isRecurringEvent ? editTimeScope : "single",
+        scope: resolveTimeEditScope(
+          isRecurringEvent,
+          isSingleDayWorkingLocation,
+          editTimeScope,
+        ),
       });
     }
     setEditTimeScope("single");
@@ -998,6 +1010,7 @@ export function EventDetailPopover({
     event.start,
     event.end,
     event.allDay,
+    isSingleDayWorkingLocation,
     isRecurringEvent,
     editTimeScope,
     saveField,
@@ -1423,7 +1436,13 @@ export function EventDetailPopover({
                 <div className="flex items-start gap-3 py-1.5">
                   <IconClock className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="flex-1 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div
+                      className={`grid gap-2 ${
+                        isSingleDayWorkingLocation
+                          ? "grid-cols-1"
+                          : "grid-cols-2"
+                      }`}
+                    >
                       <input
                         type="date"
                         value={editDate}
@@ -1431,40 +1450,48 @@ export function EventDetailPopover({
                           const next = e.target.value;
                           setEditDate(next);
                           setEditEndDate((current) =>
-                            current < next ? next : current,
+                            isSingleDayWorkingLocation
+                              ? next
+                              : current < next
+                                ? next
+                                : current,
                           );
                         }}
                         className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
                         aria-label={t("eventForm.startDate")}
                       />
-                      <input
-                        type="date"
-                        min={editDate}
-                        value={editEndDate}
-                        onChange={(e) =>
-                          setEditEndDate(e.target.value || editDate)
-                        }
-                        className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                        aria-label={t("eventForm.endDate")}
-                      />
+                      {!isSingleDayWorkingLocation && (
+                        <input
+                          type="date"
+                          min={editDate}
+                          value={editEndDate}
+                          onChange={(e) =>
+                            setEditEndDate(e.target.value || editDate)
+                          }
+                          className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                          aria-label={t("eventForm.endDate")}
+                        />
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="time"
-                        value={editStartTime}
-                        onChange={(e) => setEditStartTime(e.target.value)}
-                        className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                      />
-                      <span className="text-muted-foreground/50 text-xs">
-                        &rarr;
-                      </span>
-                      <input
-                        type="time"
-                        value={editEndTime}
-                        onChange={(e) => setEditEndTime(e.target.value)}
-                        className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
-                      />
-                    </div>
+                    {!event.allDay && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={editStartTime}
+                          onChange={(e) => setEditStartTime(e.target.value)}
+                          className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        />
+                        <span className="text-muted-foreground/50 text-xs">
+                          &rarr;
+                        </span>
+                        <input
+                          type="time"
+                          value={editEndTime}
+                          onChange={(e) => setEditEndTime(e.target.value)}
+                          className="flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-sm text-foreground"
+                        />
+                      </div>
+                    )}
                     {!event.allDay && (
                       <TimezoneCombobox
                         id={`event-timezone-${event.id}`}
@@ -1472,35 +1499,37 @@ export function EventDetailPopover({
                         onChange={setEditTimezone}
                       />
                     )}
-                    {isRecurringEvent && !isDraft && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {t("eventForm.applyTo")}
-                        </span>
-                        <Select
-                          value={editTimeScope}
-                          onValueChange={(value) =>
-                            setEditTimeScope(value as UpdateEventScope)
-                          }
-                        >
-                          <SelectTrigger className="h-7 flex-1 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="single">
-                              {isWorkingLocation
-                                ? t("eventForm.thisDayOnly")
-                                : t("eventForm.thisEvent")}
-                            </SelectItem>
-                            <SelectItem value="all">
-                              {isWorkingLocation
-                                ? t("eventForm.allDays")
-                                : t("eventForm.allEvents")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    {isRecurringEvent &&
+                      !isDraft &&
+                      !isSingleDayWorkingLocation && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {t("eventForm.applyTo")}
+                          </span>
+                          <Select
+                            value={editTimeScope}
+                            onValueChange={(value) =>
+                              setEditTimeScope(value as UpdateEventScope)
+                            }
+                          >
+                            <SelectTrigger className="h-7 flex-1 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="single">
+                                {isWorkingLocation
+                                  ? t("eventForm.thisDayOnly")
+                                  : t("eventForm.thisEvent")}
+                              </SelectItem>
+                              <SelectItem value="all">
+                                {isWorkingLocation
+                                  ? t("eventForm.allDays")
+                                  : t("eventForm.allEvents")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="ghost"

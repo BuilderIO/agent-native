@@ -156,6 +156,16 @@ export function mergeAttendeeLists(
   return Array.from(merged.values());
 }
 
+export function shouldDeferOptimisticEventUpdate(
+  target: CalendarEvent | undefined,
+  hasWorkingLocationUpdate: boolean,
+): boolean {
+  return (
+    hasWorkingLocationUpdate ||
+    (target?.eventType === "workingLocation" && target.allDay === true)
+  );
+}
+
 function updateListEventQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   updater: (
@@ -331,11 +341,14 @@ export function useUpdateEvent() {
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
         (old) => {
+          const target = old?.find((event) => event.id === optimisticData.id);
           // A working-location change can alter the visual grouping of several
           // days. Keep the editor mounted until Google confirms the write so a
           // rejected request does not appear to save and then snap back.
-          if (hasWorkingLocationUpdate) return old;
-          const target = old?.find((event) => event.id === optimisticData.id);
+          if (
+            shouldDeferOptimisticEventUpdate(target, hasWorkingLocationUpdate)
+          )
+            return old;
           return old?.map((e) => {
             const matchesScope =
               e.id === optimisticData.id ||
