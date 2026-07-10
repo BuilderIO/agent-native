@@ -30,6 +30,7 @@ const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 const mockRegenerateTitleRun = vi.hoisted(() => vi.fn());
+const mockRegenerateSummaryRun = vi.hoisted(() => vi.fn());
 const mockQueueTitleRegenerationRequest = vi.hoisted(() => vi.fn());
 const mockResolveHasBuilderPrivateKey = vi.hoisted(() => vi.fn());
 const mockTranscribeWithBuilder = vi.hoisted(() => vi.fn());
@@ -98,6 +99,7 @@ vi.mock("../server/db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       title: "recordings.title",
       titleSource: "recordings.titleSource",
+      description: "recordings.description",
       durationMs: "recordings.durationMs",
       videoUrl: "recordings.videoUrl",
       videoFormat: "recordings.videoFormat",
@@ -137,6 +139,10 @@ vi.mock("./regenerate-title.js", () => ({
     mockQueueTitleRegenerationRequest(...args),
 }));
 
+vi.mock("./regenerate-summary.js", () => ({
+  default: { run: (...args: unknown[]) => mockRegenerateSummaryRun(...args) },
+}));
+
 vi.mock("./export-to-brain.js", () => ({
   default: { run: (...args: unknown[]) => mockExportToBrainRun(...args) },
 }));
@@ -167,6 +173,7 @@ import {
   builderTranscriptionTimeoutMs,
   importLoomTranscriptForRecording,
   recordingMediaFetchTimeoutMs,
+  transcribeWithBuilderModelFallback,
 } from "./request-transcript";
 import requestTranscript from "./request-transcript";
 
@@ -213,6 +220,51 @@ describe("recordingMediaFetchTimeoutMs", () => {
   });
 });
 
+describe("Builder model fallback", () => {
+  const options = {
+    audioBytes: new Uint8Array([1, 2, 3]),
+    mimeType: "audio/webm",
+    diarize: false,
+  };
+
+  beforeEach(() => {
+    mockTranscribeWithBuilder.mockReset();
+  });
+
+  it("retries with the Builder gateway default when the selected model is unavailable", async () => {
+    const fallbackResult = {
+      text: "Recovered transcript.",
+      language: "en",
+      durationSeconds: 1,
+      segments: [],
+    };
+    mockTranscribeWithBuilder
+      .mockRejectedValueOnce(
+        new Error("Required AI model is not available in your region"),
+      )
+      .mockResolvedValueOnce(fallbackResult);
+
+    await expect(transcribeWithBuilderModelFallback(options)).resolves.toEqual(
+      fallbackResult,
+    );
+    expect(mockTranscribeWithBuilder).toHaveBeenNthCalledWith(1, {
+      ...options,
+      model: "gemini-3-1-flash-lite",
+    });
+    expect(mockTranscribeWithBuilder).toHaveBeenNthCalledWith(2, options);
+  });
+
+  it("does not duplicate non-model failures", async () => {
+    const error = new Error("Builder transcription timed out after 45 seconds");
+    mockTranscribeWithBuilder.mockRejectedValueOnce(error);
+
+    await expect(transcribeWithBuilderModelFallback(options)).rejects.toBe(
+      error,
+    );
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -233,6 +285,60 @@ describe("requestTranscript regeneration", () => {
       segments: [{ startMs: 0, endMs: 1200, text: "Fresh transcript." }],
     });
     mockExportToBrainRun.mockResolvedValue({ status: "skipped" });
+    mockRegenerateSummaryRun.mockResolvedValue({ queued: true });
+  });
+
+  it("completes transcript-backed title and summary handoff before returning", async () => {
+    mockGetUserSetting.mockResolvedValue({
+      transcriptCleanupEnabled: false,
+    });
+    mockRegenerateTitleRun.mockResolvedValue({
+      updated: true,
+      summaryQueued: true,
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Opening filler before the actual product feedback.",
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 0,
+              endMs: 1200,
+              text: "Opening filler before the actual product feedback.",
+            },
+          ]),
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+          durationMs: 1200,
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_native",
+    });
+
+    expect(mockRegenerateTitleRun).toHaveBeenCalledWith({
+      recordingId: "rec_native",
+      transcriptText: "Opening filler before the actual product feedback.",
+      includeSummary: true,
+    });
+    expect(result).toMatchObject({
+      recordingId: "rec_native",
+      status: "ready",
+      cleanupQueued: false,
+      titleQueued: true,
+      summaryQueued: true,
+    });
   });
 
   it("replaces a ready transcript when regeneration is explicitly requested", async () => {
@@ -290,6 +396,9 @@ describe("requestTranscript regeneration", () => {
         ([patch]) => (patch as { status?: string }).status === "pending",
       ),
     ).toBe(false);
+    expect(mockRegenerateSummaryRun).toHaveBeenCalledWith({
+      recordingId: "rec_ready",
+    });
   });
 
   it("keeps the ready transcript when regeneration fails", async () => {

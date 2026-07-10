@@ -10,6 +10,7 @@ import {
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
 import {
+  getConfiguredEngineNameForRequest,
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveEngine,
@@ -45,6 +46,10 @@ import {
 } from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import {
+  clearIntegrationAwaitingInput,
+  setIntegrationAwaitingInput,
+} from "./awaiting-input-store.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
 import { signInternalToken } from "./internal-token.js";
 import {
@@ -156,6 +161,18 @@ function explicitEngineName(
     return engineOption.name;
   }
   return undefined;
+}
+
+async function resolveIntegrationEngineOption(
+  engineOption: WebhookHandlerOptions["engine"],
+  appId?: string,
+): Promise<WebhookHandlerOptions["engine"]> {
+  // A custom engine instance/config is an intentional per-plugin override and
+  // must remain authoritative. A string option is the normal integration
+  // plugin default; org/user Agent settings should override that default just
+  // as they do in web chat.
+  if (engineOption && typeof engineOption === "object") return engineOption;
+  return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
 }
 
 function collectToolResultSummaries(
@@ -801,13 +818,17 @@ async function processIncomingMessage(
               : undefined,
           },
           async () => {
-            const effectiveApiKey = await resolveIntegrationApiKey(
+            const effectiveEngineOption = await resolveIntegrationEngineOption(
               engineOption,
+              options.appId,
+            );
+            const effectiveApiKey = await resolveIntegrationApiKey(
+              effectiveEngineOption,
               ownerEmail,
               apiKey,
             );
             const engine = await resolveEngine({
-              engineOption,
+              engineOption: effectiveEngineOption,
               apiKey: effectiveApiKey,
               model,
               appId: options.appId,
@@ -850,12 +871,23 @@ async function processIncomingMessage(
         );
       },
       async (completedRun: ActiveRun) => {
+        let keepSlackInputWindow = false;
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          const slackInputRequest =
+            incoming.platform === "slack"
+              ? extractSlackInputRequest(completedRun)
+              : null;
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
           );
+          // `ask-question` is a native web-chat interaction. When an
+          // integration run invokes it successfully, project the same
+          // validated question into Slack text and open a tightly-bound reply
+          // window for the originating user instead of leaving a web-only
+          // card with no way to answer in the channel.
+          if (slackInputRequest) responseText = slackInputRequest.text;
           if (!queuedA2AContinuation && !responseText.trim()) {
             const recoverableA2AArtifactText =
               extractRecoverableA2AArtifactToolResult(completedRun);
@@ -930,18 +962,50 @@ async function processIncomingMessage(
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
+            let delivered = false;
             if (progress) {
               try {
                 await progress.complete(outgoing);
+                delivered = true;
               } catch {
                 await adapter.sendResponse(outgoing, incoming, {
                   placeholderRef: opts.placeholderRef,
                 });
+                delivered = true;
               }
             } else {
               await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
+              delivered = true;
+            }
+            if (slackInputRequest && delivered && incoming.senderId) {
+              await setIntegrationAwaitingInput({
+                platform: "slack",
+                externalThreadId: incoming.externalThreadId,
+                requesterId: incoming.senderId,
+              });
+              keepSlackInputWindow = true;
+            }
+          } else if (progress) {
+            // The downstream agent owns the eventual reply, but this parent
+            // integration run owns the native progress stream it opened. End
+            // that stream now so Slack does not leave an eternal task card;
+            // the continuation processor will post the final result into the
+            // same thread when the downstream task completes.
+            const deferred = adapter.formatAgentResponse(
+              "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+            );
+            try {
+              await progress.complete(deferred);
+            } catch {
+              // A failed complete must still terminate a provider-native
+              // stream when the adapter offers a failure lifecycle. Do not
+              // duplicate the deferred text as a regular reply: a later
+              // continuation delivery is authoritative.
+              await progress.fail?.(
+                "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+              );
             }
           }
 
@@ -983,6 +1047,15 @@ async function processIncomingMessage(
             if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
           } catch {}
         } finally {
+          // Any terminal path (including a failed run or an unrelated new
+          // mention) invalidates an older clarification window. The only
+          // exception is the just-delivered, verified `ask-question` flow.
+          if (incoming.platform === "slack" && !keepSlackInputWindow) {
+            await clearIntegrationAwaitingInput(
+              "slack",
+              incoming.externalThreadId,
+            ).catch(() => {});
+          }
           if (!budgetsSettled) {
             await releaseApplicableIntegrationBudgets(
               budgetReservations.reservations,
@@ -991,6 +1064,13 @@ async function processIncomingMessage(
           resolve();
         }
       },
+      // Integration workers are ordinary self-dispatched serverless requests,
+      // not a Netlify background-function route. Without the hosted soft
+      // timeout, a wedged model connection can outlive the worker and leave
+      // Slack's native stream in "working" forever when the host kills the
+      // process. Checkpoint at the foreground-safe boundary so onComplete can
+      // always close the provider progress surface before the function wall.
+      { useHostedSoftTimeoutDefault: true },
     );
   });
 }
@@ -1240,6 +1320,85 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function extractSlackInputRequest(
+  completedRun: ActiveRun,
+): { text: string } | null {
+  const events = completedRun.events.map((runEvent) => runEvent.event);
+  const didRequestInput = events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.tool === "ask-question" &&
+      String(event.result ?? "").startsWith(
+        "Asked the user a clarifying question and rendered it in the chat.",
+      ),
+  );
+  if (!didRequestInput) return null;
+
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+      continue;
+    }
+    const input = event.input as Record<string, unknown> | undefined;
+    const question =
+      typeof input?.question === "string" ? input.question.trim() : "";
+    if (!question) return null;
+
+    let rawOptions: unknown;
+    try {
+      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(rawOptions) || rawOptions.length === 0) return null;
+    const options = rawOptions
+      .slice(0, 4)
+      .map((option) => {
+        const value = option as Record<string, unknown> | null;
+        const label =
+          typeof value?.label === "string"
+            ? value.label.trim()
+            : typeof value?.value === "string"
+              ? value.value.trim()
+              : "";
+        if (!label) return null;
+        const description =
+          typeof value?.description === "string"
+            ? value.description.trim()
+            : "";
+        return {
+          label: label.slice(0, 200),
+          description: description.slice(0, 400),
+        };
+      })
+      .filter(
+        (option): option is { label: string; description: string } =>
+          option !== null,
+      );
+    if (!options.length) return null;
+
+    const header =
+      typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
+    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    return {
+      text: [
+        header ? `*${header}*` : null,
+        question.slice(0, 1_500),
+        "",
+        ...options.map(
+          (option, optionIndex) =>
+            `${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`,
+        ),
+        "",
+        `Reply in this thread with your choice${allowFreeText ? " or a short answer" : ""}.`,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n"),
+    };
+  }
+  return null;
 }
 
 function extractRecoverableA2AArtifactToolResult(

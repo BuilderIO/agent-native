@@ -452,3 +452,11 @@ Voir [Frames](/docs/frames) pour en savoir plus sur le panneau d'agent intégré
 ## Déploiements multi-instances {#multi-instance}
 
 Les applications natives d'agent stockent tous les états dans SQL avec Drizzle et synchronisent le UI via [polling](/docs/key-concepts#polling-sync) avec la base de données : pas d'état du système de fichiers, pas de sessions persistantes, pas de caches en mémoire. Cela signifie que les déploiements multi-instances et sans serveur fonctionnent immédiatement : pointez chaque instance vers le même `DATABASE_URL` et elles convergent automatiquement. Voir [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) et [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Et ensuite
+
+- [**Database**](/docs/database#production) — choisissez un backend SQL persistant avant votre premier déploiement en production
+- [**Security**](/docs/security) — la liste de contrôle de production et les indicateurs facultatifs mentionnés sur cette page
+- [**Authentication**](/docs/authentication) — les identifiants OAuth et variables d’environnement du mode d’authentification choisi
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — le modèle d’espace de travail derrière la compilation à origine unique de `deploy`
+- [**Frames**](/docs/frames) — le panneau d’agent intégré face au cadre cloud de Builder.io pour les modifications de l’UI en production

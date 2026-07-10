@@ -15,7 +15,7 @@ A autenticação é configurada automaticamente via `autoMountAuth(app)` no plug
 - **MCP remoto OAuth:** OAuth 2.1 padrão para hosts MCP, como código Claude e conectores ChatGPT.
 - **Personalizado:** Traga sua própria autenticação por meio do retorno de chamada `getSession`.
 
-<Diagram id="doc-block-1rujd8s" title={"Três entradas, uma sessão"} summary={"Visitantes do navegador, clientes MCP programáticos e provedores personalizados resolvem para a mesma AuthSession que o escopo downstream lê."}>
+<Diagram id="doc-block-1rujd8s" title={"Três entradas, uma sessão"} summary={"Visitantes do navegador, hosts MCP e provedores personalizados resolvem para a mesma AuthSession que o escopo downstream lê."}>
 
 ```html
 <div class="auth-modes">

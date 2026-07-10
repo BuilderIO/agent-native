@@ -88,6 +88,18 @@ When you open the app, the selected library, prompt, references, and generated c
 - **Other apps need an asset picker or generator** — Slides, Design, Content, a blog editor, or a site builder can embed the picker or call Assets over A2A.
 - **You want brand media available from your coding agent** — Codex, Claude Code, Claude, or ChatGPT can generate and pick assets without leaving the chat.
 
+## What you can do with it
+
+- **Create asset libraries.** Group reference images, videos, canonical logos, style notes, palettes, folders, and generated output by brand, campaign, product, or category.
+- **Generate through chat.** The home composer and library Generate controls send the prompt to the agent with `sendToAgentChat()`, so users can inspect variants, give feedback, and iterate.
+- **Generate images and videos.** Builder-managed image generation is available when enabled, and Gemini powers video generation plus the manual image fallback.
+- **Upload and describe references.** Add images or videos from the library UI or prompt composer attachment button, then search by title, description, alt text, prompt, model, media type, status, role, folder, or collection.
+- **Keep a generation audit log.** Every run records prompts, model, aspect ratio, references, source asset, lineage, generated assets, status, errors, and timestamps for later design review.
+- **Preserve logo accuracy.** The agent can generate a placeholder area and the server composites the uploaded canonical logo onto the final image instead of relying on the image model to redraw it.
+- **Embed as a picker.** Other apps can iframe `/picker` and listen for the `chooseAsset` event from `@agent-native/embedding`, turning Assets into an asset picker/generator for blog editors, site builders, slide decks, and custom apps. The picker also emits the legacy `chooseImage` alias for existing image-only hosts.
+- **Install as an app-backed skill.** The `agent-native.app-skill.json` manifest exports an Assets skill plus MCP connector metadata so marketplaces can install the app, its instructions, and its picker together.
+- **Serve other agents.** Slides, Design, Content, Mail, and Dispatch can call Assets through A2A to list libraries, generate batches, create videos, refine an asset, fetch exports, and render inline previews where embedding is allowed.
+
 ## Getting started
 
 Live demo: [assets.agent-native.com](https://assets.agent-native.com).
@@ -249,18 +261,6 @@ For deeper prompting guidance on the underlying models, see OpenAI's
 - "Turn this uploaded diagram into a cleaner product explainer image."
 - "Create a video storyboard and save the best frame set to this library."
 
-## What you can do with it
-
-- **Create asset libraries.** Group reference images, videos, canonical logos, style notes, palettes, folders, and generated output by brand, campaign, product, or category.
-- **Generate through chat.** The home composer and library Generate controls send the prompt to the agent with `sendToAgentChat()`, so users can inspect variants, give feedback, and iterate.
-- **Generate images and videos.** Builder-managed image generation is available when enabled, and Gemini powers video generation plus the manual image fallback.
-- **Upload and describe references.** Add images or videos from the library UI or prompt composer attachment button, then search by title, description, alt text, prompt, model, media type, status, role, folder, or collection.
-- **Keep a generation audit log.** Every run records prompts, model, aspect ratio, references, source asset, lineage, generated assets, status, errors, and timestamps for later design review.
-- **Preserve logo accuracy.** The agent can generate a placeholder area and the server composites the uploaded canonical logo onto the final image instead of relying on the image model to redraw it.
-- **Embed as a picker.** Other apps can iframe `/picker` and listen for the `chooseAsset` event from `@agent-native/embedding`, turning Assets into an asset picker/generator for blog editors, site builders, slide decks, and custom apps. The picker also emits the legacy `chooseImage` alias for existing image-only hosts.
-- **Install as an app-backed skill.** The `agent-native.app-skill.json` manifest exports an Assets skill plus MCP connector metadata so marketplaces can install the app, its instructions, and its picker together.
-- **Serve other agents.** Slides, Design, Content, Mail, and Dispatch can call Assets through A2A to list libraries, generate batches, create videos, refine an asset, fetch exports, and render inline previews where embedding is allowed.
-
 ## Using it from your coding agent
 
 Generate and pick brand media without leaving Codex, Claude Code, Claude, or ChatGPT.
@@ -303,10 +303,13 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
 
 The rest of this doc is for anyone forking the Assets template or extending it.
 
-### Scaffolding
+### Quick start
 
 ```bash
 npx @agent-native/core@latest create my-assets --standalone --template assets
+cd my-assets
+pnpm install
+pnpm dev
 ```
 
 ### Data model

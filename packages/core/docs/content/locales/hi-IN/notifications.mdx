@@ -113,6 +113,7 @@ await notify(
 | `inbox`   | `notifications` तालिका पर कायम रहता है; घंटी UI | हमेशा चालू - आदिम का हिस्सा।                          |
 | `webhook` | POST JSON से कॉन्फ़िगर URL                      | `NOTIFICATIONS_WEBHOOK_URL` env var स्टार्टअप पर सेट। |
 
+ईमेल, Slack और webhook हमेशा इनबॉक्स के साथ पंजीकृत होते हैं। डिलीवरी पहले प्रति-सूचना मेटाडेटा URL/प्राप्तकर्ताओं को चुनती है, फिर संबंधित env var पर वापस जाती है। यदि दोनों में से कोई भी सेट नहीं है, तो वह चैनल उत्सर्जन के लिए कुछ नहीं करता।
 वेबहुक चैनल मालिक के तदर्थ [secrets](/docs/security) के विरुद्ध URL और `NOTIFICATIONS_WEBHOOK_AUTH` दोनों में `${keys.NAME}` संदर्भों का समाधान करता है, इसलिए कच्चा मान कभी भी एजेंट के संदर्भ में प्रवेश नहीं करता है। प्रति-कुंजी URL अनुमति सूचियाँ लागू की जाती हैं - वही नियम जो ऑटोमेशन `web-request` टूल उपयोग करता है।
 
 <Diagram id="doc-block-1qzciak" title={"चैनल और गंभीरता"} summary={"इनबॉक्स हमेशा चालू रहता है; वेबहुक को एक env var की आवश्यकता है; कस्टम चैनल स्टार्टअप पर पंजीकृत होते हैं। गंभीरता बैज स्टाइलिंग को संचालित करती है और इसे हर चैनल तक पहुंचाया जाता है।"}>
@@ -203,7 +204,7 @@ await notify(
 
 किसी भी सर्वर प्लगइन से एक कस्टम चैनल पंजीकृत करें।
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 कोर-रूट्स प्लगइन द्वारा `/_agent-native/notifications/*` पर माउंट किया गया। सभी रूट प्रमाणित सत्र के ईमेल के दायरे में हैं।
 
-| विधि     | पथ                                                  |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| विधि     | पथ                                                             |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-xntybj" title={"सूचनाएँ सूचीबद्ध करें"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"वर्तमान उपयोगकर्ता के लिए हाल की सूचनाएं सूचीबद्ध करें"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-xntybj" title={"सूचनाएँ सूचीबद्ध करें"} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"वर्तमान उपयोगकर्ता के लिए हाल की सूचनाएं सूचीबद्ध करें"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ interface NotificationMeta {
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "ISO टाइमस्टैम्प कर्सर — पेजिनेशन के लिए इस समय से पहले बनाई गई सूचनाएँ लौटाता है।"
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ interface NotificationMeta {
 
 ## UI घटक {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

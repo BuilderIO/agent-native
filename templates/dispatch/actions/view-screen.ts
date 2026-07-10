@@ -64,6 +64,17 @@ export default defineAction({
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
     }
+    if (navigation?.view === "operations") {
+      const nav = navigation as { operationsView?: string };
+      screen.operatorConsole = {
+        view: nav.operationsView === "database" ? "database" : "monitoring",
+        monitoring:
+          "The shared observability dashboard provides traces, conversations, evaluations, experiments, and feedback.",
+        database:
+          "The shared database admin is available in Code mode for table browsing and SQL inspection.",
+        relatedTools: ["thread-debug", "audit", "destinations", "automations"],
+      };
+    }
     if (
       navigation?.view === "overview" ||
       navigation?.view === "metrics" ||

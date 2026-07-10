@@ -7,8 +7,13 @@ description: "Pause the agent before a high-consequence action runs — defineAc
 
 Most actions should just run. A few — sending an email, charging a card, deleting an account — are outward-facing and hard to undo, and you don't want the agent to do them autonomously. For those, `defineAction` has an opt-in **approval gate**: when the agent tries to call the action, the loop pauses, surfaces an Approve/Deny affordance to the human, and runs the action _only_ after the human approves that specific call.
 
-> [!WARNING]
-> Keep approvals rare. Every gated action is a hard stop in the agent loop — it interrupts the run and demands a human round-trip. Use `needsApproval` only for genuinely high-consequence, hard-to-undo, outward-facing operations. If you find yourself gating reads or routine writes, you're holding it wrong. The default is **off**, and almost every action should leave it off.
+<Callout tone="warning">
+  Keep approvals rare. Every gated action is a hard stop in the agent loop — it
+  interrupts the run and demands a human round-trip. Use `needsApproval` only
+  for genuinely high-consequence, hard-to-undo, outward-facing operations. If
+  you find yourself gating reads or routine writes, you're holding it wrong. The
+  default is **off**, and almost every action should leave it off.
+</Callout>
 
 ## The `needsApproval` gate {#needs-approval}
 
@@ -135,7 +140,7 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
 
 The canonical (and intentionally rare) use of this gate in the framework is the Mail template's `send-email` action, which sets `needsApproval: true` so the agent can draft and queue freely but can never actually send a message without a human approving the specific send.
 
-## Related
+## What's next
 
 - [**Actions**](/docs/actions#needs-approval) — the full `defineAction` surface, including `outputSchema` for validating return values.
 - [**Security**](/docs/security) — when to reach for an approval gate vs. hiding an action from the model.

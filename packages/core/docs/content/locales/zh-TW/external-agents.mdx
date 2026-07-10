@@ -136,13 +136,8 @@ OAuth 代幣。 ChatGPT 可以保留已審查或已發布的連線器工具
 工具或 MCP 應用中繼資料更改。如果您仍然有舊的每應用連線器
 與調度、重新整理或重新連線每個過時的連線器一起啟用；正在更新
 Dispatch 不會重寫 ChatGPT 或 Claude 的快取行事曆/郵件/等。
-快照。範圍是：
-
-| 範圍        | 它能實現什麼                               |
-| ----------- | ------------------------------------------ |
-| `mcp:read`  | 唯讀工具和工具/資源發現                    |
-| `mcp:write` | 起草、更新和其他修改actions                |
-| `mcp:apps`  | 行內 MCP 應用程式、圖表、儀表板、草稿和 UI |
+快照。`mcp:read` / `mcp:write` / `mcp:apps` 範圍與下文
+[標準遠端 MCP OAuth](#standard-oauth) 中介紹的相同。
 
 Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遙控器
 當其建置支援遠端 OAuth 時，MCP URL 透過自己的 MCP 伺服器 UI

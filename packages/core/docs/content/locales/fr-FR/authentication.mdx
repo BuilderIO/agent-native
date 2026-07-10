@@ -15,7 +15,7 @@ L'authentification est configurée automatiquement via `autoMountAuth(app)` dans
 - **MCP OAuth à distance :** Standard OAuth 2.1 pour les hôtes MCP tels que le code Claude et les connecteurs ChatGPT.
 - **Personnalisé :** Apportez votre propre authentification via le rappel `getSession`.
 
-<Diagram id="doc-block-16302hf" title={"Trois façons d'entrer, une seule séance"} summary={"Les visiteurs du navigateur, les clients programmatiques MCP et les fournisseurs personnalisés résolvent tous la même AuthSession que celle lue par la portée en aval."}>
+<Diagram id="doc-block-16302hf" title={"Trois façons d'entrer, une seule séance"} summary={"Les visiteurs du navigateur, les hôtes MCP et les fournisseurs personnalisés résolvent tous la même AuthSession que celle lue par la portée en aval."}>
 
 ```html
 <div class="auth-modes">

@@ -40,7 +40,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+))"
     },
     "updater": {
       "active": true,

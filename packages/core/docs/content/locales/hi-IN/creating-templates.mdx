@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-339wig"
   title={"Template project की संरचना"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -174,8 +173,7 @@ npx @agent-native/core@latest create my-platform
 
 फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाओं को परिभाषित करें ताकि स्कीमा SQLite, Postgres, D1, Turso, Supabase, Neon और अन्य समर्थित बैकएंड पर पोर्टेबल रहें:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -206,8 +204,7 @@ export const projectShares = createSharesTable("project_shares");
 
 ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के पोर्टेबल ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से आयात न करें।
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -351,8 +348,7 @@ URL क्वेरी पैरामीटर्स में साझा क
 `path` जब URL ज्ञात हो। उसी चाल के लिए `__set_url__` भी न लिखें;
 वह कुंजी फ़्रेमवर्क URL टूल और URL-केवल फ़िल्टर परिवर्तनों के लिए आरक्षित है।
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

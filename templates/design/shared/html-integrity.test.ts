@@ -85,6 +85,7 @@ describe("Design HTML integrity", () => {
   it("does not mistake tag-shaped Alpine attributes, comments, or script strings for a document root", () => {
     for (const fragment of [
       `<section x-data="{ sample: '<html><body></body></html>' }"><p>Hi</p></section>`,
+      `<section x-data="{ sample: '>' + '<html><body></body></html>' }"><p>Hi</p></section>`,
       `<section><!-- example: <html><body></body></html> --><p>Hi</p></section>`,
       `<section><script>const sample = '<html><body></body></html>'</script><template x-if="true"><p>Hi</p></template></section>`,
     ]) {
@@ -112,6 +113,25 @@ describe("Design HTML integrity", () => {
     expect(inspectDesignHtmlDocumentIntegrity(withCodeStrings)).toEqual({
       valid: true,
     });
+  });
+
+  it("does not count root or raw-text tags inside Alpine attributes and comments", () => {
+    const withMarkupExamples = DOCUMENT.replace(
+      '<body x-data="{ open: true }">',
+      `<body x-data="{ open: true, sample: '<style></style><body></body>' }">
+        <!-- example only: <script></script><html><head></head><body></body></html> -->`,
+    );
+
+    expect(inspectDesignHtmlDocumentIntegrity(withMarkupExamples)).toEqual({
+      valid: true,
+    });
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: DOCUMENT,
+        nextContent: withMarkupExamples,
+        fileType: "html",
+      }),
+    ).not.toThrow();
   });
 
   it("allows a malformed legacy document to be repaired but not re-saved malformed", () => {

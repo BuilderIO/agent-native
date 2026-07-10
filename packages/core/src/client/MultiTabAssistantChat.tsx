@@ -17,8 +17,9 @@ import React, {
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
-  getReasoningEffortOptionsForModel,
+  DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
@@ -62,6 +63,7 @@ import { isTrustedFrameMessage } from "./frame.js";
 import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
+import { useChangeVersion } from "./use-change-version.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -128,7 +130,10 @@ function readStoredModelSelection(key: string): ModelSelection | undefined {
     }
     const selection: ModelSelection = {
       model: parsed.model,
-      effort: isReasoningEffort(parsed.effort) ? parsed.effort : "auto",
+      effort: resolveReasoningEffortSelection(
+        parsed.model,
+        isReasoningEffort(parsed.effort) ? parsed.effort : undefined,
+      ),
     };
     if (typeof parsed.engine === "string") selection.engine = parsed.engine;
     return selection;
@@ -150,14 +155,12 @@ function resolveModelSelection(
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
   if (groups.length === 0) {
-    const requestedEffort = selection.effort ?? "auto";
-    const effortOptions = getReasoningEffortOptionsForModel(selection.model);
     return {
       model: selection.model,
-      effort:
-        requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-          ? requestedEffort
-          : "auto",
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
     };
   }
   const preferredGroup = groups.find(
@@ -175,12 +178,10 @@ function resolveModelSelection(
     preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
   if (!engine && groups.length > 0) return undefined;
 
-  const requestedEffort = selection.effort ?? "auto";
-  const effortOptions = getReasoningEffortOptionsForModel(selection.model);
-  const effort =
-    requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-      ? requestedEffort
-      : "auto";
+  const effort = resolveReasoningEffortSelection(
+    selection.model,
+    selection.effort,
+  );
   const resolved: ModelSelection = { model: selection.model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
@@ -1199,12 +1200,7 @@ export function MultiTabAssistantChat({
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
       const existing = threadModelRef.current.get(threadId);
-      const existingEffort = existing?.effort ?? "auto";
-      const effortOptions = getReasoningEffortOptionsForModel(model);
-      const effort =
-        existingEffort === "auto" || effortOptions.includes(existingEffort)
-          ? existingEffort
-          : "auto";
+      const effort = resolveReasoningEffortSelection(model, existing?.effort);
       const selection = { model, engine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
@@ -1818,13 +1814,10 @@ export function MultiTabAssistantChat({
             g.models.includes(model),
           );
           if (matchedGroup) {
-            const requestedEffort = isReasoningEffort(effort) ? effort : "auto";
-            const effortOptions = getReasoningEffortOptionsForModel(model);
-            const selectedEffort =
-              requestedEffort === "auto" ||
-              effortOptions.includes(requestedEffort)
-                ? requestedEffort
-                : "auto";
+            const selectedEffort = resolveReasoningEffortSelection(
+              model,
+              isReasoningEffort(effort) ? effort : undefined,
+            );
             threadModelRef.current.set(threadId, {
               model,
               engine: matchedGroup.engine,
@@ -2246,13 +2239,15 @@ export function MultiTabAssistantChat({
     }
   }, []);
 
-  // Watch for agent-issued chat-command in application-state
+  // Watch for agent-issued chat-command in application-state. The shared
+  // DB-sync transport advances this key-specific version, so the command gets
+  // one initial read and one read per actual write instead of a 2s loop.
   const lastChatCommandRef = useRef(0);
+  const chatCommandVersion = useChangeVersion("app-state:chat-command");
   useEffect(() => {
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function pollChatCommand() {
+    async function readChatCommand() {
       if (stopped) return;
       try {
         const res = await fetch(
@@ -2268,9 +2263,9 @@ export function MultiTabAssistantChat({
             lastChatCommandRef.current = data.value.timestamp;
             const threadId = data.value.threadId as string;
             // Open the thread as a tab and focus it
-            if (!openTabIds.includes(threadId)) {
-              setOpenTabIds((prev) => [...prev, threadId]);
-            }
+            setOpenTabIds((prev) =>
+              prev.includes(threadId) ? prev : [...prev, threadId],
+            );
             switchThread(threadId);
             // Clear the command
             fetch(
@@ -2283,17 +2278,13 @@ export function MultiTabAssistantChat({
           }
         }
       } catch {}
-      if (!stopped) {
-        timer = setTimeout(pollChatCommand, 2000);
-      }
     }
 
-    pollChatCommand();
+    void readChatCommand();
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
     };
-  }, [openTabIds, switchThread]);
+  }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
@@ -2775,7 +2766,9 @@ export function MultiTabAssistantChat({
                   onSlashCommand={handleSlashCommand}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
-                  selectedEffort={modelSelection?.effort ?? "auto"}
+                  selectedEffort={
+                    modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
+                  }
                   composerSlot={composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}

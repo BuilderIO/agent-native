@@ -9,7 +9,11 @@ Cada aplicación alojada en `*.agent-native.com` ejecuta su propia implementaci�
 
 Esta es la misma primitiva de confianza que ya usan [A2A](/docs/a2a-protocol) y [External Agents](/docs/external-agents) (una JWT firmada por `A2A_SECRET` verificada en el límite de la solicitud) aplicada a la ruta de inicio de sesión humano en lugar de llamadas de agente a agente.
 
-> **Implementación unificada frente a implementación por dominio.** Si aloja todas las aplicaciones en un origen (`your-agents.com/mail`, `your-agents.com/calendar`), ya obtiene un inicio de sesión compartido a través de un único dominio de cookies, sin necesidad de federación. Cross-App SSO solo es necesario cuando las aplicaciones se ejecutan en dominios separados. Ver [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+<Callout tone="info">
+
+**Implementación unificada frente a implementación por dominio.** Si aloja todas las aplicaciones en un origen (`your-agents.com/mail`, `your-agents.com/calendar`), ya obtiene un inicio de sesión compartido a través de un único dominio de cookies, sin necesidad de federación. Cross-App SSO solo es necesario cuando las aplicaciones se ejecutan en dominios separados. Ver [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+</Callout>
 
 ## Qué y por qué {#what-why}
 
@@ -86,14 +90,16 @@ El flujo es una autorización estándar → token firmado → redireccionamiento
 
 </Diagram>
 
-1. **Aplicación → Envío (autorizar).** La aplicación envía al usuario a la autoridad de identidad:
+1. **Aplicación → Dispatch (autorización).** La ruta `GET /_agent-native/identity/login` de la aplicación (a la que enlaza el botón «Iniciar sesión con Agent-Native») crea la redirección y envía al usuario a la autoridad de identidad:
 
-   ```
+   ```http
    GET https://dispatch.agent-native.com/_agent-native/identity/authorize
        ?app=<requesting-app>
        &redirect_uri=<app-callback-url>
        &state=<csrf-state>
    ```
+
+   `redirect_uri` es la ruta `GET /_agent-native/identity/callback` de esta aplicación, la ruta que recibe el token firmado en el paso 3.
 
 <Endpoint id="cross-app-sso-identity-authorize-es-es" title={"Punto final de autorización de identidad"} method="GET" path="/_agent-native/identity/authorize" summary={"El envío (autoridad de identidad) autentica al ser humano y lo redirecciona con un token de identidad firmado"} auth={"Sesión de envío (inicio de sesión interactivo si no hay ninguno)"} params={[
   {
@@ -143,7 +149,7 @@ El flujo es una autorización estándar → token firmado → redireccionamiento
    | `scope`      | Siempre `"identity"`: este token solo autoriza el inicio de sesión           |
    | `exp`        | **≤ 2 minutos** desde el problema                                            |
 
-4. **La aplicación verifica los enlaces JIT por correo electrónico.** La aplicación verifica la firma del token con su propio `A2A_SECRET`, verifica `scope: "identity"` y `exp` y luego realiza **enlace justo a tiempo estrictamente mediante correo electrónico verificado**:
+4. **La aplicación verifica y enlaza JIT por correo electrónico.** La ruta `GET /_agent-native/identity/callback` verifica la firma del token con `A2A_SECRET`, comprueba `scope: "identity"` y `exp`, y realiza el **enlace justo a tiempo estrictamente por correo electrónico verificado**:
    - Si existe un usuario local con ese correo electrónico → reutilícelo sin cambios.
    - Si no → crea un usuario local para ese correo electrónico.
 
@@ -290,9 +296,13 @@ Una vez verificada una aplicación, repita los pasos 2 y 3 para la siguiente apl
 **5. Rollback = desarmar la var de entorno en la implementación de esa aplicación.**
 Para revertir cualquier aplicación, **elimine `AGENT_NATIVE_IDENTITY_HUB_URL` del entorno de esa aplicación y vuelva a implementarla/reiníciela.** La aplicación vuelve inmediatamente a su comportamiento de autenticación anterior. No hay **ningún cambio de datos para deshacer**: las filas de identidad solo se agregaron y desarmar la variable simplemente hace que la ruta de federación vuelva a estar inactiva. La transición y la reversión de cada aplicación son independientes y reversibles.
 
-> Rollout cierra la sesión de los usuarios cuando se habilita cada aplicación (se vuelven a autenticar a través de Dispatch), pero siempre vuelven a iniciar sesión en la **misma cuenta de correo electrónico coincidente con los datos intactos**, porque las filas de identidad nunca se destruyen ni se les cambia el nombre, solo se agregan.
+<Callout tone="info">
 
-## Relacionado {#related}
+Rollout cierra la sesión de los usuarios cuando se habilita cada aplicación (se vuelven a autenticar a través de Dispatch), pero siempre vuelven a iniciar sesión en la **misma cuenta de correo electrónico coincidente con los datos intactos**, porque las filas de identidad nunca se destruyen ni se les cambia el nombre, solo se agregan.
+
+</Callout>
+
+## Qué sigue {#whats-next}
 
 - [Authentication](/docs/authentication): modos de autenticación locales, sesiones, organizaciones, la var. de entorno `A2A_SECRET`.
 - [A2A Protocol](/docs/a2a-protocol): modelo de confianza firmado JWT con verificación en el límite que se reutiliza.

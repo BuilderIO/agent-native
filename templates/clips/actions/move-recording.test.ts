@@ -9,6 +9,10 @@ const mockDb = {
   update: vi.fn(),
 };
 
+vi.mock("@agent-native/core", () => ({
+  defineAction: (options: unknown) => options,
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
   eq: (...args: unknown[]) => ({ op: "eq", args }),

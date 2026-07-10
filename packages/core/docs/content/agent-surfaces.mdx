@@ -139,8 +139,7 @@ pnpm install
 
 Then define the durable operation:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -502,14 +501,11 @@ Keep the contract small: define durable operations as actions, return explicit
 widget results when chat needs rich UI, and add full screens only when users
 need to browse, compare, configure, or collaborate over persistent objects.
 
-## Related docs {#related-docs}
+## What's next {#related-docs}
 
-- [Actions](/docs/actions) — define the operation once.
-- [Native Chat UI](/docs/native-chat-ui) — render typed action results in chat.
-- [Generative UI](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat.
-- [Drop-in Agent](/docs/drop-in-agent) — mount chat, sidebar, or panel surfaces.
-- [Component API](/docs/components) — lower-level React chat/composer pieces.
-- [Embedding SDK](/docs/embedding-sdk) — add Agent-Native to an existing app.
-- [Automation-First Apps](/docs/pure-agent-apps) — no-browser apps for jobs, queues, scripts, and external agents.
-- [External Agents](/docs/external-agents) — connect MCP-compatible hosts to an app.
-- [A2A Protocol](/docs/a2a-protocol) — call agents from other agents.
+- [**Actions**](/docs/actions) — define the operation once; every surface above calls the same one
+- [**Native Chat UI**](/docs/native-chat-ui) — render typed action results as tables, charts, and cards in chat
+- [**Generative UI**](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat
+- [**Automation-First Apps**](/docs/pure-agent-apps) — the full no-browser pattern for jobs, queues, scripts, and external agents
+- [**External Agents**](/docs/external-agents) — connect MCP-compatible hosts to an app
+- [**A2A Protocol**](/docs/a2a-protocol) — call agents from other agent-native apps

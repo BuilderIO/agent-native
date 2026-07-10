@@ -253,9 +253,12 @@ const messages = {
       agents: "代理",
       vault: "保管庫",
       audit: "稽核",
+      operations: "營運",
     },
     pages: {
       also: "還有",
+      monitoring: "監控",
+      database: "資料庫",
       workspaceShortcutsAria: "工作區快捷入口",
       deliveryQueue: "投遞佇列",
       failedLastHour: "過去一小時失敗 {{count}} 次",

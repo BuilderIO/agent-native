@@ -9,6 +9,7 @@ import {
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
+  getComposerReasoningEffortOptions,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
@@ -16,6 +17,19 @@ import {
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
+  it("offers explicit reasoning levels without legacy Auto", () => {
+    expect(getComposerReasoningEffortOptions("auto")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(getComposerReasoningEffortOptions("claude-sonnet-5")).not.toContain(
+      "auto",
+    );
+  });
+
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {
     const editor = new Editor({
       element: document.createElement("div"),

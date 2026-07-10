@@ -41,6 +41,12 @@ import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
+import {
+  createComputerApprovalRequest,
+  decideComputerApproval,
+  listComputerApprovalsForOwner,
+} from "./computer-supervision-store.js";
+import { ComputerSupervisionError } from "./computer-supervision.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { claimIntegrationControl } from "./controls-store.js";
 import {
@@ -76,7 +82,9 @@ import {
   markTaskRetryable,
 } from "./pending-tasks-store.js";
 import {
+  claimNextComputerCommand,
   claimNextRemoteCommand,
+  enqueueComputerCommand,
   enqueueRemoteCommand as enqueueRemoteCommandRow,
   isRemoteCommandKind,
   listRemoteCommandsForOwner,
@@ -85,6 +93,7 @@ import {
 import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
+  getRemoteComputerCapabilities,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -106,6 +115,8 @@ import {
   listRemoteRunEvents,
 } from "./remote-run-events-store.js";
 import type {
+  ComputerCommandEnvelope,
+  ComputerOperationClass,
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,
@@ -1099,6 +1110,115 @@ export function createIntegrationsPlugin(
     );
 
     h3.use(
+      `${P}/remote/computer/approvals`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const parts = mountedPathParts(event, "remote/computer/approvals");
+        if (method === "GET") {
+          if (parts.length > 0) {
+            setResponseStatus(event, 404);
+            return { error: "not found" };
+          }
+          const query = getQuery(event);
+          const status = readComputerApprovalStatus(query.status);
+          return {
+            approvals: await listComputerApprovalsForOwner({
+              ownerEmail: ctx.ownerEmail,
+              orgId: ctx.orgId,
+              deviceId: readString(query.deviceId),
+              taskId: readString(query.taskId),
+              runId: readString(query.runId),
+              status,
+              limit: Number(query.limit ?? 100) || 100,
+            }),
+          };
+        }
+        const body = (await readBody(event)) as Record<string, unknown>;
+        if (parts[0] && parts[1] === "decision" && parts.length === 2) {
+          const decision =
+            body.decision === "approved" || body.decision === "denied"
+              ? body.decision
+              : null;
+          const actionHash = readString(body.actionHash);
+          if (!decision || !actionHash) {
+            setResponseStatus(event, 400);
+            return { error: "decision and actionHash required" };
+          }
+          const approval = await decideComputerApproval({
+            id: decodeURIComponent(parts[0]),
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            actionHash,
+            decision,
+            decidedBy: ctx.ownerEmail,
+            result: readObject(body.result),
+          });
+          if (!approval) {
+            setResponseStatus(event, 404);
+            return { error: "approval not found or no longer pending" };
+          }
+          return { approval };
+        }
+        if (parts.length > 0) {
+          setResponseStatus(event, 404);
+          return { error: "not found" };
+        }
+        const deviceId = readString(body.deviceId);
+        if (!deviceId || !body.envelope) {
+          setResponseStatus(event, 400);
+          return { error: "deviceId and envelope required" };
+        }
+        try {
+          const approval = await createComputerApprovalRequest({
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            deviceId,
+            envelope: body.envelope as ComputerCommandEnvelope,
+          });
+          return { approval };
+        } catch (error) {
+          return computerSupervisionRouteError(event, error);
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/computer/commands`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const body = (await readBody(event)) as Record<string, unknown>;
+        const deviceId = readString(body.deviceId);
+        if (!deviceId || !body.envelope) {
+          setResponseStatus(event, 400);
+          return { error: "deviceId and envelope required" };
+        }
+        try {
+          const command = await enqueueComputerCommand({
+            deviceId,
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            envelope: body.envelope as ComputerCommandEnvelope,
+            platform: readString(body.platform),
+          });
+          return { command };
+        } catch (error) {
+          return computerSupervisionRouteError(event, error);
+        }
+      }),
+    );
+
+    h3.use(
       `${P}/remote/enqueue`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -1185,15 +1305,47 @@ export function createIntegrationsPlugin(
         const query = getQuery(event);
         const body =
           method === "POST"
-            ? ((await readBody(event)) as { waitMs?: unknown })
+            ? ((await readBody(event)) as {
+                waitMs?: unknown;
+                computerCapabilities?: unknown;
+              })
             : {};
+        let pollingDevice = device;
+        if (
+          method === "POST" &&
+          Object.prototype.hasOwnProperty.call(body, "computerCapabilities")
+        ) {
+          const computerCapabilities = readComputerCapabilities(
+            body.computerCapabilities,
+          );
+          const updated = await updateRemoteDeviceDetails({
+            id: device.id,
+            metadata: {
+              ...(device.metadata ?? {}),
+              computerCapabilities,
+            },
+          });
+          if (updated) pollingDevice = updated;
+        }
         const requestedWait =
           Number(body.waitMs ?? query.waitMs ?? query.wait_ms ?? 25_000) || 0;
         const waitMs = Math.max(0, Math.min(25_000, requestedWait));
         const deadline = Date.now() + waitMs;
 
         while (true) {
-          const command = await claimNextRemoteCommand(device.id);
+          const operationClasses =
+            advertisedComputerOperationClasses(pollingDevice);
+          const computerCommand =
+            operationClasses.length > 0
+              ? await claimNextComputerCommand({
+                  deviceId: pollingDevice.id,
+                  ownerEmail: pollingDevice.ownerEmail,
+                  orgId: pollingDevice.orgId,
+                  operationClasses,
+                })
+              : null;
+          const command =
+            computerCommand ?? (await claimNextRemoteCommand(pollingDevice.id));
           if (command) return { command };
           const remaining = deadline - Date.now();
           if (remaining <= 0) return { command: null };
@@ -2046,6 +2198,20 @@ export function createIntegrationsPlugin(
         if (parts[0] === "process-task") return;
         // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
+        // These are framework-owned control-plane routes, not integration
+        // platforms. The dedicated handlers above normally return a response
+        // before this catch-all runs, but keeping them reserved here prevents
+        // an unexpected mount fall-through from turning a valid control-plane
+        // request into a misleading "Unknown platform" response.
+        if (
+          parts[0] === "installations" ||
+          parts[0] === "scopes" ||
+          parts[0] === "budgets" ||
+          parts[0] === "memory"
+        ) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup
@@ -2381,4 +2547,67 @@ function getBaseUrl(event: any): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readComputerCapabilities(value: unknown) {
+  const input = readObject(value);
+  const readSurface = (surface: unknown, desktop = false) => {
+    const record = readObject(surface);
+    if (!record) return undefined;
+    return {
+      observe: record.observe === true,
+      control: record.control === true,
+      ...(desktop
+        ? {
+            accessibility: record.accessibility === true,
+            screenCapture: record.screenCapture === true,
+          }
+        : {}),
+      provider: readString(record.provider) ?? null,
+      version: readString(record.version) ?? null,
+    };
+  };
+  return {
+    browser: readSurface(input?.browser),
+    desktop: readSurface(input?.desktop, true),
+  };
+}
+
+function advertisedComputerOperationClasses(
+  device: Pick<RemoteDevice, "metadata">,
+): ComputerOperationClass[] {
+  const capabilities = getRemoteComputerCapabilities(device);
+  const classes: ComputerOperationClass[] = [];
+  if (capabilities?.browser?.observe) classes.push("browser.observe");
+  if (capabilities?.browser?.control) classes.push("browser.control");
+  if (capabilities?.desktop?.observe) classes.push("desktop.observe");
+  if (capabilities?.desktop?.control) classes.push("desktop.control");
+  return classes;
+}
+
+function readComputerApprovalStatus(value: unknown) {
+  return value === "pending" ||
+    value === "approved" ||
+    value === "denied" ||
+    value === "consumed" ||
+    value === "expired"
+    ? value
+    : undefined;
+}
+
+function computerSupervisionRouteError(event: any, error: unknown) {
+  if (error instanceof ComputerSupervisionError) {
+    const status =
+      error.code === "expired-lease"
+        ? 410
+        : error.code === "replay"
+          ? 409
+          : error.code === "approval-required" ||
+              error.code === "approval-denied"
+            ? 403
+            : 400;
+    setResponseStatus(event, status);
+    return { error: error.message, code: error.code };
+  }
+  throw error;
 }

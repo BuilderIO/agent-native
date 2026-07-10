@@ -89,6 +89,13 @@ patterns live in `.agents/skills/`.
   consult `FIGMA_INTEROPERABILITY.md` for the feature-level fidelity contract,
   fallback rules, scale limits, and real-file golden corpus. See the
   `design-systems` skill's "Import from Figma" section.
+- Uploading a raw `.fig` file in the Design editor's Import panel decodes the
+  container/Kiwi document locally into editable screens — no Builder
+  connection needed — and is scoped to screens only; it never creates or
+  updates a design system. This is separate from uploading `.fig` on the
+  Design System Setup page, which still indexes tokens/brand-kit data through
+  Builder and does not parse `.fig` locally. See the `design-systems` skill
+  for both paths.
 - A current Figma Cmd+C clipboard includes exact selected node ids in
   `figmeta.selectedNodeData`; `import-figma-clipboard` uses those before any
   heuristic matching and supports multi-selection. Clipboard metadata is not a

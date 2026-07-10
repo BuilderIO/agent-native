@@ -17,7 +17,7 @@ Ein neues `npx @agent-native/core@latest create`-Gerüst wird bereits geliefert 
 - **Organisationswechsel** – die Sitzung verfolgt die aktive Organisation (`session.orgId`) und durch den Wechsel werden die Daten geändert, die der Benutzer und der Agent sehen.
 - **Datenisolierung pro Organisation** – jede Abfrage wird automatisch auf die aktive Organisation beschränkt.
 
-Wenn Sie Agent-nativ für ein CRM, einen Projekt-Tracker, einen Support-Posteingang oder ein anderes Team-Tool evaluieren, ist die mandantenfähige Grundlage bereits vorhanden. Alle Erstanbieter-Vorlagen sind mehrmandantenfähig – die Liste finden Sie unter [Cloneable SaaS templates](/docs/cloneable-saas).
+Wenn Sie Agent-nativ für ein CRM, einen Projekt-Tracker, einen Support-Posteingang oder ein anderes Team-Tool evaluieren, ist die mandantenfähige Grundlage bereits vorhanden. Alle Erstanbieter-Vorlagen sind mehrmandantenfähig – die Liste finden Sie unter [Vorlagen](/docs/cloneable-saas).
 
 <Diagram id="doc-block-5xksqg" title="Org-Mitgliedschaft und Isolation" summary={"Benutzer treten Organisationen als owner/admin/member bei. Jede besitzbare Zeile trägt den org_id des Mandanten, der sie besitzt, und keine Zeile verliert über die Grenze hinweg."}>
 
@@ -117,8 +117,8 @@ Mandantendaten werden durch eine `org_id`-Spalte isoliert (hinzugefügt von `own
 
 Dies ist dieselbe Pipeline, die für die Festlegung des Bereichs pro Benutzer verwendet wird. Informationen zur Mechanik auf SQL-Ebene, zum `ownableColumns()`-Vertrag und zu den Wachen `accessFilter` / `resolveAccess` / `assertAccess` finden Sie unter [Security → Data Scoping](/docs/security#data-scoping) – die einzige Quelle der Wahrheit für die Scoping-Pipeline.
 
-## Verwandte Dokumente {#related}
+## Wie geht es weiter? {#related}
 
-- [Authentication](/docs/authentication#organizations) – Sitzungen, soziale Anbieter und die Organisationsverwaltungsoberfläche
-- [Security → Data Scoping](/docs/security#data-scoping) – Isolation auf SQL-Ebene, der `ownableColumns()`-Vertrag und Zugriffsschutz
-- [Multi-App Workspace](/docs/multi-app-workspace) – Hosten mehrerer agentennativer Apps in einem Monorepo mit gemeinsamer Authentifizierung und RBAC
+- [**Authentication**](/docs/authentication#organizations) — Sitzungen, soziale Anbieter und die Organisationsverwaltungsoberfläche
+- [**Security — Data Scoping**](/docs/security#data-scoping) — Isolation auf SQL-Ebene, der `ownableColumns()`-Vertrag und Zugriffsschutz
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — Hosten mehrerer Agent-Native-Apps in einem Monorepo mit gemeinsamer Authentifizierung und RBAC

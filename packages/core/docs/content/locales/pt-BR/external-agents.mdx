@@ -136,13 +136,9 @@ instantâneo até que você o atualize/revise novamente, então verifique novame
 alterações nos metadados da ferramenta ou do aplicativo MCP. Se você ainda tiver conectores por aplicativo antigos
 ativado junto com Dispatch, atualize ou reconecte cada conector obsoleto; atualizando
 O Dispatch não reescreve o calendário/correio/etc em cache de ChatGPT ou Claude.
-instantâneos. Os escopos são:
-
-| Escopo      | O que ele permite                                                |
-| ----------- | ---------------------------------------------------------------- |
-| `mcp:read`  | Ferramentas somente leitura e descoberta de ferramentas/recursos |
-| `mcp:write` | Esboço, atualização e outras mutações do actions                 |
-| `mcp:apps`  | Aplicativos MCP inline, gráficos, painéis, rascunhos e UIs       |
+instantâneos. Os escopos `mcp:read` / `mcp:write` / `mcp:apps` são os mesmos
+descritos abaixo em
+[OAuth remoto padrão do MCP](#standard-oauth).
 
 Cursor, Goose, Postman, MCPJam e VS Code GitHub Copilot usam o mesmo controle remoto
 MCP URL por meio de seus próprios servidores MCP UIs quando sua compilação suporta OAuth remoto

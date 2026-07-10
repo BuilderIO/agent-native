@@ -5,7 +5,11 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 # Multi-App Workspaces
 
-> **Which workspace doc?** This page covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For what a workspace _is_ (the customization layer: `AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) see [Workspace](/docs/workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+<Callout tone="info">
+
+**Which workspace doc?** This page covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For what a workspace _is_ (the customization layer: `AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) see [Workspace](/docs/workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+
+</Callout>
 
 When vibe-coding an internal tool takes an afternoon, you don't stop at one. A team ends up with a CRM, a support inbox, a dashboard, an ops console — ten small apps, each scaffolded independently. That's great until you need to change something in all of them.
 
@@ -259,9 +263,7 @@ A few onboarding flows are workspace-aware out of the box:
 - **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and friends to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
-## Shared credentials {#shared-credentials}
-
-Apps in the same workspace point at the same `DATABASE_URL` by default, so framework credential storage can make a credential available to every app without per-app config. Use `@agent-native/core/credentials` directly, or add a thin helper in `packages/shared` if your workspace wants a stricter naming convention.
+This works because every app in the same workspace points at the same `DATABASE_URL` by default, so framework credential storage (`@agent-native/core/credentials`) makes a credential available to every app without per-app config. Add a thin helper in `packages/shared` if your workspace wants a stricter naming convention.
 
 ## Shared design tokens {#design-tokens}
 
@@ -284,87 +286,12 @@ Brand colors, typography, spacing scales, and any shared component classes can l
 
 ## Deployment {#deployment}
 
-You have two options: **unified deploy** (the default for workspaces) or per-app independent deploy.
+You have two options: **unified deploy** (the default for workspaces) or per-app independent deploy. [Deployment — Workspace Deploy](/docs/deployment#workspace-deploy) covers the full command, per-preset details (Cloudflare, Netlify, Vercel), and a diagram of the shape; the tradeoff:
 
-### Unified deploy (recommended)
+- **Unified deploy (recommended)** — `npx @agent-native/core@latest deploy` builds every app in the workspace and ships them behind a single origin, one path per app (`your-agents.com/mail/*`, `/calendar/*`, ...). Being on the same origin is where the real payoff lives: a shared login session (log into any app, every app is logged in), zero-config cross-app A2A (`@mail` tagging `@calendar` is a same-origin fetch — no CORS, no JWT signing between siblings), and one DNS record, cert, and CDN cache to manage.
+- **Per-app independent deploy** — prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && npx @agent-native/core@latest build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it. For a self-hosted VPS or Docker Compose setup on one origin instead, see [Deployment — Self-hosted workspace with Docker Compose](/docs/deployment#workspace-docker-compose).
 
-One command builds every app in the workspace and ships them behind a single origin, one path per app:
-
-```bash
-npx @agent-native/core@latest deploy
-# https://your-agents.com/mail/*       → apps/mail
-# https://your-agents.com/calendar/*   → apps/calendar
-# https://your-agents.com/forms/*      → apps/forms
-```
-
-Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>` and emitted through the selected Nitro preset. Cloudflare Pages is the default preset and uses a dispatcher worker at `dist/_worker.js` plus `_routes.json`. Netlify is supported with `npx @agent-native/core@latest deploy --preset netlify`; it emits app functions under `.netlify/functions-internal/<app>-server` and generated redirects that leave static assets unforced so the CDN serves files first. Vercel is supported with `npx @agent-native/core@latest deploy --preset vercel`; it writes a root `.vercel/output` bundle using Vercel's Build Output API.
-
-<Diagram id="doc-block-sntrhp" title="Unified deploy: one origin, one path per app" summary="Every app ships behind a single origin, so login sessions and cross-app A2A are free.">
-
-```html
-<div class="deploy">
-  <div class="diagram-box accent">
-    your-agents.com<br /><small class="diagram-muted"
-      >one DNS record &middot; one cert &middot; one CDN</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="deploy-apps">
-    <div class="diagram-box">/mail/*</div>
-    <div class="diagram-box">/calendar/*</div>
-    <div class="diagram-box">/forms/*</div>
-  </div>
-  <div class="diagram-pill ok">
-    shared login cookie on the apex &bull; same-origin A2A, no CORS
-  </div>
-</div>
-```
-
-```css
-.deploy {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.deploy .deploy-apps {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.deploy .diagram-arrow {
-  font-size: 24px;
-}
-.deploy .diagram-pill {
-  flex-basis: 100%;
-}
-```
-
-</Diagram>
-
-Being on the **same origin** is where the real payoff lives:
-
-- **Shared login session.** Better Auth sets its cookie on the apex domain, so logging into any app logs you into every app. No cross-domain SSO dance.
-- **Zero-config cross-app A2A.** `@mail` tagging `@calendar` becomes a same-origin fetch — no CORS, no JWT signing between siblings. External A2A still uses JWT as today.
-- **One DNS record, one cert, one CDN cache.**
-
-Publish the `dist/` output:
-
-```bash
-wrangler pages deploy dist
-```
-
-For Netlify:
-
-```bash
-npx @agent-native/core@latest deploy --preset netlify --build-only
-```
-
-For Vercel Git deployments, set the build command to:
-
-```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
-```
+Whichever you pick, point every app at the same `DATABASE_URL` for cross-app state out of the box: one set of user accounts, one set of organizations, one set of shared settings. The shared package itself is never deployed standalone — pnpm symlinks it into each app's `node_modules/` at build time.
 
 ### Public app routes
 
@@ -395,18 +322,6 @@ For mostly internal apps with a few public pages, leave the audience internal an
 
 These settings only affect read-only page navigation. Framework tools, agent chat, A2A, vault access, and arbitrary APIs stay authenticated unless the app explicitly declares public prefixes with `createAuthPlugin({ publicPaths: [...] })`.
 
-### Per-app independent deploy
-
-Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && npx @agent-native/core@latest build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it.
-
-For a self-hosted VPS or Docker Compose setup on one origin, build and run one container per app with its own path prefix (`APP_BASE_PATH=/mail`, `APP_BASE_PATH=/calendar`, ...), then route those prefixes through a reverse proxy. See [Deployment — Self-hosted workspace with Docker Compose](/docs/deployment#workspace-docker-compose) for the Dockerfile and compose example.
-
-### Shared database, shared credentials
-
-Whatever you pick, point every app at the same `DATABASE_URL` for cross-app state out of the box: one set of user accounts, one set of organizations, one set of shared settings. If each app has its own database, the workspace pattern still works — you just lose that shared-state story.
-
-The shared package itself is never deployed standalone. It's a `workspace:*` dep that pnpm symlinks into each app's `node_modules/`, so every app transparently bundles whatever it needs at build time.
-
 ## Out of scope (for now) {#out-of-scope}
 
 The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
@@ -415,7 +330,7 @@ The workspace pattern is intentionally narrow. A few things it deliberately does
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
 
-## See also {#see-also}
+## What's next {#whats-next}
 
 - [Workspace](/docs/workspace) — the customization layer (`AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) every app in the workspace shares.
 - [Workspace Governance](/docs/workspace-management) — branching, CODEOWNERS, PR review across many apps in one repo.

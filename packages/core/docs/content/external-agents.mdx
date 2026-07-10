@@ -8,12 +8,13 @@ search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-na
 
 **This page: connect an external agent or MCP host to your app.** Use it when Claude, ChatGPT, Codex, Cursor, Claude Cowork, or another MCP-compatible host should drive a hosted agent-native app and round-trip the result back into the running UI.
 
-| If you want to…                                              | Read                               |
-| ------------------------------------------------------------ | ---------------------------------- |
-| Connect an external agent/host to your app                   | **This page** — External Agents    |
-| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)   |
-| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)         |
-| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol) |
+| If you want to…                                              | Read                                 |
+| ------------------------------------------------------------ | ------------------------------------ |
+| Connect an external agent/host to your app                   | **This page** — External Agents      |
+| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)     |
+| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)           |
+| Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui) |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Server](/docs/mcp-protocol)     |
 
 An agent-native app is reachable by any MCP-compatible host — Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam, and future clients that implement the standard. External agents are great at producing artifacts (a draft, an event, a dashboard) but they often live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
 
@@ -136,13 +137,8 @@ snapshot until you refresh/review it again, so rescan the connector after MCP
 tool or MCP App metadata changes. If you still have old per-app connectors
 enabled alongside Dispatch, refresh or reconnect each stale connector; updating
 Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
-snapshots. The scopes are:
-
-| Scope       | What it enables                                      |
-| ----------- | ---------------------------------------------------- |
-| `mcp:read`  | Read-only tools and tool/resource discovery          |
-| `mcp:write` | Drafting, updating, and other mutating actions       |
-| `mcp:apps`  | Inline MCP Apps, charts, dashboards, drafts, and UIs |
+snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` scopes are the same ones
+covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
 Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
 MCP URL through their own MCP-server UIs when their build supports remote OAuth
@@ -213,7 +209,7 @@ instructions:
 npx skills@latest add BuilderIO/agent-native --skill assets
 ```
 
-The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
+The raw `skills` CLI installs `SKILL.md` files only; local MCP hosts still
 need a connector such as `npx @agent-native/core@latest connect https://assets.agent-native.com`.
 
 | Skill    | Alias              | For                    |
@@ -239,7 +235,7 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
-npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
 `reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
@@ -250,7 +246,7 @@ Never reinstall the skill from scratch just to fix a 401 — `reconnect` is the 
 
 ### Connect page fallback {#connect-page-fallback}
 
-For MCP clients that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
+For MCP hosts that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
 
 ```jsonc
 // .mcp.json
@@ -267,7 +263,7 @@ For MCP clients that cannot add a remote OAuth URL directly, open the app in you
 
 Restart the agent client after connecting so it picks up the new MCP server.
 
-Use this manual bearer block for MCP clients that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
+Use this manual bearer block for MCP hosts that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
 
 ### Standard remote MCP OAuth {#standard-oauth}
 
@@ -420,17 +416,12 @@ included regardless of the declared list.
 
 ## What you can do once connected {#what-you-can-do}
 
-Once your agent is connected, every caller gets the compact catalog by default
-(see [Catalog tiers](#catalog-tiers)) — code/stdio developer clients, the local
-CLI proxy, and chat hosts like Claude and ChatGPT alike. That surface is the
-template-declared app actions plus the builtin cross-app verbs (`list_apps`,
-`open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a
-natural-language task through an app agent (the same cross-app entry point
-[A2A](/docs/a2a-protocol) uses). `tool-search` is always present, so any tool
-outside the compact list stays reachable on demand. To get the full ~105-tool
-surface up front, opt in explicitly with `--full-catalog` or
-`AGENT_NATIVE_MCP_FULL_CATALOG=1`. In all cases, ask the agent to do real work
-and it hands back a link straight into the running app:
+Once your agent is connected, it sees the [compact catalog](#catalog-tiers) by
+default: template-declared app actions plus the builtin cross-app verbs
+(`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use
+`ask_app` to route a natural-language task through an app agent (the same
+cross-app entry point [A2A](/docs/a2a-protocol) uses). Ask the agent to do real
+work and it hands back a link straight into the running app:
 
 ```
 > draft an email to John about the Q3 report
@@ -453,7 +444,7 @@ entries and `resources/read` content, not on the tool descriptor.
 
 For ChatGPT/Claude-style OAuth app hosts, the discovery surface is compact by default: `tools/list` and `resources/list` advertise the generic `open_app` embed path instead of every action-specific MCP App resource (see [Catalog tiers](#catalog-tiers)). Mark an individual action with `mcpApp.compactCatalog: true` only when it truly needs to stay visible in chat-host discovery.
 
-That makes the same app surface available to every compatible host rather than building per-client shims. Which hosts render MCP Apps inline (and the connector-cache gotcha after metadata changes) lives in [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) — that page is the single home for the client matrix.
+That makes the same app surface available to every compatible host rather than building per-client shims. Which hosts render MCP Apps inline (and the connector-cache gotcha after metadata changes) lives in [MCP Apps → Host support and caching](/docs/mcp-apps#client-support) — that page is the single home for the host matrix.
 
 In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app. CLI/code-editor clients that do not render an iframe fall back to the deep link. Human-selection tools can add a paste-back step to that fallback: for example, the Assets picker opens from the fallback link, lets the user choose media in the browser, then copies a handoff summary that the user pastes back into the chat.
 
@@ -660,7 +651,7 @@ Restart the client after `install` so it picks up the new MCP server.
 
 ### Manual `.mcp.json` HTTP entry {#manual-entry}
 
-You can also write the MCP client config by hand against any deployed endpoint with a token you supply yourself (an `ACCESS_TOKEN`, or an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` so tool runs stay tenant-scoped):
+You can also write the host's MCP config by hand against any deployed endpoint with a token you supply yourself (an `ACCESS_TOKEN`, or an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` so tool runs stay tenant-scoped):
 
 ```jsonc
 // .mcp.json
@@ -675,7 +666,7 @@ You can also write the MCP client config by hand against any deployed endpoint w
 }
 ```
 
-This is the unmanaged equivalent of what `connect` writes for you. See [MCP Protocol](/docs/mcp-protocol) for the full auth env-var matrix.
+This is the unmanaged equivalent of what `connect` writes for you. See [MCP Server](/docs/mcp-protocol) for the full auth env-var matrix.
 
 ### Dev vs production tool surface {#dev-vs-prod}
 
@@ -710,7 +701,7 @@ Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP 
 The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
 
 - A logged-in browser session mints a **per-user, scoped, revocable** token — an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` and a unique `jti`, so every tool run stays tenant-scoped via `runWithRequestContext`.
-- The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Protocol](/docs/mcp-protocol)) — no new endpoint, no new transport.
+- The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Server](/docs/mcp-protocol)) — no new endpoint, no new transport.
 - The same Connect page lists every token you've minted and lets you **revoke** any of them by `jti`. Treat them like personal access tokens: one per agent client, revoke when a machine is decommissioned.
 - The deep link the agent hands back carries no privileged state. The record-focusing `navigate` write is always scoped to the **browser** session, never the agent's token — so a link is safe to paste into a terminal or chat transcript.
 
@@ -745,10 +736,10 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - Invent a new navigation mechanism; bridge to the existing `navigate` / `application_state` contract.
 - Widen the public template allow-list when scaffolding an app from an external agent — the allow-list is authoritative and guarded.
 
-## Related {#related}
+## What's next {#whats-next}
 
 - [MCP Apps](/docs/mcp-apps) — authoring MCP App UIs, the embed bridge, and host bridge API.
-- [MCP Protocol](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
+- [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
 - [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers.
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.
 - [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`.

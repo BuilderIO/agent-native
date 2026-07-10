@@ -15,7 +15,7 @@ Auth wird automatisch über `autoMountAuth(app)` im Authentifizierungsserver-Plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 für MCP-Hosts wie Claude-Code und ChatGPT-Anschlüsse.
 - **Benutzerdefiniert:** Bringen Sie Ihre eigene Authentifizierung über den `getSession`-Rückruf mit.
 
-<Diagram id="doc-block-1hpxy2j" title="Drei Wege rein, eine Sitzung" summary={"Browserbesucher, programmatische MCP-Clients und benutzerdefinierte Anbieter werden alle in dieselbe AuthSession aufgelöst, die das Downstream-Scoping liest."}>
+<Diagram id="doc-block-1hpxy2j" title="Drei Wege rein, eine Sitzung" summary={"Browserbesucher, MCP-Hosts und benutzerdefinierte Anbieter werden alle in dieselbe AuthSession aufgelöst, die das Downstream-Scoping liest."}>
 
 ```html
 <div class="auth-modes">

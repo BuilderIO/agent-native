@@ -197,15 +197,9 @@ export function useMeetingTranscription({
           // never lands.
           if (reason !== "app-quit") await finalizePromise;
         }
-        // Skip opening the meeting in the browser on app-quit — the app is
-        // exiting, there's nothing to hand off to.
-        if (reason !== "app-quit") {
-          openExternal(
-            `${normalizedServerUrl}/meetings/${session.meetingId}`,
-          ).catch((err) => {
-            console.warn("[clips-popover] open meeting in web failed:", err);
-          });
-        }
+        // Keep completed notes in Clips instead of interrupting the user by
+        // opening a browser tab. The pill's explicit Open notes action remains
+        // available through the clips:open-meeting listener below.
         // Guard the shared Rust-side state writes and sessionRef null-out by
         // identity. App quit and other callers can still race a stop against a
         // new start that slips in between awaits, and stale teardown must not
@@ -377,9 +371,9 @@ export function useMeetingTranscription({
         };
 
         // Resume the engine that initial start settled on (no fallback here —
-        // the engine choice was already made below). Never add a second
-        // VoiceProcessingIO stack beside the meeting app: it can alter the
-        // microphone level that remote participants receive.
+        // the engine choice was already made below). Rust prefers one combined
+        // SCK stream and uses bypassed VoiceProcessingIO only for legacy/failure
+        // fallback, so the transcript stays live without changing call volume.
         const startAudio = async () => {
           await restartTranscriptionEngine(
             session.engine,
@@ -560,8 +554,8 @@ export function useMeetingTranscription({
         session.engine = await startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
           // macOS 15+ uses ScreenCaptureKit's independent microphone output.
-          // The legacy fallback must also remain a raw tap so Zoom/Meet/Teams
-          // stay in sole control of their live-call voice processing.
+          // Rust upgrades only the legacy/failure fallback to bypassed VPIO so
+          // call apps cannot starve Clips of mic buffers or lose call volume.
           voiceProcessing: false,
         });
 

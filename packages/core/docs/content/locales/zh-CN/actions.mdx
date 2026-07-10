@@ -11,7 +11,7 @@ Actions 是您的应用所做的任何事情的唯一事实来源。使用 `defi
 - **类型安全 React 挂钩** - 前端的 `useActionQuery("name")` 和 `useActionMutation("name")`，从架构推断的类型。
 - **命令式客户端调用** — 当钩子不适合时 `callAction("name", params)`。
 - **框架传输** — 由这些钩子后面的框架自动安装，并可供外部 HTTP 客户端使用。
-- **MCP 工具** - 暴露给 Claude、ChatGPT 自定义 MCP 应用、Claude 桌面/代码、光标、Codex 和任何其他 MCP 客户端。
+- **MCP 工具** - 暴露给 Claude、ChatGPT 自定义 MCP 应用、Claude 桌面/代码、光标、Codex 和任何其他 MCP 主机。
 - **A2A 工具** — 由其他代理本机应用通过 A2A 调用。
 - **CLI 命令** - `pnpm action <name>` 用于脚本和开发循环。
 
@@ -560,7 +560,7 @@ export default defineAction({
 });
 ```
 
-保留 `link` 作为 CLI 和非 UI MCP 客户端的后备；这也是嵌入的启动目标。嵌入桥 - 已签名的嵌入启动会话、移植与受控帧渲染、`ui/*` 主桥、CSP 和高度限制 - 归 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
+保留 `link` 作为 CLI 和非 UI MCP 主机的后备；这也是嵌入的启动目标。嵌入桥 - 已签名的嵌入启动会话、移植与受控帧渲染、`ui/*` 主桥、CSP 和高度限制 - 归 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
 
 ## 标准actions {#standard-actions}
 
