@@ -4472,6 +4472,7 @@ function DesignEditor() {
   );
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
+  const clipboardUndoBaselineRef = useRef<Map<string, string>>(new Map());
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -5131,6 +5132,10 @@ function DesignEditor() {
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
+    clipboardPasteUndoStackRef.current = [];
+    clipboardPasteRedoStackRef.current = [];
+    latestClipboardMutationContentRef.current.clear();
+    clipboardUndoBaselineRef.current.clear();
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, []);
@@ -16741,6 +16746,7 @@ function DesignEditor() {
       // removes both. Prefer the pending snapshot exactly like primitive and
       // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
+        clipboardUndoBaselineRef.current.get(targetFileId) ??
         latestClipboardMutationContentRef.current.get(targetFileId) ??
         pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
         (targetFileId === activeFile?.id
@@ -16755,6 +16761,7 @@ function DesignEditor() {
         (entry) => entry.managedStyleSnapshot,
       );
       const applyPasteContentUpdate = (nextContent: string) => {
+        clipboardUndoBaselineRef.current.delete(targetFileId);
         const usesOverviewHistory = viewModeRef.current === "overview";
         if (usesOverviewHistory && nextContent !== baseContent) {
           // Capture the exact immutable pre-paste document here, before the
@@ -20880,6 +20887,10 @@ function DesignEditor() {
           ),
           clipboardPasteUndo,
         ];
+        clipboardUndoBaselineRef.current.set(
+          clipboardPasteUndo.fileId,
+          clipboardPasteUndo.before,
+        );
         if (clipboardPasteUndo.fileId === activeFile?.id) {
           applyLocalContentUpdate(clipboardPasteUndo.before, {
             recordHistory: false,
@@ -21540,6 +21551,10 @@ function DesignEditor() {
           ),
           clipboardPasteRedo,
         ];
+        clipboardUndoBaselineRef.current.set(
+          clipboardPasteRedo.fileId,
+          clipboardPasteRedo.after,
+        );
         if (clipboardPasteRedo.fileId === activeFile?.id) {
           applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,

@@ -1212,6 +1212,15 @@ function nativeHistoryFromMessages(
     : history;
 }
 
+type AgentNativeMessageContentState =
+  | { type: "text"; text: string; id?: string }
+  | {
+      type: "reasoning";
+      text: string;
+      id?: string;
+      signature?: string;
+    };
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -1219,7 +1228,7 @@ function mapAgentNativeEvent(
     turnId?: AgentChatRuntimeTurnId;
     messageId: string;
     message: {
-      content: Array<AgentChatRuntimeTextPart | AgentChatRuntimeReasoningPart>;
+      content: AgentNativeMessageContentState[];
       started: boolean;
     };
   },
@@ -1265,8 +1274,20 @@ function mapAgentNativeEvent(
         ? last
         : undefined;
     if (!part) {
-      part = { type, text: "", ...(partId ? { id: partId } : {}) };
-      input.message.content.push(part);
+      const nextPart: AgentNativeMessageContentState =
+        type === "reasoning"
+          ? {
+              type: "reasoning",
+              text: "",
+              ...(partId ? { id: partId } : {}),
+            }
+          : {
+              type: "text",
+              text: "",
+              ...(partId ? { id: partId } : {}),
+            };
+      input.message.content.push(nextPart);
+      part = nextPart;
     }
     part.text += text;
     if (part.type === "reasoning" && extended.signature) {
@@ -1430,9 +1451,7 @@ export function createAgentNativeChatRuntime(
         {
           messageId: string;
           message: {
-            content: Array<
-              AgentChatRuntimeTextPart | AgentChatRuntimeReasoningPart
-            >;
+            content: AgentNativeMessageContentState[];
             started: boolean;
           };
         }
@@ -1525,9 +1544,16 @@ function appendRuntimeContentPart(
     part = last;
   }
   if (!part) {
-    part = { type: input.type, text: "" };
-    projection.content.push(part);
-    if (key) projection.partsById.set(key, part);
+    const nextPart: Extract<
+      ContentPart,
+      { type: "text" | "reasoning" }
+    > =
+      input.type === "reasoning"
+        ? { type: "reasoning", text: "" }
+        : { type: "text", text: "" };
+    projection.content.push(nextPart);
+    if (key) projection.partsById.set(key, nextPart);
+    part = nextPart;
   }
   part.text += input.text;
 }
