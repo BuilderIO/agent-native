@@ -72,6 +72,18 @@ describe("standard agent chat runtime connectors", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         {
+          type: "response.reasoning_summary_text.delta",
+          item_id: "reasoning-1",
+          summary_index: 0,
+          delta: "I should inspect ",
+        },
+        {
+          type: "response.reasoning_summary_text.delta",
+          item_id: "reasoning-1",
+          summary_index: 0,
+          delta: "the submission data.",
+        },
+        {
           type: "response.output_text.delta",
           item_id: "message-1",
           delta: "There are ",
@@ -126,25 +138,46 @@ describe("standard agent chat runtime connectors", () => {
       "message-start",
       "message-delta",
       "message-delta",
+      "message-start",
+      "message-delta",
+      "message-delta",
       "tool-start",
       "tool-delta",
       "tool-delta",
       "tool-done",
+      "message-done",
       "message-done",
       "done",
     ]);
     expect(
       (events[1] as Extract<AgentChatRuntimeEvent, { type: "message-delta" }>)
         .delta,
-    ).toEqual({ type: "text", text: "There are " });
-    expect(events[3]).toMatchObject({
+    ).toEqual({
+      type: "reasoning",
+      text: "I should inspect ",
+      partId: "reasoning-1:summary:0",
+    });
+    expect(events[6]).toMatchObject({
       type: "tool-start",
       toolCall: { id: "tool-1", name: "query_form_submissions" },
     });
-    expect(events[6]).toMatchObject({
+    expect(events[9]).toMatchObject({
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: '{"formId":"hackathon"}',
+    });
+    expect(events.at(-2)).toMatchObject({
+      type: "message-done",
+      message: {
+        id: "reasoning-1",
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning-1:summary:0",
+            text: "I should inspect the submission data.",
+          },
+        ],
+      },
     });
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
       prompt: "How many submissions?",
@@ -155,6 +188,15 @@ describe("standard agent chat runtime connectors", () => {
   it("maps OpenAI Agents SDK streams into chat runtime events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
+        {
+          type: "raw_model_stream_event",
+          data: {
+            type: "response.reasoning_summary_text.delta",
+            item_id: "reasoning-1",
+            summary_index: 0,
+            delta: "I should inspect the forms first.",
+          },
+        },
         {
           type: "raw_model_stream_event",
           data: {
@@ -207,13 +249,16 @@ describe("standard agent chat runtime connectors", () => {
     expect(events.map((event) => event.type)).toEqual([
       "message-start",
       "message-delta",
+      "message-start",
+      "message-delta",
       "tool-start",
       "tool-done",
       "status",
       "message-done",
+      "message-done",
       "done",
     ]);
-    expect(events[2]).toMatchObject({
+    expect(events[4]).toMatchObject({
       type: "tool-start",
       toolCall: {
         id: "tool-1",
@@ -221,14 +266,22 @@ describe("standard agent chat runtime connectors", () => {
         input: { q: "forms" },
       },
     });
-    expect(events[3]).toMatchObject({
+    expect(events[5]).toMatchObject({
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: "34 rows",
     });
-    expect(events[4]).toMatchObject({
+    expect(events[6]).toMatchObject({
       type: "status",
       message: "Agent handoff completed",
+    });
+    expect(events[1]).toMatchObject({
+      type: "message-delta",
+      delta: {
+        type: "reasoning",
+        text: "I should inspect the forms first.",
+        partId: "reasoning-1:summary:0",
+      },
     });
   });
 
@@ -236,6 +289,22 @@ describe("standard agent chat runtime connectors", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         { type: "RUN_STARTED" },
+        {
+          type: "REASONING_MESSAGE_START",
+          messageId: "reasoning-1",
+          role: "reasoning",
+        },
+        {
+          type: "REASONING_MESSAGE_CONTENT",
+          messageId: "reasoning-1",
+          delta: "I should chart ",
+        },
+        {
+          type: "REASONING_MESSAGE_CONTENT",
+          messageId: "reasoning-1",
+          delta: "the submissions.",
+        },
+        { type: "REASONING_MESSAGE_END", messageId: "reasoning-1" },
         {
           type: "TEXT_MESSAGE_START",
           messageId: "message-1",
@@ -278,21 +347,47 @@ describe("standard agent chat runtime connectors", () => {
       "status",
       "message-start",
       "message-delta",
+      "message-delta",
+      "message-done",
+      "message-start",
+      "message-delta",
       "tool-start",
       "tool-delta",
       "tool-done",
       "message-done",
       "done",
     ]);
-    expect(events[3]).toMatchObject({
+    expect(events[2]).toMatchObject({
+      type: "message-delta",
+      messageId: "reasoning-1",
+      delta: {
+        type: "reasoning",
+        text: "I should chart ",
+        partId: "reasoning-1",
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "message-done",
+      message: {
+        id: "reasoning-1",
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning-1",
+            text: "I should chart the submissions.",
+          },
+        ],
+      },
+    });
+    expect(events[7]).toMatchObject({
       type: "tool-start",
       toolCall: { id: "tool-1", name: "query_submissions" },
     });
-    expect(events[4]).toMatchObject({
+    expect(events[8]).toMatchObject({
       type: "tool-delta",
       inputTextDelta: '{"groupBy":"day"}',
     });
-    expect(events[5]).toMatchObject({
+    expect(events[9]).toMatchObject({
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: "7 buckets",
