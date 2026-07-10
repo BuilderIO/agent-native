@@ -8,7 +8,10 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { assertValidComputerCommandEnvelope } from "@agent-native/core/integrations";
+import {
+  assertValidComputerCommandEnvelope,
+  type ComputerCommandEnvelope,
+} from "@agent-native/core/integrations";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -452,6 +455,58 @@ export class DesktopComputerMcpBridge {
     );
 
     mcp.registerTool(
+      "computer_operation",
+      {
+        description:
+          "Execute one validated, approval-bound remote computer command envelope.",
+        inputSchema: { envelope: z.unknown() },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ envelope: rawEnvelope }) => {
+        const context = this.context();
+        if (!context.connector) {
+          throw new Error("Remote computer commands require connector scope.");
+        }
+        const envelope = await assertValidComputerCommandEnvelope(rawEnvelope);
+        const cached = context.remoteResults?.get(envelope.idempotencyKey);
+        if (cached !== undefined) return this.textResult(cached);
+        const lastSequence = context.remoteSequences?.get(envelope.runId) ?? -1;
+        if (envelope.sequence <= lastSequence) {
+          throw new Error("Remote computer command sequence was replayed.");
+        }
+        const result = await this.executeRemoteBrowserEnvelope(
+          context,
+          envelope,
+        );
+        context.remoteSequences?.set(envelope.runId, envelope.sequence);
+        context.remoteResults?.set(envelope.idempotencyKey, result);
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
+      "computer_revoke_control",
+      {
+        description:
+          "Revoke all remote connector browser control and detach debuggers.",
+        inputSchema: { reason: z.string().max(256).optional() },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () => {
+        const context = this.context();
+        if (!context.connector) {
+          throw new Error("Remote computer revoke requires connector scope.");
+        }
+        await this.stopBrowserContext(context);
+        context.remoteBrowserRegistrations = new Map();
+        return this.textResult({ revoked: true });
+      },
+    );
+
+    mcp.registerTool(
       "browser_status",
       {
         description:
@@ -693,6 +748,95 @@ export class DesktopComputerMcpBridge {
     );
   }
 
+  private async executeRemoteBrowserEnvelope(
+    context: RunContext,
+    envelope: ComputerCommandEnvelope,
+  ): Promise<unknown> {
+    if (!envelope.operationClass.startsWith("browser.")) {
+      throw new Error(
+        "This connector currently advertises browser control only.",
+      );
+    }
+    const bridge = this.options.browserBridge;
+    const registrations = context.remoteBrowserRegistrations;
+    if (!bridge || !registrations) {
+      throw new Error("Browser control is unavailable.");
+    }
+    const action = browserRecord(envelope.action);
+    const input = browserRecord(action.input, true);
+    const target = browserRecord(action.target, true);
+    const taskId = envelope.runId;
+    if (action.type === "browser.attach") {
+      const tabId = Number(input.tabId);
+      const origin = normalizeBrowserOrigin(String(input.origin ?? ""));
+      if (!Number.isInteger(tabId) || tabId < 0) {
+        throw new Error("browser.attach requires a valid tab id.");
+      }
+      const previous = registrations.get(taskId);
+      if (previous) {
+        await bridge.stopTask(previous).catch(() => undefined);
+        bridge.revokeTask(taskId);
+      }
+      const registration = bridge.registerTask(taskId);
+      registrations.set(taskId, registration);
+      return bridge.execute(registration, {
+        type: "attach",
+        tabId,
+        allowedOrigins: [origin],
+      });
+    }
+    const registration = registrations.get(taskId);
+    if (!registration) {
+      throw new Error("Remote task must attach a Chrome tab first.");
+    }
+    switch (action.type) {
+      case "browser.observe": {
+        const result = browserRecord(
+          await bridge.execute(registration, {
+            type: "observe",
+            includeScreenshot: false,
+            maxNodes: 400,
+          }),
+        );
+        return { ...result, screenshot: undefined };
+      }
+      case "browser.click":
+        return bridge.execute(registration, {
+          type: "click",
+          target: remoteBrowserTarget(target),
+          button:
+            input.button === "middle" || input.button === "right"
+              ? input.button
+              : "left",
+        });
+      case "browser.type":
+        return bridge.execute(registration, {
+          type: "type",
+          target: remoteBrowserTarget(target),
+          text: String(input.text ?? "").slice(0, 100_000),
+          replace: input.replace === true,
+        });
+      case "browser.navigate":
+        return bridge.execute(registration, {
+          type: "navigate",
+          url: String(input.url ?? ""),
+        });
+      case "browser.scroll":
+        return bridge.execute(registration, {
+          type: "scroll",
+          deltaX: boundedRemoteNumber(input.deltaX),
+          deltaY: boundedRemoteNumber(input.deltaY),
+        });
+      case "browser.stop":
+        await bridge.stopTask(registration);
+        bridge.revokeTask(taskId);
+        registrations.delete(taskId);
+        return { stopped: true };
+      default:
+        throw new Error(`Unsupported remote browser action: ${action.type}`);
+    }
+  }
+
   private assertBrowserContext(): RunContext {
     const context = this.assertMutationContext();
     if (!context.browserRegistration || !this.options.browserBridge) {
@@ -832,6 +976,31 @@ function browserRecord(
     throw new Error("Chrome returned an invalid response.");
   }
   return value as Record<string, unknown>;
+}
+
+function remoteBrowserTarget(value: Record<string, unknown>): {
+  observationId: string;
+  backendNodeId: number;
+} {
+  const observationId = value.observationId;
+  const backendNodeId = Number(value.backendNodeId);
+  if (
+    typeof observationId !== "string" ||
+    !observationId ||
+    !Number.isInteger(backendNodeId) ||
+    backendNodeId < 1
+  ) {
+    throw new Error("Remote browser target is invalid.");
+  }
+  return { observationId, backendNodeId };
+}
+
+function boundedRemoteNumber(value: unknown): number {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < -100_000 || number > 100_000) {
+    throw new Error("Remote browser numeric input is out of bounds.");
+  }
+  return number;
 }
 
 function scopeForSnapshot(snapshot: SemanticSnapshot) {
