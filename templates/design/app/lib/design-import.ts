@@ -379,8 +379,10 @@ function decodeClipboardMarkerData(
 export function serializeDesignClipboardPayload(
   visibleText: string,
   payload: DesignClipboardPayload,
+  trustToken?: string,
 ): string {
-  const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${encodeClipboardMarkerData(payload)}-->`;
+  const trustedPrefix = trustToken ? `${trustToken}.` : "";
+  const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;
 }
 
@@ -391,6 +393,7 @@ export function serializeDesignClipboardPayload(
  */
 export function parseDesignClipboardMarker(
   text: string | null | undefined,
+  expectedTrustToken?: string | null,
 ): DesignClipboardPayload | null {
   if (!text) return null;
   const markerIndex = text.lastIndexOf(`<!--${CLIPBOARD_MARKER_PREFIX}`);
@@ -398,5 +401,22 @@ export function parseDesignClipboardMarker(
   const start = markerIndex + 4 + CLIPBOARD_MARKER_PREFIX.length;
   const end = text.indexOf("-->", start);
   if (end === -1) return null;
-  return decodeClipboardMarkerData(text.slice(start, end));
+  const markerData = text.slice(start, end);
+  const separator = markerData.indexOf(".");
+  if (expectedTrustToken === null) return null;
+  if (expectedTrustToken !== undefined) {
+    if (
+      separator <= 0 ||
+      markerData.slice(0, separator) !== expectedTrustToken
+    ) {
+      return null;
+    }
+    return decodeClipboardMarkerData(markerData.slice(separator + 1));
+  }
+  // The low-level parser remains able to inspect legacy markers for migration
+  // and tests. Browser paste paths always provide the per-installation trust
+  // token and therefore reject unauthenticated clipboard HTML.
+  return decodeClipboardMarkerData(
+    separator > 0 ? markerData.slice(separator + 1) : markerData,
+  );
 }

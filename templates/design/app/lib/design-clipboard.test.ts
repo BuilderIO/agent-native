@@ -128,6 +128,31 @@ describe("writeDesignClipboard", () => {
 });
 
 describe("readDesignClipboardPayload", () => {
+  it("rejects a marker-shaped external clipboard payload without the local trust token", () => {
+    const trusted = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "local-installation-token",
+    );
+    const forged = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "attacker-token",
+    );
+    const read = (html: string) =>
+      readDesignClipboardPayloadFromDataTransfer(
+        {
+          getData(type: string) {
+            return type === "text/html" ? html : "Readable text";
+          },
+        },
+        { trustToken: "local-installation-token" },
+      );
+
+    expect(read(trusted)?.payload).toEqual(payload);
+    expect(read(forged)).toBeNull();
+  });
+
   it("round-trips through the system clipboard across independent Design tabs", async () => {
     let sharedItems: FakeClipboardItem[] = [];
     const sharedClipboard = {
@@ -171,11 +196,14 @@ describe("readDesignClipboardPayload", () => {
       "<p>Readable text</p>",
       payload,
     );
-    const result = readDesignClipboardPayloadFromDataTransfer({
-      getData(type: string) {
-        return type === "text/html" ? html : "Readable text";
+    const result = readDesignClipboardPayloadFromDataTransfer(
+      {
+        getData(type: string) {
+          return type === "text/html" ? html : "Readable text";
+        },
       },
-    });
+      { trustToken: undefined },
+    );
 
     expect(result).toEqual({
       payload,
@@ -246,16 +274,19 @@ describe("readDesignClipboardPayload", () => {
     ).resolves.toBeNull();
   });
 
-  it("still accepts legacy markers stored in text/plain", () => {
+  it("can inspect legacy markers in an explicit migration context", () => {
     const legacyText = serializeDesignClipboardPayload(
       "<p>Readable text</p>",
       payload,
     );
-    const result = readDesignClipboardPayloadFromDataTransfer({
-      getData(type: string) {
-        return type === "text/plain" ? legacyText : "";
+    const result = readDesignClipboardPayloadFromDataTransfer(
+      {
+        getData(type: string) {
+          return type === "text/plain" ? legacyText : "";
+        },
       },
-    });
+      { trustToken: undefined },
+    );
 
     expect(result?.payload).toEqual(payload);
   });

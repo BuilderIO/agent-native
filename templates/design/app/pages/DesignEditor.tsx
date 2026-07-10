@@ -386,6 +386,7 @@ import {
 } from "@/lib/clipboard-content-lineage";
 import {
   plainTextFromDesignHtml,
+  getDesignClipboardTrustToken,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
   writeDesignClipboard,
@@ -16681,11 +16682,15 @@ function DesignEditor() {
     // only readable content. This mirrors Figma's clipboard behavior: Design
     // can round-trip structure across tabs without dumping source and marker
     // data into ordinary text destinations.
-    const clipboardHtml = serializeDesignClipboardPayload(copiedHtml, {
-      version: 1,
-      entries,
-      screens,
-    });
+    const clipboardHtml = serializeDesignClipboardPayload(
+      copiedHtml,
+      {
+        version: 1,
+        entries,
+        screens,
+      },
+      getDesignClipboardTrustToken() ?? undefined,
+    );
     copiedLayerEntriesRef.current = entries;
     copiedScreenEntriesRef.current = screens;
     copiedLayerHtmlRef.current = clipboardHtml;
