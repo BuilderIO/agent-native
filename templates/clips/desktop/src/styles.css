@@ -2527,12 +2527,9 @@ body[data-clips-route="recording-pill"] #root {
 /* ------------------------------------------------------------------------- */
 
 /*
- * Full-screen transparent overlay shown after the user clicks Stop and
- * before the browser opens at /r/:id. The Tauri window is transparent +
- * decorations-less (see `show_finalizing` in lib.rs), so we paint a
- * compact card tucked into the bottom-left with a spinner and caption.
- * The window also has ignore_cursor_events(true), so clicks pass through
- * to whatever is beneath and the progress card stays out of the way.
+ * Compact transparent window shown after the user clicks Stop. Keeping the OS
+ * window close to the card's bounds lets its open/dismiss controls stay
+ * interactive without blocking the rest of the screen.
  */
 .finalizing-root {
   position: fixed;
@@ -2540,17 +2537,16 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 24px;
+  padding: 10px;
   background: transparent;
-  pointer-events: none;
 }
 
 .finalizing-card {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px 10px;
-  width: min(320px, calc(100vw - 48px));
+  width: 100%;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(20, 22, 28, 0.94);
@@ -2577,6 +2573,20 @@ body[data-clips-route="recording-pill"] #root {
   animation: finalizing-spin 0.9s linear infinite;
 }
 
+.finalizing-status-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.finalizing-status-icon-success {
+  color: #8ce99a;
+}
+
+.finalizing-status-icon-failed {
+  color: #ffb4a8;
+}
+
 @keyframes finalizing-spin {
   to {
     transform: rotate(360deg);
@@ -2590,6 +2600,45 @@ body[data-clips-route="recording-pill"] #root {
   letter-spacing: 0.1px;
   color: white;
   text-align: left;
+}
+
+.finalizing-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.finalizing-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.64);
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.finalizing-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.finalizing-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 1px;
+}
+
+.finalizing-action svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
 }
 
 .finalizing-progress {
