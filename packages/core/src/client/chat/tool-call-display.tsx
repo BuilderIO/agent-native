@@ -951,6 +951,13 @@ export function ReconnectStreamMessage({
 
 // ─── Reasoning / Thinking cell ────────────────────────────────────────────────
 
+/**
+ * Completed reasoning and tool calls share one outer "Worked for…"
+ * disclosure. Reasoning cells inside it render their prose directly so
+ * opening that summary never reveals a redundant second disclosure.
+ */
+export const WorkSummaryContentContext = React.createContext(false);
+
 export function ReasoningCell({
   text,
   isStreaming = false,
@@ -968,9 +975,18 @@ export function ReasoningCell({
    */
   durationMs?: number | null;
 }) {
+  const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const [open, setOpen] = useState(defaultOpen ?? isStreaming);
   const trimmed = text.trim();
   if (!trimmed && !isStreaming) return null;
+
+  if (embeddedInWorkSummary) {
+    return (
+      <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+        {trimmed || (isStreaming ? "…" : "")}
+      </div>
+    );
+  }
 
   const label = isStreaming
     ? "Thinking"
@@ -1075,7 +1091,9 @@ export function WorkedForSummary({
         />
       </button>
       <AnimatedCollapse open={open}>
-        <div className="pt-1">{children}</div>
+        <WorkSummaryContentContext.Provider value>
+          <div className="pt-1">{children}</div>
+        </WorkSummaryContentContext.Provider>
       </AnimatedCollapse>
     </div>
   );

@@ -14,6 +14,7 @@ import {
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
+  WorkSummaryContentContext,
   toolInputPayload,
 } from "./tool-call-display.js";
 import {
@@ -751,6 +752,20 @@ describe("ReasoningCell", () => {
     });
 
     expect(container.textContent).toContain("verify the join keys first.");
+  });
+
+  it("renders reasoning directly inside the shared work disclosure", () => {
+    act(() => {
+      root.render(
+        <WorkSummaryContentContext.Provider value>
+          <ReasoningCell text="I should verify the join keys first." />
+        </WorkSummaryContentContext.Provider>,
+      );
+    });
+
+    expect(container.querySelector("button")).toBe(null);
+    expect(container.textContent).toContain("verify the join keys first.");
+    expect(container.textContent).not.toContain("Thought");
   });
 
   it('shows a shimmering "Thinking" label while streaming', () => {
