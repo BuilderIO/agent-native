@@ -236,7 +236,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("uses thinkingLevel 'high' for Gemini 3.x medium effort", async () => {
+  it("uses thinkingLevel 'medium' for Gemini 3.x medium effort", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -255,7 +255,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       expect.objectContaining({
         providerOptions: expect.objectContaining({
           google: expect.objectContaining({
-            thinkingConfig: { thinkingLevel: "high" },
+            thinkingConfig: { thinkingLevel: "medium" },
           }),
         }),
       }),
@@ -278,7 +278,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
 
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions?.google?.thinkingConfig).toEqual({
-      thinkingLevel: "high",
+      thinkingLevel: "medium",
     });
   });
 });

@@ -389,6 +389,9 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "totally-removed-model")).toBe(
         "claude-sonnet-5",
       );
+      expect(normalizeModelForEngine(engine, "gemini-3-1-flash-lite")).toBe(
+        "claude-sonnet-5",
+      );
     });
 
     it("keeps supported Builder models and missing values deterministic", async () => {

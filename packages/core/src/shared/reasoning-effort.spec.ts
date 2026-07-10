@@ -28,6 +28,18 @@ describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
     expect(opts).toContain("xhigh");
   });
 
+  it("recognizes OpenRouter-prefixed reasoning models", () => {
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-opus-4.8"),
+    ).toContain("xhigh");
+    expect(getReasoningEffortOptionsForModel("openai/gpt-5.6-terra")).toContain(
+      "medium",
+    );
+    expect(
+      getReasoningEffortOptionsForModel("google/gemini-2.5-flash"),
+    ).toContain("medium");
+  });
+
   it("includes xhigh for claude-fable-5 (Mythos-class model)", () => {
     const opts = getReasoningEffortOptionsForModel("claude-fable-5");
     expect(opts).toContain("xhigh");

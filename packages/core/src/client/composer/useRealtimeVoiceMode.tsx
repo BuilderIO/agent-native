@@ -431,6 +431,7 @@ function useRealtimeVoiceModeController(
     lastAssistantTextRef.current = "";
     sessionIdRef.current = undefined;
     transition("connecting");
+    setChatVisible(false);
     window.dispatchEvent(new Event("agent-panel:close"));
 
     const abortController = new AbortController();
@@ -513,6 +514,7 @@ function useRealtimeVoiceModeController(
   }, [cleanupTransport, transition]);
 
   const toggleChat = useCallback(() => {
+    setChatVisible((current) => !current);
     window.dispatchEvent(new Event("agent-panel:toggle"));
   }, []);
 
@@ -587,12 +589,29 @@ export function RealtimeVoiceModeBoundary({
   browserTabId,
 }: RealtimeVoiceModeProviderProps) {
   const existing = useRealtimeVoiceModeOptional();
-  if (existing) return children;
+  if (existing) {
+    return (
+      <RealtimeVoiceModeComposerSurface>
+        {children}
+      </RealtimeVoiceModeComposerSurface>
+    );
+  }
   return (
     <RealtimeVoiceModeProvider browserTabId={browserTabId}>
-      {children}
+      <RealtimeVoiceModeComposerSurface>
+        {children}
+      </RealtimeVoiceModeComposerSurface>
     </RealtimeVoiceModeProvider>
   );
+}
+
+/** Hide a composer while voice owns input; the dock can reveal it on demand. */
+function RealtimeVoiceModeComposerSurface({
+  children,
+}: Pick<RealtimeVoiceModeProviderProps, "children">) {
+  const voice = useRealtimeVoiceModeOptional();
+  if (voice?.active && !voice.chatVisible) return null;
+  return children;
 }
 
 export function useRealtimeVoiceMode(): RealtimeVoiceModeApi {

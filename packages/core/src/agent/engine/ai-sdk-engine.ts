@@ -175,7 +175,8 @@ function googleThinkingBudget(effort: string) {
  */
 function gemini3ThinkingLevel(effort: string): string {
   if (effort === "low") return "low";
-  // medium/high/xhigh/max all map to the strongest available level for Gemini 3
+  if (effort === "medium") return "medium";
+  // high/xhigh/max map to the strongest available level for Gemini 3.
   return "high";
 }
 

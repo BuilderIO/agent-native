@@ -144,7 +144,8 @@ export function stepDownReasoningEffort(
 }
 
 function isGPTReasoningModel(model: string) {
-  return /^gpt-5/.test(model) || /^o\d/.test(model);
+  const id = model.toLowerCase().replace(/^openai\//, "");
+  return /^gpt-5/.test(id) || /^o\d/.test(id);
 }
 
 function isClaudeReasoningModel(model: string) {
@@ -157,16 +158,17 @@ function isClaudeReasoningModel(model: string) {
 }
 
 function supportsClaudeXHigh(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
   // Models that support the xhigh effort tier (built-in extended thinking via
   // output_config.effort). Keep this version-aware so any future Claude model
   // with a higher patch/minor number is automatically included rather than
   // silently falling back to the lower "high" tier.
   // claude-fable-5 is a Mythos-class model and also supports xhigh.
-  if (model.includes("fable-5")) return true;
+  if (id.includes("fable-5")) return true;
   // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
-  if (model.includes("sonnet-5")) return true;
+  if (id.includes("sonnet-5")) return true;
   // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
-  const opusMatch = model.match(/opus-4-(\d+)/);
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
   if (opusMatch) {
     return parseInt(opusMatch[1], 10) >= 7;
   }
@@ -174,5 +176,5 @@ function supportsClaudeXHigh(model: string) {
 }
 
 function isGeminiReasoningModel(model: string) {
-  return /^gemini-/.test(model);
+  return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
 }

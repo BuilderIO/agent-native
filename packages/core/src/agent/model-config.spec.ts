@@ -120,6 +120,9 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "gemini-3-1-flash-lite",
+    );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
