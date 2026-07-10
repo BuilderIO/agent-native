@@ -326,19 +326,19 @@ export function MeetingNotification() {
   const secondaryLabel = hasJoin ? "& open Clips" : null;
 
   return (
-    <div
-      className="meeting-notification-root"
-      onMouseEnter={() => {
-        setShowClose(true);
-        clearAutoHide();
-      }}
-      onMouseLeave={() => {
-        setShowClose(false);
-        setMenuOpen(false);
-        resumeAutoHide();
-      }}
-    >
-      <div className="meeting-notification">
+    <div className="meeting-notification-root">
+      <div
+        className="meeting-notification"
+        onMouseEnter={() => {
+          setShowClose(true);
+          clearAutoHide();
+        }}
+        onMouseLeave={() => {
+          setShowClose(false);
+          setMenuOpen(false);
+          resumeAutoHide();
+        }}
+      >
         <div
           className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
         />

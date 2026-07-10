@@ -2527,12 +2527,9 @@ body[data-clips-route="recording-pill"] #root {
 /* ------------------------------------------------------------------------- */
 
 /*
- * Full-screen transparent overlay shown after the user clicks Stop and
- * before the browser opens at /r/:id. The Tauri window is transparent +
- * decorations-less (see `show_finalizing` in lib.rs), so we paint a
- * compact card tucked into the bottom-left with a spinner and caption.
- * The window also has ignore_cursor_events(true), so clicks pass through
- * to whatever is beneath and the progress card stays out of the way.
+ * Compact transparent window shown after the user clicks Stop. Keeping the OS
+ * window close to the card's bounds lets its open/dismiss controls stay
+ * interactive without blocking the rest of the screen.
  */
 .finalizing-root {
   position: fixed;
@@ -2540,17 +2537,16 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 24px;
+  padding: 10px;
   background: transparent;
-  pointer-events: none;
 }
 
 .finalizing-card {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px 10px;
-  width: min(320px, calc(100vw - 48px));
+  width: 100%;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(20, 22, 28, 0.94);
@@ -2577,6 +2573,20 @@ body[data-clips-route="recording-pill"] #root {
   animation: finalizing-spin 0.9s linear infinite;
 }
 
+.finalizing-status-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.finalizing-status-icon-success {
+  color: #8ce99a;
+}
+
+.finalizing-status-icon-failed {
+  color: #ffb4a8;
+}
+
 @keyframes finalizing-spin {
   to {
     transform: rotate(360deg);
@@ -2590,6 +2600,45 @@ body[data-clips-route="recording-pill"] #root {
   letter-spacing: 0.1px;
   color: white;
   text-align: left;
+}
+
+.finalizing-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.finalizing-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.64);
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.finalizing-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.finalizing-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 1px;
+}
+
+.finalizing-action svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
 }
 
 .finalizing-progress {
@@ -3400,14 +3449,14 @@ body[data-clips-route="recording-pill"] #root {
  * Slots into the top of the popover when an update is in flight or ready.
  * Two visual states:
  *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   accent color + actions (Later / Restart) since clicking
+ *  - ready:   accent color + actions (dismiss / Restart) since clicking
  *             Restart is the thing we actually want them to do.
  */
 .update-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 8px;
+  margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -3424,7 +3473,7 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-strong);
   color: var(--fg);
   border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .update-banner--error {
@@ -3464,6 +3513,27 @@ body[data-clips-route="recording-pill"] #root {
 .update-banner-btn--ghost:hover {
   background: var(--surface-hover, var(--surface));
   color: var(--fg);
+}
+
+.update-banner-btn--dismiss {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.update-banner-btn--dismiss:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
 .update-banner-btn--primary {

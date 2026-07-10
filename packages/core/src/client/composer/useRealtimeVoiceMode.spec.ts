@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRealtimeVoiceSession,
   executeRealtimeVoiceTool,
+  extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
+  shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
 
 afterEach(() => {
@@ -111,5 +113,74 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
         argumentsText: "{}",
       },
     ]);
+  });
+});
+
+describe("extractCompletedRealtimeVoiceTranscript", () => {
+  it("accepts completed user and assistant transcripts with stable provider ids", () => {
+    expect(
+      extractCompletedRealtimeVoiceTranscript({
+        type: "conversation.item.input_audio_transcription.completed",
+        transcript: "  Find the latest report.  ",
+        item_id: "item-1",
+      }),
+    ).toEqual({
+      role: "user",
+      text: "Find the latest report.",
+      providerId: "item-1",
+    });
+
+    expect(
+      extractCompletedRealtimeVoiceTranscript({
+        type: "response.output_audio_transcript.done",
+        transcript: "I found it.",
+        response_id: "response-1",
+      }),
+    ).toEqual({
+      role: "assistant",
+      text: "I found it.",
+      providerId: "response-1",
+    });
+  });
+
+  it("ignores transcript deltas, unrelated events, and empty completed text", () => {
+    expect(
+      extractCompletedRealtimeVoiceTranscript({
+        type: "response.output_audio_transcript.delta",
+        transcript: "partial",
+      }),
+    ).toBeNull();
+    expect(
+      extractCompletedRealtimeVoiceTranscript({
+        type: "response.output_audio_transcript.done",
+        transcript: "   ",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("shouldRestoreRealtimeVoiceTranscriptThread", () => {
+  it("restores the captured transcript when it remains active or chat has no active thread", () => {
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        "voice-thread",
+        "voice-thread",
+      ),
+    ).toBe(true);
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread("voice-thread", undefined),
+    ).toBe(true);
+  });
+
+  it("does not restore over a thread selected while voice mode was active", () => {
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        "voice-thread",
+        "other-thread",
+      ),
+    ).toBe(false);
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(undefined, "other-thread"),
+    ).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import {
   IconPhoneOff,
   IconVolume,
 } from "@tabler/icons-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 
 import {
   Popover,
@@ -19,6 +19,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { cn } from "../utils.js";
+import {
+  createRealtimeVoiceAudioLevelStore,
+  type RealtimeVoiceAudioLevelStore,
+} from "./realtime-voice-audio-level.js";
 
 export type RealtimeVoiceModeState =
   | "connecting"
@@ -164,10 +168,53 @@ export interface RealtimeVoiceModeDockProps {
   state: RealtimeVoiceModeState;
   copy: RealtimeVoiceModeCopy;
   chatVisible: boolean;
+  audioLevels?: RealtimeVoiceAudioLevelStore;
   onToggleChat: () => void;
   onEndVoiceMode: () => void;
   errorMessage?: string | null;
   className?: string;
+}
+
+const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
+const WAVEFORM_WEIGHTS = [0.55, 0.82, 1, 0.82, 0.55];
+const AUDIO_ACTIVITY_THRESHOLD = 0.035;
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+  return reduced;
+}
+
+function VoiceWaveform({
+  level,
+  reducedMotion,
+}: {
+  level: number;
+  reducedMotion: boolean;
+}) {
+  const visibleLevel = reducedMotion ? 0.45 : level;
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-6 items-center justify-center gap-0.5"
+      data-realtime-voice-waveform="true"
+    >
+      {WAVEFORM_WEIGHTS.map((weight, index) => (
+        <span
+          key={index}
+          className="w-0.5 rounded-full bg-current transition-[height] duration-75 ease-out motion-reduce:transition-none"
+          style={{ height: `${4 + visibleLevel * 16 * weight}px` }}
+        />
+      ))}
+    </span>
+  );
 }
 
 const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
@@ -212,12 +259,26 @@ export function RealtimeVoiceModeDock({
   state,
   copy,
   chatVisible,
+  audioLevels = SILENT_AUDIO_LEVELS,
   onToggleChat,
   onEndVoiceMode,
   errorMessage,
   className,
 }: RealtimeVoiceModeDockProps) {
   const statusId = useId();
+  const levels = useSyncExternalStore(
+    audioLevels.subscribe,
+    audioLevels.getSnapshot,
+    audioLevels.getSnapshot,
+  );
+  const reducedMotion = usePrefersReducedMotion();
+  const activity =
+    levels.output > AUDIO_ACTIVITY_THRESHOLD
+      ? "assistant"
+      : levels.input > AUDIO_ACTIVITY_THRESHOLD
+        ? "user"
+        : "idle";
+  const activityLevel = activity === "assistant" ? levels.output : levels.input;
   const toggleLabel = chatVisible ? copy.hideChat : copy.showChat;
   const ending = state === "ending";
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
@@ -228,7 +289,9 @@ export function RealtimeVoiceModeDock({
         "pointer-events-none fixed bottom-4 end-4 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2",
         className,
       )}
+      style={{ zIndex: 270 }}
       data-realtime-voice-state={state}
+      data-realtime-voice-activity={activity}
     >
       {errorDetailVisible ? (
         <div
@@ -283,7 +346,14 @@ export function RealtimeVoiceModeDock({
                 ORB_STATE_CLASSES[state],
               )}
             >
-              <VoiceStateIcon state={state} />
+              {activity === "idle" ? (
+                <VoiceStateIcon state={state} />
+              ) : (
+                <VoiceWaveform
+                  level={activityLevel}
+                  reducedMotion={reducedMotion}
+                />
+              )}
             </Button>
           </TooltipTrigger>
           <TooltipContent>{toggleLabel}</TooltipContent>

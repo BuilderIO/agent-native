@@ -11,9 +11,9 @@ Das Framework erledigt das alles automatisch. Mit Builder verbundene Benutzer er
 
 ## Sprachmodus in Echtzeit {#realtime-speech-mode}
 
-Beim Öffnen des Mikrofons kannst du in einem Popover zwischen **Echtzeitgespräch** und **bearbeitbarem Diktat** wählen. Der Echtzeitmodus benötigt einen benutzerbezogenen `OPENAI_API_KEY` und verbindet den Browser über WebRTC mit `gpt-realtime-2.1`. Der Chat wird zu einer Sprachkugel unten rechts minimiert; mit einem Klick auf die Kugel lässt sich der Chat ein- oder ausblenden, ohne das Gespräch zu beenden.
+Beim Öffnen des Mikrofons kannst du in einem Popover zwischen **Echtzeitgespräch** und **bearbeitbarem Diktat** wählen. Der Echtzeitmodus benötigt einen benutzerbezogenen `OPENAI_API_KEY` und verbindet den Browser über WebRTC mit `gpt-realtime-2.1`. Der Chat wird zu einer Sprachkugel unten rechts minimiert; mit einem Klick auf die Kugel lässt sich der Chat ein- oder ausblenden, ohne das Gespräch zu beenden. Die Kugel bleibt auch dann über dem Chat sichtbar, wenn sich der Chat automatisch öffnet; eine kompakte Wellenform reagiert auf deine Stimme und die Stimme des Assistenten.
 
-Das Sprachmodell verwendet dieselben authentifizierten Agent-Native-Werkzeuge wie der Chat. So kann es während des Gesprächs durch die App navigieren und Aktionen aufrufen. Genehmigungspflichtige Aktionen bleiben angehalten, bis du sie freigibst. Audio wird niemals in SQL gespeichert; Agent Native bewahrt nur einen kompakten Sitzungs- und Transkriptstatus auf. Eine Echtzeitsitzung dauert höchstens 60 Minuten.
+Das Sprachmodell verwendet dieselben authentifizierten Agent-Native-Werkzeuge wie der Chat. So kann es während des Gesprächs durch die App navigieren und Aktionen aufrufen. Genehmigungspflichtige Aktionen bleiben angehalten, bis du sie freigibst. Nur abgeschlossene Textäußerungen von dir und dem Assistenten werden an den ursprünglichen Chat-Thread angehängt. Beim Beenden des Sprachmodus wird der Chat geöffnet, damit du per Text fortfahren kannst; Audio und vorläufige Transkriptteile werden nicht gespeichert. Eine Echtzeitsitzung dauert höchstens 60 Minuten.
 
 ## Wie es funktioniert {#how-it-works}
 

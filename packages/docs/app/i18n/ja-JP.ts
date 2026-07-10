@@ -1488,7 +1488,7 @@ const jaJP = {
     toolkitObservability: "可観測性",
     featureKits: "機能キット",
     appChrome: "アプリの外枠",
-    appsAndTemplates: "アプリとテンプレート",
+    templatesOverview: "テンプレート",
     pureAgentApps: "自動化ファーストアプリ",
     faq: "FAQ",
     server: "サーバー",

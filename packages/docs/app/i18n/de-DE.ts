@@ -1491,7 +1491,7 @@ const deDE = {
     toolkitObservability: "Observability",
     featureKits: "Feature-Kits",
     appChrome: "App-Rahmen",
-    appsAndTemplates: "Apps & Vorlagen",
+    templatesOverview: "Vorlagen",
     pureAgentApps: "Automatisierungsorientierte Apps",
     faq: "FAQ",
     server: "Server",

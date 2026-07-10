@@ -1489,7 +1489,7 @@ const esES = {
     toolkitObservability: "Observabilidad",
     featureKits: "Kits de funciones",
     appChrome: "Marco de la app",
-    appsAndTemplates: "Apps y plantillas",
+    templatesOverview: "Plantillas",
     pureAgentApps: "Apps orientadas a la automatización",
     faq: "FAQ",
     server: "Servidor",

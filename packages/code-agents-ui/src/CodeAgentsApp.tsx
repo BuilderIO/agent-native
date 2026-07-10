@@ -181,6 +181,8 @@ export type CodeAgentsRenderAppSurface = (input: {
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
+  /** Whether the host surface is currently visible to the user. */
+  isActive?: boolean;
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
@@ -298,6 +300,7 @@ const codeAgentComposerRootStyle = {
 export default function CodeAgentsApp({
   apps,
   host,
+  isActive = true,
   openRequest,
   refreshKey = 0,
   brandIconUrl,
@@ -826,6 +829,7 @@ export default function CodeAgentsApp({
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
   useEffect(() => {
+    if (!isActive) return;
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key?.toLowerCase() !== "n") return;
       if (e.altKey || e.shiftKey) return;
@@ -834,7 +838,7 @@ export default function CodeAgentsApp({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [isActive]);
 
   async function selectProjectFolder(pathValue: string) {
     if (!pathValue) return;
@@ -1571,91 +1575,99 @@ export default function CodeAgentsApp({
               />
             ) : (
               <>
-                {status !== "ok" && (
-                  <div
-                    className={`code-agents-callout code-agents-callout--${status}`}
-                  >
-                    <IconAlertCircle size={17} strokeWidth={1.8} />
-                    <span>
-                      {status === "unauthorized"
-                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see tasks.`
-                        : (error ??
-                          `${selectedGoal.surfaceLabel} is not reporting tasks yet.`)}
-                    </span>
-                  </div>
-                )}
-
-                {selectedRun ? (
-                  <RunDetailCard
-                    host={host}
-                    run={selectedRun}
-                    selectedRunId={selectedRunId}
-                    goal={selectedGoal}
-                    transcriptEvents={transcriptEvents}
-                    transcriptLoading={transcriptLoading}
-                    transcriptError={transcriptError}
-                    permissionMode={selectedPermissionMode}
-                    modelSelection={selectedModelSelection}
-                    modelOptions={modelOptions}
-                    updatingPermissionMode={updatingPermissionMode}
-                    onPermissionModeChange={changeSelectedPermissionMode}
-                    onModelSelectionChange={setModelSelection}
-                    onOpenWorkbench={() => setWorkbenchOpen(true)}
-                    onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
-                    onResume={() => controlRun("resume")}
-                    onStop={() => controlRun("stop")}
-                    onApprove={() => controlRun("approve")}
-                    onApproveAlways={() => controlRun("approve-always")}
-                    onDeny={() => controlRun("deny")}
-                    onRetry={host.retryRun ? retrySelectedRun : undefined}
-                    onRerun={host.rerunRun ? rerunSelectedRun : undefined}
-                    builderConnecting={builderConnecting}
-                    builderConnectMessage={builderConnectMessage}
-                    onConnectBuilder={connectBuilderProvider}
-                    onOpenSettings={onOpenSettings}
-                    onConnectProvider={connectBuilderProvider}
-                  />
+                {loading ? (
+                  <OverviewSkeleton />
                 ) : (
-                  <div className="code-agents-start">
-                    <h2>What outcome do you want?</h2>
-                    {providerGate.blocked && (
-                      <ProviderGateNotice
-                        description={providerGate.description}
-                        connecting={builderConnecting}
-                        message={builderConnectMessage}
+                  <>
+                    {status !== "ok" && (
+                      <div
+                        className={`code-agents-callout code-agents-callout--${status}`}
+                      >
+                        <IconAlertCircle size={17} strokeWidth={1.8} />
+                        <span>
+                          {status === "unauthorized"
+                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see tasks.`
+                            : (error ??
+                              `${selectedGoal.surfaceLabel} is not reporting tasks yet.`)}
+                        </span>
+                      </div>
+                    )}
+
+                    {selectedRun ? (
+                      <RunDetailCard
+                        host={host}
+                        run={selectedRun}
+                        selectedRunId={selectedRunId}
+                        goal={selectedGoal}
+                        transcriptEvents={transcriptEvents}
+                        transcriptLoading={transcriptLoading}
+                        transcriptError={transcriptError}
+                        permissionMode={selectedPermissionMode}
+                        modelSelection={selectedModelSelection}
+                        modelOptions={modelOptions}
+                        updatingPermissionMode={updatingPermissionMode}
+                        onPermissionModeChange={changeSelectedPermissionMode}
+                        onModelSelectionChange={setModelSelection}
+                        onOpenWorkbench={() => setWorkbenchOpen(true)}
+                        onOpenTerminal={
+                          canOpenTerminal ? openTerminal : undefined
+                        }
+                        onResume={() => controlRun("resume")}
+                        onStop={() => controlRun("stop")}
+                        onApprove={() => controlRun("approve")}
+                        onApproveAlways={() => controlRun("approve-always")}
+                        onDeny={() => controlRun("deny")}
+                        onRetry={host.retryRun ? retrySelectedRun : undefined}
+                        onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+                        builderConnecting={builderConnecting}
+                        builderConnectMessage={builderConnectMessage}
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
+                        onConnectProvider={connectBuilderProvider}
                       />
+                    ) : (
+                      <div className="code-agents-start">
+                        <h2>What outcome do you want?</h2>
+                        {providerGate.blocked && (
+                          <ProviderGateNotice
+                            description={providerGate.description}
+                            connecting={builderConnecting}
+                            message={builderConnectMessage}
+                            onConnectBuilder={connectBuilderProvider}
+                            onOpenSettings={onOpenSettings}
+                          />
+                        )}
+                        <NewSessionComposer
+                          prompt={newPrompt}
+                          promptSeed={newPromptSeed}
+                          inputRef={newPromptRef}
+                          creating={creatingRun}
+                          permissionMode={newRunPermissionMode}
+                          modelSelection={selectedModelSelection}
+                          modelOptions={modelOptions}
+                          slashCommands={slashCommands}
+                          disabled={providerGate.blocked}
+                          onPromptChange={setNewPrompt}
+                          onPermissionModeChange={setNewRunPermissionMode}
+                          onModelSelectionChange={setModelSelection}
+                          onSlashCommand={handleSlashCommand}
+                          onSubmit={createRunFromPrompt}
+                          onConnectProvider={connectBuilderProvider}
+                        />
+                        {(projects.length > 0 || canChooseProjectFolder) && (
+                          <ProjectFolderPicker
+                            variant="bar"
+                            projects={projects}
+                            selectedPath={selectedProjectPath}
+                            loading={loadingProjects}
+                            canChoose={canChooseProjectFolder}
+                            onSelect={selectProjectFolder}
+                            onChoose={chooseProjectFolder}
+                          />
+                        )}
+                      </div>
                     )}
-                    <NewSessionComposer
-                      prompt={newPrompt}
-                      promptSeed={newPromptSeed}
-                      inputRef={newPromptRef}
-                      creating={creatingRun}
-                      permissionMode={newRunPermissionMode}
-                      modelSelection={selectedModelSelection}
-                      modelOptions={modelOptions}
-                      slashCommands={slashCommands}
-                      disabled={providerGate.blocked}
-                      onPromptChange={setNewPrompt}
-                      onPermissionModeChange={setNewRunPermissionMode}
-                      onModelSelectionChange={setModelSelection}
-                      onSlashCommand={handleSlashCommand}
-                      onSubmit={createRunFromPrompt}
-                      onConnectProvider={connectBuilderProvider}
-                    />
-                    {(projects.length > 0 || canChooseProjectFolder) && (
-                      <ProjectFolderPicker
-                        variant="bar"
-                        projects={projects}
-                        selectedPath={selectedProjectPath}
-                        loading={loadingProjects}
-                        canChoose={canChooseProjectFolder}
-                        onSelect={selectProjectFolder}
-                        onChoose={chooseProjectFolder}
-                      />
-                    )}
-                  </div>
+                  </>
                 )}
               </>
             )}
@@ -3819,6 +3831,19 @@ function RunListSkeleton() {
       <div className="code-agents-run-skeleton" />
       <div className="code-agents-run-skeleton" />
     </>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div
+      className="code-agents-overview-skeleton"
+      role="status"
+      aria-label="Loading agent workspace"
+    >
+      <div className="code-agents-overview-skeleton__title" />
+      <div className="code-agents-overview-skeleton__composer" />
+    </div>
   );
 }
 

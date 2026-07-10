@@ -1,3 +1,4 @@
+import { IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
 import {
@@ -73,7 +74,7 @@ export function UpdateBanner() {
       <div className="update-banner update-banner--pending">
         <DownloadIcon />
         <span className="update-banner-text">
-          Update {status.version} available — downloading…
+          Update available — downloading…
         </span>
       </div>
     );
@@ -94,15 +95,17 @@ export function UpdateBanner() {
   return (
     <div className="update-banner update-banner--ready">
       <span className="update-banner-text">
-        Update {status.version} ready — restart to install.
+        Update ready — restart to install
       </span>
       <div className="update-banner-actions">
         <button
           type="button"
-          className="update-banner-btn update-banner-btn--ghost"
+          className="update-banner-btn update-banner-btn--dismiss"
           onClick={() => setDismissedVersion(status.version)}
+          aria-label="Dismiss update"
+          title="Dismiss update"
         >
-          Later
+          <IconX size={15} strokeWidth={1.8} aria-hidden />
         </button>
         <button
           type="button"

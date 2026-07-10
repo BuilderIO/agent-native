@@ -1033,6 +1033,56 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
   });
 
+  it("does not restore a transient thread after the user selected another one", async () => {
+    threadMocks.activeThreadId = "thread-2";
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Other thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+  });
+
+  it("restores a transient thread while its captured thread is still active", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-1");
+  });
+
   it("replays an agent-task open request sent before the lazy panel mounted", async () => {
     let tabs: Array<{
       id: string;

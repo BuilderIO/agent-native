@@ -1484,7 +1484,7 @@ const koKR = {
     toolkitObservability: "관측성",
     featureKits: "기능 키트",
     appChrome: "앱 프레임",
-    appsAndTemplates: "앱 및 템플릿",
+    templatesOverview: "템플릿",
     pureAgentApps: "자동화 우선 앱",
     faq: "FAQ",
     server: "서버",

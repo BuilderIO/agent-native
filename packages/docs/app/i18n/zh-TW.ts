@@ -1462,7 +1462,7 @@ const messages = {
     toolkitObservability: "可觀測性",
     featureKits: "功能套件",
     appChrome: "應用程式外殼",
-    appsAndTemplates: "應用程式與範本",
+    templatesOverview: "範本",
     pureAgentApps: "自動化優先應用程式",
     faq: "常見問題",
     server: "伺服器",

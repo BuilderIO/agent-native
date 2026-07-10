@@ -486,6 +486,12 @@ body {
   transform: translate3d(0, 0, 0);
 }
 
+.code-agents-shell-surface--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
+}
+
 .code-agents-embedded-app-surface {
   position: absolute;
   inset: 0;

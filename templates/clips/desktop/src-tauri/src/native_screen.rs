@@ -147,6 +147,33 @@ impl NativeUploadMode {
             Self::Streaming => "streaming",
         }
     }
+
+    fn from_reset_response(body: &str) -> Self {
+        let value = serde_json::from_str::<serde_json::Value>(body).ok();
+        let upload_mode = value
+            .as_ref()
+            .and_then(|value| value.get("uploadMode"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        Self::from_option(upload_mode)
+    }
+}
+
+#[cfg(test)]
+mod native_upload_mode_tests {
+    use super::NativeUploadMode;
+
+    #[test]
+    fn uses_streaming_mode_when_retry_session_was_recreated() {
+        assert_eq!(
+            NativeUploadMode::from_reset_response(r#"{"uploadMode":"streaming"}"#),
+            NativeUploadMode::Streaming,
+        );
+        assert_eq!(
+            NativeUploadMode::from_reset_response(r#"{"ok":true}"#),
+            NativeUploadMode::Buffered,
+        );
+    }
 }
 
 #[derive(Default)]
@@ -2061,25 +2088,45 @@ pub async fn native_fullscreen_recording_retry_upload(
     saved.last_error = None;
     write_saved_recording_metadata(&app, &saved)?;
 
-    reset_upload_chunks(
-        &saved.server_url,
-        &saved.recording_id,
-        auth_token.as_deref().unwrap_or(""),
-        cookie.as_deref().unwrap_or(""),
-    )
-    .await
-    .map_err(|err| {
-        persist_saved_recording_error(&app, &mut saved, &err);
-        err
-    })?;
+    // Preparation can normalize or transcode the saved recording. The
+    // resumable session must be created with the MIME type we will actually
+    // upload, not the source file's potentially stale MIME type.
+    let result = async {
+        let (prepared, retry_combined_path) = prepare_saved_recording_file(&app, &saved)?;
+        let upload_mode = match reset_upload_chunks(
+            &saved.server_url,
+            &saved.recording_id,
+            &prepared.mime_type,
+            auth_token.as_deref().unwrap_or(""),
+            cookie.as_deref().unwrap_or(""),
+        )
+        .await
+        {
+            Ok(upload_mode) => upload_mode,
+            Err(err) => {
+                cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+                return Err(err);
+            }
+        };
 
-    let result = upload_saved_recording_file(
-        &app,
-        &saved,
-        saved.server_url.clone(),
-        auth_token.unwrap_or_default(),
-        cookie.unwrap_or_default(),
-    )
+        let upload_result = upload_prepared_recording_file(
+            &app,
+            &prepared,
+            saved.server_url.clone(),
+            saved.recording_id.clone(),
+            auth_token.unwrap_or_default(),
+            cookie.unwrap_or_default(),
+            upload_mode,
+            saved.duration_ms,
+            saved.width,
+            saved.height,
+            saved.has_audio,
+            saved.has_camera,
+        )
+        .await;
+        cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+        upload_result
+    }
     .await;
 
     match result {
@@ -3236,29 +3283,10 @@ async fn upload_recording_file(
     upload_result
 }
 
-async fn upload_saved_recording_file(
-    app: &AppHandle,
-    saved: &SavedNativeRecording,
-    server_url: String,
-    auth_token: String,
-    cookie: String,
-) -> Result<NativeFullscreenUploadResult, String> {
-    let (prepared, retry_combined_path) = prepare_saved_recording_file(app, saved)?;
-    let upload_result = upload_prepared_recording_file(
-        app,
-        &prepared,
-        server_url,
-        saved.recording_id.clone(),
-        auth_token,
-        cookie,
-        NativeUploadMode::Buffered,
-        saved.duration_ms,
-        saved.width,
-        saved.height,
-        saved.has_audio,
-        saved.has_camera,
-    )
-    .await;
+fn cleanup_prepared_saved_recording_files(
+    prepared: &PreparedRecordingFile,
+    retry_combined_path: Option<PathBuf>,
+) {
     if prepared.temporary {
         let _ = std::fs::remove_file(&prepared.path);
     }
@@ -3267,7 +3295,6 @@ async fn upload_saved_recording_file(
             let _ = std::fs::remove_file(path);
         }
     }
-    upload_result
 }
 
 fn prepare_saved_recording_file(
@@ -3509,9 +3536,10 @@ async fn upload_prepared_recording_file(
 async fn reset_upload_chunks(
     server_url: &str,
     recording_id: &str,
+    mime_type: &str,
     auth_token: &str,
     cookie: &str,
-) -> Result<(), String> {
+) -> Result<NativeUploadMode, String> {
     let base = server_url.trim_end_matches('/');
     let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
         .map_err(|e| format!("invalid reset URL: {e}"))?;
@@ -3523,7 +3551,10 @@ async fn reset_upload_chunks(
         .post(url)
         .header("Content-Type", "application/json")
         .header("X-Request-Source", "clips-desktop")
-        .body("{}");
+        .json(&serde_json::json!({
+            "requestStreaming": true,
+            "mimeType": mime_type,
+        }));
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
         request = request.bearer_auth(trimmed_token);
@@ -3545,7 +3576,7 @@ async fn reset_upload_chunks(
             body.chars().take(400).collect::<String>()
         ));
     }
-    Ok(())
+    Ok(NativeUploadMode::from_reset_response(&body))
 }
 
 async fn upload_thumbnail_bytes(
@@ -3912,6 +3943,27 @@ impl AudioSignalProbe {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreparedAudioSignalDecision {
+    AcceptCandidate,
+    UseOriginal,
+}
+
+fn decide_prepared_audio_signal(
+    candidate: AudioSignalProbe,
+    source: Option<AudioSignalProbe>,
+) -> PreparedAudioSignalDecision {
+    if !candidate.has_audible_signal()
+        && source
+            .map(AudioSignalProbe::has_audible_signal)
+            .unwrap_or(false)
+    {
+        PreparedAudioSignalDecision::UseOriginal
+    } else {
+        PreparedAudioSignalDecision::AcceptCandidate
+    }
+}
+
 fn parse_ffmpeg_volume_db(stderr: &str, label: &str) -> Option<f64> {
     stderr.lines().rev().find_map(|line| {
         let (_, value) = line.split_once(label)?;
@@ -3988,14 +4040,11 @@ fn verify_prepared_audio_signal(
     }
 
     let source_probe = audio_signal_probe_with_ffmpeg(ffmpeg_path, source_path);
-    let source_has_signal = source_probe
-        .as_ref()
-        .ok()
-        .copied()
-        .map(AudioSignalProbe::has_audible_signal)
-        .unwrap_or(false);
+    let source_signal = source_probe.as_ref().ok().copied();
     let source_summary = describe_audio_signal_probe(source_probe);
-    if source_has_signal {
+    if decide_prepared_audio_signal(candidate_probe, source_signal)
+        == PreparedAudioSignalDecision::UseOriginal
+    {
         eprintln!(
             "[clips-tray] AUDIO QUIET AFTER PREPARE: {label} is effectively silent ({}) but original has signal ({source_summary}) — uploading original instead",
             candidate_probe.summary()
@@ -4004,13 +4053,14 @@ fn verify_prepared_audio_signal(
     }
 
     eprintln!(
-        "[clips-tray] AUDIO CAPTURE TOO QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary})",
+        "[clips-tray] AUDIO CAPTURE QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary}) — publishing the playable candidate",
         candidate_probe.summary()
     );
-    Err(format!(
-        "Recorded file contains an audio track, but the captured audio is too quiet to publish ({})",
-        candidate_probe.summary()
-    ))
+    // Silence in both files is a capture outcome, not a processing regression.
+    // Rejecting it strands the recording in `uploading`, and every retry fails
+    // deterministically after re-running the same probes. Only fall back when
+    // preparation removed signal that was present in the source.
+    Ok(None)
 }
 
 fn prepare_recording_file(
@@ -4069,13 +4119,6 @@ fn prepare_recording_file(
 
     let mut smallest_attempt_bytes: Option<u64> = None;
     let ffmpeg_path = resolve_ffmpeg_path();
-    if has_audio {
-        if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
-            let raw_summary =
-                describe_audio_signal_probe(audio_signal_probe_with_ffmpeg(ffmpeg_path, path));
-            eprintln!("[clips-tray] raw recording audio signal before prepare: {raw_summary}");
-        }
-    }
 
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         if has_audio {
@@ -5125,7 +5168,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 #[cfg(test)]
 mod audio_track_probe_tests {
     use super::{
-        audio_filter_chain, mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe,
+        audio_filter_chain, decide_prepared_audio_signal, mp4_has_audio_track,
+        parse_ffmpeg_volume_db, AudioSignalProbe, PreparedAudioSignalDecision,
         AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
         AUDIO_LOUDNESS_FILTER, AUDIO_MIC_PREGAIN_FILTER,
     };
@@ -5300,6 +5344,27 @@ mod audio_track_probe_tests {
         assert!(!silent.has_audible_signal());
         assert!(!quiet_noise_peak.has_audible_signal());
         assert!(audible.has_audible_signal());
+    }
+
+    #[test]
+    fn publishes_quiet_recordings_but_preserves_audible_source_audio() {
+        let silent = AudioSignalProbe {
+            mean_volume_db: Some(f64::NEG_INFINITY),
+            max_volume_db: Some(f64::NEG_INFINITY),
+        };
+        let audible = AudioSignalProbe {
+            mean_volume_db: Some(-21.5),
+            max_volume_db: Some(-1.4),
+        };
+
+        assert_eq!(
+            decide_prepared_audio_signal(silent, Some(silent)),
+            PreparedAudioSignalDecision::AcceptCandidate,
+        );
+        assert_eq!(
+            decide_prepared_audio_signal(silent, Some(audible)),
+            PreparedAudioSignalDecision::UseOriginal,
+        );
     }
 }
 

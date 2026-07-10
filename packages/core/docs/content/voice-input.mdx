@@ -125,9 +125,9 @@ You don't need to call this directly — the composer does. If you're building a
 
 ## Realtime speech mode {#realtime-speech-mode}
 
-Beyond one-shot dictation, the composer also offers a live, hands-free conversation mode. When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech requires a user-scoped `OPENAI_API_KEY` and connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation.
+Beyond one-shot dictation, the composer also offers a live, hands-free conversation mode. When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech requires a user-scoped `OPENAI_API_KEY` and connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation. The orb stays visible above the chat even if the chat opens automatically, and its compact waveform reacts to your voice and the assistant's voice.
 
-The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Audio is never stored in SQL; Agent Native keeps only compact session and transcript state. A realtime session lasts at most 60 minutes.
+The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Only completed user and assistant text turns are appended to the original chat thread. Ending voice mode opens that chat so you can continue over text; audio and interim transcript fragments are never stored. A realtime session lasts at most 60 minutes.
 
 ## Customizing the provider {#customizing}
 

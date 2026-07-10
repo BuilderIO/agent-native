@@ -2117,12 +2117,30 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown; openRequestId?: unknown }
+        | {
+            threadId?: unknown;
+            newThread?: unknown;
+            onlyIfActiveThreadId?: unknown;
+            openRequestId?: unknown;
+          }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
       if (!detail || !threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
+
+      const onlyIfActiveThreadId =
+        typeof detail.onlyIfActiveThreadId === "string"
+          ? detail.onlyIfActiveThreadId.trim()
+          : "";
+      const activeThreadId = activeThreadIdRef.current;
+      if (
+        onlyIfActiveThreadId &&
+        activeThreadId &&
+        activeThreadId !== onlyIfActiveThreadId
+      ) {
+        return;
+      }
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);

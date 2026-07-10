@@ -939,15 +939,39 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...threadDataPayload,
-            title,
-            scope: localScope,
-          }),
-        });
+        const payload = {
+          ...threadDataPayload,
+          title,
+          scope: localScope,
+        };
+        let response = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+        // A passive realtime-voice transcript can be the first content in a
+        // client-created thread, so no agent run has created its SQL row yet.
+        // Materialize that row idempotently and retry the same full save.
+        if (response.status === 404) {
+          const created = await fetch(`${apiUrl}/threads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, title, scope: localScope }),
+          });
+          if (!created.ok) return;
+          response = await fetch(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
+        }
+        if (!response.ok) return;
         emitThreadsUpdated();
         // Update local thread list metadata. If the thread isn't in our
         // local list yet (an optimistic-only thread that the server just

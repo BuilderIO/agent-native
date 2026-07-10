@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { createRealtimeVoiceAudioLevelStore } from "./realtime-voice-audio-level.js";
 import {
   RealtimeVoiceModeDock,
   RealtimeVoiceModeEntry,
@@ -144,6 +145,65 @@ describe("RealtimeVoiceMode", () => {
 
     expect(onToggleChat).toHaveBeenCalledOnce();
     expect(onEndVoiceMode).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dock visible when chat opens itself", () => {
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    expect(
+      document.querySelector("[data-realtime-voice-state]"),
+    ).not.toBeNull();
+
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    expect(
+      document.querySelector("[data-realtime-voice-state]"),
+    ).not.toBeNull();
+    expect(
+      document
+        .querySelector('button[aria-label="Hide chat"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("shows a live waveform for user and assistant audio", () => {
+    const audioLevels = createRealtimeVoiceAudioLevelStore();
+    audioLevels.set({ input: 0.7, output: 0 });
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible={false}
+        audioLevels={audioLevels}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    expect(
+      document.querySelector('[data-realtime-voice-activity="user"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-realtime-voice-waveform="true"]'),
+    ).not.toBeNull();
+
+    act(() => audioLevels.set({ input: 0, output: 0.8 }));
+    expect(
+      document.querySelector('[data-realtime-voice-activity="assistant"]'),
+    ).not.toBeNull();
   });
 
   it("exposes error details and a separate end-session action", () => {

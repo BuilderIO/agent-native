@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { requestAgentChatThreadOpen } from "../agent-chat.js";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
@@ -18,6 +19,13 @@ import { agentNativePath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
 import { useT } from "../i18n.js";
+import {
+  createRealtimeVoiceAudioLevelStore,
+  normalizeRealtimeVoiceRms,
+  smoothRealtimeVoiceLevel,
+  type RealtimeVoiceAudioLevelStore,
+} from "./realtime-voice-audio-level.js";
+import { realtimeVoiceTranscriptRegistry } from "./realtime-voice-transcript.js";
 import {
   RealtimeVoiceModeDock,
   type RealtimeVoiceModeCopy,
@@ -43,9 +51,52 @@ export interface RealtimeVoiceModeApi {
   active: boolean;
   errorMessage: string | null;
   chatVisible: boolean;
+  audioLevels: RealtimeVoiceAudioLevelStore;
   start: () => Promise<void>;
   end: () => void;
   toggleChat: () => void;
+}
+
+export interface CompletedRealtimeVoiceTranscript {
+  role: "user" | "assistant";
+  text: string;
+  providerId?: string;
+}
+
+/**
+ * Voice mode owns the chat only temporarily. Restore the captured transcript
+ * when it is still the user's active thread (or the chat has no active thread)
+ * but never pull them back after they deliberately selected another thread.
+ */
+export function shouldRestoreRealtimeVoiceTranscriptThread(
+  transcriptThreadId: string | undefined,
+  activeThreadId: string | undefined,
+): transcriptThreadId is string {
+  return Boolean(
+    transcriptThreadId &&
+    (!activeThreadId || activeThreadId === transcriptThreadId),
+  );
+}
+
+export function extractCompletedRealtimeVoiceTranscript(
+  event: RealtimeServerEvent,
+): CompletedRealtimeVoiceTranscript | null {
+  const userCompleted =
+    event.type === "conversation.item.input_audio_transcription.completed";
+  const assistantCompleted =
+    event.type === "response.output_audio_transcript.done";
+  if (!userCompleted && !assistantCompleted) return null;
+  const text =
+    typeof event.transcript === "string" ? event.transcript.trim() : "";
+  if (!text) return null;
+  const providerId = [event.item_id, event.response_id, event.event_id].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return {
+    role: userCompleted ? "user" : "assistant",
+    text,
+    ...(providerId ? { providerId } : {}),
+  };
 }
 
 export interface RealtimeVoiceModeProviderProps {
@@ -232,17 +283,29 @@ function useRealtimeVoiceModeController(
   const [state, setState] = useState<"idle" | RealtimeVoiceModeState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
+  const [audioLevels] = useState(createRealtimeVoiceAudioLevelStore);
   const stateRef = useRef(state);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const inputAnalyserRef = useRef<AnalyserNode | null>(null);
+  const outputAnalyserRef = useRef<AnalyserNode | null>(null);
+  const inputMeterBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const outputMeterBufferRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const outputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const meterFrameRef = useRef<number | null>(null);
+  const lastMeterSampleRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const handledCallsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | undefined>(undefined);
   const startedAtRef = useRef<string | undefined>(undefined);
   const lastUserTextRef = useRef("");
   const lastAssistantTextRef = useRef("");
+  const transcriptThreadIdRef = useRef<string | undefined>(undefined);
+  const transcriptSequenceRef = useRef(0);
 
   useEffect(() => {
     stateRef.current = state;
@@ -279,6 +342,77 @@ function useRealtimeVoiceModeController(
     [syncAppState],
   );
 
+  const startMeterLoop = useCallback(() => {
+    if (meterFrameRef.current !== null) return;
+    const sample = (timestamp: number) => {
+      meterFrameRef.current = requestAnimationFrame(sample);
+      if (timestamp - lastMeterSampleRef.current < 50) return;
+      lastMeterSampleRef.current = timestamp;
+
+      const current = audioLevels.getSnapshot();
+      let input = current.input;
+      let output = current.output;
+      const inputAnalyser = inputAnalyserRef.current;
+      const inputBuffer = inputMeterBufferRef.current;
+      if (inputAnalyser && inputBuffer) {
+        inputAnalyser.getByteTimeDomainData(inputBuffer);
+        input = smoothRealtimeVoiceLevel(
+          input,
+          normalizeRealtimeVoiceRms(inputBuffer),
+        );
+      }
+      const outputAnalyser = outputAnalyserRef.current;
+      const outputBuffer = outputMeterBufferRef.current;
+      if (outputAnalyser && outputBuffer) {
+        outputAnalyser.getByteTimeDomainData(outputBuffer);
+        output = smoothRealtimeVoiceLevel(
+          output,
+          normalizeRealtimeVoiceRms(outputBuffer),
+        );
+      }
+      audioLevels.set({ input, output });
+    };
+    meterFrameRef.current = requestAnimationFrame(sample);
+  }, [audioLevels]);
+
+  const attachAudioMeter = useCallback(
+    (stream: MediaStream, channel: "input" | "output") => {
+      try {
+        const AudioCtor =
+          window.AudioContext ??
+          (
+            window as typeof window & {
+              webkitAudioContext?: typeof AudioContext;
+            }
+          ).webkitAudioContext;
+        if (!AudioCtor) return;
+        const context = audioContextRef.current ?? new AudioCtor();
+        audioContextRef.current = context;
+        void context.resume().catch(() => undefined);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        const source = context.createMediaStreamSource(stream);
+        source.connect(analyser);
+        const buffer = new Uint8Array(analyser.frequencyBinCount);
+        if (channel === "input") {
+          inputSourceRef.current?.disconnect();
+          inputSourceRef.current = source;
+          inputAnalyserRef.current = analyser;
+          inputMeterBufferRef.current = buffer;
+        } else {
+          outputSourceRef.current?.disconnect();
+          outputSourceRef.current = source;
+          outputAnalyserRef.current = analyser;
+          outputMeterBufferRef.current = buffer;
+        }
+        startMeterLoop();
+      } catch {
+        // Audio metering is visual-only; keep the realtime call healthy.
+      }
+    },
+    [startMeterLoop],
+  );
+
   const cleanupTransport = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -293,8 +427,25 @@ function useRealtimeVoiceModeController(
       audioRef.current.srcObject = null;
     }
     audioRef.current = null;
+    if (meterFrameRef.current !== null) {
+      cancelAnimationFrame(meterFrameRef.current);
+      meterFrameRef.current = null;
+    }
+    inputSourceRef.current?.disconnect();
+    outputSourceRef.current?.disconnect();
+    inputSourceRef.current = null;
+    outputSourceRef.current = null;
+    inputAnalyserRef.current = null;
+    outputAnalyserRef.current = null;
+    inputMeterBufferRef.current = null;
+    outputMeterBufferRef.current = null;
+    lastMeterSampleRef.current = 0;
+    const audioContext = audioContextRef.current;
+    audioContextRef.current = null;
+    if (audioContext) void audioContext.close().catch(() => undefined);
+    audioLevels.reset();
     handledCallsRef.current.clear();
-  }, []);
+  }, [audioLevels]);
 
   const fail = useCallback(
     (message: string, options?: { openKeySettings?: boolean }) => {
@@ -342,6 +493,26 @@ function useRealtimeVoiceModeController(
     [browserTabId, transition],
   );
 
+  const persistCompletedTranscript = useCallback(
+    (event: RealtimeServerEvent) => {
+      const transcript = extractCompletedRealtimeVoiceTranscript(event);
+      const threadId = transcriptThreadIdRef.current;
+      if (!transcript || !threadId) return;
+      const sessionIdentity =
+        sessionIdRef.current ?? startedAtRef.current ?? "pending";
+      const providerIdentity =
+        transcript.providerId ?? `sequence-${++transcriptSequenceRef.current}`;
+      realtimeVoiceTranscriptRegistry.publish({
+        id: `realtime-voice:${sessionIdentity}:${transcript.role}:${providerIdentity}`,
+        threadId,
+        role: transcript.role,
+        text: transcript.text,
+        createdAt: new Date().toISOString(),
+      });
+    },
+    [],
+  );
+
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
       if (event.type === "session.created") {
@@ -367,14 +538,16 @@ function useRealtimeVoiceModeController(
         if (typeof event.transcript === "string") {
           lastAssistantTextRef.current = event.transcript;
         }
+        persistCompletedTranscript(event);
         syncAppState("speaking");
       } else if (
         event.type === "conversation.item.input_audio_transcription.completed"
       ) {
         if (typeof event.transcript === "string") {
           lastUserTextRef.current = event.transcript;
-          syncAppState("working");
         }
+        persistCompletedTranscript(event);
+        syncAppState("working");
       } else if (event.type === "response.done") {
         const response = event.response;
         const status =
@@ -410,7 +583,14 @@ function useRealtimeVoiceModeController(
         transition("listening");
       }
     },
-    [copy, fail, handleFunctionCall, syncAppState, transition],
+    [
+      copy,
+      fail,
+      handleFunctionCall,
+      persistCompletedTranscript,
+      syncAppState,
+      transition,
+    ],
   );
 
   const start = useCallback(async () => {
@@ -430,6 +610,9 @@ function useRealtimeVoiceModeController(
     lastUserTextRef.current = "";
     lastAssistantTextRef.current = "";
     sessionIdRef.current = undefined;
+    transcriptThreadIdRef.current =
+      realtimeVoiceTranscriptRegistry.activeThreadId();
+    transcriptSequenceRef.current = 0;
     transition("connecting");
     setChatVisible(false);
     window.dispatchEvent(new Event("agent-panel:close"));
@@ -445,6 +628,7 @@ function useRealtimeVoiceModeController(
         },
       });
       streamRef.current = stream;
+      attachAudioMeter(stream, "input");
 
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
@@ -455,7 +639,9 @@ function useRealtimeVoiceModeController(
       audio.setAttribute("playsinline", "");
       audioRef.current = audio;
       peer.ontrack = (trackEvent) => {
-        audio.srcObject = trackEvent.streams[0] ?? null;
+        const remoteStream = trackEvent.streams[0] ?? null;
+        audio.srcObject = remoteStream;
+        if (remoteStream) attachAudioMeter(remoteStream, "output");
         void audio.play().catch(() => undefined);
       };
 
@@ -501,15 +687,42 @@ function useRealtimeVoiceModeController(
       const status = (startError as { status?: unknown })?.status;
       fail(errorMessage(startError), { openKeySettings: status === 400 });
     }
-  }, [browserTabId, copy, fail, handleServerEvent, transition]);
+  }, [
+    attachAudioMeter,
+    browserTabId,
+    copy,
+    fail,
+    handleServerEvent,
+    transition,
+  ]);
 
   const end = useCallback(() => {
     if (stateRef.current === "idle" || stateRef.current === "ending") return;
+    const transcriptThreadId = transcriptThreadIdRef.current;
+    const activeThreadId = realtimeVoiceTranscriptRegistry.activeThreadId();
     transition("ending");
     cleanupTransport();
     setError(null);
     sessionIdRef.current = undefined;
     startedAtRef.current = undefined;
+    transcriptThreadIdRef.current = undefined;
+    setChatVisible(true);
+    if (
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        transcriptThreadId,
+        activeThreadId,
+      )
+    ) {
+      requestAgentChatThreadOpen({
+        threadId: transcriptThreadId,
+        // The request is delivered asynchronously. Re-checking this at the
+        // receiver prevents a navigation that happened during that gap from
+        // being overwritten.
+        onlyIfActiveThreadId: transcriptThreadId,
+      });
+    } else {
+      window.dispatchEvent(new Event("agent-panel:open"));
+    }
     transition("idle");
   }, [cleanupTransport, transition]);
 
@@ -538,6 +751,7 @@ function useRealtimeVoiceModeController(
     active: state !== "idle",
     errorMessage: error,
     chatVisible,
+    audioLevels,
     start,
     end,
     toggleChat,
@@ -568,10 +782,10 @@ export function RealtimeVoiceModeProvider({
               state={voice.state === "idle" ? "ending" : voice.state}
               copy={copy}
               chatVisible={voice.chatVisible}
+              audioLevels={voice.audioLevels}
               onToggleChat={voice.toggleChat}
               onEndVoiceMode={voice.end}
               errorMessage={voice.errorMessage}
-              className="z-[270]"
             />,
             document.body,
           )

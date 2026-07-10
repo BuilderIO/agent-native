@@ -1479,7 +1479,7 @@ const arSA = {
     toolkitObservability: "قابلية المراقبة",
     featureKits: "مجموعات الميزات",
     appChrome: "هيكل التطبيق",
-    appsAndTemplates: "التطبيقات والقوالب",
+    templatesOverview: "القوالب",
     pureAgentApps: "تطبيقات الأتمتة أولاً",
     faq: "FAQ",
     server: "Server",

@@ -138,6 +138,12 @@ export interface AgentChatContextState {
 export interface AgentChatOpenThreadRequest {
   threadId: string;
   newThread?: boolean;
+  /**
+   * Open only while this thread is still active (or no thread is active).
+   * This lets transient surfaces restore their own chat without stealing a
+   * thread the user selected in the meantime.
+   */
+  onlyIfActiveThreadId?: string;
   openRequestId?: string;
 }
 

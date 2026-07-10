@@ -35,6 +35,10 @@ const originalFetch = globalThis.fetch;
 const originalOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
 const originalConnectTimeout =
   process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
+// This is the first path that lazily loads the A2A/JWT signing modules. Under
+// root prep's parallel load that one-time work can exceed Vitest's default 5s,
+// then continue after timeout and pollute the next test.
+const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split(".");
@@ -388,63 +392,67 @@ describe("McpClientManager", () => {
     ]);
   });
 
-  it("injects per-request identity only for trusted org-scoped first-party HTTP servers", async () => {
-    process.env.A2A_SECRET = "test-a2a-secret";
-    serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
-      tools: [{ name: "generate-asset" }],
-      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
-    };
-    serverFixtures["http https://third-party.example.com/mcp"] = {
-      tools: [{ name: "search" }],
-      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
-    };
-    const mgr = new McpClientManager({
-      servers: {
-        "org_org-123_assets": {
-          type: "http",
-          url: "https://assets.example.com/_agent-native/mcp",
-          headers: { Authorization: "Bearer static-service-token" },
-          firstParty: true,
-          firstPartyOrgId: "org-123",
+  it(
+    "injects per-request identity only for trusted org-scoped first-party HTTP servers",
+    async () => {
+      process.env.A2A_SECRET = "test-a2a-secret";
+      serverFixtures["http https://assets.example.com/_agent-native/mcp"] = {
+        tools: [{ name: "generate-asset" }],
+        callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+      };
+      serverFixtures["http https://third-party.example.com/mcp"] = {
+        tools: [{ name: "search" }],
+        callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          "org_org-123_assets": {
+            type: "http",
+            url: "https://assets.example.com/_agent-native/mcp",
+            headers: { Authorization: "Bearer static-service-token" },
+            firstParty: true,
+            firstPartyOrgId: "org-123",
+          },
+          "org_org-123_zapier": {
+            type: "http",
+            url: "https://third-party.example.com/mcp",
+            headers: { Authorization: "Bearer third-party-token" },
+          },
         },
-        "org_org-123_zapier": {
-          type: "http",
-          url: "https://third-party.example.com/mcp",
-          headers: { Authorization: "Bearer third-party-token" },
+      });
+      await mgr.start();
+
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "org-123" },
+        async () => {
+          await mgr.callTool("mcp__org_org-123_assets__generate-asset", {});
+          await mgr.callTool("mcp__org_org-123_zapier__search", {});
         },
-      },
-    });
-    await mgr.start();
+      );
 
-    await runWithRequestContext(
-      { userEmail: "alice@example.com", orgId: "org-123" },
-      async () => {
-        await mgr.callTool("mcp__org_org-123_assets__generate-asset", {});
-        await mgr.callTool("mcp__org_org-123_zapier__search", {});
-      },
-    );
-
-    expect(httpCallHeaders).toHaveLength(2);
-    expect(httpCallHeaders[0].Authorization).toMatch(/^Bearer /);
-    expect(httpCallHeaders[0].Authorization).not.toBe(
-      "Bearer static-service-token",
-    );
-    const firstPartyPayload = decodeJwtPayload(
-      httpCallHeaders[0].Authorization.replace(/^Bearer\s+/i, ""),
-    );
-    expect(firstPartyPayload.aud).toBe(
-      "https://assets.example.com/_agent-native/mcp",
-    );
-    expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
-    expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
-    expect(
-      httpCallHeaders[1]["x-agent-native-mcp-inline-apps"],
-    ).toBeUndefined();
-    const assetsTransport = fakeClients[0]!.getTransport() as FakeHttp;
-    expect(
-      headersFromUnknown(assetsTransport.requestInit?.headers).Authorization,
-    ).toBeUndefined();
-  });
+      expect(httpCallHeaders).toHaveLength(2);
+      expect(httpCallHeaders[0].Authorization).toMatch(/^Bearer /);
+      expect(httpCallHeaders[0].Authorization).not.toBe(
+        "Bearer static-service-token",
+      );
+      const firstPartyPayload = decodeJwtPayload(
+        httpCallHeaders[0].Authorization.replace(/^Bearer\s+/i, ""),
+      );
+      expect(firstPartyPayload.aud).toBe(
+        "https://assets.example.com/_agent-native/mcp",
+      );
+      expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
+      expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
+      expect(
+        httpCallHeaders[1]["x-agent-native-mcp-inline-apps"],
+      ).toBeUndefined();
+      const assetsTransport = fakeClients[0]!.getTransport() as FakeHttp;
+      expect(
+        headersFromUnknown(assetsTransport.requestInit?.headers).Authorization,
+      ).toBeUndefined();
+    },
+    FIRST_A2A_SIGNING_TIMEOUT_MS,
+  );
 
   it("does not inject identity into user-scoped first-party HTTP servers", async () => {
     process.env.A2A_SECRET = "test-a2a-secret";
