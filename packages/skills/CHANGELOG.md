@@ -1,5 +1,28 @@
 # @agent-native/skills
 
+## 0.2.285
+
+### Patch Changes
+
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+- Updated dependencies [dfbbf30]
+  - @agent-native/core@0.94.0
+
 ## 0.2.284
 
 ### Patch Changes
