@@ -76,7 +76,7 @@ function buildEventDedupKey(incoming: IncomingMessage): string {
   // WhatsApp timestamps are second-resolution) don't collide. Platforms resend
   // the same id on retry, so true duplicate deliveries are still deduped.
   const ctx = incoming.platformContext as Record<string, unknown> | undefined;
-  const messageId =
+  const candidate =
     ctx?.messageId ??
     ctx?.eventId ??
     ctx?.messageTs ??
@@ -84,7 +84,11 @@ function buildEventDedupKey(incoming: IncomingMessage): string {
     ctx?.activityId ??
     incoming.replyRef ??
     incoming.timestamp;
-  return `${incoming.platform}:${incoming.externalThreadId}:${String(messageId)}`;
+  const eventReference =
+    typeof candidate === "string" || typeof candidate === "number"
+      ? String(candidate)
+      : String(incoming.timestamp);
+  return `${incoming.platform}:${incoming.externalThreadId}:${eventReference}`;
 }
 
 export interface WebhookHandlerOptions {

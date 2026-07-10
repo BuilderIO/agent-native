@@ -159,7 +159,7 @@ export function telegramAdapter(): PlatformAdapter {
       const from = message.from;
       const messageThreadId = message.message_thread_id;
       const externalThreadId =
-        messageThreadId == null
+        messageThreadId === undefined
           ? `chat:${String(chat.id)}`
           : `chat:${String(chat.id)}:thread:${String(messageThreadId)}`;
 
@@ -171,7 +171,7 @@ export function telegramAdapter(): PlatformAdapter {
           from?.first_name + (from?.last_name ? ` ${from.last_name}` : ""),
         senderId: String(from?.id),
         threadRef:
-          messageThreadId == null ? undefined : String(messageThreadId),
+          messageThreadId === undefined ? undefined : String(messageThreadId),
         replyRef: String(message.message_id),
         platformContext: {
           chatId: chat.id,

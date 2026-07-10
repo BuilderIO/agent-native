@@ -50,7 +50,9 @@ describe("Figma secret registration", () => {
 
   it("validates against Figma without returning the submitted token", async () => {
     const exampleToken = "<FIGMA_ACCESS_TOKEN>";
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await figmaSecret().validator?.(exampleToken);

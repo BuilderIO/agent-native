@@ -259,7 +259,6 @@ export function MessagingSetupPanel() {
   ) => {
     setTogglingPlatform(platform.id);
     try {
-      const action = enabled ? "disable" : "enable";
       await setIntegrationEnabled(platform.id, !enabled);
       toast.success(
         enabled

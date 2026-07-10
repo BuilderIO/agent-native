@@ -1712,7 +1712,7 @@ export function createIntegrationsPlugin(
           ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
           : undefined;
 
-        startGoogleDocsPoller({
+        void startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
           model: model ?? "",
