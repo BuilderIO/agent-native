@@ -22,12 +22,9 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
-const E2E_DATABASE_URL = `file:${path.join(
-  import.meta.dirname,
-  "..",
-  "data",
-  "e2e.db",
-)}`;
+const E2E_DATABASE_URL =
+  process.env.E2E_DATABASE_URL ??
+  `file:${path.join(import.meta.dirname, "..", "data", "e2e.db")}`;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles

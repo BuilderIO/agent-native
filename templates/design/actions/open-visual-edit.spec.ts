@@ -141,4 +141,24 @@ describe("open-visual-edit", () => {
       }),
     );
   });
+
+  it("accepts the complete capability list emitted by design connect route discovery", () => {
+    const parsed = action.schema.safeParse({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      capabilities: [
+        { operation: "select", status: "available" },
+        { operation: "resolveNodeToFile", status: "available" },
+        { operation: "readFile", status: "available" },
+        { operation: "applyEdit", status: "available" },
+        { operation: "writeFile", status: "available" },
+        { operation: "captureSnapshot", status: "available" },
+        { operation: "captureState", status: "available" },
+        { operation: "listFiles", status: "available" },
+      ],
+      paths: ["/"],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
 });

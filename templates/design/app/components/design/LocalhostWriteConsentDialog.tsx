@@ -21,7 +21,6 @@ export interface LocalhostWriteConsentPayload {
   /** Pending callback to invoke after user grants consent. */
   onGranted: (grant: {
     grantId: string;
-    bridgeToken: string;
     rootPath: string;
     grantedUntil: string;
   }) => void;
@@ -58,7 +57,6 @@ export function LocalhostWriteConsentDialog({
     try {
       const result = await callAction<{
         grantId: string;
-        bridgeToken: string;
         rootPath: string;
         grantedUntil: string;
       }>("grant-localhost-write-consent", {

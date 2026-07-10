@@ -132,6 +132,30 @@ describe("show-design-questions", () => {
     ).toBe(false);
   });
 
+  it("rejects duplicate question ids, which would silently collide into one answer slot", () => {
+    const duplicateId = (n: number) => ({
+      id: "shared_id",
+      type: "freeform" as const,
+      question: `Question ${n}?`,
+    });
+
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        questions: [duplicateId(1), duplicateId(2)],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        questions: [
+          { ...duplicateId(1), id: "q1" },
+          { ...duplicateId(2), id: "q2" },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it("returns an editor deep link for external hosts", () => {
     const link = action.link?.({
       args: {},

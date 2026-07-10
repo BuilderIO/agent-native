@@ -137,6 +137,50 @@ describe("write-local-file", () => {
     expect(body.expectedVersionHash).toBe("123-456");
   });
 
+  it("enforces and forwards the exact-hash contract for semantic source edits", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "src/App.tsx",
+        patch: { search: "old", replace: "new" },
+        requireExpectedVersionHash: true,
+      }),
+    ).rejects.toThrow(/expectedVersionHash is required/);
+    expect(fetch).not.toHaveBeenCalled();
+
+    const exactHash = "a".repeat(64);
+    await action.run({
+      designId: "design_1",
+      connectionId: "conn_1",
+      relPath: "src/App.tsx",
+      patch: { search: "old", replace: "new" },
+      expectedVersionHash: exactHash,
+      requireExpectedVersionHash: true,
+    });
+
+    const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    expect(JSON.parse(call[1].body as string)).toMatchObject({
+      expectedVersionHash: exactHash,
+      requireExpectedVersionHash: true,
+    });
+  });
+
+  it("rejects legacy stat hashes for the exact-hash contract", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "src/App.tsx",
+        patch: { search: "old", replace: "new" },
+        expectedVersionHash: "123-456",
+        requireExpectedVersionHash: true,
+      }),
+    ).rejects.toThrow(/SHA-256 expectedVersionHash/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("throws a version-conflict error on a 409 from the bridge", async () => {
     vi.stubGlobal(
       "fetch",

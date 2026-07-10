@@ -2,12 +2,12 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
   normalizeImportedHtmlDocument,
   resolveImportDesignId,
   saveImportedDesignFiles,
 } from "../server/lib/import-design-files.js";
-import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 
 const MAX_HTML_IMPORT_BYTES = 2 * 1024 * 1024;
 
@@ -62,38 +62,11 @@ export default defineAction({
       };
     }
 
-    const parsed = parseVisibleClipboardHtml(content);
-    if (!parsed.fallbackHtml) {
-      throw new Error(
-        "No visible HTML was found in the clipboard. Copy a frame, then paste into the canvas.",
-      );
-    }
-    const saved = await saveImportedDesignFiles({
+    return saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
-      sourceType: "figma-paste-html",
-      files: [
-        {
-          filename: baseFilename(originalName, "figma-paste"),
-          fileType: "html",
-          content: normalizeImportedHtmlDocument(
-            parsed.fallbackHtml,
-            "visible clipboard HTML",
-          ),
-          source: {
-            sourceType: "figma-paste-html",
-          },
-        },
-      ],
+      clipboardHtml: content,
+      originalName,
     });
-    return {
-      ...saved,
-      stats: {
-        sourceKind: "figma-paste",
-        format: "html",
-        frameCount: saved.files.length,
-        imageCount: 0,
-      },
-    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

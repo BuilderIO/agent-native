@@ -128,6 +128,7 @@ type SourceMetadataRecord = {
   lastReadPartial?: boolean;
   lastReadHasMore?: boolean;
   lastReadNextOffset?: number;
+  lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
   sourceFetchState?: "idle" | "fetching" | "error" | string;
   allowDraftWrites?: boolean;
@@ -335,6 +336,48 @@ const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
 ]);
+
+const SOURCE_VALUES_JSON_COLUMN =
+  '"content_database_source_rows"."source_values_json"';
+
+export function sourceSnapshotValuesJsonProjectionSql(dialect: Dialect) {
+  const keys = Array.from(HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS);
+  if (dialect === "postgres") {
+    return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
+      .map((key) => ` - '${key}'`)
+      .join("")})::text, '{}')`;
+  }
+  const paths = keys.map((key) => `'$."${key}"'`);
+  return `COALESCE(json_remove(${SOURCE_VALUES_JSON_COLUMN}, ${paths.join(", ")}), '{}')`;
+}
+
+function sourceSnapshotRowSelection(args: {
+  stripHeavyBuilderBodyValues: boolean;
+}) {
+  const row = schema.contentDatabaseSourceRows;
+  return {
+    id: row.id,
+    ownerEmail: row.ownerEmail,
+    sourceId: row.sourceId,
+    databaseItemId: row.databaseItemId,
+    documentId: row.documentId,
+    sourceRowId: row.sourceRowId,
+    sourceQualifiedId: row.sourceQualifiedId,
+    sourceDisplayKey: row.sourceDisplayKey,
+    sourceValuesJson: args.stripHeavyBuilderBodyValues
+      ? sql<string>`${sql.raw(
+          sourceSnapshotValuesJsonProjectionSql(getDialect()),
+        )}`
+      : row.sourceValuesJson,
+    provenance: row.provenance,
+    syncState: row.syncState,
+    freshness: row.freshness,
+    lastSyncedAt: row.lastSyncedAt,
+    lastSourceUpdatedAt: row.lastSourceUpdatedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 export function sourceValuesForSnapshot(
   sourceValues: Record<string, DocumentPropertyValue>,
@@ -2389,10 +2432,16 @@ async function readSourceSnapshotRowsOnce(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   const db = getDb();
   const rowRows = await db
-    .select()
+    .select(
+      sourceSnapshotRowSelection({
+        stripHeavyBuilderBodyValues:
+          args.isBuilderSource && !args.includeHeavyBuilderBodyValues,
+      }),
+    )
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
@@ -2467,6 +2516,7 @@ async function sourceSnapshotConsistencyMarker(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   const db = getDb();
   const [rows] = await db
@@ -2518,6 +2568,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   let latest: Awaited<ReturnType<typeof readSourceSnapshotRowsOnce>> | null =
     null;
@@ -2616,6 +2667,7 @@ async function loadSourceSnapshot(
     source,
     database,
     isBuilderSource,
+    includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
   });
   const rows = rowRows.map((row) =>
     serializeSourceRowRecord(row, {
@@ -2722,7 +2774,7 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceBodyChange
   >();
-  if (isBuilderSource) {
+  if (isBuilderSource && options.includeHeavyBuilderBodyValues) {
     const sourceRowByDocumentId = new Map(
       rowRows.map((row) => [row.documentId, row]),
     );
@@ -2859,6 +2911,10 @@ async function loadSourceSnapshot(
       lastReadNextOffset:
         typeof metadata.lastReadNextOffset === "number"
           ? metadata.lastReadNextOffset
+          : undefined,
+      lastReadSuspiciousEmpty:
+        typeof metadata.lastReadSuspiciousEmpty === "boolean"
+          ? metadata.lastReadSuspiciousEmpty
           : undefined,
       sourceFetchState:
         metadata.sourceFetchState === "idle" ||
@@ -3019,6 +3075,7 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
+  suspiciousEmpty?: boolean;
   builderModelFields?: BuilderCmsModelFieldSummary[];
   existingMetadataJson?: string | null;
 }) {
@@ -3038,7 +3095,10 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     lastReadPartial: args.progress?.partial,
     lastReadHasMore: args.progress?.hasMore,
     lastReadNextOffset: args.progress?.nextOffset,
-    activeReadSourceRowIds: args.activeReadSourceRowIds,
+    lastReadSuspiciousEmpty: args.suspiciousEmpty === true,
+    activeReadSourceRowIds: args.suspiciousEmpty
+      ? []
+      : args.activeReadSourceRowIds,
     sourceFetchState:
       args.sourceFetchState ??
       (args.progress?.partial
@@ -3122,6 +3182,11 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  const existingBuilderFieldByPropertyId = new Map(
+    (args.existingFields ?? [])
+      .filter((field) => isBuilder && field.propertyId)
+      .map((field) => [field.propertyId!, field]),
+  );
   const rows = [
     {
       id: crypto.randomUUID(),
@@ -3224,10 +3289,12 @@ export async function seedMockSourceFields(args: {
         propertyId: property.definition.id,
         localFieldKey: property.definition.id,
         sourceFieldKey: isBuilder
-          ? builderCmsSourceFieldKey(
+          ? (existingBuilderFieldByPropertyId.get(property.definition.id)
+              ?.sourceFieldKey ??
+            builderCmsSourceFieldKey(
               property.definition.id,
               property.definition.name,
-            )
+            ))
           : `fields.${slugifySourceField(property.definition.name)}`,
         sourceFieldLabel: property.definition.name,
         sourceFieldType: property.definition.type,
@@ -3259,15 +3326,19 @@ export async function seedMockSourceFields(args: {
         updatedAt: args.now,
       })),
   ];
+  const sourceFieldIdentityKey = (sourceFieldKey: string) => {
+    const trimmed = sourceFieldKey.trim();
+    return isBuilder ? trimmed : trimmed.toLowerCase();
+  };
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
-      rows.map((row) => row.sourceFieldKey.trim().toLowerCase()),
+      rows.map((row) => sourceFieldIdentityKey(row.sourceFieldKey)),
     );
     for (const field of args.builderModelFields ?? []) {
       const fieldName = field.name.trim();
       if (!fieldName) continue;
       const sourceFieldKey = `data.${fieldName}`;
-      const normalizedKey = sourceFieldKey.toLowerCase();
+      const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
       if (existingSourceFieldKeys.has(normalizedKey)) continue;
       existingSourceFieldKeys.add(normalizedKey);
       rows.push({
@@ -3292,7 +3363,7 @@ export async function seedMockSourceFields(args: {
     for (const entry of args.builderSampleEntries ?? []) {
       for (const sourceFieldKey of Object.keys(entry.sourceValues)) {
         if (!sourceFieldKey.startsWith("data.")) continue;
-        const normalizedKey = sourceFieldKey.toLowerCase();
+        const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
         if (existingSourceFieldKeys.has(normalizedKey)) continue;
         existingSourceFieldKeys.add(normalizedKey);
         const value = entry.sourceValues[sourceFieldKey];
@@ -3329,13 +3400,13 @@ export async function seedMockSourceFields(args: {
 
   const existingFieldBySourceKey = new Map(
     (args.existingFields ?? []).map((field) => [
-      field.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(field.sourceFieldKey),
       field,
     ]),
   );
   const mergedRows = rows.map((row) => {
     const existing = existingFieldBySourceKey.get(
-      row.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(row.sourceFieldKey),
     );
     if (!existing) return row;
     return {
@@ -4152,8 +4223,33 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     sourceMetadata.lastReadNextOffset > 0
       ? sourceMetadata.lastReadNextOffset
       : 0;
+  const existingFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+  let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
+  let builderModelFieldsReadFailed = false;
+  try {
+    builderModelFields = await readBuilderCmsModelFields({
+      model: args.source.sourceTable,
+    });
+  } catch (error) {
+    builderModelFieldsReadFailed = true;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
+    );
+  }
+  const projectionModelFields =
+    builderModelFields && builderModelFields.length > 0
+      ? builderModelFields
+      : (sourceMetadata.builderModelFields ?? []);
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
+    fieldPaths: [
+      ...existingFields.map((field) => field.sourceFieldKey),
+      ...projectionModelFields.map((field) => `data.${field.name}`),
+    ],
     maxPages: args.runFullRefresh
       ? undefined
       : BUILDER_CMS_REFRESH_INITIAL_PAGES,
@@ -4170,15 +4266,41 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const readStartOffset = builderRead.progress?.startOffset ?? 0;
+  const activeReadSourceRowIdSet = new Set(activeReadSourceRowIds);
+  const suspiciousEmptyRead =
+    builderRead.state === "live" &&
+    builderRead.entries.length === 0 &&
+    existingRows.length > 0 &&
+    (readStartOffset === 0 ||
+      existingRows.some(
+        (row) => !activeReadSourceRowIdSet.has(row.sourceRowId),
+      ));
+  if (suspiciousEmptyRead) {
+    const message =
+      "Builder CMS returned no entries for a source with existing rows. The previous snapshot was preserved; retry the refresh before treating the source as empty.";
+    await updateBuilderCmsSourceReadMetadata({
+      sourceId: args.source.id,
+      sourceTable: args.source.sourceTable,
+      readState: builderRead.state,
+      entryCount: builderRead.entries.length,
+      matchedRowCount: 0,
+      fetchedAt: builderRead.fetchedAt,
+      now: args.now,
+      message,
+      builderModelFields,
+      progress: builderRead.progress,
+      sourceFetchState: "error",
+      syncState: "error",
+      suspiciousEmpty: true,
+    });
+    return;
+  }
   await enqueueEmptyHydratedBuilderBodiesFromStoredRows({
     source: args.source,
     now: args.now,
   });
   let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
-  const existingFields = await db
-    .select()
-    .from(schema.contentDatabaseSourceFields)
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   if (builderRead.state === "live") {
     const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
@@ -4195,19 +4317,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
     }
-  }
-  let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
-  let builderModelFieldsReadFailed = false;
-  try {
-    builderModelFields = await readBuilderCmsModelFields({
-      model: args.source.sourceTable,
-    });
-  } catch (error) {
-    builderModelFieldsReadFailed = true;
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
-    );
   }
   const builderEntriesByDocumentId =
     builderRead.state === "live"
@@ -4797,12 +4906,14 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   activeReadSourceRowIds?: string[];
   syncState?: ContentDatabaseSourceSyncState;
   builderModelFields?: BuilderCmsModelFieldSummary[];
+  suspiciousEmpty?: boolean;
 }) {
   const db = getDb();
   const [currentSource] = await db
     .select({
       capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
       metadataJson: schema.contentDatabaseSources.metadataJson,
+      lastSourceUpdatedAt: schema.contentDatabaseSources.lastSourceUpdatedAt,
     })
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, args.sourceId))
@@ -4820,6 +4931,7 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
       progress: args.progress,
       sourceFetchState: args.sourceFetchState,
       activeReadSourceRowIds: args.activeReadSourceRowIds,
+      suspiciousEmpty: args.suspiciousEmpty,
       builderModelFields: args.builderModelFields,
       existingMetadataJson: currentSource?.metadataJson,
     }),
@@ -4829,14 +4941,21 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
     .set({
       syncState: args.syncState ?? "linked",
       freshness:
-        args.readState === "error" || args.progress?.partial
+        args.readState === "error" ||
+        args.progress?.partial ||
+        args.suspiciousEmpty
           ? "stale"
           : "fresh",
       capabilitiesJson: nextJson.capabilitiesJson,
       metadataJson: nextJson.metadataJson,
       lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.fetchedAt,
-      lastError: args.readState === "error" ? args.message : null,
+      lastSourceUpdatedAt: args.suspiciousEmpty
+        ? (currentSource?.lastSourceUpdatedAt ?? null)
+        : args.fetchedAt,
+      lastError:
+        args.readState === "error" || args.suspiciousEmpty
+          ? args.message
+          : null,
       updatedAt: args.now,
     })
     .where(eq(schema.contentDatabaseSources.id, args.sourceId));

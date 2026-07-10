@@ -19,6 +19,7 @@ import {
   IconBolt,
   IconChevronDown,
   IconChevronUp,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -56,6 +57,9 @@ export interface TranscriptPanelProps {
   recordingTitle?: string;
   /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
+  /** Called when the user asks for a fresh transcript from the recording media. */
+  onRegenerate?: () => void;
+  isRegenerating?: boolean;
 }
 
 export function TranscriptPanel(props: TranscriptPanelProps) {
@@ -71,6 +75,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     cleanup,
     recordingTitle,
     onRetry,
+    onRegenerate,
+    isRegenerating = false,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -170,8 +176,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </p>
         </div>
         {onRetry ? (
-          <Button size="sm" variant="outline" onClick={onRetry}>
-            {t("transcriptPanel.retry")}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onRetry}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <IconLoader2 className="size-4 animate-spin" />
+            ) : null}
+            {isRegenerating
+              ? t("transcriptPanel.transcribing")
+              : t("transcriptPanel.regenerate")}
           </Button>
         ) : null}
       </div>
@@ -188,8 +204,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
         <div className="flex items-center gap-2">
           {onRetry ? (
-            <Button size="sm" variant="outline" onClick={onRetry}>
-              {t("transcriptPanel.retry")}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : null}
+              {isRegenerating
+                ? t("transcriptPanel.transcribing")
+                : t("transcriptPanel.regenerate")}
             </Button>
           ) : null}
         </div>
@@ -229,6 +255,24 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </TooltipTrigger>
           <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
         </Tooltip>
+        {onRegenerate ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+                aria-label={t("transcriptPanel.regenerate")}
+              >
+                <IconRefresh
+                  className={cn("h-4 w-4", isRegenerating && "animate-spin")}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("transcriptPanel.regenerate")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
 
       {cleanup?.status === "running" ? (
@@ -261,14 +305,24 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               const isActive = displaySegments[activeIndex] === seg;
               return (
                 <li key={seg.startMs}>
-                  <button
-                    onClick={() => onSeek(seg.startMs)}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      if (hasSelectionWithin(event.currentTarget)) return;
+                      onSeek(seg.startMs);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onSeek(seg.startMs);
+                    }}
                     className={cn(
-                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50",
+                      "flex w-full cursor-pointer items-start gap-3 px-3 py-2 text-left hover:bg-accent/50",
                       isActive && "bg-accent",
                     )}
                   >
-                    <span className="text-[11px] text-muted-foreground font-mono tabular-nums pt-0.5 shrink-0">
+                    <span className="shrink-0 pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                       {msToClock(seg.startMs)}
                     </span>
                     <span
@@ -280,7 +334,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                         __html: highlight(seg.text, query),
                       }}
                     />
-                  </button>
+                  </div>
                 </li>
               );
             })}
@@ -288,6 +342,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         )}
       </div>
     </div>
+  );
+}
+
+function hasSelectionWithin(element: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    return false;
+  }
+  const { anchorNode, focusNode } = selection;
+  return Boolean(
+    (anchorNode && element.contains(anchorNode)) ||
+    (focusNode && element.contains(focusNode)),
   );
 }
 

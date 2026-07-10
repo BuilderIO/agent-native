@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelAgentChatSubmit,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   sendToAgentChat,
@@ -917,6 +918,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Sent before mount",
       undefined,
+      { submitMessageId: expect.any(String) },
     );
   });
 
@@ -939,7 +941,31 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Once only",
       undefined,
+      { submitMessageId: "dup-1" },
     );
+  });
+
+  it("drops a pending delivery after its confirmation times out", async () => {
+    threadMocks.activeThreadId = "";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Never deliver late",
+        submitMessageId: "cancelled-submit",
+      });
+    });
+    cancelAgentChatSubmit("cancelled-submit");
+
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it("replays an open-thread request sent before the lazy panel mounted", async () => {

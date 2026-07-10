@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
 import {
+  flushNotionDocumentEditor,
   getNotionDocumentOwner,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
@@ -26,6 +27,7 @@ export default defineAction({
     }
 
     const owner = await getNotionDocumentOwner(documentId);
+    await flushNotionDocumentEditor(documentId, owner);
     return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
   },
 });

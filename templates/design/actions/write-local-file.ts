@@ -60,6 +60,7 @@ const ALLOWED_EXTENSIONS = new Set([
   ".yaml",
   ".svg",
 ]);
+const SHA256_VERSION_HASH = /^[a-f0-9]{64}$/i;
 
 /**
  * Secret-looking paths are never writable, regardless of extension. All
@@ -207,6 +208,14 @@ export default defineAction({
           "version-conflict error if the file changed on disk since that " +
           "hash was read.",
       ),
+    requireExpectedVersionHash: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for semantic/compiled-source edits. The bridge rejects the " +
+          "write unless expectedVersionHash is present and still exact. Leave " +
+          "false only for legacy writes or deliberate new-file creation.",
+      ),
   }),
   run: async ({
     designId,
@@ -215,6 +224,7 @@ export default defineAction({
     content,
     patch,
     expectedVersionHash,
+    requireExpectedVersionHash,
   }) => {
     // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
@@ -244,6 +254,14 @@ export default defineAction({
     if (content !== undefined && patch !== undefined) {
       throw new Error(
         "content and patch are mutually exclusive. Provide one or the other.",
+      );
+    }
+    if (
+      requireExpectedVersionHash &&
+      (!expectedVersionHash || !SHA256_VERSION_HASH.test(expectedVersionHash))
+    ) {
+      throw new Error(
+        "A SHA-256 expectedVersionHash is required when requireExpectedVersionHash is true. Re-read the file through the current local Design bridge before retrying.",
       );
     }
 
@@ -289,7 +307,12 @@ export default defineAction({
       const res = await fetch(`${bridgeUrl}/write-file`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ relPath, content, expectedVersionHash }),
+        body: JSON.stringify({
+          relPath,
+          content,
+          expectedVersionHash,
+          requireExpectedVersionHash,
+        }),
       });
       if (!res.ok) {
         if (res.status === 409) {
@@ -321,6 +344,7 @@ export default defineAction({
           search: patch!.search,
           replace: patch!.replace,
           expectedVersionHash,
+          requireExpectedVersionHash,
         }),
       });
       if (!applyRes.ok) {

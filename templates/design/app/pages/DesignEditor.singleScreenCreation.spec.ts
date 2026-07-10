@@ -313,6 +313,38 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
     });
   });
 
+  it("round-trips an asymmetric cusp node (handleOut only, no handleIn) in the middle of an open path", () => {
+    // The cusp's incoming segment renders as a straight "L" (its handleIn is
+    // absent) while its outgoing segment renders as a curve "C" (it has a
+    // handleOut) — the reconstructed node must come back with exactly that
+    // one-sided handle shape, not gain a phantom handleIn nor lose the
+    // handleOut.
+    const cusp = createSmoothNode(
+      { x: 50, y: 50 },
+      { x: 90, y: 30 },
+      { breakSymmetry: true },
+    );
+    expect(cusp.handleIn).toBeUndefined();
+    expect(cusp.handleOut).toEqual({ x: 90, y: 30 });
+
+    const path: PenPath = {
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        cusp,
+        createCornerNode({ x: 150, y: 20 }),
+      ],
+      closed: false,
+    };
+    const d = serializePenPath(path);
+    expect(d).toContain(" L 50 50 C ");
+
+    const parsed = parsePenPathFromSerializedD(d);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.nodes[1].handleIn).toBeUndefined();
+    expect(parsed!.nodes[1].handleOut).toEqual({ x: 90, y: 30 });
+    expect(serializePenPath(parsed!)).toBe(d);
+  });
+
   it("returns null for empty input", () => {
     expect(parsePenPathFromSerializedD("")).toBeNull();
     expect(parsePenPathFromSerializedD("   ")).toBeNull();

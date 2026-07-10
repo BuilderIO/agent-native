@@ -16,7 +16,9 @@ import {
   readSeedDesignId,
 } from "./helpers";
 
-const AUTH_STATE_PATH = path.join(import.meta.dirname, ".auth", "state.json");
+const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
+  ? path.join(path.resolve(process.env.E2E_AUTH_DIR), "state.json")
+  : path.join(import.meta.dirname, ".auth", "state.json");
 const BASE_URL =
   process.env.E2E_BASE_URL ??
   `http://127.0.0.1:${Number(process.env.E2E_PORT ?? 9333)}`;
@@ -68,7 +70,7 @@ test.describe.serial("public visual edit", () => {
 
       await signedOut.page.keyboard.press(SHORTCUT);
       await expect(
-        signedOut.page.locator('[role="dialog"]:visible'),
+        signedOut.page.getByRole("dialog").filter({ visible: true }),
       ).toHaveCount(0);
       await assertNoRuntimeErrors(signedOut);
     } finally {
@@ -96,6 +98,63 @@ test.describe.serial("public visual edit", () => {
       await expect(
         designFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
+      const publicIframe = signedOut.page
+        .locator("iframe[data-design-preview-iframe]")
+        .last();
+      await expect(publicIframe).toBeVisible();
+      await publicIframe.evaluate((element) => {
+        const frame = element as HTMLIFrameElement & {
+          __publicReadOnlyLoadCount?: number;
+        };
+        frame.dataset.publicReadOnlyIdentity = "stable-public-preview";
+        frame.__publicReadOnlyLoadCount = 0;
+        frame.addEventListener("load", () => {
+          frame.__publicReadOnlyLoadCount =
+            (frame.__publicReadOnlyLoadCount ?? 0) + 1;
+        });
+      });
+      await designFrame(signedOut.page)
+        .locator("body")
+        .evaluate(() => {
+          (window as any).__publicReadOnlyDocumentMarker =
+            "stable-public-document";
+        });
+      const expectStablePublicPreview = async () => {
+        await expect
+          .poll(async () => {
+            const iframeState = await publicIframe.evaluate((element) => {
+              const frame = element as HTMLIFrameElement & {
+                __publicReadOnlyLoadCount?: number;
+              };
+              const style = getComputedStyle(frame);
+              const rect = frame.getBoundingClientRect();
+              return {
+                identity: frame.dataset.publicReadOnlyIdentity ?? null,
+                loads: frame.__publicReadOnlyLoadCount ?? -1,
+                visible:
+                  frame.isConnected &&
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  Number(style.opacity) !== 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0,
+              };
+            });
+            const documentMarker = await designFrame(signedOut.page)
+              .locator("body")
+              .evaluate(
+                () => (window as any).__publicReadOnlyDocumentMarker ?? null,
+              )
+              .catch(() => null);
+            return { ...iframeState, documentMarker };
+          })
+          .toEqual({
+            identity: "stable-public-preview",
+            documentMarker: "stable-public-document",
+            loads: 0,
+            visible: true,
+          });
+      };
       await expect(
         signedOut.page
           .getByRole("button")
@@ -136,11 +195,13 @@ test.describe.serial("public visual edit", () => {
       await expect(
         designFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
+      await expectStablePublicPreview();
 
       await signedOut.page.keyboard.press(SHORTCUT);
       await expect(
-        signedOut.page.locator('[role="dialog"]:visible'),
+        signedOut.page.getByRole("dialog").filter({ visible: true }),
       ).toHaveCount(0);
+      await expectStablePublicPreview();
       await assertNoRuntimeErrors(signedOut);
     } finally {
       await signedOut.close();
@@ -187,7 +248,11 @@ async function setDesignVisibility(
         },
       },
     );
-    expect(response.ok()).toBeTruthy();
+    if (!response.ok()) {
+      throw new Error(
+        `set-resource-visibility(${visibility}) failed: ${response.status()} ${await response.text()}`,
+      );
+    }
     const body = (await response.json()) as {
       visibility?: string;
       ok?: boolean;

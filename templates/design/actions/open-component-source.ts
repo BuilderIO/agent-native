@@ -18,8 +18,8 @@
  * to open.
  *
  * Navigation is written via `writeAppState("navigate", ...)` — the same
- * mechanism used by the `navigate` action — so the caller can trigger UI
- * navigation without a round-trip.
+ * mechanism used by the `navigate` action. Because this writes transient
+ * application state, the action uses the default POST mutation transport.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1 (jump-to-source) and §7 (action surface).
  */
@@ -80,8 +80,6 @@ export default defineAction({
       .optional()
       .describe("Design file id; defaults to index.html"),
   }),
-  readOnly: true,
-  http: { method: "GET" },
   run: async ({ designId, nodeId, fileId }) => {
     const db = getDb();
 

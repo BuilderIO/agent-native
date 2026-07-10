@@ -579,7 +579,10 @@ class CollabDocConnection {
     this.awareness.setLocalStateField("visible", !isDocumentHidden());
   }
 
-  private handleAwarenessChange = (): void => {
+  private handleAwarenessChange = (
+    _changes?: { added: number[]; updated: number[]; removed: number[] },
+    origin?: unknown,
+  ): void => {
     const users: CollabUser[] = [];
     let hasAgent = false;
     this.awareness.getStates().forEach((state, clientId) => {
@@ -616,12 +619,20 @@ class CollabDocConnection {
       this.setSnapshot({ activeUsers, agentPresent: hasAgent });
     }
 
-    // Fast awareness push: whenever awareness changes (e.g. cursor moves,
-    // setPresence() calls), schedule a throttled POST so peers receive updates
-    // at ~150ms instead of waiting for the next poll cycle. Only active once a
+    // Fast awareness push: whenever OUR OWN awareness state changes (e.g.
+    // cursor moves, setPresence() calls), schedule a throttled POST so peers
+    // receive updates at ~150ms instead of waiting for the next poll cycle.
+    // Gated on origin === "local": this listener also fires for remote
+    // awareness changes (poll/SSE call `awareness.emit("change", [changes,
+    // "remote"])` after reconciling incoming states — see
+    // applyAwarenessEvent/poll above). Without the origin check, every
+    // peer's cursor move would also re-trigger THIS client to re-broadcast
+    // its own unchanged state, turning one person moving their mouse into
+    // O(n) redundant POSTs from every other connected client (an awareness
+    // storm that gets worse as more people join the doc). Only active once a
     // local user identity has been published (matches the previous per-hook
     // gating on `user`). The poll cycle remains the authoritative baseline.
-    if (this.lastSetUser && !this.disposed) {
+    if (this.lastSetUser && origin === "local" && !this.disposed) {
       scheduleAwarenessPush(
         this.baseUrl,
         this.docId,

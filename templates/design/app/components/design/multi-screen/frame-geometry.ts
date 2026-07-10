@@ -18,6 +18,59 @@ export interface ScreenViewportSize {
   height: number;
 }
 
+/** Canonical bottom-to-top screen stack. Persisted frame `z` wins; screens
+ * without one retain their source order, which is also the canvas DOM paint
+ * order. This is shared by the overview canvas and Layers projection so the
+ * two surfaces can never disagree about which screen is above another. */
+export function getCanonicalScreenStack(
+  screens: ReadonlyArray<{ id: string }>,
+  geometryById: Record<string, Partial<FrameGeometry> | undefined>,
+): string[] {
+  return screens
+    .map((screen, index) => ({
+      id: screen.id,
+      index,
+      z: Number.isFinite(geometryById[screen.id]?.z)
+        ? geometryById[screen.id]!.z!
+        : index,
+    }))
+    .sort((a, b) => a.z - b.z || a.index - b.index)
+    .map(({ id }) => id);
+}
+
+/** Reorders a canonical bottom-to-top stack using DOM placement semantics:
+ * `before` paints below the target and `after` paints above it. `inside` is
+ * not a screen-stack operation (it remains the layer-into-screen drop path). */
+export function reorderCanonicalScreenStack(args: {
+  orderedIds: readonly string[];
+  draggedIds: readonly string[];
+  targetId: string;
+  placement: "before" | "after" | "inside";
+}): string[] | null {
+  if (args.placement === "inside") return null;
+  const orderedIds = Array.from(new Set(args.orderedIds));
+  const orderedIdSet = new Set(orderedIds);
+  if (!orderedIdSet.has(args.targetId)) return null;
+  const draggedIdSet = new Set(
+    args.draggedIds.filter(
+      (id) => orderedIdSet.has(id) && id !== args.targetId,
+    ),
+  );
+  if (draggedIdSet.size === 0) return null;
+  const moving = orderedIds.filter((id) => draggedIdSet.has(id));
+  const remaining = orderedIds.filter((id) => !draggedIdSet.has(id));
+  const targetIndex = remaining.indexOf(args.targetId);
+  if (targetIndex < 0) return null;
+  const insertionIndex =
+    args.placement === "before" ? targetIndex : targetIndex + 1;
+  const next = [
+    ...remaining.slice(0, insertionIndex),
+    ...moving,
+    ...remaining.slice(insertionIndex),
+  ];
+  return next.every((id, index) => id === orderedIds[index]) ? null : next;
+}
+
 export function getBreakpointFrameGeometry(args: {
   widthPx: number;
   naturalAspect: number;

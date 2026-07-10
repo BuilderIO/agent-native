@@ -2,7 +2,6 @@
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
-import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
@@ -35,6 +34,56 @@ function nanoid(size = 12): string {
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
   const bytes = crypto.randomBytes(size);
   return Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+}
+
+async function replaceDocumentFromExternal(args: {
+  document: DocumentRow;
+  expectedUpdatedAt: string;
+  title: string;
+  content: string;
+  icon: string | null;
+  updatedAt: string;
+}): Promise<boolean> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const applied = await tx
+      .update(schema.documents)
+      .set({
+        title: args.title,
+        content: args.content,
+        icon: args.icon,
+        updatedAt: args.updatedAt,
+      })
+      .where(
+        and(
+          eq(schema.documents.id, args.document.id),
+          eq(schema.documents.ownerEmail, args.document.ownerEmail),
+          eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+        ),
+      )
+      .returning({ id: schema.documents.id });
+
+    if (!applied || applied.length === 0) return false;
+
+    if (
+      args.title !== args.document.title ||
+      args.content !== args.document.content
+    ) {
+      // Keep the recovery snapshot in the same transaction as the replacement:
+      // a lost CAS creates no phantom version, and a snapshot failure rolls the
+      // destructive replacement back instead of leaving it unrecoverable.
+      await tx.insert(schema.documentVersions).values({
+        id: nanoid(),
+        ownerEmail: args.document.ownerEmail,
+        documentId: args.document.id,
+        title: args.document.title,
+        content: args.document.content,
+        createdAt: nowIso(),
+      });
+    }
+
+    return true;
+  });
 }
 
 /**
@@ -827,8 +876,6 @@ async function pullDocumentFromNotionInner(
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
   },
 ): Promise<DocumentSyncStatus> {
-  const db = getDb();
-  const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
   const connection = await getNotionConnectionForOwner(owner);
@@ -935,28 +982,18 @@ async function pullDocumentFromNotionInner(
   // check will mistake the unchanged document for a fresh local edit.
   const updatedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
   if (contentChanged) {
-    // Compare-and-swap: only apply the pulled content if the row is still at
-    // the snapshot we just re-read. If a concurrent save landed in between,
-    // 0 rows match and we fall through to the conflict path instead of
-    // clobbering the newer local write.
-    const applied = await db
-      .update(schema.documents)
-      .set({
-        title: newTitle,
-        content: newContent,
-        icon: newIcon,
-        updatedAt,
-      })
-      .where(
-        and(
-          eq(schema.documents.id, documentId),
-          eq(schema.documents.ownerEmail, owner),
-          eq(schema.documents.updatedAt, freshDocument.updatedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
+    // Snapshot + compare-and-swap are one transaction: only the winning
+    // replacement gets a recovery version, and snapshot failure rolls it back.
+    const applied = await replaceDocumentFromExternal({
+      document: freshDocument,
+      expectedUpdatedAt: freshDocument.updatedAt,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt,
+    });
 
-    if (!applied || applied.length === 0) {
+    if (!applied) {
       // A newer local save raced in after our re-read. Do not adopt the
       // pulled content or advance the hash baseline — surface a conflict so
       // the user resolves it explicitly instead of silently losing the edit.
@@ -986,16 +1023,10 @@ async function pullDocumentFromNotionInner(
       });
     }
 
-    // Reset the Yjs collaborative state so it no longer holds the pre-sync
-    // content. Connected clients re-seed their Y.XmlFragment from the new
-    // `documents.content` value via VisualEditor's content-sync effect, and
-    // a fresh page load starts from an empty server state and seeds from SQL.
-    try {
-      await deleteCollabState(documentId);
-      releaseDoc(documentId);
-    } catch {
-      // Non-fatal — the client-side sync will still reconcile via setContent.
-    }
+    // Keep the Y.Doc intact. The live editor's updatedAt-gated reconcile applies
+    // this authoritative SQL snapshot as a minimal Yjs transaction. Deleting
+    // collab state here races connected clients (which can re-persist the stale
+    // pre-pull state) and briefly makes later flush handshakes miss the editor.
   }
 
   await upsertSyncLink({
@@ -1193,7 +1224,6 @@ async function pushDocumentToNotionInner(
   // the rare case Notion normalizes a construct differently, immediately
   // converging instead of ping-ponging. Re-read the row first so a local save
   // that landed during the multi-round-trip push isn't clobbered below.
-  const db = getDb();
   const freshDocument = await getDocument(documentId, owner);
   const newContent = remote.content ?? document.content;
   const newTitle = remote.title || document.title;
@@ -1211,39 +1241,25 @@ async function pushDocumentToNotionInner(
   // exactly what we pushed, since contentChanged is false).
   let baselineContent = document.content;
   if (contentChanged) {
-    // Compare-and-swap against the pre-push snapshot: if a concurrent save
-    // changed the row since `document` was read, skip adopting Notion's
-    // normalized content so the newer local edit is never overwritten. The
-    // hash baseline is still advanced to the *pushed* content below so the
-    // concurrent edit continues to show as localChanged and gets re-pushed on
-    // the next sync cycle.
-    const applied = await db
-      .update(schema.documents)
-      .set({
-        title: newTitle,
-        content: newContent,
-        icon: newIcon,
-        updatedAt: pushedAt,
-      })
-      .where(
-        and(
-          eq(schema.documents.id, documentId),
-          eq(schema.documents.ownerEmail, owner),
-          eq(schema.documents.updatedAt, document.updatedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
+    // Snapshot + compare-and-swap are atomic. If a concurrent save changed the
+    // row since `document` was read, skip both the provider readback adoption
+    // and its recovery version; the newer local edit remains localChanged.
+    const applied = await replaceDocumentFromExternal({
+      document: freshDocument,
+      expectedUpdatedAt: document.updatedAt,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt: pushedAt,
+    });
 
-    if (applied && applied.length > 0) {
+    if (applied) {
       // The CAS landed — the row now holds Notion's normalized readback, so
       // the baseline must match that, not the pre-push content we sent.
       baselineContent = newContent;
-      try {
-        await deleteCollabState(documentId);
-        releaseDoc(documentId);
-      } catch {
-        // Non-fatal — the client reconciles via setContent.
-      }
+      // Preserve the live Y.Doc and let the updatedAt-gated editor reconcile
+      // apply this provider-normalized snapshot. Clearing collab persistence
+      // here can race a connected client's stale update and resurrect it.
     }
     // else: CAS raced and lost — the row holds the concurrent edit's content,
     // not `newContent` and not `document.content`. Keep baselineContent as

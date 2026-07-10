@@ -306,11 +306,41 @@ export function bridgeSourceIdForCodeLayerNode(node: CodeLayerNode): string {
   );
 }
 
+function positiveIntegerDataAttribute(
+  value: string | undefined,
+): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function provenanceForCodeLayerNode(
+  node: CodeLayerNode,
+): ElementInfo["provenance"] {
+  const sourceFile = node.dataAttributes["data-source-file"]?.trim();
+  const line = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-line"],
+  );
+  const column = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-column"],
+  );
+  const component = node.dataAttributes["data-component-name"]?.trim();
+  if (!sourceFile && !line && !column && !component) return undefined;
+  return {
+    ...(sourceFile ? { sourceFile } : {}),
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+    ...(component ? { component } : {}),
+  };
+}
+
 export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
+    provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
     computedStyles: Object.fromEntries(
@@ -347,15 +377,83 @@ export function cssStyleAliases(
   return result;
 }
 
+// BUG-UNDO-RESIZE-GEOMETRY: width/height are the two computedStyles keys the
+// Layout panel's W/H fields actually read (edit-panel/element-classification.ts's
+// cssElementSize parses element.computedStyles.width/height first, falling
+// back to boundingRect only when that's missing/unparseable). Every other
+// computedStyles property is fine to carry over additively when the fresh
+// (reverted/replayed) source doesn't mention it — most style properties come
+// from a CSS class the string-parse can't see, so keeping the previously
+// known value is the right default. Width/height are different: an undo or
+// redo of a resize commit is EXACTLY a change to (or removal of) an inline
+// width/height, so a stale carried-over value here isn't just incomplete —
+// it's actively wrong (it's the pre-undo/pre-redo box size).
+const GEOMETRY_STYLE_PROPERTIES = ["width", "height"] as const;
+
 export function refreshedComputedStyles(
   info: ElementInfo,
   sourceStyles: Record<string, string>,
   sourceClasses: readonly string[],
 ): Record<string, string> {
   const sourceWithAliases = cssStyleAliases(sourceStyles);
-  return sourceClasses.length > 0
-    ? { ...info.computedStyles, ...sourceWithAliases }
-    : sourceWithAliases;
+  const merged: Record<string, string> =
+    sourceClasses.length > 0
+      ? { ...info.computedStyles, ...sourceWithAliases }
+      : { ...sourceWithAliases };
+  GEOMETRY_STYLE_PROPERTIES.forEach((property) => {
+    if (!(property in sourceWithAliases)) delete merged[property];
+  });
+  return merged;
+}
+
+/**
+ * Companion to `refreshedComputedStyles` for the same undo/redo/remote-sync
+ * resync path — `ElementInfo.boundingRect` is otherwise left completely
+ * untouched by `refreshElementInfoFromContent` (both its node-match branch,
+ * via `canonicalElementInfoForCodeLayerNode`'s `{...info}` spread, and its
+ * DOM-parse fallback, via its own `{...info}` spread), so it keeps showing
+ * whatever rect was live-measured before the content change. `cssElementSize`
+ * falls back to `boundingRect.width`/`height` whenever computedStyles has no
+ * parseable value for that axis, so a permanently-stale boundingRect can
+ * still surface the pre-undo/redo size even after `refreshedComputedStyles`
+ * is fixed. Reuses the SAME freshly-resolved computedStyles (already merged
+ * above) so both fields agree, instead of re-deriving from a different
+ * source.
+ *
+ * Exported for unit testing.
+ */
+export function refreshedBoundingRectSize(
+  info: ElementInfo,
+  computedStyles: Record<string, string>,
+): ElementInfo["boundingRect"] {
+  const parsedWidth = parseFloat(computedStyles.width ?? "");
+  const parsedHeight = parseFloat(computedStyles.height ?? "");
+  return {
+    ...info.boundingRect,
+    width:
+      Number.isFinite(parsedWidth) && parsedWidth >= 0
+        ? parsedWidth
+        : info.boundingRect.width,
+    height:
+      Number.isFinite(parsedHeight) && parsedHeight >= 0
+        ? parsedHeight
+        : info.boundingRect.height,
+  };
+}
+
+function codeLayerNodeMatchesSourceId(
+  node: CodeLayerNode,
+  sourceId: string,
+): boolean {
+  return (
+    node.id === sourceId ||
+    node.dataAttributes["data-agent-native-node-id"] === sourceId ||
+    node.dataAttributes["data-code-layer-id"] === sourceId ||
+    node.dataAttributes["data-layer-id"] === sourceId ||
+    node.dataAttributes["data-builder-id"] === sourceId ||
+    node.dataAttributes["data-loc"] === sourceId ||
+    node.attributes.id === sourceId
+  );
 }
 
 export function codeLayerNodeMatchesBridgeTarget(
@@ -363,19 +461,7 @@ export function codeLayerNodeMatchesBridgeTarget(
   selector?: string,
   sourceId?: string,
 ): boolean {
-  if (sourceId) {
-    if (node.id === sourceId) return true;
-    if (
-      node.dataAttributes["data-agent-native-node-id"] === sourceId ||
-      node.dataAttributes["data-code-layer-id"] === sourceId ||
-      node.dataAttributes["data-layer-id"] === sourceId ||
-      node.dataAttributes["data-builder-id"] === sourceId ||
-      node.dataAttributes["data-loc"] === sourceId ||
-      node.attributes.id === sourceId
-    ) {
-      return true;
-    }
-  }
+  if (sourceId && codeLayerNodeMatchesSourceId(node, sourceId)) return true;
   return codeLayerSelectorMatches(node, selector);
 }
 
@@ -384,11 +470,34 @@ export function resolveCodeLayerNodeFromBridge(
   selector?: string,
   sourceId?: string,
 ): CodeLayerNode | null {
-  return (
-    projection.nodes.find((node) =>
-      codeLayerNodeMatchesBridgeTarget(node, selector, sourceId),
-    ) ?? null
+  // Id-based match first, across the WHOLE projection (not just up to
+  // whichever node the old combined-predicate `.find()` reached first) — a
+  // sourceId identifies one node by its own stable id/data-attribute, which
+  // is unique in a well-formed projection, so this branch alone can never be
+  // ambiguous. Checking it before the selector fallback also fixes a subtler
+  // pre-existing bug: the old single-pass `.find()` could match an EARLIER
+  // node purely by selector before ever reaching the correct sourceId match
+  // later in iteration order.
+  if (sourceId) {
+    const idMatch = projection.nodes.find((node) =>
+      codeLayerNodeMatchesSourceId(node, sourceId),
+    );
+    if (idMatch) return idMatch;
+  }
+  // No sourceId (or no node carries it yet, e.g. a bridge target minted a
+  // fresh pending id the projection hasn't picked up) — fall back to the
+  // bridge's structural selector. Unlike an id, a generic short selector
+  // (e.g. a 2-segment "div > p" suffix path) can legitimately match several
+  // repeated list/card/row instances. The server-side resolver for the same
+  // problem (code-layer.ts's resolveTarget) explicitly refuses to resolve a
+  // selector that matches more than one node rather than silently picking
+  // the first DOM-order match — mirror that discipline here so a duplicate/
+  // move/style edit can never silently land on the wrong sibling instance.
+  if (!selector) return null;
+  const selectorMatches = projection.nodes.filter((node) =>
+    codeLayerSelectorMatches(node, selector),
   );
+  return selectorMatches.length === 1 ? selectorMatches[0]! : null;
 }
 
 export function collapsedElementText(value: string | null | undefined): string {
@@ -606,13 +715,15 @@ export function refreshElementInfoFromContent(
     );
   if (node) {
     const sourceInfo = elementInfoFromCodeLayerNode(node);
+    const computedStyles = refreshedComputedStyles(
+      info,
+      sourceInfo.computedStyles,
+      sourceInfo.classes,
+    );
     return {
       ...canonicalElementInfoForCodeLayerNode(info, node),
-      computedStyles: refreshedComputedStyles(
-        info,
-        sourceInfo.computedStyles,
-        sourceInfo.classes,
-      ),
+      computedStyles,
+      boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
       isFlexChild: sourceInfo.isFlexChild,
@@ -626,14 +737,16 @@ export function refreshElementInfoFromContent(
     const element = queryUniqueSelector(doc, info.selector);
     if (!element) return null;
     const classes = Array.from(element.classList);
+    const computedStyles = refreshedComputedStyles(
+      info,
+      parseInlineStyleAttribute(element.getAttribute("style")),
+      classes,
+    );
     return {
       ...info,
       classes,
-      computedStyles: refreshedComputedStyles(
-        info,
-        parseInlineStyleAttribute(element.getAttribute("style")),
-        classes,
-      ),
+      computedStyles,
+      boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,
     };

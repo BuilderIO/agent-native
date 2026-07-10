@@ -38,7 +38,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
-  readLiveSourceFile,
+  prepareInlineSourceEdit,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -58,7 +59,6 @@ import {
   type ShaderPresetName,
   validateDescriptor,
 } from "../shared/shader-presets.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -163,14 +163,10 @@ interface ResolvedDesignFile {
  * editor access. Mirrors `resolveEditableDesignFile` in apply-visual-edit.ts so
  * the shader-fill write goes through the exact same ownership gate.
  *
- * The editable base is collab-aware: `readLiveSourceFile` returns the live
- * Y.Text content when a collab doc exists for this file, else the SQL row —
- * never only the raw SQL snapshot. When the caller supplies
- * `source.currentContent`, that in-flight editor snapshot is preferred as the
- * base instead (same precedence as apply-motion-edit.ts / apply-component-
- * prop-edit.ts), and its versionHash is computed directly from that exact
- * string via `sourceContentHash` — not from a fresh live re-read, which would
- * prove nothing about whether this specific base is still current.
+ * `prepareInlineSourceEdit` keeps the caller's working copy (the transform
+ * base) separate from the live hash it is allowed to replace (the write CAS).
+ * This preserves unsaved local edits based on the matching SQL revision while
+ * still rejecting a third, concurrently-edited live value.
  */
 async function resolveEditableDesignFile(source: {
   designId?: string;
@@ -241,36 +237,27 @@ async function resolveEditableDesignFile(source: {
       "source.revision is required when source.currentContent is provided.",
     );
   }
-  // Legitimate pre-check, distinct from the CAS write-guard below: reject
-  // early when the caller's own revision stamp doesn't match the file's SQL
-  // updatedAt, before any transform work happens.
-  if (
-    source.currentContent !== undefined &&
-    source.revision &&
-    file.updatedAt &&
-    source.revision !== file.updatedAt
-  ) {
-    throw new ShaderFillRevisionConflictError();
-  }
-
-  let content: string;
-  let versionHash: string;
-  if (source.currentContent !== undefined) {
-    content = source.currentContent;
-    versionHash = sourceContentHash(content);
-  } else {
-    const workspaceFile: SourceWorkspaceFile = {
-      id: file.id,
-      designId: file.designId,
-      filename: file.filename,
-      fileType: file.fileType,
-      content: file.content,
-      createdAt: null,
-      updatedAt: file.updatedAt,
-    };
-    const live = await readLiveSourceFile(workspaceFile);
-    content = live.content;
-    versionHash = live.versionHash;
+  const workspaceFile: SourceWorkspaceFile = {
+    id: file.id,
+    designId: file.designId,
+    filename: file.filename,
+    fileType: file.fileType,
+    content: file.content,
+    createdAt: null,
+    updatedAt: file.updatedAt,
+  };
+  let prepared: Awaited<ReturnType<typeof prepareInlineSourceEdit>>;
+  try {
+    prepared = await prepareInlineSourceEdit({
+      file: workspaceFile,
+      currentContent: source.currentContent,
+      revision: source.revision,
+    });
+  } catch (error) {
+    if (error instanceof SourceWorkspaceEditConflictError) {
+      throw new ShaderFillRevisionConflictError();
+    }
+    throw error;
   }
 
   return {
@@ -278,8 +265,8 @@ async function resolveEditableDesignFile(source: {
     designId: file.designId,
     filename: file.filename,
     fileType: file.fileType,
-    content,
-    versionHash,
+    content: prepared.content,
+    versionHash: prepared.expectedVersionHash,
     codeLayerSource: {
       kind: "design-file",
       designId: file.designId,

@@ -94,6 +94,7 @@ const messages = {
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",
     couldNotSaveLocalFile: "無法儲存本機檔案",
     collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
+    liveDocumentSaveBeforeSyncFailed: "即時文件無法在同步前儲存。",
     documentTitle: "檔案標題",
     builderBodySyncing: "內容仍在從 Builder 同步",
     builderBodySyncingDescription:

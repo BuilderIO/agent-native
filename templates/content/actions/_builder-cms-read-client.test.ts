@@ -2,6 +2,7 @@ import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  builderCmsListEntryFields,
   listBuilderCmsModels,
   readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
@@ -22,6 +23,46 @@ describe("Builder CMS read client", () => {
     delete process.env.BUILDER_CMS_MCP_ENDPOINT;
     delete process.env.BUILDER_CMS_MCP_SEARCH_TEXT;
     delete process.env.BUILDER_CMS_READ_LIMIT;
+  });
+
+  it("builds additive list projections without reintroducing heavy body fields", () => {
+    const fields = builderCmsListEntryFields([
+      "topics",
+      "data.tags",
+      "data.customModelField",
+      "data.published",
+      "data.Status",
+      "data.status",
+      "data.tags",
+      "data.blocks",
+      "DATA.BLOCKS",
+      "data.blocks.children",
+      "data.blocksString",
+      "data.BlocksString",
+      "sys.sync_state",
+      "bad,field",
+    ]).split(",");
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        "data.title",
+        "data.topics",
+        "data.tags",
+        "data.customModelField",
+        "data.published",
+        "data.Status",
+        "data.status",
+      ]),
+    );
+    expect(fields).not.toContain("data.blocks");
+    expect(fields).not.toContain("data.blocks.children");
+    expect(fields).not.toContain("data.blocksString");
+    expect(fields).not.toContain("DATA.BLOCKS");
+    expect(fields).not.toContain("data.BlocksString");
+    expect(fields).not.toContain("sys.sync_state");
+    expect(fields.filter((field) => field === "data.tags")).toHaveLength(1);
+    expect(fields).toContain("published");
+    expect(fields).toContain("data.published");
   });
 
   it("does not call Builder when the public key is not configured", async () => {
@@ -53,6 +94,38 @@ describe("Builder CMS read client", () => {
       models: [],
     });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps unconfigured model-field discovery as an empty-field fallback", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsModelFields({
+        model: "blog-article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("throws when production model discovery returns an error state", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("Builder unavailable", {
+        status: 503,
+      }),
+    );
+
+    await expect(
+      readBuilderCmsModelFields({
+        model: "blog-article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow("Builder MCP request failed with HTTP 503.");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("lists Builder models through the MCP read endpoint", async () => {
@@ -236,6 +309,11 @@ describe("Builder CMS read client", () => {
       expect(input.searchParams.get("limit")).toBe("100");
       expect(input.searchParams.get("offset")).toBe("0");
       expect(input.searchParams.get("fields")).toContain("data.title");
+      expect(input.searchParams.get("fields")).toContain("data.topics");
+      expect(input.searchParams.get("fields")).toContain("data.tags");
+      expect(input.searchParams.get("fields")).toContain(
+        "data.customModelField",
+      );
       expect(input.searchParams.get("fields")).not.toContain("data.blocks");
       expect(init?.headers).toMatchObject({
         accept: "application/json",
@@ -250,6 +328,11 @@ describe("Builder CMS read client", () => {
               data: {
                 title: "Builder title",
                 url: "/blog/builder-title",
+                topics: ["AI", "CMS"],
+                tags: ["Agents"],
+                customModelField: "Preserved",
+                Status: "Editorial",
+                status: "published",
               },
             },
           ],
@@ -261,6 +344,14 @@ describe("Builder CMS read client", () => {
     await expect(
       readBuilderCmsContentEntries({
         model: "blog_article",
+        fieldPaths: [
+          "data.topics",
+          "data.tags",
+          "data.customModelField",
+          "data.Status",
+          "data.status",
+          "data.blocks",
+        ],
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).resolves.toMatchObject({
@@ -272,9 +363,88 @@ describe("Builder CMS read client", () => {
           title: "Builder title",
           urlPath: "/blog/builder-title",
           updatedAt: "2026-06-08T12:00:00.000Z",
+          sourceValues: {
+            "data.topics": ["AI", "CMS"],
+            "data.tags": ["Agents"],
+            "data.customModelField": "Preserved",
+            "data.Status": "Editorial",
+            "data.status": "published",
+          },
         },
       ],
     });
+  });
+
+  it("requests mapped model fields through Builder MCP list reads", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-mcp",
+                        lastUpdated: "2026-06-08T12:00:00.000Z",
+                        data: {
+                          title: "MCP title",
+                          topics: ["AI"],
+                          tags: ["CMS"],
+                          customModelField: "MCP preserved",
+                        },
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      fieldPaths: [
+        "topics",
+        "data.tags",
+        "data.customModelField",
+        "data.blocksString",
+      ],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries[0]?.sourceValues).toMatchObject({
+      "data.topics": ["AI"],
+      "data.tags": ["CMS"],
+      "data.customModelField": "MCP preserved",
+    });
+    const [, request] = fetchImpl.mock.calls[2] as [string, RequestInit];
+    const fields = JSON.parse(String(request.body)).params.arguments.fields;
+    expect(fields).toContain("data.topics");
+    expect(fields).toContain("data.tags");
+    expect(fields).toContain("data.customModelField");
+    expect(fields).not.toContain("data.blocks");
+    expect(fields).not.toContain("data.blocksString");
   });
 
   it("paginates Builder content through the Content API up to the read limit", async () => {

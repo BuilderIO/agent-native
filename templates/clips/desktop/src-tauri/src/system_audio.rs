@@ -25,8 +25,8 @@
 //! | `audio_transcription_reset_timeline`| Rebase transcript timestamps to now.     |
 //! | `audio_transcription_stop`         | Stop the capture.                         |
 //!
-//! `start_raw_system_capture` (in the `macos` submodule) is the capture entry
-//! point the Whisper engine calls directly.
+//! `start_raw_system_capture` and `start_raw_meeting_capture` (in the `macos`
+//! submodule) are the capture entry points the Whisper engine calls directly.
 //!
 //! ## Events
 //!   - `voice:audio-level` `{ level, source: "system" }` — waveform meter.
@@ -124,7 +124,10 @@ pub async fn audio_transcription_start(
         mic_device_id,
         mic_device_label,
         capture_system.unwrap_or(true),
-        voice_processing.unwrap_or(true),
+        // Fail safe for meeting/recording callers: an omitted flag must not
+        // create a second VoiceProcessingIO stack beside a live call app.
+        // Short dictation sessions opt in explicitly from the renderer.
+        voice_processing.unwrap_or(false),
         owner,
     )
     .await
@@ -246,6 +249,8 @@ pub(crate) mod macos {
         app: AppHandle,
         cancelled: Arc<AtomicBool>,
         level_tick: Arc<AtomicU32>,
+        output_type: SCStreamOutputType,
+        source: &'static str,
     }
 
     // SAFETY: `Retained<SFSpeech*>` and `Retained<AVAudioFormat>` wrap
@@ -261,7 +266,7 @@ pub(crate) mod macos {
             sample_buffer: CMSampleBuffer,
             of_type: SCStreamOutputType,
         ) {
-            if of_type != SCStreamOutputType::Audio {
+            if of_type != self.output_type {
                 return;
             }
             if self.cancelled.load(Ordering::SeqCst) {
@@ -287,7 +292,7 @@ pub(crate) mod macos {
                         "voice:audio-level",
                         AudioLevelPayload {
                             level,
-                            source: "system",
+                            source: self.source,
                         },
                     );
                 }
@@ -295,17 +300,18 @@ pub(crate) mod macos {
         }
     }
 
-    /// Handle for a running raw system capture. `stop()` ends the SCK stream.
-    pub(crate) struct RawSystemCapture {
+    /// Handle for a running raw SCK audio capture. A meeting capture can carry
+    /// both system and microphone output handlers on this one stream.
+    pub(crate) struct RawSckAudioCapture {
         stream: SCStream,
         cancelled: Arc<AtomicBool>,
     }
 
     // SAFETY: `SCStream` is `Send` (the crate marks it so); the atomic is
     // trivially `Send`. We only move the handle through ownership.
-    unsafe impl Send for RawSystemCapture {}
+    unsafe impl Send for RawSckAudioCapture {}
 
-    impl RawSystemCapture {
+    impl RawSckAudioCapture {
         pub(crate) fn stop(self) {
             self.cancelled.store(true, Ordering::SeqCst);
             let _ = self.stream.stop_capture();
@@ -317,7 +323,50 @@ pub(crate) mod macos {
     pub(crate) fn start_raw_system_capture(
         app: AppHandle,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
-    ) -> Result<RawSystemCapture, String> {
+    ) -> Result<RawSckAudioCapture, String> {
+        start_raw_sck_audio_capture(app, true, None, None, Some(on_samples), None)
+    }
+
+    /// Whether this macOS version supports ScreenCaptureKit's independent
+    /// microphone output (`SCStreamOutputType::Microphone`).
+    pub(crate) fn supports_sck_microphone_capture() -> bool {
+        let version = NSProcessInfo::processInfo().operatingSystemVersion();
+        version.majorVersion >= 15
+    }
+
+    /// Start one ScreenCaptureKit stream with independent system-audio and
+    /// microphone callbacks. This avoids opening a second AVAudioEngine /
+    /// VoiceProcessingIO input while Zoom, Meet, or Teams owns the live-call
+    /// microphone uplink.
+    pub(crate) fn start_raw_meeting_capture(
+        app: AppHandle,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        capture_system: bool,
+        on_mic_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
+        on_system_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
+    ) -> Result<RawSckAudioCapture, String> {
+        if !supports_sck_microphone_capture() {
+            return Err("ScreenCaptureKit microphone capture requires macOS 15 or later.".into());
+        }
+        start_raw_sck_audio_capture(
+            app,
+            capture_system,
+            mic_device_id,
+            mic_device_label,
+            on_system_samples,
+            Some(on_mic_samples),
+        )
+    }
+
+    fn start_raw_sck_audio_capture(
+        app: AppHandle,
+        capture_system: bool,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        on_system_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
+        on_mic_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
+    ) -> Result<RawSckAudioCapture, String> {
         let granted = unsafe { CGPreflightScreenCaptureAccess() };
         if !granted {
             let granted_now = unsafe { CGRequestScreenCaptureAccess() };
@@ -340,13 +389,30 @@ pub(crate) mod macos {
             .with_excluding_windows(&[])
             .build();
 
-        let config = SCStreamConfiguration::new()
-            .with_captures_audio(true)
+        let capture_microphone = on_mic_samples.is_some();
+        let selected_mic = if capture_microphone {
+            crate::native_screen::resolve_microphone_capture_device(
+                mic_device_id.as_deref(),
+                mic_device_label.as_deref(),
+            )?
+        } else {
+            None
+        };
+        let mut config = SCStreamConfiguration::new()
+            .with_captures_audio(capture_system)
+            .with_captures_microphone(capture_microphone)
             .with_excludes_current_process_audio(true)
             .with_sample_rate(48000)
             .with_channel_count(2)
             .with_width(2)
             .with_height(2);
+        if let Some(device) = selected_mic.as_ref() {
+            config.set_microphone_capture_device_id(&device.id);
+            eprintln!(
+                "[whisper] ScreenCaptureKit meeting microphone pinned to {} ({})",
+                device.name, device.id
+            );
+        }
 
         // Mono float32 @ 48 kHz destination format for the mono-mix.
         let speech_format = unsafe {
@@ -357,21 +423,37 @@ pub(crate) mod macos {
 
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut stream = SCStream::new(&filter, &config);
-        let forwarder = RawAudioForwarder {
-            on_samples,
-            speech_format,
-            app: app.clone(),
-            cancelled: cancelled.clone(),
-            level_tick: Arc::new(AtomicU32::new(0)),
-        };
-        stream.add_output_handler(forwarder, SCStreamOutputType::Audio);
+        if let Some(on_samples) = on_system_samples {
+            let forwarder = RawAudioForwarder {
+                on_samples,
+                speech_format: speech_format.clone(),
+                app: app.clone(),
+                cancelled: cancelled.clone(),
+                level_tick: Arc::new(AtomicU32::new(0)),
+                output_type: SCStreamOutputType::Audio,
+                source: "system",
+            };
+            stream.add_output_handler(forwarder, SCStreamOutputType::Audio);
+        }
+        if let Some(on_samples) = on_mic_samples {
+            let forwarder = RawAudioForwarder {
+                on_samples,
+                speech_format,
+                app: app.clone(),
+                cancelled: cancelled.clone(),
+                level_tick: Arc::new(AtomicU32::new(0)),
+                output_type: SCStreamOutputType::Microphone,
+                source: "mic",
+            };
+            stream.add_output_handler(forwarder, SCStreamOutputType::Microphone);
+        }
 
         if let Err(e) = stream.start_capture() {
             cancelled.store(true, Ordering::SeqCst);
             return Err(format!("SCStream start_capture failed: {e:?}"));
         }
 
-        Ok(RawSystemCapture { stream, cancelled })
+        Ok(RawSckAudioCapture { stream, cancelled })
     }
 
     #[derive(Serialize, Clone)]

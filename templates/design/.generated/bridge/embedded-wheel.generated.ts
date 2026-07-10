@@ -184,6 +184,11 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }
       if (e.data.type === "embedded-canvas-pan-mode") {
         leftButtonEnabled = !!e.data.leftButtonEnabled;
+        return;
+      }
+      if (e.data.type === "embedded-canvas-gesture-mode") {
+        wheelEnabled = !!e.data.wheelEnabled;
+        spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
       }
     }
     function cancelActivePan() {

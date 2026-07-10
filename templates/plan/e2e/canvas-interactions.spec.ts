@@ -579,13 +579,69 @@ test("canvas comment pins preserve zoom and follow later pan", async ({
   ).toBeLessThan(18);
 });
 
-test("wheel over the canvas zooms (and never scrolls the page)", async ({
+test("unmodified wheel pans to the canvas edge without changing zoom", async ({
   page,
 }) => {
   const planId = await createPlan(
     page,
     richBoard(`wheel-${Date.now()}`),
-    "wheel-zoom",
+    "wheel-pan",
+  );
+  await openCanvas(page, planId, ["ab-dash"]);
+
+  const before = await worldTransform(page);
+  const zoomTextBefore = await page.locator(ZOOM_PCT).textContent();
+  const vp = await boxOf(page, VIEWPORT);
+  const cx = vp!.left + vp!.width / 2;
+  const cy = vp!.top + vp!.height / 2;
+  await page.mouse.move(cx, cy);
+
+  // A large, axis-aligned integer delta is a valid trackpad/mouse pan tick.
+  // It used to be misclassified as a notched-wheel zoom.
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(150);
+  const afterPan = await worldTransform(page);
+  expect(
+    Math.abs(afterPan!.ty - before!.ty),
+    "unmodified wheel should pan the canvas",
+  ).toBeGreaterThan(40);
+  expect(
+    Math.abs(afterPan!.scale - before!.scale),
+    "unmodified wheel pan must preserve zoom",
+  ).toBeLessThan(0.001);
+
+  // Push well beyond the finite pan range, then keep pushing at the clamp.
+  // Edge pressure must never be reinterpreted as zoom.
+  await page.mouse.wheel(0, 20_000);
+  await page.waitForTimeout(150);
+  const atEdge = await worldTransform(page);
+  await page.mouse.wheel(0, 20_000);
+  await page.waitForTimeout(150);
+  const beyondEdge = await worldTransform(page);
+  expect(
+    Math.abs(atEdge!.scale - before!.scale),
+    "reaching the canvas edge must preserve zoom",
+  ).toBeLessThan(0.001);
+  expect(
+    Math.abs(beyondEdge!.scale - before!.scale),
+    "continued panning at the canvas edge must preserve zoom",
+  ).toBeLessThan(0.001);
+  expect(
+    Math.abs(beyondEdge!.ty - atEdge!.ty),
+    "pan should remain clamped at the canvas edge",
+  ).toBeLessThan(1);
+  await expect(page.locator(ZOOM_PCT)).toHaveText(zoomTextBefore ?? "");
+
+  // The page itself must not have scrolled (wheel is captured by the canvas).
+  const scrollY = await page.evaluate(() => window.scrollY);
+  expect(scrollY, "wheel over the canvas must not scroll the page").toBe(0);
+});
+
+test("modifier wheel zooms at the cursor", async ({ page }) => {
+  const planId = await createPlan(
+    page,
+    richBoard(`modifier-wheel-${Date.now()}`),
+    "modifier-wheel-zoom",
   );
   await openCanvas(page, planId, ["ab-dash"]);
 
@@ -594,27 +650,14 @@ test("wheel over the canvas zooms (and never scrolls the page)", async ({
   const cx = vp!.left + vp!.width / 2;
   const cy = vp!.top + vp!.height / 2;
   await page.mouse.move(cx, cy);
-  // Notched wheel up == zoom in. deltaY -120 mimics a mouse wheel click.
-  await page.mouse.wheel(0, -120);
-  await page.mouse.wheel(0, -120);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -80);
+  await page.keyboard.up("Control");
   await page.waitForTimeout(150);
-  const afterUp = await worldTransform(page);
-  expect(afterUp!.scale, "wheel up should zoom the canvas in").toBeGreaterThan(
+  const after = await worldTransform(page);
+  expect(after!.scale, "ctrl/cmd wheel should zoom the canvas").toBeGreaterThan(
     before!.scale + 0.01,
   );
-
-  await page.mouse.wheel(0, 120);
-  await page.mouse.wheel(0, 120);
-  await page.waitForTimeout(150);
-  const afterDown = await worldTransform(page);
-  expect(
-    afterDown!.scale,
-    "wheel down should zoom the canvas back out",
-  ).toBeLessThan(afterUp!.scale - 0.01);
-
-  // The page itself must not have scrolled (wheel is captured by the canvas).
-  const scrollY = await page.evaluate(() => window.scrollY);
-  expect(scrollY, "wheel over the canvas must not scroll the page").toBe(0);
 });
 
 /* -------------------------------------------------------------------------- */

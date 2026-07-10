@@ -41,6 +41,25 @@ describe("streaming upload mode", () => {
     expect(shouldEnableStreamingUpload({ mimeType: undefined })).toBe(false);
   });
 
+  it("enables requested video streaming when buffered fallback is unavailable", () => {
+    delete process.env.CLIPS_DISABLE_STREAMING_UPLOAD;
+    delete process.env.CLIPS_ENABLE_STREAMING_UPLOAD;
+
+    expect(
+      shouldEnableStreamingUpload({
+        client: "desktop-native",
+        mimeType: "video/mp4",
+        bufferedFallbackAvailable: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnableStreamingUpload({
+        mimeType: "audio/webm",
+        bufferedFallbackAvailable: false,
+      }),
+    ).toBe(false);
+  });
+
   it("honors explicit enable and disable flags", () => {
     process.env.CLIPS_ENABLE_STREAMING_UPLOAD = "true";
     delete process.env.CLIPS_DISABLE_STREAMING_UPLOAD;

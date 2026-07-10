@@ -24,6 +24,7 @@ import {
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
+import { allowsSqlRecordingChunkScratch } from "../server/lib/video-storage.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
@@ -92,6 +93,7 @@ export default defineAction({
       shouldEnableStreamingUpload({
         client: args.streamingUploadClient,
         mimeType: args.mimeType,
+        bufferedFallbackAvailable: allowsSqlRecordingChunkScratch(),
       }) &&
       uploadProvider?.resumable
     ) {

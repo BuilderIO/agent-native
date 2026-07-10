@@ -79,6 +79,21 @@ export function SearchView({ searchSeed }: SearchViewProps) {
   const [replaceAllFailures, setReplaceAllFailures] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // `providers` is recreated with a new array/object identity on every
+  // unrelated design poll tick (it flows through the design's SWR-polled
+  // `files` query, which has no structural-sharing guard), even when the
+  // actual set of workspace sources hasn't changed. Depending on `providers`
+  // directly would re-run the search effect on every poll tick, silently
+  // resetting `dismissed` (bringing back results the user just dismissed)
+  // and `replaceAllFailures`. Keep the latest providers in a ref for the
+  // debounced search to read, and key the effect off a stable signature of
+  // provider identities instead so it only re-runs when the source set
+  // actually changes.
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
+  const providersSignature = providers
+    .map((provider) => provider.key)
+    .join(",");
 
   useEffect(() => {
     if (searchSeed.token === 0) return;
@@ -102,7 +117,7 @@ export function SearchView({ searchSeed }: SearchViewProps) {
       setDismissed({ files: new Set(), matches: new Set() });
       setReplaceAllFailures(0);
       searchWorkspace({
-        providers,
+        providers: providersRef.current,
         query,
         matchCase,
         wholeWord,
@@ -121,7 +136,17 @@ export function SearchView({ searchSeed }: SearchViewProps) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, matchCase, wholeWord, regex, providers]);
+  }, [query, matchCase, wholeWord, regex, providersSignature]);
+
+  // Safety net: abort any in-flight search when the view unmounts (it
+  // normally stays mounted-but-hidden per SideBar, but can genuinely unmount
+  // when the workbench itself closes) so a late `setResults` never fires
+  // against a torn-down component.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const visibleFiles = useMemo<FileSearchResult[]>(() => {
     if (!results) return [];

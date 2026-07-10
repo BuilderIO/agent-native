@@ -173,7 +173,7 @@ defaults. The banned-defaults list above still applies, plus:
 
 ## Generation Workflow — the canonical 5-phase flow
 
-This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
+This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
 
 ### Phase 1 — Create the project + ask before generating
 
@@ -187,7 +187,28 @@ application state. External MCP hosts should surface the `create-design`
 returned "Open design" link, then use `present-design-variants` to open the
 visual picker.
 
-Then, for any non-trivial first prompt, call `show-design-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
+Then, for a brief or ambiguous first prompt to a **new** design, call
+`show-design-questions` BEFORE generating. The editor renders a full-canvas
+overlay; answers come back as a chat message. Size the question count to how
+much is actually unresolved — most prompts warrant 2-4 questions, not the full
+1-8 range — and never ask about something the prompt already specified (a
+stated color, audience, or layout is settled; don't re-ask it as a choice).
+
+Skip the questions entirely when:
+- the prompt is already specific enough to generate from (names the audience,
+  purpose, and a visual direction, e.g. "a dark, data-dense analytics
+  dashboard for ops engineers" or "re-skin this with my brand colors");
+- it's a tweak/edit/refinement to an existing design rather than a new one —
+  go straight to `edit-design` (see Phase 3 and "Making edits" below);
+- the user already answered a question set for this design and is now
+  iterating — don't re-ask settled ground on follow-up prompts for the same
+  design; or
+- the user says "decide for me," "surprise me," "just build it," or similar.
+
+Asking on every prompt is as much a failure mode as never asking: a detailed
+prompt that already answers the obvious questions should generate
+immediately, and a design already in flight should not be interrupted with a
+second questionnaire.
 
 ```bash
 pnpm action show-design-questions \
@@ -195,6 +216,12 @@ pnpm action show-design-questions \
   --title "Quick questions about your todo app" \
   --questions '[{"id":"form_factor","type":"text-options","question":"What form factor?","options":[{"label":"Desktop web app","value":"desktop"},{"label":"Mobile app","value":"mobile"},{"label":"Both / responsive","value":"responsive"},{"label":"Decide for me","value":"decide"}],"allowOther":true}]'
 ```
+
+Favor choice-first questions (2-5 concrete options, `allowOther: true`, and a
+"Decide for me" option when any answer is acceptable) over open-ended
+`freeform` text, and avoid `multiSelect` unless the question genuinely allows
+combining multiple answers — stacking multi-select questions multiplies
+follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** A "Desktop web app" answer means the generated screen's canvas frame must be desktop-sized (~1440×1024), not left at whatever a screen with no placement falls back to. Map the answer to real frame geometry: pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen to `generate-screens`, explicit `width`/`height` per variant to `present-design-variants`, or an explicit `canvasFrames` entry to `generate-design` — see Phase 2 and Phase 3 below. For "Both / responsive," generate at desktop width and rely on the responsive breakpoint system (see `responsive-breakpoints` skill) rather than guessing a size.
 

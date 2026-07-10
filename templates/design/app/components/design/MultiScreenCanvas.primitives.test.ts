@@ -10,7 +10,9 @@ import { computeAltHoverMeasurement } from "./multi-screen/alt-hover-measurement
 import {
   getBoardContentKey,
   getBoardContentLayerSignature,
+  getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
+  getBoardSurfaceStaticPreviewContent,
   hasBoardSurfaceContent,
 } from "./multi-screen/board-surface-html";
 import {
@@ -44,13 +46,20 @@ import {
   isBreakpointSelectionTarget,
 } from "./multi-screen/iframe-targeting";
 import {
+  BOARD_SURFACE_RENDER_MAX_SIZE,
+  boardPointToBoardSurfaceLocalPoint,
+  boardSurfaceLocalPointToBoardPoint,
+  getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewViewport,
+  shouldRenderBoardSurfaceStaticPreview,
   SURFACE_PADDING,
 } from "./multi-screen/overview-layout";
 import {
   __clearPrimitiveParseCachesForTests,
   __getPrimitiveParseCacheSizesForTests,
   getPrimitiveDropTargetForPoint,
+  isPrimitiveContainer,
   parsePrimitivesFromScreen,
   primitiveLocalToBoardRect,
   primitiveParseCache,
@@ -130,6 +139,167 @@ describe("board surface pointer capture", () => {
 
     expect(style.background).toBe("transparent");
     expect(style.pointerEvents).toBe("auto");
+  });
+
+  it("bounds negative and positive board nodes in persisted canvas coordinates", () => {
+    const bounds = getBoardSurfaceContentBounds(`<!doctype html><body>
+      <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="position:absolute;left:-165px;top:-90px;width:84px;height:76px"></div>
+      <div data-agent-native-node-id="positive" data-an-primitive="rectangle" style="position:absolute;left:329px;top:210px;width:100px;height:60px"></div>
+    </body>`);
+
+    expect(bounds).toEqual({ x: -165, y: -90, width: 594, height: 360 });
+  });
+
+  it("includes nested overflow and ignores an instrumented document body", () => {
+    expect(
+      getBoardSurfaceContentBounds(
+        '<html><body data-agent-native-node-id="body"></body></html>',
+      ),
+    ).toBeNull();
+
+    const bounds =
+      getBoardSurfaceContentBounds(`<!doctype html><body data-agent-native-node-id="body">
+      <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:300px;top:100px;width:100px;height:100px">
+        <div data-agent-native-node-id="overflow" data-an-primitive="rectangle" style="position:absolute;left:140px;top:120px;width:80px;height:60px"></div>
+      </div>
+    </body>`);
+    expect(bounds).toEqual({ x: 300, y: 100, width: 220, height: 180 });
+  });
+
+  it("uses a browser-safe chunked paint window without changing logical board coordinates", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const negativeBounds = makeGeom(-165, -90, 84, 76);
+    const screens = [makeGeom(100, 80, 320, 640)];
+    const geometry = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: negativeBounds,
+      screenGeometries: screens,
+    });
+
+    expect(geometry).toEqual({
+      x: -4096,
+      y: -4096,
+      width: 8192,
+      height: 8192,
+    });
+    expect(geometry.width).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.height).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
+    // The iframe-local coordinate round-trip lands at the exact persisted
+    // negative board coordinate; no fixed +/-65536 projection is involved.
+    const iframeLocalX = negativeBounds.x - geometry.x;
+    const iframeLocalY = negativeBounds.y - geometry.y;
+    expect(geometry.x + iframeLocalX).toBe(negativeBounds.x);
+    expect(geometry.y + iframeLocalY).toBe(negativeBounds.y);
+  });
+
+  it("keeps the render origin stable for nearby edits inside the same chunk", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const before = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(-165, -90, 84, 76),
+      screenGeometries: [makeGeom(100, 80, 320, 640)],
+    });
+    const after = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(329, 210, 100, 60),
+      screenGeometries: [makeGeom(100, 80, 320, 640)],
+    });
+
+    expect(after).toEqual(before);
+  });
+
+  it("keeps a low-zoom viewport browser-bounded while following its center", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    // At the canvas minimum zoom (2%), a 1440x900 viewport spans 72,000 x
+    // 45,000 board pixels. One iframe intentionally remains capped below
+    // that span; it follows the live viewport center instead of regressing to
+    // the origin or allocating the old 131,072px document.
+    const lowZoomViewport = makeGeom(18_000, -12_000, 72_000, 45_000);
+    const geometry = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(-165, -90, 84, 76),
+      screenGeometries: [lowZoomViewport],
+      focus: {
+        x: lowZoomViewport.x + lowZoomViewport.width / 2,
+        y: lowZoomViewport.y + lowZoomViewport.height / 2,
+      },
+    });
+
+    expect(geometry.width).toBe(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.height).toBe(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.x).toBe(40_960);
+    expect(geometry.y).toBe(-4096);
+    expect(geometry.x + geometry.width / 2).toBeCloseTo(53_248, 0);
+    expect(geometry.y + geometry.height / 2).toBeCloseTo(8192, 0);
+  });
+
+  it("covers a 2% viewport with one uniformly compressed inert board preview", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const active = makeGeom(-12288, -12288, 24576, 24576);
+    const viewport = makeGeom(-36000, -22500, 72000, 45000);
+    const staticViewport = getBoardSurfaceStaticPreviewViewport(logical);
+
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        viewportGeometry: viewport,
+        renderGeometry: active,
+      }),
+    ).toBe(true);
+    expect(staticViewport).toEqual({ width: 4096, height: 4096 });
+
+    const content = getBoardSurfaceStaticPreviewContent({
+      html: `<!doctype html><html><head>
+        <meta http-equiv="refresh" content="0;url=https://example.test">
+        <base href="https://example.test/">
+        <link rel="stylesheet" href="https://example.test/app.css">
+        <style>@import "https://example.test/import.css";.remote{background-image:url(https://example.test/bg.png);animation:pulse 1s infinite;transition:all 1s}</style>
+        <script>window.duplicateRuntime = true</script>
+      </head><body onload="start()">
+        <iframe src="https://example.test/embed"></iframe>
+        <object data="https://example.test/runtime"></object>
+        <embed src="https://example.test/plugin">
+        <audio autoplay src="https://example.test/audio.mp3"></audio>
+        <video autoplay src="https://example.test/video.mp4"></video>
+        <img src="https://example.test/image.png" srcset="https://example.test/image@2x.png 2x" style="background:url(https://example.test/inline.png)">
+        <svg><image href="https://example.test/vector.png"></image><use xlink:href="https://example.test/icons.svg#star"></use></svg>
+        <div data-agent-native-node-id="left" style="position:absolute;left:-50000px;top:0;width:100px;height:100px"></div>
+        <div data-agent-native-node-id="right" style="position:absolute;left:50000px;top:0;width:100px;height:100px"></div>
+      </body></html>`,
+      logicalGeometry: logical,
+      viewport: staticViewport,
+    });
+
+    expect(content).toContain("transform:scale(0.03125)!important");
+    expect(content).toContain("translate:65536px 65536px!important");
+    expect(content).toContain('data-agent-native-node-id="left"');
+    expect(content).toContain('data-agent-native-node-id="right"');
+    expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
+    expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
+    expect(content).not.toMatch(/<link|<meta|<base|@import|url\(/i);
+    expect(content).not.toContain("https://example.test");
+    expect(content).toContain("animation:none!important");
+    expect(content).toContain("transition:none!important");
+  });
+
+  it("round-trips board drag and hit-test points through the finite iframe origin", () => {
+    const renderGeometry = makeGeom(-4096, -4096, 8192, 8192);
+    for (const boardPoint of [
+      { x: -165, y: -90 },
+      { x: 329, y: 210 },
+    ]) {
+      const localPoint = boardPointToBoardSurfaceLocalPoint(
+        boardPoint,
+        renderGeometry,
+      );
+      expect(localPoint.x).toBeGreaterThanOrEqual(0);
+      expect(localPoint.y).toBeGreaterThanOrEqual(0);
+      expect(localPoint.x).toBeLessThan(renderGeometry.width);
+      expect(localPoint.y).toBeLessThan(renderGeometry.height);
+      expect(
+        boardSurfaceLocalPointToBoardPoint(localPoint, renderGeometry),
+      ).toEqual(boardPoint);
+    }
   });
 
   it("treats empty board documents as having no surface content", () => {
@@ -640,6 +810,33 @@ describe("parsePrimitivesFromScreen cache key", () => {
 // the full content string and return the memoized result directly.
 // ---------------------------------------------------------------------------
 describe("parsePrimitivesFromScreen identity cache", () => {
+  it("treats a plain canvas frame as a child-drop container before Auto layout", () => {
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "frame",
+        display: "",
+        borderRadius: "",
+      }),
+    ).toBe(true);
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "text",
+        display: "inline-block",
+        borderRadius: "",
+      }),
+    ).toBe(false);
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "ellipse",
+        display: "",
+        borderRadius: "50%",
+      }),
+    ).toBe(false);
+  });
+
   it("returns the same result reference for repeated calls with unchanged content", () => {
     const screen: ScreenStub = {
       id: "identity-screen",

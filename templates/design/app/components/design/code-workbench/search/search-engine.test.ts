@@ -271,4 +271,18 @@ describe("replaceMatchesInText", () => {
     expect(content).toBe("world hello");
     expect(count).toBe(1);
   });
+
+  it("supports backreferences when the pattern has named capture groups", () => {
+    // A named-group regex makes String.replace pass an extra trailing
+    // `groups` object to the callback; group-index backreferences ($1, $2)
+    // must still resolve to the real capture values, not the match offset.
+    const { content, count } = replaceMatchesInText(
+      "hello world",
+      "(?<first>\\w+) (?<second>\\w+)",
+      "$2 $1",
+      { matchCase: true, wholeWord: false, regex: true },
+    );
+    expect(content).toBe("world hello");
+    expect(count).toBe(1);
+  });
 });

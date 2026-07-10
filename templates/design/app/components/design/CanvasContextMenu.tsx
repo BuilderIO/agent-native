@@ -1,4 +1,11 @@
 import {
+  IconComponents,
+  IconFrame,
+  IconPhoto,
+  IconTypography,
+  IconVector,
+} from "@tabler/icons-react";
+import {
   forwardRef,
   useCallback,
   useImperativeHandle,
@@ -21,6 +28,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+
+import type { CanvasLayerHitCandidate } from "./types";
 
 // LIVE-VERIFIED (real Figma, UI3) canvas context menus:
 //
@@ -51,6 +60,15 @@ import { cn } from "@/lib/utils";
 // back-compat. App-specific extras with no Figma equivalent (e.g. "Edit
 // screen") are appended at the very bottom, below one more separator, so the
 // Figma-muscle-memory zone above stays byte-identical to the real menu.
+//
+// NOTE — instance-only cluster (Go to main component / Swap instance /
+// Detach instance): added for component-instance selections, gated behind
+// `isComponentInstance` so it renders nothing for existing callers (fully
+// backward compatible). Real Figma groups these together for an instance
+// selection, but this exact placement (right after Add auto layout / Create
+// component) was NOT independently re-verified against a live Figma session
+// in this pass — reposition if a future LIVE-VERIFIED sweep finds a
+// different spot.
 export type CanvasContextMenuAction =
   | "paste-here"
   | "select-all"
@@ -73,6 +91,9 @@ export type CanvasContextMenuAction =
   | "frame-selection"
   | "add-auto-layout"
   | "create-component"
+  | "go-to-main-component"
+  | "swap-instance"
+  | "detach-instance"
   | "rename"
   | "toggle-lock"
   | "toggle-hide"
@@ -112,6 +133,7 @@ export type CanvasContextMenuActionHandler = (
 ) => void;
 
 export interface CanvasContextMenuLabels {
+  selectLayer: string;
   pasteHere: string;
   selectAll: string;
   zoomToFit: string;
@@ -134,6 +156,9 @@ export interface CanvasContextMenuLabels {
   frameSelection: string;
   addAutoLayout: string;
   createComponent: string;
+  goToMainComponent: string;
+  swapInstance: string;
+  detachInstance: string;
   rename: string;
   lock: string;
   unlock: string;
@@ -177,6 +202,9 @@ export interface CanvasContextMenuShortcuts {
   frameSelection: string;
   addAutoLayout: string;
   createComponent: string;
+  goToMainComponent: string;
+  swapInstance: string;
+  detachInstance: string;
   rename: string;
   toggleLock: string;
   toggleHide: string;
@@ -199,6 +227,8 @@ export interface CanvasContextMenuProps {
   className?: string;
   contentClassName?: string;
   selectedCount?: number;
+  layerCandidates?: readonly CanvasLayerHitCandidate[];
+  onSelectLayer?: (candidate: CanvasLayerHitCandidate) => void;
   hasClipboard?: boolean;
   hasPropsClipboard?: boolean;
   hasAnimationClipboard?: boolean;
@@ -228,6 +258,14 @@ export interface CanvasContextMenuProps {
   canFrameSelection?: boolean;
   canAddAutoLayout?: boolean;
   canCreateComponent?: boolean;
+  // Whether the current selection IS a component instance — gates the
+  // whole Go to main component / Swap instance / Detach instance cluster on
+  // (rather than showing them permanently disabled for non-instance
+  // selections, since real Figma doesn't show this cluster at all then).
+  isComponentInstance?: boolean;
+  canGoToMainComponent?: boolean;
+  canSwapInstance?: boolean;
+  canDetachInstance?: boolean;
   // L12: this menu is target-agnostic — it has no built-in notion of "design
   // title" vs "layer". Rename is enabled by default for a single selection
   // (see the canRename default below) and fires through the onRename
@@ -288,6 +326,9 @@ export interface CanvasContextMenuProps {
   onFrameSelection?: CanvasContextMenuActionHandler;
   onAddAutoLayout?: CanvasContextMenuActionHandler;
   onCreateComponent?: CanvasContextMenuActionHandler;
+  onGoToMainComponent?: CanvasContextMenuActionHandler;
+  onSwapInstance?: CanvasContextMenuActionHandler;
+  onDetachInstance?: CanvasContextMenuActionHandler;
   // L12: fired when the Rename item is selected (details.selectedCount tells
   // the caller how many things are selected). The caller decides what
   // "rename" means for the current target — e.g. calling a LayersPanel
@@ -315,6 +356,7 @@ export interface CanvasContextMenuProps {
 }
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
+  selectLayer: "Select layer",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -337,6 +379,9 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   frameSelection: "Frame selection",
   addAutoLayout: "Add auto layout",
   createComponent: "Create component",
+  goToMainComponent: "Go to main component",
+  swapInstance: "Swap instance",
+  detachInstance: "Detach instance",
   rename: "Rename",
   lock: "Lock",
   unlock: "Unlock",
@@ -380,6 +425,9 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   frameSelection: "⌥⌘G",
   addAutoLayout: "⇧A",
   createComponent: "⌥⌘K",
+  goToMainComponent: "",
+  swapInstance: "",
+  detachInstance: "⌥⌘B",
   rename: "⌘R",
   toggleLock: "⇧⌘L",
   toggleHide: "⇧⌘H",
@@ -426,6 +474,8 @@ export const CanvasContextMenu = forwardRef<
     className,
     contentClassName,
     selectedCount = 0,
+    layerCandidates = [],
+    onSelectLayer,
     hasClipboard = false,
     hasPropsClipboard = false,
     hasAnimationClipboard = false,
@@ -444,6 +494,10 @@ export const CanvasContextMenu = forwardRef<
     canFrameSelection = selectedCount > 0,
     canAddAutoLayout = selectedCount > 0,
     canCreateComponent = selectedCount > 0,
+    isComponentInstance = false,
+    canGoToMainComponent = isComponentInstance,
+    canSwapInstance = isComponentInstance,
+    canDetachInstance = isComponentInstance,
     canRename = selectedCount === 1,
     canToggleLocked = selectedCount > 0,
     canToggleHidden = selectedCount > 0,
@@ -479,6 +533,9 @@ export const CanvasContextMenu = forwardRef<
     onFrameSelection,
     onAddAutoLayout,
     onCreateComponent,
+    onGoToMainComponent,
+    onSwapInstance,
+    onDetachInstance,
     onRename,
     onToggleLocked,
     onToggleHidden,
@@ -559,6 +616,9 @@ export const CanvasContextMenu = forwardRef<
       "frame-selection": onFrameSelection,
       "add-auto-layout": onAddAutoLayout,
       "create-component": onCreateComponent,
+      "go-to-main-component": onGoToMainComponent,
+      "swap-instance": onSwapInstance,
+      "detach-instance": onDetachInstance,
       rename: onRename,
       "toggle-lock": onToggleLocked,
       "toggle-hide": onToggleHidden,
@@ -585,9 +645,11 @@ export const CanvasContextMenu = forwardRef<
       onCopyAsSvg,
       onCopyProps,
       onCreateComponent,
+      onDetachInstance,
       onFlipHorizontal,
       onFlipVertical,
       onFrameSelection,
+      onGoToMainComponent,
       onGroup,
       onPaste,
       onPasteAnimation,
@@ -598,6 +660,7 @@ export const CanvasContextMenu = forwardRef<
       onRename,
       onSendBackward,
       onSendToBack,
+      onSwapInstance,
       onToggleComments,
       onToggleHidden,
       onToggleLocked,
@@ -674,6 +737,32 @@ export const CanvasContextMenu = forwardRef<
         className={cn(MENU_CONTENT_CLASS, contentClassName)}
         style={manualContentStyle}
       >
+        {layerCandidates.length > 0 && onSelectLayer ? (
+          <>
+            <ContextMenuGroup>
+              <ContextMenuSub>
+                <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                  {labels.selectLayer}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent
+                  className={cn(MENU_CONTENT_CLASS, "w-56")}
+                >
+                  {layerCandidates.map((candidate) => (
+                    <CanvasLayerCandidateItem
+                      key={candidate.key}
+                      candidate={candidate}
+                      onSelect={() => {
+                        onSelectLayer(candidate);
+                        handleOpenChange(false);
+                      }}
+                    />
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </ContextMenuGroup>
+            <CanvasMenuSeparator />
+          </>
+        ) : null}
         {hasSelection ? (
           <>
             {/* LIVE-VERIFIED Figma "with selection" canvas menu. */}
@@ -839,6 +928,39 @@ export const CanvasContextMenu = forwardRef<
               />
             </ContextMenuGroup>
 
+            {isComponentInstance ? (
+              <>
+                <CanvasMenuSeparator />
+                <ContextMenuGroup>
+                  <CanvasMenuItem
+                    hidden={isHiddenAction("go-to-main-component")}
+                    disabled={
+                      !canRun("go-to-main-component", canGoToMainComponent)
+                    }
+                    label={labels.goToMainComponent}
+                    shortcut={shortcuts.goToMainComponent}
+                    onSelect={(event) =>
+                      runAction("go-to-main-component", event)
+                    }
+                  />
+                  <CanvasMenuItem
+                    hidden={isHiddenAction("swap-instance")}
+                    disabled={!canRun("swap-instance", canSwapInstance)}
+                    label={labels.swapInstance}
+                    shortcut={shortcuts.swapInstance}
+                    onSelect={(event) => runAction("swap-instance", event)}
+                  />
+                  <CanvasMenuItem
+                    hidden={isHiddenAction("detach-instance")}
+                    disabled={!canRun("detach-instance", canDetachInstance)}
+                    label={labels.detachInstance}
+                    shortcut={shortcuts.detachInstance}
+                    onSelect={(event) => runAction("detach-instance", event)}
+                  />
+                </ContextMenuGroup>
+              </>
+            ) : null}
+
             <CanvasMenuSeparator />
 
             <ContextMenuGroup>
@@ -935,6 +1057,36 @@ export const CanvasContextMenu = forwardRef<
     </ContextMenu>
   );
 });
+
+function CanvasLayerCandidateItem({
+  candidate,
+  onSelect,
+}: {
+  candidate: CanvasLayerHitCandidate;
+  onSelect: () => void;
+}) {
+  const tag = candidate.info.tagName.toLowerCase();
+  const Icon = candidate.info.componentName
+    ? IconComponents
+    : /^(h[1-6]|p|span|label|input|textarea)$/.test(tag)
+      ? IconTypography
+      : /^(img|picture|video)$/.test(tag)
+        ? IconPhoto
+        : /^(svg|path|circle|ellipse|polygon|line)$/.test(tag)
+          ? IconVector
+          : tag === "button" || tag === "a"
+            ? IconComponents
+            : IconFrame;
+  return (
+    <ContextMenuItem
+      className={cn(MENU_ITEM_CLASS, "gap-2")}
+      onSelect={onSelect}
+    >
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">{candidate.label}</span>
+    </ContextMenuItem>
+  );
+}
 
 function CanvasMenuItem({
   hidden,

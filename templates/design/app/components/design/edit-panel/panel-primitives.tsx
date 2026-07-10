@@ -19,21 +19,19 @@ import { Slider } from "@/components/ui/slider";
 import type { StyleChangeMeta } from "../EditPanel";
 import {
   DesignColorPicker,
-  type DesignFillRowPatch,
-  type DesignGradientStop,
-  type DesignGradientStopPatch,
+  imageFillToBackgroundStyles,
   type DesignGradientType,
   type ImageFillValue,
 } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import {
-  buildFillRows,
   buildGradientLayer,
   defaultGradientLayer,
   defaultGradientStops,
   fillLayerId,
   fillLayerIndex,
+  imageFillChangePatch,
   joinCssLayers,
   parseGradientLayer,
   SOLID_FILL_ID,
@@ -43,13 +41,22 @@ import {
 import { colorHasVisibleAlpha, cssColorOrFallback } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 
-function normalizeLengthValue(raw: string, defaultUnit: string): string | null {
+export function normalizeLengthValue(
+  raw: string,
+  defaultUnit: string,
+): string | null {
   const trimmed = raw.trim();
   // Empty / invalid input returns null so the caller reverts the field instead
   // of committing an empty or garbage CSS value (e.g. fontSize:"" or
   // flexBasis:"abc") to the element's inline style.
   if (!trimmed) return null;
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}${defaultUnit}`;
+  // Bare numbers get the field's default unit appended. `\d+` alone rejected a
+  // leading-decimal typed value like ".5" (no digit before the dot) even
+  // though "0.5" was accepted — the two are numerically identical, so ".5"
+  // silently reverted the field instead of becoming ".5px". Accept either a
+  // leading-digit form (`5`, `5.5`) or a leading-decimal form (`.5`).
+  if (/^-?(\d+(\.\d+)?|\.\d+)$/.test(trimmed))
+    return `${trimmed}${defaultUnit}`;
   // Validate free-form CSS so junk text never reaches the style. Fall back to
   // accepting the value when CSS.supports is unavailable (SSR/tests) to keep
   // prior behavior in non-DOM environments.
@@ -61,6 +68,21 @@ function normalizeLengthValue(raw: string, defaultUnit: string): string | null {
     return ok ? trimmed : null;
   }
   return trimmed;
+}
+
+/**
+ * Enter and Escape are the only PropInput keys that manually call `.blur()`
+ * after handling themselves (commit-then-blur for Enter, revert-then-blur for
+ * Escape). Both must pre-arm `skipNextBlurCommitRef` so the onBlur handler —
+ * which fires synchronously inside that manual `.blur()` call, before React
+ * re-renders with the just-committed/-reverted draft — doesn't re-run
+ * commit() a second time against the same stale closure and double-invoke
+ * `onChange` with the identical value. Exported so the contract (which keys
+ * require the guard) is unit-testable without needing to simulate real DOM
+ * focus/blur timing.
+ */
+export function propInputKeyRequiresBlurGuard(key: string): boolean {
+  return key === "Enter" || key === "Escape";
 }
 
 /** Compact input row: label + text input.
@@ -92,9 +114,24 @@ export function PropInput({
   // Escape reverts and blurs; the blur handler must then skip its commit or it
   // would re-commit the stale draft closure (mirrors ScrubInput's Escape path).
   const skipNextBlurCommitRef = useRef(false);
+  // Tracks focus without becoming a reactive effect dependency: a plain
+  // `focused` state variable in the effect's deps below would re-run the
+  // resync the instant blur sets it false, re-syncing from a `value` prop
+  // that hasn't caught up with the commit that same blur just fired (the
+  // classic "Enter/blur flashes back to the old value" bug — see
+  // ScrubInput's pendingCommitRef comment for the same class of issue). A ref
+  // sidesteps that: the effect only re-runs when `value` itself changes, and
+  // simply consults the current focus state at that point.
+  const focusedRef = useRef(false);
 
   useEffect(() => {
-    setDraft(value);
+    // Skip the resync while the user is actively editing — otherwise an
+    // unrelated re-render that changes this exact `value` prop (e.g. a poll
+    // tick, or another property's edit recomputing this element's styles)
+    // stomps the in-progress keystrokes with the last-committed value. This
+    // is the "you're typing and it snaps back to the old value" bug; mirrors
+    // ScrubInput's `!focused` guard on its own resync effect.
+    if (!focusedRef.current) setDraft(value);
   }, [value]);
 
   const commit = () => {
@@ -120,6 +157,7 @@ export function PropInput({
         type={type}
         value={draft}
         onFocus={(e) => {
+          focusedRef.current = true;
           if (mixed) e.currentTarget.select();
         }}
         onChange={(e) => {
@@ -131,6 +169,7 @@ export function PropInput({
           if (defaultUnit === undefined) onChange(e.target.value);
         }}
         onBlur={() => {
+          focusedRef.current = false;
           if (skipNextBlurCommitRef.current) {
             skipNextBlurCommitRef.current = false;
             return;
@@ -141,6 +180,13 @@ export function PropInput({
           if (e.key === "Enter") {
             e.preventDefault();
             commit();
+            // See propInputKeyRequiresBlurGuard: without this, the blur
+            // triggered below re-enters commit() a second time in the same
+            // synchronous tick, double-invoking onChange with the identical
+            // value.
+            skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
+              e.key,
+            );
             (e.currentTarget as HTMLInputElement).blur();
             return;
           }
@@ -149,7 +195,9 @@ export function PropInput({
             // Revert the draft to the last committed value and blur, matching
             // ScrubInput's Escape behavior.
             setDraft(value);
-            skipNextBlurCommitRef.current = true;
+            skipNextBlurCommitRef.current = propInputKeyRequiresBlurGuard(
+              e.key,
+            );
             (e.currentTarget as HTMLInputElement).blur();
           }
         }}
@@ -171,6 +219,7 @@ export function ColorInput({
   backgroundPosition,
   onBackgroundImageChange,
   onImageFillChange,
+  onImageFillLayerChange,
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
@@ -187,7 +236,34 @@ export function ColorInput({
   backgroundRepeat?: string;
   backgroundPosition?: string;
   onBackgroundImageChange?: (value: string) => void;
+  /**
+   * Single-layer image-fill commit: receives just the edited `{url, fit}`
+   * and leaves building the CSS patch to the caller (via
+   * `imageFillToBackgroundStyles`). Kept for callers that only accept that
+   * shape; prefer `onImageFillLayerChange` below when the caller can commit
+   * an arbitrary multi-property patch, since this single-layer callback has
+   * no way to report which layer changed and therefore always causes the
+   * caller to overwrite the *whole* background stack — silently discarding
+   * any other gradient/image layer stacked alongside it.
+   */
   onImageFillChange?: (value: ImageFillValue) => void;
+  /**
+   * Layer-index-aware sibling of `onImageFillChange`: fires with the full
+   * four-property background patch already merged to preserve every other
+   * stacked gradient/image layer (see `imageFillChangePatch`) — the caller
+   * should commit it as-is (e.g. via `commitStylePatch`), not narrow it back
+   * down to a single-layer write. Takes priority over `onImageFillChange`
+   * when both are provided.
+   */
+  onImageFillLayerChange?: (
+    patch: Record<
+      | "backgroundImage"
+      | "backgroundSize"
+      | "backgroundRepeat"
+      | "backgroundPosition",
+      string
+    >,
+  ) => void;
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
@@ -212,8 +288,18 @@ export function ColorInput({
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
   const [selectedStopId, setSelectedStopId] = useState<string | undefined>();
+  // Set while a "preview" phase tick has fired but its bracketing "commit"
+  // hasn't landed yet (see setNext below) — i.e. mid drag/scrub gesture in
+  // the popover. Guards the resync effect so an unrelated external `value`
+  // change (e.g. a poll tick, or another property's edit recomputing this
+  // element's styles) can't stomp the optimistic draft this gesture is
+  // driving. Mirrors ScrubInput's pendingCommitRef guard for the same class
+  // of bug, and PropInput's focusedRef guard for the keyboard-typing
+  // equivalent.
+  const pendingGestureRef = useRef(false);
 
   useEffect(() => {
+    if (pendingGestureRef.current) return;
     setDraft(value);
   }, [value]);
 
@@ -283,6 +369,7 @@ export function ColorInput({
     // state. Reject anything that doesn't parse as a plain solid color in
     // that case instead of forwarding it.
     if (!supportsLayeredFills && !parseCssColor(next)) return;
+    pendingGestureRef.current = phase === "preview";
     setDraft(next);
     onChange(next, { phase });
   };
@@ -323,66 +410,31 @@ export function ColorInput({
     setSelectedStopId(gradient?.stops[0]?.id);
   };
 
-  const fillRows = supportsLayeredFills
-    ? buildFillRows(
-        draft || value || "#000000",
-        backgroundLayers,
-        selectedFillId,
-      )
-    : undefined;
-
-  const handleFillChange = (id: string, patch: DesignFillRowPatch) => {
-    if (id === SOLID_FILL_ID) {
-      if (patch.value !== undefined) setNext(patch.value);
-      if (patch.opacity !== undefined) {
-        const parsed = parseCssColor(patch.value ?? draft);
-        if (parsed) setNext(rgbaToCss(withColorOpacity(parsed, patch.opacity)));
+  // Prefer the layer-index-aware callback when the caller wired it: it
+  // receives the full four-property patch already merged to preserve every
+  // sibling gradient/image layer (see `imageFillChangePatch`), instead of
+  // just `{url, fit}` — the shape `onImageFillChange` alone can't express a
+  // "leave every other layer untouched" write, so a caller stuck with only
+  // that prop is structurally forced to replace the whole background stack.
+  const handleImageFillChange = onImageFillLayerChange
+    ? (nextImage: ImageFillValue) => {
+        const styles = imageFillToBackgroundStyles(nextImage);
+        const layerIndex = fillLayerIndex(selectedFillId);
+        onImageFillLayerChange(
+          imageFillChangePatch(
+            {
+              backgroundImage: backgroundLayers,
+              backgroundSize: backgroundSizeLayers,
+              backgroundRepeat: backgroundRepeatLayers,
+              backgroundPosition: backgroundPositionLayers,
+            },
+            layerIndex,
+            styles,
+          ),
+        );
+        if (layerIndex === null) setSelectedFillId(fillLayerId(0));
       }
-      return;
-    }
-
-    const index = fillLayerIndex(id);
-    if (index === null || !onBackgroundImageChange) return;
-    const currentLayer = backgroundLayers[index] || "";
-    if (patch.value !== undefined) {
-      replaceBackgroundLayer(index, patch.value);
-      return;
-    }
-    if (patch.opacity === undefined) return;
-    const gradient = parseGradientLayer(currentLayer);
-    if (!gradient) return;
-    replaceBackgroundLayer(
-      index,
-      buildGradientLayer(
-        gradient.type,
-        gradient.stops.map((stop) => ({
-          ...stop,
-          opacity: patch.opacity,
-        })),
-        gradient.prefix,
-      ),
-    );
-  };
-
-  const handleAddFill = onBackgroundImageChange
-    ? () => {
-        const nextLayers = [
-          defaultGradientLayer("linear", draft || value || "#000000"),
-          ...backgroundLayers,
-        ];
-        onBackgroundImageChange(joinCssLayers(nextLayers));
-        setSelectedFillId(fillLayerId(0));
-        setSelectedStopId("stop-0");
-      }
-    : undefined;
-
-  const handleRemoveFill = onBackgroundImageChange
-    ? (id: string) => {
-        const index = fillLayerIndex(id);
-        if (index === null) return;
-        removeBackgroundLayer(index);
-      }
-    : undefined;
+    : onImageFillChange;
 
   const handleGradientTypeChange =
     activeGradient && activeGradientIndex !== null
@@ -391,74 +443,6 @@ export function ColorInput({
             activeGradientIndex,
             buildGradientLayer(type, activeGradient.stops),
           );
-        }
-      : undefined;
-
-  const handleGradientStopChange =
-    activeGradient && activeGradientIndex !== null
-      ? (id: string, patch: DesignGradientStopPatch) => {
-          const nextStops = activeGradient.stops.map((stop) =>
-            stop.id === id ? { ...stop, ...patch } : stop,
-          );
-          replaceBackgroundLayer(
-            activeGradientIndex,
-            buildGradientLayer(
-              activeGradient.type,
-              nextStops,
-              activeGradient.prefix,
-            ),
-          );
-        }
-      : undefined;
-
-  const handleAddGradientStop = onBackgroundImageChange
-    ? () => {
-        if (activeGradient && activeGradientIndex !== null) {
-          const nextStop: DesignGradientStop = {
-            id: `stop-${activeGradient.stops.length}`,
-            color: draft || "#000000",
-            position: 50,
-            opacity: 100,
-          };
-          replaceBackgroundLayer(
-            activeGradientIndex,
-            buildGradientLayer(
-              activeGradient.type,
-              [...activeGradient.stops, nextStop],
-              activeGradient.prefix,
-            ),
-          );
-          setSelectedStopId(nextStop.id);
-          return;
-        }
-
-        onBackgroundImageChange(
-          joinCssLayers([
-            defaultGradientLayer("linear", draft || value || "#000000"),
-            ...backgroundLayers,
-          ]),
-        );
-        setSelectedFillId(fillLayerId(0));
-        setSelectedStopId("stop-0");
-      }
-    : undefined;
-
-  const handleRemoveGradientStop =
-    activeGradient && activeGradientIndex !== null
-      ? (id: string) => {
-          if (activeGradient.stops.length <= 2) return;
-          const nextStops = activeGradient.stops.filter(
-            (stop) => stop.id !== id,
-          );
-          replaceBackgroundLayer(
-            activeGradientIndex,
-            buildGradientLayer(
-              activeGradient.type,
-              nextStops,
-              activeGradient.prefix,
-            ),
-          );
-          setSelectedStopId(nextStops[0]?.id);
         }
       : undefined;
 
@@ -574,7 +558,7 @@ export function ColorInput({
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
-      onImageFillChange={onImageFillChange}
+      onImageFillChange={handleImageFillChange}
       backgroundImage={selectedBackgroundLayerValue(backgroundLayers)}
       backgroundSize={selectedBackgroundLayerValue(backgroundSizeLayers)}
       backgroundRepeat={selectedBackgroundLayerValue(backgroundRepeatLayers)}
@@ -584,24 +568,10 @@ export function ColorInput({
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
       showBlendMode={Boolean(onBlendModeChange)}
-      fillRows={fillRows}
-      selectedFillId={selectedFillId}
-      onFillSelect={supportsLayeredFills ? setSelectedFillId : undefined}
-      onFillChange={supportsLayeredFills ? handleFillChange : undefined}
-      onAddFill={supportsLayeredFills ? handleAddFill : undefined}
-      onRemoveFill={supportsLayeredFills ? handleRemoveFill : undefined}
       paintType={selectedPaintType}
       onPaintTypeChange={handlePaintTypeChange}
       gradientType={activeGradient?.type}
       onGradientTypeChange={handleGradientTypeChange}
-      gradientStops={activeGradient?.stops}
-      selectedStopId={selectedStopId}
-      onGradientStopSelect={setSelectedStopId}
-      onGradientStopChange={handleGradientStopChange}
-      onAddGradientStop={
-        supportsLayeredFills ? handleAddGradientStop : undefined
-      }
-      onRemoveGradientStop={handleRemoveGradientStop}
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}

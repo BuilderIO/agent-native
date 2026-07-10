@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { chunkUploadQuery, normalizeChunkUploadNumber } from "./recording-core";
+import {
+  chunkUploadParallelism,
+  chunkUploadQuery,
+  normalizeChunkUploadNumber,
+} from "./recording-core";
 
 describe("recording upload URL helpers", () => {
+  it("serializes resumable chunks while keeping buffered upload parallelism", () => {
+    expect(chunkUploadParallelism("streaming", 4)).toBe(1);
+    expect(chunkUploadParallelism("buffered", 4)).toBe(4);
+    expect(chunkUploadParallelism(undefined, 0)).toBe(1);
+  });
+
   it("normalizes finite upload metadata before encoding", () => {
     expect(normalizeChunkUploadNumber("1200.6")).toBe(1201);
     expect(normalizeChunkUploadNumber(-12)).toBe(0);

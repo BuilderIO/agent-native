@@ -29,12 +29,10 @@ import {
  *      never saw the key, so every external `pull-document` waited the full
  *      timeout and returned stale DB content.
  *   2. The editor polls that key, serializes its current Y.Doc to markdown
- *      through its existing serializer, calls `update-document`, then deletes
- *      the key.
- *   3. We poll (across both candidate sessions) for the key to disappear
- *      (flush acknowledged) and then read the now-fresh row. If the key never
- *      clears (no editor actually open), we fall back to the DB column, which
- *      is the best available snapshot.
+ *      through its existing serializer, calls `update-document`, then writes an
+ *      explicit success/error acknowledgement for that request id.
+ *   3. We poll every active collaborator session for the acknowledgement, fail
+ *      closed on editor errors/timeouts, and then read the now-fresh row.
  *
  * When there is no live collab session the DB column is authoritative and we
  * skip the handshake entirely. The helper bounds the wait so stale collab
@@ -90,7 +88,7 @@ export default defineAction({
 
     // If a live Yjs collab session is open, the in-memory editor doc is fresher
     // than the SQL column. Ask the open editor to serialize + save, then wait
-    // for it to acknowledge by clearing the flush-request key.
+    // for its explicit request-id-matched acknowledgement.
     await flushOpenDocumentEditorToSql({
       documentId: id,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,

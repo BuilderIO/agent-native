@@ -74,10 +74,18 @@ export function selectionColorValues(
   return rawValues
     .map((color) => ({ ...color, value: color.value?.trim() }))
     .filter((color): color is SelectionColorValue => Boolean(color.value))
-    .filter(
-      (color) =>
-        color.value !== "transparent" && color.value !== "rgba(0, 0, 0, 0)",
-    )
+    .filter((color) => {
+      // Skip fully transparent colors — not a meaningful "selection color"
+      // swatch (matches extractDocumentColorPalette's same alpha check
+      // below). Parsed via parseCssColor rather than compared against the
+      // two literal spellings "transparent"/"rgba(0, 0, 0, 0)" — a border/
+      // outline color can be zero-alpha in many other forms (e.g.
+      // "rgba(255, 0, 0, 0)", "hsla(0, 0%, 0%, 0)", no-space formatting)
+      // and those previously slipped through as a bogus opaque-looking
+      // swatch instead of being hidden like every other invisible color.
+      const parsed = parseCssColor(color.value);
+      return !parsed || parsed.a > 0;
+    })
     .filter((color) => {
       const key = color.value.toLowerCase();
       if (seen.has(key)) return false;

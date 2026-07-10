@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { MotionDock, type MotionDockTrack } from "./MotionDock";
+import {
+  formatCurveAxisValue,
+  MotionDock,
+  motionFieldKeyRequiresBlurGuard,
+  type MotionDockTrack,
+} from "./MotionDock";
 
 // Minimal catalog covering only the keys MotionDock reads — see the same
 // convention/rationale note in BreakpointBar.test.tsx. Full catalog coverage
@@ -184,5 +189,57 @@ describe("MotionDock — timeline body anatomy", () => {
     expect(markup).toContain('aria-label="Keyframe at 500ms"');
     expect(markup).toContain('aria-label="Keyframe at 1000ms"');
     expect(markup).toContain('aria-label="Keyframe at 1500ms"');
+  });
+});
+
+describe("motionFieldKeyRequiresBlurGuard (Enter/Escape double-commit guard)", () => {
+  // Regression: the current-time and duration toolbar fields call their
+  // commit function directly on Enter, then `.blur()` the input so it
+  // visually defocuses. That synchronous `.blur()` re-fires the SAME
+  // still-stale commit callback via onBlur in the same tick (React hasn't
+  // re-rendered between the two calls), double-invoking onPlayheadChange /
+  // onDurationChange and re-sending the preview postMessage. The fields set
+  // a `skipNextBlurCommitRef` flag before calling `.blur()`, keyed off this
+  // guard, so the immediately-following onBlur is a no-op instead of a
+  // second commit.
+  it("requires the blur guard for Enter (the commit-then-blur key)", () => {
+    expect(motionFieldKeyRequiresBlurGuard("Enter")).toBe(true);
+  });
+
+  it("requires the blur guard for Escape (the revert-then-blur key)", () => {
+    expect(motionFieldKeyRequiresBlurGuard("Escape")).toBe(true);
+  });
+
+  it("does not guard keys that never trigger an explicit .blur() call", () => {
+    expect(motionFieldKeyRequiresBlurGuard("Tab")).toBe(false);
+    expect(motionFieldKeyRequiresBlurGuard("a")).toBe(false);
+    expect(motionFieldKeyRequiresBlurGuard("ArrowLeft")).toBe(false);
+  });
+});
+
+describe("formatCurveAxisValue (bezier control-point field display)", () => {
+  // Regression: the custom-bezier x1/y1/x2/y2 number fields used to bind
+  // `value` directly to `formatCurveAxisValue(fieldValue)` with no local
+  // draft state. Typing "0" then "." called onChange(parseFloat("0.")) — a
+  // finite 0 — which re-rendered the field back to the committed "0" and
+  // silently dropped the "." the instant it was typed, so a decimal (or a
+  // leading "-" for a negative control point) could never be entered. The
+  // fix gives each field its own draft string that only resyncs from the
+  // committed value on blur/external change, not on every keystroke; this
+  // covers the formatting half of that contract (2-decimal rounding, used
+  // both to seed the initial draft and to reformat on blur).
+  it("rounds to 2 decimal places", () => {
+    expect(formatCurveAxisValue(0.4234)).toBe("0.42");
+    expect(formatCurveAxisValue(1.005)).toBe("1");
+  });
+
+  it("formats whole numbers without a trailing decimal", () => {
+    expect(formatCurveAxisValue(1)).toBe("1");
+    expect(formatCurveAxisValue(0)).toBe("0");
+  });
+
+  it("preserves sign for overshoot (back-curve) control points", () => {
+    expect(formatCurveAxisValue(-0.56)).toBe("-0.56");
+    expect(formatCurveAxisValue(1.56)).toBe("1.56");
   });
 });

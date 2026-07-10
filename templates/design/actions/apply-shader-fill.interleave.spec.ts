@@ -271,6 +271,71 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
     expect(finalLive.content).toContain("background:");
   });
 
+  it("preserves an unsaved caller working copy when its revision still matches the unchanged live base", async () => {
+    const workingCopy = baseDoc().replace(
+      "Caption text",
+      "Caption text (unsaved locally)",
+    );
+
+    const result = await action.run(
+      shaderFillArgs({
+        source: {
+          kind: "design-file",
+          designId: DESIGN_ID,
+          fileId: FILE_ID,
+          currentContent: workingCopy,
+          revision: "2026-07-06T00:00:00.000Z",
+        },
+      }) as never,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.persisted).toBe(true);
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("Caption text (unsaved locally)");
+    expect(finalLive.content).toContain("background:");
+  });
+
+  it("rejects a third live value even when the caller's SQL revision still matches", async () => {
+    const persistedBase = baseDoc();
+    const workingCopy = persistedBase.replace(
+      "Caption text",
+      "Caption text (unsaved locally)",
+    );
+    await (
+      await import("@agent-native/core/collab")
+    ).seedFromText(FILE_ID, persistedBase);
+    const concurrentLive = persistedBase.replace(
+      "Caption text",
+      "Caption text (edited concurrently)",
+    );
+    await applyText(FILE_ID, concurrentLive, "content", "agent");
+    // Deliberately leave SQL at persistedBase with the matching revision. The
+    // live Y.Text is the independent third value that must win the conflict.
+
+    const result = await action.run(
+      shaderFillArgs({
+        source: {
+          kind: "design-file",
+          designId: DESIGN_ID,
+          fileId: FILE_ID,
+          currentContent: workingCopy,
+          revision: "2026-07-06T00:00:00.000Z",
+        },
+      }) as never,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      persisted: false,
+      conflict: true,
+    });
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("Caption text (edited concurrently)");
+    expect(finalLive.content).not.toContain("unsaved locally");
+    expect(finalLive.content).not.toContain("background:");
+  });
+
   it("rejects loud (ShaderFillRevisionConflictError shape) instead of silently clobbering when currentContent has gone stale by write time", async () => {
     const staleBase = baseDoc();
 

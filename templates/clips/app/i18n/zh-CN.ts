@@ -361,6 +361,7 @@ const messages = {
     searchPlaceholder: "搜索成绩单",
     copyTranscript: "复制成绩单",
     downloadSrt: "下载.srt",
+    regenerate: "重新生成转录文本",
     cleanupRunning: "在后台清理成绩单。",
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",

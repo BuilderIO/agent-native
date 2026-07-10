@@ -371,6 +371,7 @@ const messages = {
     searchPlaceholder: "प्रतिलेख खोजें",
     copyTranscript: "प्रतिलेख कॉपी करें",
     downloadSrt: "डाउनलोड .srt",
+    regenerate: "प्रतिलेख फिर से बनाएँ",
     cleanupRunning: "पृष्ठभूमि में प्रतिलेख साफ़ करना.",
     noMatches: "कोई मेल नहीं।",
     noTranscript: "अभी तक कोई प्रतिलेख नहीं.",

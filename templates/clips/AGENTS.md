@@ -34,6 +34,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   download the original from Loom and use "Upload video".
 - Native transcript first. Cleanup and title generation can run in the
   background; do not hide a usable native transcript behind a failed cleanup.
+- Use `request-transcript --recordingId=<id> --force=true` to retry a failed
+  transcript. Pass `--regenerate=true` to replace an existing ready transcript
+  from the stored recording media; if regeneration fails, keep the prior ready
+  transcript available.
 - Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are

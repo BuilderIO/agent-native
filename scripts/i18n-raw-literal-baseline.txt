@@ -9,6 +9,7 @@ templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], 
 templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
 templates/design/app/components/design/FusionAppBanner.tsx|Push failed
+templates/design/app/components/design/bridge/editor-chrome.bridge.ts|parentRect.right || clientY
 templates/design/app/components/design/code-workbench/commands.ts|Command failed
 templates/design/app/components/design/code-workbench/commands.ts|Could not save file
 templates/design/app/components/design/code-workbench/editor/EditorTabs.tsx|Could not save file
@@ -20,6 +21,7 @@ templates/design/app/components/design/code-workbench/search/search-engine.ts|In
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
 templates/design/app/components/design/code-workbench/workspace/types.ts|` or `localhost:
+templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, existingScreenIds: ReadonlySet
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, liveScreenIds: ReadonlySet
 templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick

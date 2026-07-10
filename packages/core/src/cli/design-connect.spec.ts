@@ -564,6 +564,106 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("signals an unregistered bridgeKey with a machine-readable code and the process's bridgeInstanceId, so a client can tell a restarted bridge apart from a real bug", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><html><body><main>Screen</main></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // A bridgeKey that was never registered against THIS bridge process —
+      // e.g. the client remembers registering it before the bridge process
+      // restarted (crash, machine sleep/wake, manual restart), which silently
+      // empties the in-memory liveEditBridgeScripts map.
+      const unregistered = await getJson(
+        `${base}/live-edit?path=/a&bridgeKey=never-registered&previewToken=${bridge.previewToken}`,
+      );
+      expect(unregistered.status).toBe(409);
+      expect(unregistered.body.code).toBe("unknown-bridge-key");
+      expect(unregistered.body.bridgeKey).toBe("never-registered");
+      expect(unregistered.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
+
+      // The registration endpoint echoes the same instance id, so a client
+      // that registers, then later hits the 409 above with a DIFFERENT
+      // bridgeInstanceId than what it got back here, knows the process
+      // restarted (safe to silently re-register) rather than distrust its
+      // own bridgeKey.
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        { "x-design-preview-token": bridge.previewToken },
+      );
+      expect(registration.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
+
+      // /health exposes the same id for a lightweight out-of-band check.
+      const health = await getJson(`${base}/health`);
+      expect(health.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("mints a fresh bridgeInstanceId per bridge process, so a restart is distinguishable", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><html><body><main>Screen</main></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const firstBridge = await startDesignConnectBridge(manifest);
+    await new Promise<void>((resolve) =>
+      firstBridge.server.close(() => resolve()),
+    );
+    const secondBridge = await startDesignConnectBridge(manifest);
+    try {
+      expect(secondBridge.bridgeInstanceId).not.toBe(
+        firstBridge.bridgeInstanceId,
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        secondBridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("returns read-only HTML snapshots from the connected dev server", async () => {
     const root = tmpDir();
     const devPort = await freePort();
@@ -608,6 +708,16 @@ describe("design connect bridge endpoints", () => {
     const devPort = await freePort();
     const devServer = http.createServer((req, res) => {
       if (req.url?.startsWith("/src/main.ts")) {
+        if (req.headers.cookie || req.headers.authorization) {
+          res.writeHead(400, { "content-type": "text/plain" });
+          res.end("sensitive request headers leaked");
+          return;
+        }
+        if (req.headers["sec-fetch-dest"] !== "script") {
+          res.writeHead(404, { "content-type": "text/plain" });
+          res.end("missing script destination");
+          return;
+        }
         res.writeHead(200, {
           "content-type": "application/javascript; charset=utf-8",
           "cache-control": "no-store",
@@ -684,10 +794,16 @@ describe("design connect bridge endpoints", () => {
 
       const module = await getText(`${base}/src/main.ts`, {
         "sec-fetch-site": "same-origin",
+        "sec-fetch-dest": "script",
+        cookie: "pilot_session=must-not-forward",
+        authorization: "Bearer example-must-not-forward",
       });
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
+      );
+      expect(module.headers["content-length"]).toBe(
+        String(Buffer.byteLength(module.body)),
       );
       expect(module.body).toContain("CSR booted");
 

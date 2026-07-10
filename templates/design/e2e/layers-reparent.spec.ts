@@ -41,6 +41,32 @@ test.describe.serial("layers menu structure operations", () => {
       "aria-selected",
       "true",
     );
+
+    // Cmd/Ctrl toggles membership back off without disturbing the other row.
+    await additiveSelectLayerRow(page, "Beta Button");
+    await expect.poll(() => selectedRowCount(page)).toBe(1);
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+
+    // Shift selects the visible range from the plain-click anchor. The
+    // mirrored iframe selection echo must not collapse the range to Beta.
+    await clickLayerRow(page, "Alpha Button");
+    await rangeSelectLayerRow(page, "Beta Button");
+    await expect.poll(() => selectedRowCount(page)).toBe(2);
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   test("dragging a sibling row reorders it before its peer", async ({
@@ -334,6 +360,12 @@ async function additiveSelectLayerRow(page: Page, name: string): Promise<void> {
   await button.click({
     modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
   });
+  await expect(button).toBeFocused();
+}
+
+async function rangeSelectLayerRow(page: Page, name: string): Promise<void> {
+  const button = layerRowButton(page, name);
+  await button.click({ modifiers: ["Shift"] });
   await expect(button).toBeFocused();
 }
 

@@ -1,4 +1,4 @@
-import type { ElementInfo } from "../types";
+import type { CanvasLayerHitCandidate, ElementInfo } from "../types";
 
 export interface IframeHotkeyPayload {
   key: string;
@@ -15,9 +15,11 @@ export interface IframeFigmaClipboardPastePayload {
 }
 
 export interface IframeContextMenuPayload {
+  screenId?: string;
   clientX: number;
   clientY: number;
   viewportClientX?: number;
   viewportClientY?: number;
   info?: ElementInfo | null;
+  layerCandidates?: CanvasLayerHitCandidate[];
 }

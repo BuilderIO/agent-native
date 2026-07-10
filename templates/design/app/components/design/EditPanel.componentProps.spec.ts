@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildComponentPropRows } from "./edit-panel/component-section";
 import {
   alpineDataValueLiteral,
   canRebuildAlpineDataLosslessly,
@@ -309,6 +310,85 @@ describe("canRebuildAlpineDataLosslessly", () => {
 // ---------------------------------------------------------------------------
 // isBooleanPropValue — toggle detection
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// buildComponentPropRows — row model + persist-surface selection (Bug: a
+// never-observed persisted-variant group used to route its first edit to
+// whichever surface an UNRELATED sibling x-data key happened to use).
+// ---------------------------------------------------------------------------
+
+describe("buildComponentPropRows", () => {
+  it("lists Alpine x-data keys first, tagged for the alpineData surface", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ variant: 'solid', open: false }" },
+      observedProps: [],
+      persistedVariants: { variant: ["solid", "outline"] },
+    });
+    const variantRow = rows.find((r) => r.name === "variant");
+    expect(variantRow).toMatchObject({
+      value: "solid",
+      surface: "alpineData",
+      options: ["solid", "outline"],
+    });
+    const openRow = rows.find((r) => r.name === "open");
+    expect(openRow).toMatchObject({ value: "false", surface: "alpineData" });
+  });
+
+  it("lists observed data-attribute props not already in x-data, tagged attribute", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ open: false }" },
+      observedProps: [{ name: "label", value: "Save" }],
+      persistedVariants: {},
+    });
+    expect(rows.find((r) => r.name === "label")).toMatchObject({
+      value: "Save",
+      surface: "attribute",
+    });
+    // The x-data key isn't duplicated as an attribute row.
+    expect(rows.filter((r) => r.name === "open")).toHaveLength(1);
+  });
+
+  it("defaults a never-observed persisted-variant group to the attribute surface even when x-data exists for other keys", () => {
+    // This instance's x-data only carries `open` — `size` is a persisted
+    // variant group that has never appeared in x-data or observedProps on
+    // this instance, meaning it must be attribute-driven. Regression: this
+    // used to key off `alpineData` being truthy for the unrelated `open`
+    // key and route `size`'s first edit into an x-data rewrite instead.
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ open: false }" },
+      observedProps: [],
+      persistedVariants: { size: ["sm", "md", "lg"] },
+    });
+    const sizeRow = rows.find((r) => r.name === "size");
+    expect(sizeRow).toMatchObject({
+      value: "sm",
+      surface: "attribute",
+      options: ["sm", "md", "lg"],
+    });
+  });
+
+  it("defaults a never-observed persisted-variant group to attribute when there is no x-data at all", () => {
+    const rows = buildComponentPropRows({
+      instance: null,
+      observedProps: [],
+      persistedVariants: { size: ["sm", "lg"] },
+    });
+    expect(rows.find((r) => r.name === "size")).toMatchObject({
+      value: "sm",
+      surface: "attribute",
+    });
+  });
+
+  it("does not duplicate a group already covered by x-data or an observed attribute", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ variant: 'solid' }" },
+      observedProps: [{ name: "label", value: "Save" }],
+      persistedVariants: { variant: ["solid", "outline"], label: [] },
+    });
+    expect(rows.filter((r) => r.name === "variant")).toHaveLength(1);
+    expect(rows.filter((r) => r.name === "label")).toHaveLength(1);
+  });
+});
 
 describe("isBooleanPropValue", () => {
   it("recognizes true/false case-insensitively", () => {

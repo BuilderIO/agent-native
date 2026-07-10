@@ -149,21 +149,32 @@ export async function loadAwarenessRows(
   now: number = Date.now(),
 ): Promise<AwarenessEntry[]> {
   try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT client_id, state, last_seen FROM _collab_awareness
-            WHERE doc_id = ? AND last_seen >= ?`,
-      args: [docId, now - ROW_TTL_MS],
-    });
-    return rows.map((row: any) => ({
-      clientId: Number(row.client_id),
-      state: String(row.state),
-      lastSeen: Number(row.last_seen),
-    }));
+    return await loadAwarenessRowsStrict(docId, now);
   } catch {
     return [];
   }
+}
+
+/**
+ * Strict awareness read for safety-critical callers that must distinguish
+ * "no active participants" from "presence storage could not be read."
+ */
+export async function loadAwarenessRowsStrict(
+  docId: string,
+  now: number = Date.now(),
+): Promise<AwarenessEntry[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT client_id, state, last_seen FROM _collab_awareness
+          WHERE doc_id = ? AND last_seen >= ?`,
+    args: [docId, now - ROW_TTL_MS],
+  });
+  return rows.map((row: any) => ({
+    clientId: Number(row.client_id),
+    state: String(row.state),
+    lastSeen: Number(row.last_seen),
+  }));
 }
 
 async function maybePurge(docId: string, now: number): Promise<void> {

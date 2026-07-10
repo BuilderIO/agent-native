@@ -17,6 +17,9 @@ How to export designs and generate handoff documentation for developers converti
   with the editor's Download SVG command. The editor's own Download SVG
   command captures the live browser DOM for the most faithful snapshot; use
   the action when you need agent-side SVG export without a live browser.
+  **This is not importable into Figma as editable vectors** — Figma cannot
+  parse `foreignObject` content, so it stays an opaque embedded HTML blob.
+  Use `export-design-as-figma-svg` (below) when the destination is Figma.
 - **PNG**: there is no PNG export action. Point the user to the editor's
   download menu (Download PNG) — PNG export is a client-side rasterization of
   the live canvas and is not exposed as an agent action.
@@ -87,6 +90,60 @@ pnpm action export-pdf --id <designId>
 ```
 
 Returns all design data and files needed for the client to render a PDF.
+
+## Export to Figma (SVG)
+
+`export-design-as-figma-svg` exports a design screen (or a selected
+element's subtree) as a genuinely VECTOR SVG document — real
+`<rect>`/`<path>`/`<text>`/`<image>` markup with
+`<linearGradient>`/`<radialGradient>`/`<filter>` defs. Figma's SVG importer
+parses this into normal, editable layers (rect/path/gradients/filters stay
+editable). This is a different artifact from `export-svg` above, whose
+`foreignObject` wrapper Figma cannot import as vectors at all.
+
+```bash
+pnpm action export-design-as-figma-svg --designId <designId>
+```
+
+Optional args:
+
+- `fileId` / `filename` — pick a specific screen (defaults to `index.html`).
+- `nodeId` — scope the export to one selected element's subtree via its
+  `data-agent-native-node-id`, instead of the whole screen.
+- `embedImages` (default `true`) — fetch and inline `http(s)` image sources
+  and background-images as `data:` URIs, so the SVG is self-contained for
+  clipboard paste. Set `false` to keep absolute URLs instead.
+
+Returns `{ svg, filename, report, filePath? }`. `report` classifies every
+element as `vectorized`, `approximated` (mapped with a documented caveat —
+e.g. a non-square gradient angle, a non-uniform border, a radial gradient's
+shape/position), `rasterized` (video/canvas/iframe content, and any element
+with `backdrop-filter`, which SVG cannot express — embedded as a cropped
+screenshot instead), or `omitted`. If no headless Chromium binary is
+available in the current environment (expected in hosted/serverless
+deploys), the action returns `{ ok: false, reason }` instead of throwing —
+fall back to `export-svg` or `export-html`.
+
+**Vectorized-text caveat**: Figma converts every imported SVG `<text>`
+element to outlined vector paths on paste/drag-import. The exported
+geometry is pixel-exact, but text pasted from this export is no longer
+live, editable type in Figma — it's outlines, the same way any other
+SVG-authoring tool's text becomes outlines on import. This is a Figma
+import limitation, not a defect in the export; the report's
+`vectorizedTextCaveat` field carries this note for the agent/user.
+
+**Getting it into Figma**: two supported paths —
+
+1. **Copy, then paste into Figma.** In the editor, right-click a selected
+   element or the canvas and choose **Copy as SVG** (Copy/Paste as ▸ Copy as
+   SVG). This writes the SVG markup to the system clipboard as `text/plain`
+   (the MIME Figma's own paste handler reads for "paste as vector shapes")
+   plus `image/svg+xml` as a secondary representation. Paste directly into a
+   Figma canvas.
+2. **Download, then drag-import.** Figma's file browser also accepts a
+   plain `.svg` file dropped/imported directly — save the `svg` string
+   returned by the action to a `.svg` file and drag it into a Figma page the
+   same way you'd import any other SVG asset.
 
 ## Coding Handoff
 

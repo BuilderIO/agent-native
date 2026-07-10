@@ -10,6 +10,7 @@ import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
 import { designFrame, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
+let fileId: string;
 let baseURLForActions: string;
 
 async function postAction(
@@ -46,12 +47,14 @@ test.beforeAll(async ({ request }, workerInfo) => {
     throw new Error(`create-design did not return an id: ${created}`);
   }
 
-  await postAction(request, "create-file", {
+  const file = await postAction(request, "create-file", {
     designId,
     filename: "index.html",
     content: FIXTURE_HTML,
     fileType: "html",
   });
+  fileId = file.id;
+  if (!fileId) throw new Error("create-file did not return an id");
   await postAction(request, "index-components", { designId });
   await seedComponentVariantMetadata(designId);
 });
@@ -132,7 +135,9 @@ async function editTokenValue(
 test("inline component prop dropdown persists on the selected component", async ({
   page,
 }) => {
-  const payload = await selectByText(page, "Variant CTA");
+  const payload = await selectByText(page, "Variant CTA", {
+    screenId: fileId,
+  });
   expect(payload?.selector ?? "").toContain("data-agent-native-node-id");
 
   const componentSection = page.getByTestId("component-section");
@@ -151,7 +156,7 @@ test("inline component prop dropdown persists on the selected component", async 
 
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
-  await selectByText(page, "Variant CTA");
+  await selectByText(page, "Variant CTA", { screenId: fileId });
   await expect(
     page.getByTestId("component-section").getByRole("combobox").first(),
   ).toContainText("secondary");
@@ -235,7 +240,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
 test("Motion dock autosaves track edits to CSS and reopens them", async ({
   page,
 }) => {
-  await selectByText(page, "Alpha Button");
+  await selectByText(page, "Alpha Button", { screenId: fileId });
 
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   const motionRailButton = page.getByRole("button", {
@@ -302,7 +307,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
 
   const motionDock = page.locator('[aria-label="Motion dock"]').first();
   await motionDock
-    .getByRole("button", { name: "Add track", exact: true })
+    .getByRole("button", { name: "Add motion", exact: true })
     .last()
     .click();
   const motionResponse = await waitForAction(
@@ -310,7 +315,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     "apply-motion-edit",
     async () => {
       await page
-        .getByRole("menuitem", { name: "Fade (opacity)", exact: true })
+        .getByRole("menuitem", { name: "Opacity", exact: true })
         .click();
     },
   );
@@ -325,8 +330,8 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
   await expect(page.getByText("opacity", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Keyframe at 0%")).toBeVisible();
-  await expect(page.getByLabel("Keyframe at 100%")).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 0ms")).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 2000ms")).toBeVisible();
 
   await gotoEditor(page, designId);
   await expect
@@ -386,8 +391,8 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
   await expect(page.getByText("opacity", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Keyframe at 0%")).toBeVisible();
-  await expect(page.getByLabel("Keyframe at 100%")).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 0ms")).toBeVisible();
+  await expect(page.getByLabel("Keyframe at 4000ms")).toBeVisible();
 
   await gotoEditor(page, designId);
   await expect
@@ -400,7 +405,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
 test("shader fill preview opens when the paint surface is reachable", async ({
   page,
 }) => {
-  await selectByText(page, "Alpha Button");
+  await selectByText(page, "Alpha Button", { screenId: fileId });
 
   await page.getByRole("button", { name: "Tools", exact: true }).click();
   await page.getByRole("button", { name: /Shader Fills/ }).click();
