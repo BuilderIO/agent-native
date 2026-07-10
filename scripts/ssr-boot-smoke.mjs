@@ -52,6 +52,20 @@ if (templates.length === 0) {
 
 let failed = false;
 
+// A handler can start best-effort background setup after its module graph has
+// evaluated (for example, local SQLite migrations). CI deliberately installs
+// without native build scripts, so those background promises may reject even
+// though the serverless handler imported successfully. The smoke test's
+// contract is module-load safety; direct import failures are handled below,
+// while these late rejections must not turn a passing cold-start into a false
+// negative before we force-exit.
+process.on("unhandledRejection", (error) => {
+  const message = String(error?.message ?? error).split("\n")[0];
+  console.warn(
+    `[ssr-smoke] Ignoring post-import background rejection: ${message}`,
+  );
+});
+
 for (const template of templates) {
   const entry = path.resolve("templates", template, HANDLER_REL);
 
