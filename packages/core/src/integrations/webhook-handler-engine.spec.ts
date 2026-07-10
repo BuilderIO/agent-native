@@ -1137,11 +1137,21 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
-  it("still sends real final text after an A2A continuation marker", async () => {
+  it("sends real parent text without closing a queued continuation's native progress stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
     const sendResponse = vi.fn();
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000002" },
+        onEvent,
+        complete,
+      }),
+    };
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -1160,7 +1170,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     await processIntegrationTask(pendingTask({ id: "task-final" }), {
-      adapter: createAdapter(sendResponse),
+      adapter,
       systemPrompt: "system",
       actions: {},
       model: "claude-sonnet-4-6",
@@ -1168,6 +1178,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
+    expect(complete).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "371 pageview events were recorded in the requested window.",
@@ -1175,9 +1186,14 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+    expect(
+      onEvent.mock.calls.some(
+        ([event]) => event.type === "agent_call_progress",
+      ),
+    ).toBe(false);
   });
 
-  it("sends substantive partial answers even when one A2A continuation will post separately", async () => {
+  it("sends substantive partial answers without closing a queued continuation stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");

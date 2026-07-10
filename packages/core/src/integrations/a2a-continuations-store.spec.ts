@@ -44,6 +44,7 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
     }),
     placeholder_ref: null,
     progress_ref: null,
+    progress_ref_claimed: 0,
     owner_email: "alice+qa@agent-native.test",
     org_id: null,
     agent_name: "Slides",
@@ -87,6 +88,15 @@ describe("A2A continuations store", () => {
     expect(calls).toContainEqual(
       expect.stringContaining("ADD COLUMN progress_ref"),
     );
+    const progressOwnerAlterIndex = calls.findIndex((sql) =>
+      sql.includes("ADD COLUMN progress_ref_claimed"),
+    );
+    const progressOwnerIndexIndex = calls.findIndex((sql) =>
+      sql.includes("idx_a2a_continuations_one_progress_owner"),
+    );
+    expect(progressOwnerAlterIndex).toBeGreaterThan(-1);
+    expect(progressOwnerIndexIndex).toBeGreaterThan(-1);
+    expect(progressOwnerAlterIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
   it("does not swallow non-duplicate column migration errors", async () => {
@@ -204,8 +214,10 @@ describe("A2A continuations store", () => {
     ]);
   });
 
-  it("allows multiple downstream continuations for one integration task", async () => {
+  it("assigns a native progress stream to only one continuation per integration task", async () => {
     const { insertA2AContinuation } = await loadStore();
+    const progressRefs = new Map<string, string | null>();
+    let progressOwnerClaimed = false;
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = querySql(query);
@@ -213,6 +225,17 @@ describe("A2A continuations store", () => {
         if (
           sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
         ) {
+          progressRefs.set(args[0] as string, null);
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET progress_ref = ?, progress_ref_claimed = 1")) {
+          if (progressOwnerClaimed) {
+            throw new Error(
+              "UNIQUE constraint failed: integration_a2a_continuations.integration_task_id",
+            );
+          }
+          progressOwnerClaimed = true;
+          progressRefs.set(args[1] as string, args[0] as string);
           return { rows: [], rowsAffected: 1 };
         }
         if (
@@ -228,10 +251,7 @@ describe("A2A continuations store", () => {
                 agent_name: "Analytics",
                 agent_url: "https://analytics.agent-native.test",
                 a2a_task_id: "a2a-task-new",
-                progress_ref: JSON.stringify({
-                  kind: "slack-stream",
-                  streamTs: "1719000000.000001",
-                }),
+                progress_ref: progressRefs.get(args[0] as string),
               }),
             ],
             rowsAffected: 0,
@@ -241,7 +261,7 @@ describe("A2A continuations store", () => {
       },
     );
 
-    const continuation = await insertA2AContinuation({
+    const first = await insertA2AContinuation({
       integrationTaskId: "task-existing",
       platform: "slack",
       externalThreadId: "C123:123.456",
@@ -260,25 +280,54 @@ describe("A2A continuations store", () => {
       a2aTaskId: "a2a-task-new",
     });
 
-    expect(continuation.integrationTaskId).toBe("task-existing");
-    expect(continuation.agentName).toBe("Analytics");
-    expect(continuation.a2aTaskId).toBe("a2a-task-new");
-    expect(continuation.progressRef).toEqual({
+    const second = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a report",
+        platformContext: {},
+        responseContext: { interactionToken: "active-token-example" },
+        timestamp: 1,
+      },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Research",
+      agentUrl: "https://research.agent-native.test",
+      a2aTaskId: "a2a-task-second",
+    });
+
+    expect(first.integrationTaskId).toBe("task-existing");
+    expect(first.agentName).toBe("Analytics");
+    expect(first.a2aTaskId).toBe("a2a-task-new");
+    expect(first.progressRef).toEqual({
       kind: "slack-stream",
       streamTs: "1719000000.000001",
     });
-    const insertCall = executeMock.mock.calls.find(([query]) =>
+    expect(second.progressRef).toBeNull();
+    const insertCalls = executeMock.mock.calls.filter(([query]) =>
       querySql(query)
         .trim()
         .startsWith("INSERT INTO integration_a2a_continuations"),
     );
-    expect(insertCall).toBeDefined();
-    expect(JSON.parse(String(queryArgs(insertCall![0])[4]))).toMatchObject({
+    expect(insertCalls).toHaveLength(2);
+    expect(JSON.parse(String(queryArgs(insertCalls[0]![0])[4]))).toMatchObject({
       responseContext: { interactionToken: "active-token-example" },
     });
-    expect(queryArgs(insertCall![0])[6]).toBe(
-      JSON.stringify({ kind: "slack-stream", streamTs: "1719000000.000001" }),
+    expect(queryArgs(insertCalls[0]![0])[6]).toBeNull();
+    expect(queryArgs(insertCalls[0]![0])[7]).toBe(0);
+    const progressClaimCalls = executeMock.mock.calls.filter(([query]) =>
+      querySql(query).includes(
+        "SET progress_ref = ?, progress_ref_claimed = 1",
+      ),
     );
+    expect(progressClaimCalls).toHaveLength(2);
+    expect(queryArgs(progressClaimCalls[0]![0])).toEqual([
+      JSON.stringify({ kind: "slack-stream", streamTs: "1719000000.000001" }),
+      expect.any(String),
+    ]);
   });
 
   it("treats invalid stored progress references as unavailable", async () => {
@@ -325,6 +374,7 @@ describe("A2A continuations store", () => {
       expect(update.sql).toContain("incoming_payload = ?");
       expect(update.sql).toContain("a2a_auth_token = NULL");
       expect(update.sql).toContain("progress_ref = NULL");
+      expect(update.sql).not.toContain("progress_ref_claimed =");
     }
     expect(terminalUpdates[0].args).toEqual([
       "completed",

@@ -774,6 +774,7 @@ async function processIncomingMessage(
   const progress = await adapter.startRunProgress?.(incoming).catch(() => null);
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
+  let continuationOwnsProgress = false;
 
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
@@ -875,6 +876,8 @@ async function processIncomingMessage(
         let keepSlackInputWindow = false;
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          continuationOwnsProgress =
+            queuedA2AContinuation && Boolean(progress?.ref);
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -964,7 +967,16 @@ async function processIncomingMessage(
               threadDeepLinkUrl,
             });
             let delivered = false;
-            if (progress) {
+            // A queued continuation keeps the native stream open. Deliver a
+            // substantive parent partial as a normal thread reply instead of
+            // completing that stream, which the continuation needs for its
+            // eventual task/plan result.
+            if (queuedA2AContinuation && progress?.ref) {
+              await adapter.sendResponse(outgoing, incoming, {
+                placeholderRef: opts.placeholderRef,
+              });
+              delivered = true;
+            } else if (progress) {
               try {
                 await progress.complete(outgoing);
                 delivered = true;
@@ -1049,15 +1061,18 @@ async function processIncomingMessage(
             err,
           );
           // Last-ditch: try to post a brief apology so the thread isn't silent.
-          try {
-            await progress?.fail?.(
-              "Something went wrong on my end while replying. Please try again.",
-            );
-            const fallback = adapter.formatAgentResponse(
-              "Something went wrong on my end while replying. Please try again.",
-            );
-            if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
-          } catch {}
+          if (!continuationOwnsProgress) {
+            try {
+              await progress?.fail?.(
+                "Something went wrong on my end while replying. Please try again.",
+              );
+              const fallback = adapter.formatAgentResponse(
+                "Something went wrong on my end while replying. Please try again.",
+              );
+              if (!progress?.fail)
+                await adapter.sendResponse(fallback, incoming);
+            } catch {}
+          }
         } finally {
           // Any terminal path (including a failed run or an unrelated new
           // mention) invalidates an older clarification window. The only

@@ -393,13 +393,18 @@ async function deliverA2AContinuationResponse(
   status: "done" | "error",
 ): Promise<void> {
   if (progress) {
-    await progress.onEvent({
-      type: "agent_call",
-      agent: continuation.agentName,
-      status,
-    });
-    await progress.complete(message);
-    return;
+    try {
+      await progress.onEvent({
+        type: "agent_call",
+        agent: continuation.agentName,
+        status,
+      });
+      await progress.complete(message);
+      return;
+    } catch {
+      // A stale or failed native stream must not prevent the continuation's
+      // terminal message from reaching the requester through the normal reply.
+    }
   }
   await adapter.sendResponse(message, continuation.incoming, {
     placeholderRef: continuation.placeholderRef ?? undefined,

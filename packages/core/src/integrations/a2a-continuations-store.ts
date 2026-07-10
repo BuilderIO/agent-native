@@ -29,6 +29,7 @@ function buildCreateSql(): string {
     incoming_payload TEXT NOT NULL,
     placeholder_ref TEXT,
     progress_ref TEXT,
+    progress_ref_claimed ${intType()} NOT NULL DEFAULT 0,
     owner_email TEXT NOT NULL,
     org_id TEXT,
     agent_name TEXT NOT NULL,
@@ -82,9 +83,18 @@ async function ensureTable(): Promise<void> {
           "progress_ref",
           `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
         );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref_claimed",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
+        );
         await ensureIndexExists(
           "idx_a2a_continuations_dedupe_key",
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_one_progress_owner",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
         );
         return;
       }
@@ -108,9 +118,18 @@ async function ensureTable(): Promise<void> {
       await addColumnIfMissing("a2a_auth_token", "TEXT");
       await addColumnIfMissing("dedupe_key", "TEXT");
       await addColumnIfMissing("progress_ref", "TEXT");
+      await addColumnIfMissing(
+        "progress_ref_claimed",
+        `${intType()} NOT NULL DEFAULT 0`,
+      );
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
         ),
       );
     })().catch((err) => {
@@ -257,9 +276,9 @@ export async function insertA2AContinuation(input: {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, progress_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
+         placeholder_ref, progress_ref, progress_ref_claimed, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -267,7 +286,8 @@ export async function insertA2AContinuation(input: {
         input.externalThreadId,
         payload,
         input.placeholderRef ?? null,
-        progressRef,
+        null,
+        0,
         input.ownerEmail,
         input.orgId ?? null,
         input.agentName,
@@ -282,7 +302,6 @@ export async function insertA2AContinuation(input: {
         now,
       ],
     });
-    return (await getA2AContinuation(id))!;
   } catch (err: any) {
     if (!isDuplicateContinuationError(err)) throw err;
     const existing = await findA2AContinuation(
@@ -291,6 +310,36 @@ export async function insertA2AContinuation(input: {
       input.a2aTaskId,
     );
     if (existing) return existing;
+    throw err;
+  }
+
+  if (progressRef) {
+    await claimA2AContinuationProgressRef(id, progressRef);
+  }
+  return (await getA2AContinuation(id))!;
+}
+
+/**
+ * A native platform stream can only have one terminal completion. Claim it for
+ * one downstream continuation, then retain the non-sensitive ownership marker
+ * after terminal cleanup scrubs the short-lived stream reference. The partial
+ * unique index makes the claim safe when multiple A2A calls enqueue in parallel.
+ */
+async function claimA2AContinuationProgressRef(
+  id: string,
+  progressRef: string,
+): Promise<void> {
+  try {
+    await getDbExec().execute({
+      sql: `UPDATE integration_a2a_continuations
+            SET progress_ref = ?, progress_ref_claimed = 1
+            WHERE id = ? AND progress_ref_claimed = 0`,
+      args: [progressRef, id],
+    });
+  } catch (err) {
+    // A sibling continuation already owns the stream. It still completes via
+    // the adapter's normal response path, without attempting to resume it.
+    if (isDuplicateContinuationError(err)) return;
     throw err;
   }
 }
