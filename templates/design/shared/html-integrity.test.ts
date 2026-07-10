@@ -85,6 +85,7 @@ describe("Design HTML integrity", () => {
   it("does not mistake tag-shaped Alpine attributes, comments, or script strings for a document root", () => {
     for (const fragment of [
       `<section x-data="{ sample: '<html><body></body></html>' }"><p>Hi</p></section>`,
+      `<section x-data="{ sample: '>' + '<html><body></body></html>' }"><p>Hi</p></section>`,
       `<section><!-- example: <html><body></body></html> --><p>Hi</p></section>`,
       `<section><script>const sample = '<html><body></body></html>'</script><template x-if="true"><p>Hi</p></template></section>`,
     ]) {

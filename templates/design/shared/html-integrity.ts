@@ -86,11 +86,56 @@ function matchStartsMarkupToken(
   if (matchFallsInsideRanges(index, rawTextBodyRanges)) return false;
 
   // A bare regex also finds tag-shaped strings in Alpine attributes and HTML
-  // comments, for example `x-data="{ sample: '<html></html>' }"`. In both
-  // cases another `<` starts the still-open markup token before the candidate.
-  // An actual root/doctype token is the first `<` after the preceding `>`.
-  const precedingClose = value.lastIndexOf(">", index - 1);
-  return value.indexOf("<", precedingClose + 1) === index;
+  // comments, for example `x-data="{ sample: '>' + '<html></html>' }"`.
+  // Walk the markup tokenizer state up to the candidate so a `>` inside a
+  // quoted attribute cannot fool a last-delimiter heuristic into treating the
+  // following string as a real root tag.
+  let inTag = false;
+  let quote: '"' | "'" | null = null;
+  let rawRangeIndex = 0;
+  for (let cursor = 0; cursor <= index; cursor += 1) {
+    while (
+      rawRangeIndex < rawTextBodyRanges.length &&
+      cursor >= rawTextBodyRanges[rawRangeIndex]!.end
+    ) {
+      rawRangeIndex += 1;
+    }
+    const rawRange = rawTextBodyRanges[rawRangeIndex];
+    if (!inTag && rawRange) {
+      if (cursor >= rawRange.start && cursor < rawRange.end) {
+        if (index < rawRange.end) return false;
+        cursor = rawRange.end - 1;
+        continue;
+      }
+    }
+
+    if (!inTag && value.startsWith("<!--", cursor)) {
+      const commentEnd = value.indexOf("-->", cursor + 4);
+      if (commentEnd === -1 || index < commentEnd + 3) return false;
+      cursor = commentEnd + 2;
+      continue;
+    }
+
+    const character = value[cursor];
+    if (!inTag) {
+      if (character !== "<") continue;
+      if (cursor === index) return true;
+      inTag = true;
+      quote = null;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      inTag = false;
+    }
+  }
+  return false;
 }
 
 function isDocumentHtml(

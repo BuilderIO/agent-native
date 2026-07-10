@@ -546,7 +546,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleOverviewEditBreakpoint"),
       source.indexOf("// Hooks must not be called conditionally"),
     );
-    expect(editor).toContain("enterSingleScreen(screenId)");
+    expect(editor).toContain("enterSingleScreenInteract(screenId)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

@@ -1,5 +1,10 @@
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
+import {
+  isValidDesignClipboardManagedStyleSnapshot,
+  type DesignClipboardManagedStyleSnapshot,
+} from "./design-clipboard-managed-styles";
+
 export interface FigmaFidelityReport {
   exactCount: number;
   approximated: Array<{
@@ -202,6 +207,7 @@ export interface DesignClipboardLayerEntry {
   rootNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
 export interface DesignClipboardScreenEntry {
@@ -295,7 +301,9 @@ function validateDesignClipboardPayload(
       !clipboardString(entry.sourceFileId) ||
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.portableStyleSnapshot !== undefined &&
-        !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot))
+        !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
+      (entry.managedStyleSnapshot !== undefined &&
+        !isValidDesignClipboardManagedStyleSnapshot(entry.managedStyleSnapshot))
     ) {
       return null;
     }

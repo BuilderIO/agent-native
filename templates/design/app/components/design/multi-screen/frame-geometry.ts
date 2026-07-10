@@ -151,6 +151,41 @@ function getGeneratedVariantInitialFrameGeometry(
   };
 }
 
+function getResponsiveVariantGroupOriginY(
+  groupId: string,
+  screens: readonly (ResponsiveLayoutScreen & { id: string })[],
+  primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined>,
+): number {
+  const groupIds = Array.from(
+    new Set(
+      screens
+        .map((screen) => screen.layoutGroupId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  let originY = 0;
+  for (const candidateGroupId of groupIds) {
+    if (candidateGroupId === groupId) return originY;
+    const groupScreens = screens.filter(
+      (screen) => screen.layoutGroupId === candidateGroupId,
+    );
+    const groupBottom = groupScreens.reduce((bottom, screen, index) => {
+      const frame = getResponsiveInitialFrameGeometry(
+        index,
+        groupScreens,
+        primaryGeometryById,
+      );
+      const groupSize = getResponsiveScreenGroupSize(
+        screen,
+        primaryGeometryById[screen.id],
+      );
+      return Math.max(bottom, frame.y + groupSize.height);
+    }, 0);
+    originY += groupBottom + FRAME_LABEL_HEIGHT + GENERATED_VARIANT_GAP;
+  }
+  return originY;
+}
+
 /** Canonical bottom-to-top screen stack. Persisted frame `z` wins; screens
  * without one retain their source order, which is also the canvas DOM paint
  * order. This is shared by the overview canvas and Layers projection so the
@@ -306,15 +341,45 @@ export function resolveFrameGeometrySync(args: {
     const layoutGroupIndex = layoutGroupScreens?.findIndex(
       (candidate) => candidate.id === screen.id,
     );
+    const generatedGroupUntouched = Boolean(
+      layoutGroupScreens?.every((candidate, candidateIndex) => {
+        const baseline = getGeneratedVariantInitialFrameGeometry(
+          candidateIndex,
+          layoutGroupScreens,
+        );
+        const candidateGeometry =
+          persistedGeometryById?.[candidate.id] ??
+          currentGeometryById[candidate.id];
+        return (
+          candidateGeometry?.x === baseline.x &&
+          candidateGeometry?.y === baseline.y
+        );
+      }),
+    );
+    const variantGroupOriginY = screen.layoutGroupId
+      ? getResponsiveVariantGroupOriginY(
+          screen.layoutGroupId,
+          screens,
+          baseGeometryById,
+        )
+      : 0;
     const responsiveInitial =
       layoutGroupScreens &&
       layoutGroupIndex !== undefined &&
       layoutGroupIndex >= 0
-        ? getResponsiveInitialFrameGeometry(
-            layoutGroupIndex,
-            layoutGroupScreens,
-            baseGeometryById,
-          )
+        ? {
+            ...getResponsiveInitialFrameGeometry(
+              layoutGroupIndex,
+              layoutGroupScreens,
+              baseGeometryById,
+            ),
+            y:
+              getResponsiveInitialFrameGeometry(
+                layoutGroupIndex,
+                layoutGroupScreens,
+                baseGeometryById,
+              ).y + variantGroupOriginY,
+          }
         : getResponsiveInitialFrameGeometry(index, screens, baseGeometryById);
     const generatedVariantInitial =
       layoutGroupScreens &&
@@ -327,6 +392,7 @@ export function resolveFrameGeometrySync(args: {
         : null;
     const persistedUsesGeneratedVariantLineup =
       Boolean(screen.breakpointWidths?.length) &&
+      generatedGroupUntouched &&
       generatedVariantInitial !== null &&
       persisted?.x === generatedVariantInitial.x &&
       persisted?.y === generatedVariantInitial.y &&
@@ -335,6 +401,7 @@ export function resolveFrameGeometrySync(args: {
     const existingUsesGeneratedVariantLineup =
       !persisted &&
       Boolean(screen.breakpointWidths?.length) &&
+      generatedGroupUntouched &&
       generatedVariantInitial !== null &&
       existing?.x === generatedVariantInitial.x &&
       existing?.y === generatedVariantInitial.y &&

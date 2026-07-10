@@ -104,6 +104,54 @@ describe("responsive overview group layout", () => {
     expect(result.next["variation-2"]).toEqual(custom["variation-2"]);
     expect(result.shouldNotifyParent).toBe(false);
   });
+
+  it("stacks multiple untouched generated variation groups without overlap", () => {
+    const grouped = screens.map((screen, index) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: index < 2 ? "set-1" : "set-2",
+    }));
+    const legacy = {
+      "variation-1": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-2": { x: 1376, y: 0, width: 1280, height: 900 },
+      "variation-3": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-4": { x: 1376, y: 0, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: grouped,
+      currentGeometryById: legacy,
+      persistedGeometryById: legacy,
+    });
+    const firstGroupBottom = Math.max(
+      result.next["variation-1"]!.y +
+        getResponsiveScreenGroupSize(grouped[0]!, legacy["variation-1"]).height,
+      result.next["variation-2"]!.y +
+        getResponsiveScreenGroupSize(grouped[1]!, legacy["variation-2"]).height,
+    );
+    expect(result.next["variation-3"]!.y).toBeGreaterThan(firstGroupBottom);
+    expect(result.next["variation-4"]!.y).toBeGreaterThan(firstGroupBottom);
+  });
+
+  it("preserves every frame in a generated group when any member was custom moved", () => {
+    const grouped = screens.slice(0, 2).map((screen) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: "set-1",
+    }));
+    const custom = {
+      "variation-1": { x: 400, y: 200, width: 1280, height: 900 },
+      "variation-2": { x: 1376, y: 0, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: grouped,
+      currentGeometryById: custom,
+      persistedGeometryById: custom,
+    });
+    expect(result.next).toEqual(custom);
+    expect(result.shouldNotifyParent).toBe(false);
+  });
 });
 
 describe("canonical overview screen stack", () => {

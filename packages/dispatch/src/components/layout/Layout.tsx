@@ -16,6 +16,7 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  IconActivity,
   IconArrowUpRight,
   IconApps,
   IconBrain,
@@ -113,63 +114,28 @@ const PRIMARY_NAV_ITEMS = [
     icon: IconApps,
     section: "primary",
   },
+] as const satisfies readonly DispatchNavItem[];
+
+const OPERATIONS_NAV_ITEMS = [
+  {
+    id: "operations",
+    to: "/operations",
+    label: "Operations",
+    icon: IconActivity,
+    section: "operations",
+  },
   {
     id: "metrics",
     to: "/metrics",
     label: "Metrics",
     icon: IconChartBar,
-    section: "primary",
-  },
-  {
-    id: "vault",
-    to: "/vault",
-    label: "Vault",
-    icon: IconKey,
-    section: "primary",
-  },
-  {
-    id: "integrations",
-    to: "/integrations",
-    label: "Integrations",
-    icon: IconPuzzle,
-    section: "primary",
-  },
-  {
-    id: "agents",
-    to: "/agents",
-    label: "Agents",
-    icon: IconPlugConnected,
-    section: "primary",
-  },
-] as const satisfies readonly DispatchNavItem[];
-
-const OPERATIONS_NAV_ITEMS = [
-  {
-    id: "workspace",
-    to: "/workspace",
-    label: "Resources",
-    icon: IconLayersSubtract,
     section: "operations",
   },
   {
-    id: "messaging",
-    to: "/messaging",
-    label: "Messaging",
-    icon: IconBrandTelegram,
-    section: "operations",
-  },
-  {
-    id: "destinations",
-    to: "/destinations",
-    label: "Destinations",
-    icon: IconArrowUpRight,
-    section: "operations",
-  },
-  {
-    id: "identities",
-    to: "/identities",
-    label: "Identities",
-    icon: IconFingerprint,
+    id: "automations",
+    to: "/automations",
+    label: "Automations",
+    icon: IconSettingsAutomation,
     section: "operations",
   },
   {
@@ -180,10 +146,62 @@ const OPERATIONS_NAV_ITEMS = [
     section: "operations",
   },
   {
-    id: "automations",
-    to: "/automations",
-    label: "Automations",
-    icon: IconSettingsAutomation,
+    id: "destinations",
+    to: "/destinations",
+    label: "Destinations",
+    icon: IconArrowUpRight,
+    section: "operations",
+  },
+  {
+    id: "integrations",
+    to: "/integrations",
+    label: "Integrations",
+    icon: IconPuzzle,
+    section: "operations",
+  },
+  {
+    id: "vault",
+    to: "/vault",
+    label: "Vault",
+    icon: IconKey,
+    section: "operations",
+  },
+  {
+    id: "agents",
+    to: "/agents",
+    label: "Agents",
+    icon: IconPlugConnected,
+    section: "operations",
+  },
+  {
+    id: "workspace",
+    to: "/workspace",
+    label: "Resources",
+    icon: IconLayersSubtract,
+    section: "operations",
+  },
+  {
+    id: "settings",
+    to: "/settings",
+    label: "Settings",
+    icon: IconSettings,
+    section: "operations",
+  },
+] as const satisfies readonly DispatchNavItem[];
+
+const ADVANCED_NAV_ITEMS = [
+  {
+    id: "messaging",
+    to: "/messaging",
+    label: "Messaging",
+    icon: IconBrandTelegram,
+    section: "operations",
+  },
+  {
+    id: "identities",
+    to: "/identities",
+    label: "Identities",
+    icon: IconFingerprint,
     section: "operations",
   },
   {
@@ -205,13 +223,6 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/thread-debug",
     label: "Thread Debug",
     icon: IconMessages,
-    section: "operations",
-  },
-  {
-    id: "settings",
-    to: "/settings",
-    label: "Settings",
-    icon: IconSettings,
     section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];
@@ -604,7 +615,7 @@ export function NavContent({
     ...navItemsForSection(extensionNavItems, "operations"),
   ];
   const localPathname = localDispatchPath(location.pathname);
-  const operationsOpen = operationsNavItems.some((item) =>
+  const advancedOpen = ADVANCED_NAV_ITEMS.some((item) =>
     navItemMatchesPath(item, localPathname),
   );
   const navLabel = (item: DispatchNavItem) => {
@@ -791,30 +802,44 @@ export function NavContent({
               collapsed && "flex flex-col items-center",
             )}
           >
-            {(collapsed
-              ? [...primaryNavItems, ...operationsNavItems]
-              : primaryNavItems
-            ).map(renderNavItem)}
+            {primaryNavItems.map(renderNavItem)}
           </ul>
-        </nav>
 
-        {!collapsed ? (
-          <div className="mt-auto shrink-0">
-            <div className="px-2 py-2">
-              <details className="group" open={operationsOpen}>
-                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium uppercase text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
-                  <span>{t("dispatch.nav.operations")}</span>
+          {collapsed ? (
+            <ul className="mt-2 flex flex-col items-center space-y-0.5">
+              {[...operationsNavItems, ...ADVANCED_NAV_ITEMS].map(
+                renderNavItem,
+              )}
+            </ul>
+          ) : (
+            <div className="mt-5">
+              <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
+                {t("dispatch.nav.operate", { defaultValue: "Operate" })}
+              </p>
+              <ul className="space-y-0.5">
+                {operationsNavItems.map(renderNavItem)}
+              </ul>
+
+              <details className="group mt-3" open={advancedOpen}>
+                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
+                  <span>
+                    {t("dispatch.nav.advanced", { defaultValue: "Advanced" })}
+                  </span>
                   <IconChevronDown
                     size={14}
                     className="transition-transform group-open:rotate-180"
                   />
                 </summary>
                 <ul className="mt-1 space-y-0.5">
-                  {operationsNavItems.map(renderNavItem)}
+                  {ADVANCED_NAV_ITEMS.map(renderNavItem)}
                 </ul>
               </details>
             </div>
+          )}
+        </nav>
 
+        {!collapsed ? (
+          <div className="mt-auto shrink-0">
             <div className="px-2 py-1">
               <ExtensionsSidebarSection />
             </div>

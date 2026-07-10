@@ -1757,10 +1757,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
-    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument) {
+    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
       exitStaleTextEditSession();
-      if (activeTextEditEl && !forceFullDocument) {
+      if (activeTextEditEl && (!forceFullDocument || preserveTextEditingSession)) {
         pendingRuntimeDocumentUpdate = {
           html,
           preferredSelector,
@@ -7427,7 +7427,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           e.data.content,
           e.data.forceFullDocument ? "" : e.data.selectedSelector,
           e.data.forceFullDocument ? [] : e.data.selectorCandidates,
-          Boolean(e.data.forceFullDocument)
+          Boolean(e.data.forceFullDocument),
+          Boolean(e.data.preserveTextEditingSession)
         );
         return;
       }

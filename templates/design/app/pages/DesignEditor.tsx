@@ -384,6 +384,11 @@ import {
   writeDesignClipboard,
 } from "@/lib/design-clipboard";
 import {
+  applyDesignClipboardManagedStyles,
+  extractDesignClipboardManagedStyles,
+  type DesignClipboardManagedStyleSnapshot,
+} from "@/lib/design-clipboard-managed-styles";
+import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
   getFigmaClipboardContent,
@@ -1198,6 +1203,7 @@ interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
 interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
@@ -2470,6 +2476,9 @@ function insertClonedHtmlLayers(
     stripRootPosition?: boolean;
     positions?: Array<{ x: number; y: number } | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
+    managedStyleSnapshots?: Array<
+      DesignClipboardManagedStyleSnapshot | null | undefined
+    >;
   } = {},
 ): {
   content: string;
@@ -2523,8 +2532,13 @@ function insertClonedHtmlLayers(
         doc.body.appendChild(fragment);
       }
     }
+    const contentWithClones = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     return {
-      content: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`,
+      content: applyDesignClipboardManagedStyles(
+        contentWithClones,
+        options.managedStyleSnapshots ?? [],
+        nodeIdMap,
+      ),
       rootNodeIds,
       nodeIdMap,
     };
@@ -16315,6 +16329,7 @@ function DesignEditor() {
             candidate.dataAttributes["data-agent-native-node-id"] === layerId,
         );
         if (!node?.source) continue;
+        const html = content.slice(node.source.start, node.source.end);
         const portableStyleSnapshot =
           selectedElementLayerId &&
           node.id === selectedElementLayerId &&
@@ -16322,11 +16337,15 @@ function DesignEditor() {
             ? selectedElement.portableStyleSnapshot
             : undefined;
         snapshots.push({
-          html: content.slice(node.source.start, node.source.end),
+          html,
           rootNodeId:
             node.dataAttributes["data-agent-native-node-id"] ?? node.id,
           sourceFileId: file.id,
           portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source.start,
           tree,
@@ -16354,6 +16373,10 @@ function DesignEditor() {
             selectedElement.id,
           sourceFileId: activeFile.id,
           portableStyleSnapshot: selectedElement.portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
           tree,
@@ -16522,6 +16545,7 @@ function DesignEditor() {
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      managedStyleSnapshot: snapshot.managedStyleSnapshot,
     }));
     // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
     // file/screen ids from layer candidates, so selecting one or more whole
@@ -16702,15 +16726,34 @@ function DesignEditor() {
       const styleSnapshots = entries.map(
         (entry) => entry.portableStyleSnapshot,
       );
+      const managedStyleSnapshots = entries.map(
+        (entry) => entry.managedStyleSnapshot,
+      );
       const applyPasteContentUpdate = (nextContent: string) => {
+        const usesOverviewHistory = viewModeRef.current === "overview";
+        if (usesOverviewHistory && nextContent !== baseContent) {
+          // Capture the exact immutable pre-paste document here, before the
+          // optimistic cache/collab mirrors can advance independently. The
+          // generic update path may otherwise resolve its `previousContent`
+          // from a newer collab ref and collapse two rapid pastes into one
+          // overview history entry. DOM insertion + every remapped managed
+          // rule stay in this single before/after snapshot.
+          recordContentHistoryEntry({
+            fileId: targetFileId,
+            before: baseContent,
+            after: nextContent,
+          });
+        }
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
             forcePreviewFullDocument: true,
+            ...(usesOverviewHistory ? { recordHistory: false } : {}),
           });
           return;
         }
         applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
+          ...(usesOverviewHistory ? { recordHistory: false } : {}),
         });
       };
 
@@ -16731,6 +16774,7 @@ function DesignEditor() {
           placement: "after",
           stripRootPosition: true,
           styleSnapshots,
+          managedStyleSnapshots,
         });
         if (result) {
           pasteCascadeRef.current += 1;
@@ -16814,6 +16858,7 @@ function DesignEditor() {
       const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
         positions,
         styleSnapshots,
+        managedStyleSnapshots,
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
@@ -16833,6 +16878,7 @@ function DesignEditor() {
       getScreenContent,
       pasteCopiedScreens,
       refreshClipboardFromSystemClipboard,
+      recordContentHistoryEntry,
       remapMotionTracksForClone,
       selectInsertedLayers,
       selectedCanvasSelector,
@@ -17320,6 +17366,9 @@ function DesignEditor() {
             y: y + index * 16,
           })),
           styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+          managedStyleSnapshots: entries.map(
+            (entry) => entry.managedStyleSnapshot,
+          ),
         },
       );
       if (!result) return;
@@ -17373,6 +17422,7 @@ function DesignEditor() {
       {
         positions: [{ x: targetPosition.x, y: targetPosition.y }],
         styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
       },
     );
     if (!result) return;
@@ -21982,7 +22032,7 @@ function DesignEditor() {
   ]);
 
   const enterSingleScreen = useCallback(
-    (fileId?: string | null) => {
+    (fileId?: string | null, nextMode: EditorMode = "edit") => {
       if (
         viewModeRef.current === "single" &&
         (!fileId || fileId === activeFileId)
@@ -22022,7 +22072,7 @@ function DesignEditor() {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
         setPinMode(false);
-        setMode("edit");
+        setMode(nextMode);
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");
@@ -22035,6 +22085,10 @@ function DesignEditor() {
       clearPendingOverviewLayerSelectionTimer,
       runEditorViewTransition,
     ],
+  );
+  const enterSingleScreenInteract = useCallback(
+    (fileId?: string | null) => enterSingleScreen(fileId, "interact"),
+    [enterSingleScreen],
   );
 
   // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
@@ -28711,9 +28765,9 @@ function DesignEditor() {
   // base frame's onEdit={enterSingleScreen}.
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
-      enterSingleScreen(screenId);
+      enterSingleScreenInteract(screenId);
     },
-    [enterSingleScreen],
+    [enterSingleScreenInteract],
   );
 
   // Hooks must not be called conditionally; keep navigate as an effect so the
@@ -30227,7 +30281,7 @@ function DesignEditor() {
                           selectedLayerSelectorGroupsByScreen
                         }
                         onPick={handleOverviewScreenPick}
-                        onEdit={enterSingleScreen}
+                        onEdit={enterSingleScreenInteract}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         onActiveBreakpointChange={

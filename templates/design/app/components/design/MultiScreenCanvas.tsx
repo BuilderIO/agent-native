@@ -1293,6 +1293,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         id: screen.id,
         metadata: getResolvedMetadata(screen),
         breakpointWidths: screen.breakpointWidths,
+        layoutGroupId: screen.layoutGroupId,
       })),
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,

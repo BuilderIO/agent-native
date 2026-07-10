@@ -684,14 +684,9 @@ async function deleteBrowserRecordingBackup(
   }
 }
 
-export async function discardBrowserRecordingBackup(
-  recordingId: string,
-): Promise<void> {
-  await deleteBrowserRecordingBackup(recordingId);
-}
-
 export async function exportBrowserRecordingBackup(
   recordingId: string,
+  folderName?: string,
 ): Promise<LocalBlobExportResult> {
   const meta = await getBrowserRecordingBackupMeta(recordingId);
   if (!meta) {
@@ -704,10 +699,24 @@ export async function exportBrowserRecordingBackup(
     chunks: validatedChunks.map((chunk) => chunk.blob),
     role: "composed",
     mimeType: meta.mimeType || validatedChunks[0]?.mimeType || "video/webm",
+    folderName,
     durationMs: meta.durationMs,
     width: meta.width,
     height: meta.height,
   });
+}
+
+export async function dismissBrowserRecordingBackup(
+  recordingId: string,
+): Promise<LocalBlobExportResult> {
+  const safeRecordingId =
+    recordingId.replace(/[^a-zA-Z0-9_-]/g, "") || `clip-${Date.now()}`;
+  const exported = await exportBrowserRecordingBackup(
+    recordingId,
+    `Drafts/${safeRecordingId}`,
+  );
+  await deleteBrowserRecordingBackup(recordingId);
+  return exported;
 }
 
 async function markBrowserRecordingBackupError(

@@ -32,8 +32,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   Clips-hosted recording, and imports Loom's public transcript when the share
   page exposes one. If Loom does not expose a downloadable MP4, ask the user to
   download the original from Loom and use "Upload video".
-- Native transcript first. Cleanup and title generation can run in the
-  background; do not hide a usable native transcript behind a failed cleanup.
+- Native transcript first. Cleanup and transcript-backed title/summary
+  generation run in the durable post-finalize path; do not hide a usable native
+  transcript behind failed metadata work, and keep heuristic titles replaceable
+  until the agent refinement lands.
 - Use `request-transcript --recordingId=<id> --force=true` to retry a failed
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready

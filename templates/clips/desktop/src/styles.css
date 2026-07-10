@@ -2040,21 +2040,19 @@ body[data-clips-route="recording-pill"] #root {
   padding: 0 8px;
 }
 
-.pending-upload-discard {
+.pending-upload-dismiss {
   width: 28px;
   height: 28px;
-  border: 1px solid #bfdbfe;
+  border: 0;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.76);
-  color: #2563eb;
+  background: transparent;
+  color: #3b5f9a;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   transition:
-    background 120ms,
-    border-color 120ms,
     color 120ms,
     opacity 120ms;
 }
@@ -2093,16 +2091,14 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
-.pending-upload-discard:hover {
-  background: #fee2e2;
-  border-color: #fecaca;
-  color: #b91c1c;
+.pending-upload-dismiss:hover {
+  color: #1e3a8a;
 }
 
 .pending-upload-retry:disabled,
 .pending-upload-connect:disabled,
 .pending-upload-folder:disabled,
-.pending-upload-discard:disabled {
+.pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
 }
@@ -2288,10 +2284,8 @@ body[data-clips-route="recording-pill"] #root {
     color: #dbeafe;
   }
 
-  .pending-upload-discard {
-    background: rgba(23, 23, 23, 0.58);
-    border-color: rgba(96, 165, 250, 0.38);
-    color: #bfdbfe;
+  .pending-upload-dismiss {
+    color: #93c5fd;
   }
 
   .pending-upload-folder {
@@ -2315,10 +2309,8 @@ body[data-clips-route="recording-pill"] #root {
     border-color: rgba(147, 197, 253, 0.62);
   }
 
-  .pending-upload-discard:hover {
-    background: rgba(127, 29, 29, 0.34);
-    border-color: rgba(248, 113, 113, 0.62);
-    color: #fecaca;
+  .pending-upload-dismiss:hover {
+    color: #dbeafe;
   }
 
   .error-banner {

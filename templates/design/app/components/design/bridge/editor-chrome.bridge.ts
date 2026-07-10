@@ -2555,6 +2555,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     preferredSelector: string,
     selectorCandidates: string[],
     forceFullDocument?: boolean,
+    preserveTextEditingSession?: boolean,
   ): void {
     if (typeof html !== "string") return;
     // T23: a session whose element was already detached (earlier patch,
@@ -2565,7 +2566,10 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     // finish() runs before we continue; this newer payload then supersedes
     // its result, preserving ordering.)
     exitStaleTextEditSession();
-    if (activeTextEditEl && !forceFullDocument) {
+    if (
+      activeTextEditEl &&
+      (!forceFullDocument || preserveTextEditingSession)
+    ) {
       // Don't yank a runtime content update out from under an in-progress
       // text edit — but don't silently lose it either (T13). Buffer only the
       // latest payload; it is applied once the edit session ends via
@@ -10976,6 +10980,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
         e.data.forceFullDocument ? "" : e.data.selectedSelector,
         e.data.forceFullDocument ? [] : e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
+        Boolean(e.data.preserveTextEditingSession),
       );
       return;
     }

@@ -24,6 +24,7 @@ export interface DesignClipboardEnvironment {
   clipboard?: ClipboardLike | null;
   ClipboardItem?: ClipboardItemConstructor | null;
   legacyCopy?: (representations: DesignClipboardRepresentations) => boolean;
+  preferLegacyCopy?: boolean;
 }
 
 export interface DesignClipboardRepresentations {
@@ -75,6 +76,10 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
               document.removeEventListener("copy", handleCopy, true);
             }
           },
+    // A navigation immediately after Cmd+C can cancel Chromium's pending
+    // async clipboard.write promise. The copy-event path completes before the
+    // key handler returns, matching Figma's durable copy-before-leave behavior.
+    preferLegacyCopy: true,
   };
 }
 
@@ -100,6 +105,13 @@ export async function writeDesignClipboard(
   const clipboard = environment.clipboard;
   const ClipboardItemCtor = environment.ClipboardItem;
   let richWriteError: unknown;
+
+  if (
+    environment.preferLegacyCopy &&
+    environment.legacyCopy?.(representations)
+  ) {
+    return;
+  }
 
   if (
     clipboard?.write &&

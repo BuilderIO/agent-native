@@ -12,6 +12,7 @@ import {
   IconRefresh,
   IconTrash,
   IconUpload,
+  IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -64,7 +65,7 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
-  discardBrowserRecordingBackup,
+  dismissBrowserRecordingBackup,
   exportBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
@@ -702,7 +703,7 @@ export function App() {
   const [exportingUploadId, setExportingUploadId] = useState<string | null>(
     null,
   );
-  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+  const [dismissingUploadId, setDismissingUploadId] = useState<string | null>(
     null,
   );
   const [localRecordingNotice, setLocalRecordingNotice] =
@@ -1869,7 +1870,7 @@ export function App() {
   }
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
@@ -1910,7 +1911,7 @@ export function App() {
   }
 
   async function exportPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     setRecError(null);
 
     if (upload.kind === "native") {
@@ -1939,29 +1940,29 @@ export function App() {
     }
   }
 
-  async function discardPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+  async function dismissPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     setRecError(null);
-    setDiscardingUploadId(upload.recordingId);
+    setDismissingUploadId(upload.recordingId);
     setPendingUploads((uploads) =>
       uploads.filter((item) => item.recordingId !== upload.recordingId),
     );
     try {
       if (upload.kind === "native") {
-        await invoke("native_fullscreen_recording_discard_upload", {
+        await invoke("native_fullscreen_recording_dismiss_upload", {
           recordingId: upload.recordingId,
         });
       } else {
-        await discardBrowserRecordingBackup(upload.recordingId);
+        await dismissBrowserRecordingBackup(upload.recordingId);
       }
       await loadPendingUploads();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[clips-tray] discard saved upload failed:", err);
+      console.error("[clips-tray] dismiss saved upload failed:", err);
       setRecError(message);
       await loadPendingUploads();
     } finally {
-      setDiscardingUploadId(null);
+      setDismissingUploadId(null);
     }
   }
 
@@ -2630,10 +2631,10 @@ export function App() {
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
           exportingUploadId={exportingUploadId}
-          discardingUploadId={discardingUploadId}
+          dismissingUploadId={dismissingUploadId}
           onExport={exportPendingUpload}
           onRetry={retryPendingUpload}
-          onDiscard={discardPendingUpload}
+          onDismiss={dismissPendingUpload}
           onOpenFolder={openPendingUploadFolder}
           onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
         />
@@ -2929,20 +2930,20 @@ function PendingUploadBanner({
   uploads,
   retryingUploadId,
   exportingUploadId,
-  discardingUploadId,
+  dismissingUploadId,
   onExport,
   onRetry,
-  onDiscard,
+  onDismiss,
   onOpenFolder,
   onConnectStorage,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
   exportingUploadId: string | null;
-  discardingUploadId: string | null;
+  dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
   onRetry: (upload: PendingDesktopUpload) => void;
-  onDiscard: (upload: PendingDesktopUpload) => void;
+  onDismiss: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
 }) {
@@ -2955,7 +2956,7 @@ function PendingUploadBanner({
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =
-    !!retryingUploadId || !!exportingUploadId || !!discardingUploadId;
+    !!retryingUploadId || !!exportingUploadId || !!dismissingUploadId;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2993,7 +2994,7 @@ function PendingUploadBanner({
           }
         >
           {nativeCorrupt
-            ? `${details.join(" · ")} · discard and record again`
+            ? `${details.join(" · ")} · file may be unusable`
             : storageSetupFailure
               ? `${details.join(" · ")} · your clip is safe locally`
               : `${details.join(" · ")}${errorText ? ` · ${errorText}` : ""}`}
@@ -3040,18 +3041,7 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-        {latest.kind === "native" && latest.corrupt ? (
-          <button
-            type="button"
-            className="pending-upload-discard"
-            disabled={actionsDisabled}
-            onClick={() => onDiscard(latest)}
-            aria-label="Discard corrupted clip"
-            title="This clip is corrupted and cannot be recovered. Discard it and record again."
-          >
-            <IconTrash size={14} stroke={2} />
-          </button>
-        ) : (
+        {latest.kind === "native" && latest.corrupt ? null : (
           <>
             {storageSetupFailure ? (
               <button
@@ -3073,18 +3063,24 @@ function PendingUploadBanner({
               <IconRefresh size={14} stroke={2} />
               {retrying ? "Retrying" : "Retry"}
             </button>
-            <button
-              type="button"
-              className="pending-upload-discard"
-              disabled={actionsDisabled}
-              onClick={() => onDiscard(latest)}
-              aria-label="Discard saved local clip"
-              title="Discard saved local clip"
-            >
-              <IconTrash size={14} stroke={2} />
-            </button>
           </>
         )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="pending-upload-dismiss"
+              disabled={actionsDisabled}
+              onClick={() => onDismiss(latest)}
+              aria-label="Dismiss saved clip warning"
+            >
+              <IconX size={16} stroke={2} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="end">
+            Dismiss warning and keep the clip in Clip Drafts
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
@@ -3833,6 +3829,7 @@ function Setup({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+  const [clipDraftsError, setClipDraftsError] = useState<string | null>(null);
   const [screenMemoryBusy, setScreenMemoryBusy] = useState(false);
   const screenMemorySegments = screenMemoryStatus?.recentSegments ?? [];
   const screenMemoryTotalBytes = screenMemorySegments.reduce(
@@ -3991,6 +3988,15 @@ function Setup({
         kind: "error",
         text: (err as Error)?.message ?? "Could not open Screen Memory folder.",
       });
+    });
+  }
+
+  function openClipDraftsFolder() {
+    setClipDraftsError(null);
+    invoke("native_fullscreen_open_drafts_folder").catch((err) => {
+      setClipDraftsError(
+        (err as Error)?.message ?? "Could not open Clip Drafts.",
+      );
     });
   }
 
@@ -4517,6 +4523,24 @@ function Setup({
       </div>
 
       <div className="setup-section-heading">Recording</div>
+
+      <div className="setup-section">
+        <SettingLabel
+          label="Clip Drafts"
+          hint="Clips dismissed after an upload problem stay in Movies/Clips/Drafts until you remove them in Finder."
+        />
+        <button
+          type="button"
+          className="secondary"
+          onClick={openClipDraftsFolder}
+        >
+          <IconFolderOpen size={15} stroke={1.9} />
+          Open Clip Drafts
+        </button>
+        {clipDraftsError ? (
+          <p className="setup-warning">{clipDraftsError}</p>
+        ) : null}
+      </div>
 
       <div className="setup-section">
         <div className="setup-toggle-row">

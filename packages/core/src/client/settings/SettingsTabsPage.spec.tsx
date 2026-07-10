@@ -196,6 +196,45 @@ describe("SettingsTabsPage", () => {
     expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
   });
 
+  it("visually separates app, agent, workspace, and update tabs", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+          whatsNew={<div>Recent updates</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Agent",
+              group: "agent",
+              content: <div>Agent settings</div>,
+            },
+            {
+              id: "connections",
+              label: "Connections",
+              group: "agent",
+              content: <div>Connection settings</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-settings-tab-group="app"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-settings-tab-group="agent"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-settings-tab-group="workspace"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-settings-tab-group="updates"]'),
+    ).not.toBeNull();
+  });
+
   it("honors the controlled value and reports changes without touching the hash", () => {
     const onValueChange = vi.fn();
 
