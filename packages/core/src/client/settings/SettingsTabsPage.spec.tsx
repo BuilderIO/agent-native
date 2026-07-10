@@ -291,8 +291,9 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
     expect(window.location.hash).toBe("#organization");
 
-    const generalTab =
-      container.querySelector<HTMLButtonElement>("#settings-tab-general");
+    const generalTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-general",
+    );
     act(() => {
       generalTab!.click();
     });

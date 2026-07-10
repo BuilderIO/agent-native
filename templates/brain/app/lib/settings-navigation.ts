@@ -1,3 +1,9 @@
+export function createSettingsSectionIds(
+  appSectionIds: Iterable<string>,
+): Set<string> {
+  return new Set(["general", "team", "whats-new", ...appSectionIds]);
+}
+
 export function resolveSettingsSection(
   section: string | null,
   validSections: ReadonlySet<string>,
