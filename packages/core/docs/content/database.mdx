@@ -257,7 +257,12 @@ All database schema updates must be **strictly additive**.
 - If a column needs to be renamed or replaced, add the new column alongside the old one, update your application code to read from/write to both, migrate the data, and only retire the old column in a later release once no active deployments are referencing it.
 
 <Callout tone="risk">
-**Never run `drizzle-kit push` against a production database.** Template database schemas only define app-specific domain tables; they do not define central framework tables (`user`, `session`, `application_state`, etc.). If you run `drizzle-kit push` against production, Drizzle will detect these framework tables as "not in schema" and attempt to drop them, causing immediate system-wide failure and data loss.
+  **Never run `drizzle-kit push` against a production database.** Template
+  database schemas only define app-specific domain tables; they do not define
+  central framework tables (`user`, `session`, `application_state`, etc.). If
+  you run `drizzle-kit push` against production, Drizzle will detect these
+  framework tables as "not in schema" and attempt to drop them, causing
+  immediate system-wide failure and data loss.
 </Callout>
 
 ### Safe Migration Path

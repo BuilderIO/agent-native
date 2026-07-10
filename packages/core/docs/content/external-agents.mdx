@@ -9,7 +9,7 @@ search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-na
 **This page: connect an external agent or MCP host to your app.** Use it when Claude, ChatGPT, Codex, Cursor, Claude Cowork, or another MCP-compatible host should drive a hosted agent-native app and round-trip the result back into the running UI.
 
 | If you want to…                                              | Read                                 |
-| ------------------------------------------------------------ | ------------------------------------- |
+| ------------------------------------------------------------ | ------------------------------------ |
 | Connect an external agent/host to your app                   | **This page** — External Agents      |
 | Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)     |
 | Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)           |
@@ -137,13 +137,8 @@ snapshot until you refresh/review it again, so rescan the connector after MCP
 tool or MCP App metadata changes. If you still have old per-app connectors
 enabled alongside Dispatch, refresh or reconnect each stale connector; updating
 Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
-snapshots. The scopes are:
-
-| Scope       | What it enables                                      |
-| ----------- | ---------------------------------------------------- |
-| `mcp:read`  | Read-only tools and tool/resource discovery          |
-| `mcp:write` | Drafting, updating, and other mutating actions       |
-| `mcp:apps`  | Inline MCP Apps, charts, dashboards, drafts, and UIs |
+snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` scopes are the same ones
+covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
 Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
 MCP URL through their own MCP-server UIs when their build supports remote OAuth
@@ -421,17 +416,12 @@ included regardless of the declared list.
 
 ## What you can do once connected {#what-you-can-do}
 
-Once your agent is connected, every caller gets the compact catalog by default
-(see [Catalog tiers](#catalog-tiers)) — code/stdio developer clients, the local
-CLI proxy, and chat hosts like Claude and ChatGPT alike. That surface is the
-template-declared app actions plus the builtin cross-app verbs (`list_apps`,
-`open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a
-natural-language task through an app agent (the same cross-app entry point
-[A2A](/docs/a2a-protocol) uses). `tool-search` is always present, so any tool
-outside the compact list stays reachable on demand. To get the full ~105-tool
-surface up front, opt in explicitly with `--full-catalog` or
-`AGENT_NATIVE_MCP_FULL_CATALOG=1`. In all cases, ask the agent to do real work
-and it hands back a link straight into the running app:
+Once your agent is connected, it sees the [compact catalog](#catalog-tiers) by
+default: template-declared app actions plus the builtin cross-app verbs
+(`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use
+`ask_app` to route a natural-language task through an app agent (the same
+cross-app entry point [A2A](/docs/a2a-protocol) uses). Ask the agent to do real
+work and it hands back a link straight into the running app:
 
 ```
 > draft an email to John about the Q3 report

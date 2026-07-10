@@ -70,18 +70,23 @@ const responseChartResultSchema = z.object({
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({ 
-    formId: z.string().default("demo") 
+  schema: z.object({
+    formId: z.string().default("demo"),
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: { 
-    renderer: "responses.response-chart", 
-    title: "Response chart" 
+  chatUI: {
+    renderer: "responses.response-chart",
+    title: "Response chart",
   },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+    points: [
+      { day: "Mon", responses: 12 },
+      { day: "Tue", responses: 18 },
+      { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
+    ],
   }),
 });
 ```
@@ -107,7 +112,10 @@ into prose. Register a React component for that exact renderer id, for example
 by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
 
 ```tsx
-import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
@@ -122,8 +130,14 @@ function ResponseChart({ context }: ToolRendererProps) {
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
-            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+          <div
+            key={point.day}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-primary"
+              style={{ height: `${(point.responses / max) * 100}%` }}
+            />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -218,10 +232,15 @@ export default function ResponseInsightsRoute() {
         <h1>Response insights</h1>
         <p>Insights the agent created from form responses.</p>
       </header>
-      <button onClick={() => createInsight.mutate({ formId: "demo" })}>Analyze demo form</button>
+      <button onClick={() => createInsight.mutate({ formId: "demo" })}>
+        Analyze demo form
+      </button>
       <section>
         {insights.data?.map((insight) => (
-          <article key={insight.id}><h2>{insight.title}</h2><p>{insight.summary}</p></article>
+          <article key={insight.id}>
+            <h2>{insight.title}</h2>
+            <p>{insight.summary}</p>
+          </article>
         ))}
       </section>
     </main>
