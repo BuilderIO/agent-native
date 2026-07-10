@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { writeAppState } = vi.hoisted(() => ({
-  writeAppState: vi.fn(),
+const { writeAppStateForCurrentTab } = vi.hoisted(() => ({
+  writeAppStateForCurrentTab: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState,
+  writeAppStateForCurrentTab,
 }));
 
 import navigate from "./navigate.js";
 
 describe("navigate", () => {
   beforeEach(() => {
-    writeAppState.mockReset();
-    writeAppState.mockResolvedValue(undefined);
+    writeAppStateForCurrentTab.mockReset();
+    writeAppStateForCurrentTab.mockResolvedValue(undefined);
   });
 
   describe("schema", () => {
@@ -43,7 +43,7 @@ describe("navigate", () => {
       await expect(navigate.run({}, { caller: "cli" })).rejects.toThrow(
         /view or --path/i,
       );
-      expect(writeAppState).not.toHaveBeenCalled();
+      expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
     });
 
     it("writes task navigation state for /tasks", async () => {
@@ -52,7 +52,7 @@ describe("navigate", () => {
         { caller: "cli" },
       );
 
-      expect(writeAppState).toHaveBeenCalledWith(
+      expect(writeAppStateForCurrentTab).toHaveBeenCalledWith(
         "navigate",
         expect.objectContaining({
           view: "tasks",

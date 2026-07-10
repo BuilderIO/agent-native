@@ -123,6 +123,37 @@ export function useMarkInboxItemReady() {
   );
 }
 
+export function useBulkMarkInboxItemsReady() {
+  const queryClient = useQueryClient();
+  return useActionMutation<{ tasks: Task[] }, { inboxItemIds: string[] }>(
+    "bulk-mark-inbox-items-ready",
+    {
+      onMutate: async ({ inboxItemIds }) => {
+        await queryClient.cancelQueries({
+          queryKey: LIST_INBOX_ITEMS_QUERY_KEY,
+        });
+        const previous = snapshotListInboxItemsQueries(queryClient);
+        const selected = new Set(inboxItemIds);
+
+        patchListInboxItemsCache(queryClient, (items) =>
+          items.filter((item) => !selected.has(item.id)),
+        );
+
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        restoreListInboxItemsQueries(
+          queryClient,
+          (context as InboxMutationContext | undefined)?.previous ?? [],
+        );
+      },
+      onSettled: () => {
+        runMarkInboxItemReadyInvalidation(queryClient);
+      },
+    },
+  );
+}
+
 export function useBulkDeleteInboxItems() {
   const queryClient = useQueryClient();
   return useActionMutation<

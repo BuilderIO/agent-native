@@ -9,7 +9,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import { NAV_VIEWS } from "../shared/navigation.js";
@@ -44,7 +44,7 @@ export default defineAction({
     if (args.fieldId) nav.fieldId = args.fieldId;
     if (args.includeDone !== undefined) nav.includeDone = args.includeDone;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || args.path}`;
   },
 });

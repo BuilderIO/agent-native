@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  readAppState,
+  readAppStateForCurrentTab,
   listTasks,
   getTask,
   listInboxItems,
@@ -11,7 +11,7 @@ const {
   listTaskFieldValues,
   getTaskCardFieldIds,
 } = vi.hoisted(() => ({
-  readAppState: vi.fn(),
+  readAppStateForCurrentTab: vi.fn(),
   listTasks: vi.fn(),
   getTask: vi.fn(),
   listInboxItems: vi.fn(),
@@ -23,7 +23,7 @@ const {
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState,
+  readAppStateForCurrentTab,
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
@@ -61,7 +61,7 @@ import viewScreen from "./view-screen.js";
 
 describe("view-screen tasks context", () => {
   beforeEach(() => {
-    readAppState.mockReset();
+    readAppStateForCurrentTab.mockReset();
     listTasks.mockReset();
     getTask.mockReset();
     listInboxItems.mockReset();
@@ -71,14 +71,14 @@ describe("view-screen tasks context", () => {
     getTaskCardFieldIds.mockReset();
     getTaskCardFieldIds.mockResolvedValue([]);
     listTaskFieldValues.mockResolvedValue([]);
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "tasksSelection") return null;
       return undefined;
     });
   });
 
   it("returns list for the tasks view using includeDone", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -116,7 +116,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("marks selectedItem in the agent snapshot when it is included", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -152,7 +152,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("marks selectedItem outside the snapshot when it is filtered out", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -192,7 +192,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("returns UI bulk selection from tasksSelection app state", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -235,7 +235,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("truncates list when more than cap tasks", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -276,7 +276,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("marks selectedItem outside snapshot when beyond cap but still in filtered list", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -317,7 +317,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("does not hydrate task fields for a missing selected task", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -348,7 +348,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("returns visible task card field summaries from stored prefs", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") return { view: "tasks", path: "/tasks" };
       if (key === "tasksSelection") return null;
       return undefined;
@@ -401,7 +401,7 @@ describe("view-screen tasks context", () => {
   });
 
   it("passes includeDone true to listTasks", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "tasks",
@@ -431,7 +431,7 @@ describe("view-screen tasks context", () => {
 
 describe("view-screen inbox context", () => {
   beforeEach(() => {
-    readAppState.mockReset();
+    readAppStateForCurrentTab.mockReset();
     listInboxItems.mockReset();
     getInboxItem.mockReset();
     getTask.mockReset();
@@ -441,7 +441,7 @@ describe("view-screen inbox context", () => {
   });
 
   it("returns list for the inbox view", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "inbox",
@@ -476,7 +476,7 @@ describe("view-screen inbox context", () => {
   });
 
   it("marks selectedItem in the agent snapshot when it is included", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "inbox",
@@ -508,7 +508,7 @@ describe("view-screen inbox context", () => {
   });
 
   it("marks selectedItem outside the snapshot when it is beyond the cap", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "inbox",
@@ -548,7 +548,7 @@ describe("view-screen inbox context", () => {
   });
 
   it("returns UI bulk selection from inboxSelection app state", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "inbox",
@@ -590,7 +590,7 @@ describe("view-screen inbox context", () => {
   });
 
   it("falls back to selectedItem when a deep-linked inbox item was promoted", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "inbox",
@@ -635,13 +635,13 @@ describe("view-screen inbox context", () => {
 
 describe("view-screen fields context", () => {
   beforeEach(() => {
-    readAppState.mockReset();
+    readAppStateForCurrentTab.mockReset();
     listCustomFields.mockReset();
     getCustomField.mockReset();
   });
 
   it("returns custom field definitions for the fields view", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "fields",
@@ -706,7 +706,7 @@ describe("view-screen fields context", () => {
   });
 
   it("uses getCustomField for a selected field missing from the list", async () => {
-    readAppState.mockImplementation(async (key: string) => {
+    readAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "navigation") {
         return {
           view: "fields",

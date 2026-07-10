@@ -55,10 +55,12 @@ function readLegacyLocalStorageFieldIds(
 ) {
   const storedIds = readStringArray(TASK_CARD_FIELD_IDS_KEY, limit);
   if (storedIds.length > 0) {
-    if (fields.length === 0) return storedIds;
+    if (fields.length === 0) return [];
     const knownIds = new Set(fields.map((field) => field.id));
     return storedIds.filter((fieldId) => knownIds.has(fieldId));
   }
+
+  if (fields.length === 0) return [];
 
   return fieldIdsForNames(
     readStringArray(TASK_CARD_FIELD_NAMES_KEY, limit),
@@ -85,16 +87,38 @@ export function useVisibleTaskFieldIds() {
   useEffect(() => {
     if (migratedRef.current || query.isPending || !query.isSuccess) return;
 
+    const hasLegacyIds =
+      readStringArray(TASK_CARD_FIELD_IDS_KEY, TASK_CARD_FIELD_LIMIT).length >
+      0;
+    const hasLegacyNames =
+      readStringArray(TASK_CARD_FIELD_NAMES_KEY, TASK_CARD_FIELD_LIMIT).length >
+      0;
+    if (!hasLegacyIds && !hasLegacyNames) {
+      migratedRef.current = true;
+      return;
+    }
+
+    if (fields.length === 0) return;
+
     const legacyFieldIds = readLegacyLocalStorageFieldIds(
       fields,
       TASK_CARD_FIELD_LIMIT,
     );
-    migratedRef.current = true;
+    if (legacyFieldIds.length === 0) {
+      migratedRef.current = true;
+      clearLegacyLocalStorage();
+      return;
+    }
 
-    if (legacyFieldIds.length === 0) return;
-
-    updateVisibleTaskFields.mutate({ fieldIds: legacyFieldIds });
-    clearLegacyLocalStorage();
+    void updateVisibleTaskFields
+      .mutateAsync({ fieldIds: legacyFieldIds })
+      .then(() => {
+        clearLegacyLocalStorage();
+        migratedRef.current = true;
+      })
+      .catch(() => {
+        // Keep localStorage so a later retry can migrate the saved selection.
+      });
   }, [fields, query.isPending, query.isSuccess, updateVisibleTaskFields]);
 
   return {

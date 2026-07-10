@@ -6,7 +6,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -82,7 +82,7 @@ async function readParsedAppState<T>(
   key: string,
   schema: z.ZodType<T>,
 ): Promise<T | undefined> {
-  const raw = await readAppState(key);
+  const raw = await readAppStateForCurrentTab(key);
   const parsed = schema.safeParse(raw);
   return parsed.success ? parsed.data : undefined;
 }

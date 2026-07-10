@@ -1,4 +1,5 @@
 import { setClientAppState } from "@agent-native/core/client/application-state";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { type ListSelectionAppState } from "@shared/navigation";
 import {
   useCallback,
@@ -21,12 +22,13 @@ function useSelectionAppStateSync(
   useEffect(() => {
     if (appStateKey === null) return;
 
+    const scopedKey = appStateKeyForBrowserTab(appStateKey, TAB_ID);
     const hasSelection = selectionMode || selectedIdsArray.length > 0;
     const value: ListSelectionAppState | null = hasSelection
       ? { selectionMode, selectedIds: selectedIdsArray }
       : null;
 
-    void setClientAppState(appStateKey, value, {
+    void setClientAppState(scopedKey, value, {
       requestSource: TAB_ID,
     });
   }, [appStateKey, selectionMode, selectedIdsArray.join("\0")]);

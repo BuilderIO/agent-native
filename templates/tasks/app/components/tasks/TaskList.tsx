@@ -194,7 +194,6 @@ export function TaskList({
                   items={tasks.length === 0 ? [] : orderedTasks}
                   selection={selection}
                   toolbarBusy={toolbarBusy}
-                  includeDone={includeDone}
                   onOpenBulkDelete={() => setBulkDeleteOpen(true)}
                 />
               ) : (

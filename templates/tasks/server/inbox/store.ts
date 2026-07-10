@@ -3,6 +3,7 @@ import type { StoredItem } from "../db/schema.js";
 import { runTransaction } from "../db/transaction.js";
 import {
   assertStoredItemsExist,
+  bulkPromoteStoredItemsToTasks,
   createStoredItem,
   deleteStoredItem,
   deleteStoredItemInTx,
@@ -123,6 +124,19 @@ export async function markInboxItemReady(input: {
 }): Promise<{ task: Task }> {
   const item = await promoteStoredItemToTask(input);
   return { task: toTask(item) };
+}
+
+export async function bulkMarkInboxItemsReady(input: {
+  ownerEmail: string;
+  inboxItemIds: string[];
+  now?: string;
+}): Promise<{ tasks: Task[] }> {
+  const items = await bulkPromoteStoredItemsToTasks({
+    ownerEmail: input.ownerEmail,
+    ids: input.inboxItemIds,
+    now: input.now,
+  });
+  return { tasks: items.map(toTask) };
 }
 
 function toInboxItem(item: StoredItem): InboxItem {

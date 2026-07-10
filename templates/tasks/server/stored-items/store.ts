@@ -435,6 +435,62 @@ export async function promoteStoredItemToTask(input: {
   return item;
 }
 
+export async function bulkPromoteStoredItemsToTasks(input: {
+  ownerEmail: string;
+  ids: string[];
+  now?: string;
+}): Promise<StoredItem[]> {
+  const uniqueIds = [...new Set(input.ids)];
+  if (uniqueIds.length === 0) {
+    throw new Error("Provide at least one inbox item id.");
+  }
+
+  await assertStoredItemsExist({
+    ownerEmail: input.ownerEmail,
+    ids: uniqueIds,
+    promotedToTask: false,
+    notFoundMessage: "Stored item not found.",
+  });
+
+  const timestamp = input.now ?? new Date().toISOString();
+  let sortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
+
+  runTransaction(getDb(), (tx) => {
+    for (const id of uniqueIds) {
+      tx.update(tasks)
+        .set({
+          promotedToTask: true,
+          done: false,
+          sortOrder,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(tasks.id, id),
+            eq(tasks.ownerEmail, input.ownerEmail),
+            eq(tasks.promotedToTask, false),
+          ),
+        )
+        .run();
+      sortOrder -= SORT_GAP;
+    }
+  });
+
+  const items: StoredItem[] = [];
+  for (const id of uniqueIds) {
+    const item = await getStoredItem({
+      ownerEmail: input.ownerEmail,
+      id,
+      promotedToTask: true,
+    });
+    if (!item) {
+      throw new Error("Stored item not found.");
+    }
+    items.push(item);
+  }
+  return items;
+}
+
 function assertNonEmptyTitle(title: string, emptyMessage: string): string {
   const trimmed = title.trim();
   if (!trimmed) {

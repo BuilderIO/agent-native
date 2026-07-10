@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { ListSelectionToolbar } from "@/components/shared/selection/ListSelectionToolbar";
 import { type ListSelection } from "@/components/shared/selection/use-list-selection";
 import { Button } from "@/components/ui/button";
-import { useMarkInboxItemReady } from "@/hooks/use-inbox-items";
-import { useBulkUpdateTasks, useUpdateTask } from "@/hooks/use-tasks";
+import { useBulkMarkInboxItemsReady } from "@/hooks/use-inbox-items";
+import { useBulkUpdateTasks } from "@/hooks/use-tasks";
 
 interface ListSelectionBarProps<
   T extends { id: string; title: string; done?: boolean },
@@ -15,7 +15,6 @@ interface ListSelectionBarProps<
   selection: ListSelection<T>;
   toolbarBusy: boolean;
   onOpenBulkDelete: () => void;
-  includeDone?: boolean;
 }
 
 export function ListSelectionBar<
@@ -26,11 +25,9 @@ export function ListSelectionBar<
   selection,
   toolbarBusy,
   onOpenBulkDelete,
-  includeDone = false,
 }: ListSelectionBarProps<T>) {
-  const updateTask = useUpdateTask();
   const bulkUpdateTasks = useBulkUpdateTasks();
-  const markInboxItemReady = useMarkInboxItemReady();
+  const bulkMarkInboxItemsReady = useBulkMarkInboxItemsReady();
 
   const selectedItems = selection.state.selectedItems;
   const selectedCount = selectedItems.length;
@@ -44,11 +41,9 @@ export function ListSelectionBar<
     if (selectedCount === 0) return;
 
     try {
-      await Promise.all(
-        selectedItems.map((item) =>
-          markInboxItemReady.mutateAsync({ inboxItemId: item.id }),
-        ),
-      );
+      await bulkMarkInboxItemsReady.mutateAsync({
+        inboxItemIds: selectedItems.map((item) => item.id),
+      });
       toast.success(
         `Marked ${selectedCount} ${selectedCount === 1 ? "item" : "items"} ready`,
       );
@@ -73,15 +68,7 @@ export function ListSelectionBar<
     const taskIds = applicableTasks.map((task) => task.id);
 
     try {
-      if (!includeDone && done) {
-        await Promise.all(
-          taskIds.map((taskId) =>
-            updateTask.mutateAsync({ taskId, done: true }),
-          ),
-        );
-      } else {
-        await bulkUpdateTasks.mutateAsync({ taskIds, done });
-      }
+      await bulkUpdateTasks.mutateAsync({ taskIds, done });
 
       const countLabel = applicableTasks.length === 1 ? "task" : "tasks";
       toast.success(
@@ -109,7 +96,7 @@ export function ListSelectionBar<
     selectedItems.every((task) => task.done !== true);
 
   const toolbarDisabled =
-    toolbarBusy || (!promotedToTask && markInboxItemReady.isPending);
+    toolbarBusy || (!promotedToTask && bulkMarkInboxItemsReady.isPending);
 
   return (
     <ListSelectionToolbar

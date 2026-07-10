@@ -10,6 +10,7 @@ import {
 } from "../tasks/store.js";
 import {
   bulkDeleteInboxItems,
+  bulkMarkInboxItemsReady,
   createInboxItem,
   deleteInboxItem,
   listInboxItems,
@@ -145,6 +146,32 @@ describe("inbox store", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]?.id).toBe("i1");
     expect(tasks[0]?.title).toBe("Ship inbox");
+  });
+
+  it("bulk promotes inbox items atomically", async () => {
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "i1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "i2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    const { tasks } = await bulkMarkInboxItemsReady({
+      ownerEmail: "alice@example.com",
+      inboxItemIds: ["i1", "i2"],
+      now: "2026-06-22T10:02:00.000Z",
+    });
+
+    expect(tasks.map((task) => task.id)).toEqual(["i1", "i2"]);
+    expect(
+      await listInboxItems({ ownerEmail: "alice@example.com" }),
+    ).toHaveLength(0);
   });
 
   it("reorders inbox items without changing tasks", async () => {
