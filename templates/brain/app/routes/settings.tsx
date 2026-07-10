@@ -52,6 +52,7 @@ import {
   defaultSettings,
 } from "@/lib/brain";
 import {
+  createSettingsSectionIds,
   resolveSettingsSection,
   withSettingsSection,
 } from "@/lib/settings-navigation";
@@ -475,16 +476,15 @@ export default function SettingsRoute() {
     () => [...appSettingsTabs, ...agentSettingsTabs],
     [agentSettingsTabs, appSettingsTabs],
   );
-  const validSectionIds = useMemo(() => {
-    const ids = new Set(["general", "whats-new"]);
-    for (const tab of settingsTabs) ids.add(tab.id);
-    return ids;
-  }, [settingsTabs]);
+  const validSectionIds = useMemo(
+    () => createSettingsSectionIds(settingsTabs.map((tab) => tab.id)),
+    [settingsTabs],
+  );
 
   useEffect(() => {
-    setActiveSection(
-      resolveSettingsSection(searchParams.get("section"), validSectionIds),
-    );
+    const section = searchParams.get("section");
+    if (!section) return;
+    setActiveSection(resolveSettingsSection(section, validSectionIds));
   }, [searchParams, validSectionIds]);
 
   const handleSectionChange = (section: string) => {

@@ -268,6 +268,59 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("Team members");
   });
 
+  it("reports organization hashes to a controlled Team tab without rewriting the URL", () => {
+    window.history.replaceState(null, "", "/settings#organization");
+
+    function ControlledSettings() {
+      const [value, setValue] = React.useState("general");
+      return (
+        <SettingsTabsPage
+          value={value}
+          onValueChange={setValue}
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />
+      );
+    }
+
+    act(() => {
+      root.render(<ControlledSettings />);
+    });
+
+    expect(container.textContent).toContain("Team members");
+    expect(container.textContent).not.toContain("General content");
+    expect(window.location.hash).toBe("#organization");
+
+    const generalTab =
+      container.querySelector<HTMLButtonElement>("#settings-tab-general");
+    act(() => {
+      generalTab!.click();
+    });
+
+    expect(container.textContent).toContain("General content");
+    expect(container.textContent).not.toContain("Team members");
+    expect(window.location.hash).toBe("#organization");
+  });
+
+  it("leaves controlled section hashes for the active panel", () => {
+    window.history.replaceState(null, "", "/settings#language");
+    const onValueChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          value="general"
+          onValueChange={onValueChange}
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    expect(onValueChange).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("General content");
+  });
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 

@@ -84,9 +84,10 @@ export interface SettingsTabsPageProps {
   generalSearchEntries?: SettingsSearchEntry[];
   /**
    * Controlled active tab id. When provided, the parent owns tab state (and is
-   * responsible for URL/app-state sync); the component skips its own hash-based
-   * tab tracking. Leave undefined for the default uncontrolled, hash-driven
-   * behavior.
+   * responsible for URL/app-state sync). Recognized top-level tab hashes still
+   * report through `onValueChange`, so shared links such as
+   * `/settings#organization` can select the matching controlled Team tab.
+   * Leave undefined for the default uncontrolled, hash-driven behavior.
    */
   value?: string;
   /**
@@ -192,6 +193,7 @@ export function SettingsTabsPage({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const autoFocusedSearchRef = useRef(false);
+  const controlledHashRef = useRef<string | null>(null);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -291,6 +293,23 @@ export function SettingsTabsPage({
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [isControlled, tabs]);
+
+  useEffect(() => {
+    // Controlled pages retain ownership of their active state, but shared
+    // organization navigation uses a hash deep link. Report only recognized
+    // top-level tab hashes; section hashes remain available to inner panels.
+    if (!isControlled) return;
+    const syncControlledHash = () => {
+      const hash = window.location.hash;
+      const fromHash = resolveTabId(tabs, hash);
+      if (!fromHash || controlledHashRef.current === hash) return;
+      controlledHashRef.current = hash;
+      onValueChange?.(fromHash);
+    };
+    syncControlledHash();
+    window.addEventListener("hashchange", syncControlledHash);
+    return () => window.removeEventListener("hashchange", syncControlledHash);
+  }, [isControlled, onValueChange, tabs, value]);
 
   useEffect(() => {
     if (!enableSearch || autoFocusedSearchRef.current) return;
