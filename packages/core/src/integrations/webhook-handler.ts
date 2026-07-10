@@ -259,7 +259,7 @@ export async function handleWebhook(
 
   // Step 4 + 5: Enqueue to SQL and dispatch to processor in a fresh request.
   try {
-    await enqueueAndDispatch(event, incoming, options);
+    await enqueueAndDispatch(event, incoming, options, handlerStartedAt);
   } catch (err) {
     // Duplicate event delivery: the SQL UNIQUE constraint on
     // (platform, external_event_key) rejected the second insert. This is
@@ -500,6 +500,32 @@ async function processIncomingMessage(
     incoming.platform,
     incoming.externalThreadId,
   );
+
+  if (!mapping && adapter.getLegacyExternalThreadIds) {
+    const legacyIds = adapter
+      .getLegacyExternalThreadIds(incoming)
+      .filter(
+        (id, index, ids) =>
+          id !== incoming.externalThreadId && ids.indexOf(id) === index,
+      );
+    for (const legacyId of legacyIds) {
+      const legacyMapping = await getThreadMapping(incoming.platform, legacyId);
+      if (!legacyMapping) continue;
+      await saveThreadMapping(
+        incoming.platform,
+        incoming.externalThreadId,
+        legacyMapping.internalThreadId,
+        incoming.platformContext,
+      );
+      mapping = {
+        ...legacyMapping,
+        externalThreadId: incoming.externalThreadId,
+        platformContext: incoming.platformContext,
+        updatedAt: Date.now(),
+      };
+      break;
+    }
+  }
 
   if (!mapping) {
     const thread = await createThread(ownerEmail, {
