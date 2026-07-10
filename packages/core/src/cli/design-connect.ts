@@ -1474,7 +1474,9 @@ function assertEditableTextFile(
   }
   if (existing) {
     if (existing.content.includes("\0")) {
-      throw new Error("Write rejected: the existing file contains binary data.");
+      throw new Error(
+        "Write rejected: the existing file contains binary data.",
+      );
     }
     return;
   }

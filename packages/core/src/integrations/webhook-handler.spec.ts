@@ -139,6 +139,29 @@ describe("integration webhook handler", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
+  it("returns a provider-specific deferred acknowledgement after enqueue", async () => {
+    const incoming = createIncoming(1003);
+    const adapter = {
+      ...createAdapter(),
+      getImmediateWebhookResponse: () => ({
+        status: 200,
+        body: { type: 5 },
+      }),
+    };
+
+    const result = await handleWebhook(createEvent(), {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    });
+
+    expect(insertPendingTaskMock).toHaveBeenCalledOnce();
+    expect(result).toEqual({ status: 200, body: { type: 5 } });
+  });
+
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_URL", "");

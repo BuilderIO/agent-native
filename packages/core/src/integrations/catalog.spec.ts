@@ -11,6 +11,8 @@ describe("integration catalog", () => {
   it("only seeds runtime-backed messaging channels as built-in", () => {
     expect(listBuiltInChannelIntegrations().map((entry) => entry.id)).toEqual([
       "slack",
+      "microsoft-teams",
+      "discord",
       "telegram",
       "whatsapp",
       "email",
@@ -43,8 +45,20 @@ describe("integration catalog", () => {
       "Replies stay in Slack's native message thread when a thread timestamp is available.",
     );
     expect(getIntegrationCatalogEntry("telegram")?.caveats.join(" ")).toMatch(
-      /does not model forum topics/i,
+      /message_thread_id/i,
     );
+    expect(
+      getIntegrationCatalogEntry("microsoft-teams")?.caveats.join(" "),
+    ).toMatch(/Bot Framework connector/i);
+    expect(getIntegrationCatalogEntry("discord")?.caveats.join(" ")).toMatch(
+      /does not ingest ordinary server or direct messages/i,
+    );
+    expect(
+      getIntegrationCatalogEntry("discord")?.channelCapabilities,
+    ).toMatchObject({
+      interactionOnly: true,
+      proactiveMessages: false,
+    });
     expect(getIntegrationCatalogEntry("whatsapp")?.caveats.join(" ")).toMatch(
       /customer-service conversation window/i,
     );

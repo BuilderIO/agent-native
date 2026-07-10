@@ -1236,7 +1236,47 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("rejects write-file for extensions outside the allowed text-file list", async () => {
+  it("edits existing text/code files without requiring an extension allowlist", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "tool.py"), "print('old')\n");
+    fs.writeFileSync(path.join(root, "Dockerfile"), "FROM scratch\n");
+    fs.writeFileSync(path.join(root, ".prettierrc"), '{"semi":true}\n');
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const { bridgeToken } = bridge;
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const authHeader = { "x-bridge-token": bridgeToken };
+      for (const [relPath, content] of [
+        ["src/tool.py", "print('new')\n"],
+        ["Dockerfile", "FROM example/base\n"],
+        [".prettierrc", '{"semi":false}\n'],
+      ] as const) {
+        const result = await postJson(
+          `${base}/write-file`,
+          { relPath, content },
+          authHeader,
+        );
+        expect(
+          result.status,
+          `${relPath}: ${JSON.stringify(result.body)}`,
+        ).toBe(200);
+        expect(fs.readFileSync(path.join(root, relPath), "utf8")).toBe(content);
+      }
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects write-file for known binary file types", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
