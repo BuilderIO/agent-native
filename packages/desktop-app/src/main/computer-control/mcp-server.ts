@@ -230,6 +230,13 @@ export class DesktopComputerMcpBridge {
       response.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
+    if (
+      context.connector &&
+      request.method === "POST" &&
+      (await this.handleDirectConnectorRequest(context, request, response))
+    ) {
+      return;
+    }
     const mcp = new McpServer({
       name: "agent-native-desktop-computer",
       version: "1.0.0",
@@ -464,23 +471,9 @@ export class DesktopComputerMcpBridge {
       },
       async ({ envelope: rawEnvelope }) => {
         const context = this.context();
-        if (!context.connector) {
-          throw new Error("Remote computer commands require connector scope.");
-        }
-        const envelope = await assertValidComputerCommandEnvelope(rawEnvelope);
-        const cached = context.remoteResults?.get(envelope.idempotencyKey);
-        if (cached !== undefined) return this.textResult(cached);
-        const lastSequence = context.remoteSequences?.get(envelope.runId) ?? -1;
-        if (envelope.sequence <= lastSequence) {
-          throw new Error("Remote computer command sequence was replayed.");
-        }
-        const result = await this.executeRemoteBrowserEnvelope(
-          context,
-          envelope,
+        return this.textResult(
+          await this.executeConnectorOperation(context, rawEnvelope),
         );
-        context.remoteSequences?.set(envelope.runId, envelope.sequence);
-        context.remoteResults?.set(envelope.idempotencyKey, result);
-        return this.textResult(result);
       },
     );
     mcp.registerTool(
@@ -497,11 +490,7 @@ export class DesktopComputerMcpBridge {
       },
       async () => {
         const context = this.context();
-        if (!context.connector) {
-          throw new Error("Remote computer revoke requires connector scope.");
-        }
-        await this.stopBrowserContext(context);
-        context.remoteBrowserRegistrations = new Map();
+        await this.revokeConnectorControl(context);
         return this.textResult({ revoked: true });
       },
     );
@@ -746,6 +735,70 @@ export class DesktopComputerMcpBridge {
         return this.textResult({ stopped: true });
       },
     );
+  }
+
+  private async handleDirectConnectorRequest(
+    context: RunContext,
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<boolean> {
+    const body = await readBoundedJson(request, 64 * 1024).catch(() => null);
+    const record = browserRecord(body, true);
+    if (record.method !== "tools/call") return false;
+    const params = browserRecord(record.params, true);
+    const args = browserRecord(params.arguments, true);
+    try {
+      let result: unknown;
+      if (params.name === "computer_operation") {
+        result = this.textResult(
+          await this.executeConnectorOperation(context, args.envelope),
+        );
+      } else if (params.name === "computer_revoke_control") {
+        await this.revokeConnectorControl(context);
+        result = this.textResult({ revoked: true });
+      } else {
+        throw new Error("Unsupported connector computer tool.");
+      }
+      writeJsonRpc(response, { jsonrpc: "2.0", id: record.id ?? null, result });
+    } catch (error) {
+      writeJsonRpc(response, {
+        jsonrpc: "2.0",
+        id: record.id ?? null,
+        error: {
+          code: -32000,
+          message: error instanceof Error ? error.message : "Command failed",
+        },
+      });
+    }
+    return true;
+  }
+
+  private async executeConnectorOperation(
+    context: RunContext,
+    rawEnvelope: unknown,
+  ): Promise<unknown> {
+    if (!context.connector) {
+      throw new Error("Remote computer commands require connector scope.");
+    }
+    const envelope = await assertValidComputerCommandEnvelope(rawEnvelope);
+    const cached = context.remoteResults?.get(envelope.idempotencyKey);
+    if (cached !== undefined) return cached;
+    const lastSequence = context.remoteSequences?.get(envelope.runId) ?? -1;
+    if (envelope.sequence <= lastSequence) {
+      throw new Error("Remote computer command sequence was replayed.");
+    }
+    const result = await this.executeRemoteBrowserEnvelope(context, envelope);
+    context.remoteSequences?.set(envelope.runId, envelope.sequence);
+    context.remoteResults?.set(envelope.idempotencyKey, result);
+    return result;
+  }
+
+  private async revokeConnectorControl(context: RunContext): Promise<void> {
+    if (!context.connector) {
+      throw new Error("Remote computer revoke requires connector scope.");
+    }
+    await this.stopBrowserContext(context);
+    context.remoteBrowserRegistrations = new Map();
   }
 
   private async executeRemoteBrowserEnvelope(
@@ -1038,4 +1091,27 @@ function isLoopbackAddress(address: string | undefined): boolean {
     address === "::1" ||
     address === "::ffff:127.0.0.1"
   );
+}
+
+async function readBoundedJson(
+  request: IncomingMessage,
+  maxBytes: number,
+): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.byteLength;
+    if (size > maxBytes) throw new Error("Connector request is too large.");
+    chunks.push(bytes);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function writeJsonRpc(response: ServerResponse, value: unknown): void {
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-type": "application/json",
+  });
+  response.end(JSON.stringify(value));
 }
