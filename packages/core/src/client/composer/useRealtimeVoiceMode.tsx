@@ -16,6 +16,7 @@ import {
 } from "../agent-sidebar-state.js";
 import { agentNativePath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import { useT } from "../i18n.js";
 import {
   RealtimeVoiceModeDock,
@@ -549,8 +550,12 @@ export function RealtimeVoiceModeProvider({
   children,
   browserTabId,
 }: RealtimeVoiceModeProviderProps) {
+  const resolvedBrowserTabId = useMemo(
+    () => browserTabId ?? getBrowserTabId(),
+    [browserTabId],
+  );
   const copy = useRealtimeVoiceModeCopy();
-  const voice = useRealtimeVoiceModeController(browserTabId, copy);
+  const voice = useRealtimeVoiceModeController(resolvedBrowserTabId, copy);
 
   return (
     <RealtimeVoiceModeContext.Provider value={voice}>
@@ -570,6 +575,23 @@ export function RealtimeVoiceModeProvider({
           )
         : null}
     </RealtimeVoiceModeContext.Provider>
+  );
+}
+
+/**
+ * Ensure standalone/full-page composers get realtime voice without nesting a
+ * second session owner inside the persistent AgentSidebar provider.
+ */
+export function RealtimeVoiceModeBoundary({
+  children,
+  browserTabId,
+}: RealtimeVoiceModeProviderProps) {
+  const existing = useRealtimeVoiceModeOptional();
+  if (existing) return children;
+  return (
+    <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+      {children}
+    </RealtimeVoiceModeProvider>
   );
 }
 

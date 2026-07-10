@@ -36,6 +36,7 @@ export {
   executeRealtimeVoiceTool,
   extractRealtimeVoiceFunctionCalls,
   readRealtimeVoiceContext,
+  RealtimeVoiceModeBoundary,
   RealtimeVoiceModeProvider,
   useRealtimeVoiceMode,
   useRealtimeVoiceModeCopy,

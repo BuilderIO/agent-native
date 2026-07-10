@@ -487,6 +487,7 @@ export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
   PromptComposer,
+  RealtimeVoiceModeBoundary,
   RealtimeVoiceModeProvider,
   RealtimeVoiceModeDock,
   RealtimeVoiceModeEntry,

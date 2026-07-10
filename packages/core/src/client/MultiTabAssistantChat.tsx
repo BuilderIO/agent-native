@@ -18,7 +18,6 @@ import React, {
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   DEFAULT_REASONING_EFFORT,
-  getReasoningEffortOptionsForModel,
   isReasoningEffort,
   resolveReasoningEffortSelection,
   type ReasoningEffort,
