@@ -4672,6 +4672,11 @@ function DesignEditor() {
   // instead of a whole browser tab, since this key legitimately needs to
   // accept OTHER tabs'/the agent's writes, just not echo its own.
   const lastAppliedActiveBreakpointIdRef = useRef<string | null>(null);
+  // Local breakpoint writes can overlap when a designer moves quickly between
+  // responsive frames. While any are in flight, the poll-driven app-state
+  // reader below must not apply an earlier write's echo over the newer local
+  // intent (for example Mobile -> Tablet -> "This breakpoint only").
+  const pendingActiveBreakpointWritesRef = useRef(0);
 
   // ── Interaction-state forced preview (phase 2) ───────────────────────────────
   // Mirrors EditPanel's own InteractionStatePanel selection (Default/Hover/…)
@@ -5712,6 +5717,21 @@ function DesignEditor() {
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+  );
+  const persistActiveBreakpoint = useCallback(
+    (breakpointId: string, editScope: ResponsiveEditScope) => {
+      if (!id) return;
+      pendingActiveBreakpointWritesRef.current += 1;
+      void setActiveBreakpointMutation
+        .mutateAsync({ designId: id, breakpointId, editScope })
+        .finally(() => {
+          pendingActiveBreakpointWritesRef.current = Math.max(
+            0,
+            pendingActiveBreakpointWritesRef.current - 1,
+          );
+        });
+    },
+    [id, setActiveBreakpointMutation],
   );
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
@@ -7788,13 +7808,9 @@ function DesignEditor() {
       // app-state poll tick this write eventually triggers is a no-op echo,
       // not a redundant re-apply of a value we already set locally.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designBreakpoints, setActiveBreakpointMutation],
+    [id, designBreakpoints, persistActiveBreakpoint],
   );
   const handleResponsiveEditScopeChange = useCallback(
     (scope: ResponsiveEditScope) => {
@@ -7807,13 +7823,9 @@ function DesignEditor() {
           ? "auto"
           : (designBreakpoints.find((bp) => bp.widthPx === activeWidth)?.id ??
             "auto");
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: scope,
-      });
+      persistActiveBreakpoint(breakpointId, scope);
     },
-    [designBreakpoints, id, setActiveBreakpointMutation],
+    [designBreakpoints, id, persistActiveBreakpoint],
   );
 
   // Item 9 — agent→UI breakpoint sync. `set-active-breakpoint` (the action
@@ -7837,12 +7849,20 @@ function DesignEditor() {
     if (!id) return;
     let cancelled = false;
     void (async () => {
+      if (pendingActiveBreakpointWritesRef.current > 0) return;
       const value = await readClientAppState<{
         designId?: string;
         activeBreakpointId?: string;
         responsiveEditScope?: ResponsiveEditScope;
       }>(`design-active-breakpoint:${id}`).catch(() => null);
-      if (cancelled || !value || value.designId !== id) return;
+      if (
+        cancelled ||
+        pendingActiveBreakpointWritesRef.current > 0 ||
+        !value ||
+        value.designId !== id
+      ) {
+        return;
+      }
       const nextBreakpointId = value.activeBreakpointId ?? "auto";
       if (nextBreakpointId === lastAppliedActiveBreakpointIdRef.current) {
         return;
@@ -26023,11 +26043,7 @@ function DesignEditor() {
         activeBreakpointWidthStateRef.current = undefined;
         setActiveBreakpointWidthState(undefined);
         if (id) {
-          void setActiveBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId: "auto",
-            editScope: responsiveEditScopeRef.current,
-          });
+          persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
         }
         return;
       }
@@ -26038,14 +26054,10 @@ function DesignEditor() {
       activeBreakpointWidthStateRef.current = bp.widthPx;
       setActiveBreakpointWidthState(bp.widthPx);
       if (id) {
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId,
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
       }
     },
-    [id, setActiveBreakpointMutation, statesPanelBreakpoints],
+    [id, persistActiveBreakpoint, statesPanelBreakpoints],
   );
 
   const handleStatesPanelAddBreakpoint = useCallback(() => {
@@ -28850,11 +28862,7 @@ function DesignEditor() {
         setActiveBreakpointWidthState(undefined);
         // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId: "auto",
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
       }
       void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
     },
@@ -28863,7 +28871,7 @@ function DesignEditor() {
       designBreakpoints,
       activeBreakpointWidthState,
       removeBreakpointMutation,
-      setActiveBreakpointMutation,
+      persistActiveBreakpoint,
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
@@ -28979,13 +28987,9 @@ function DesignEditor() {
       const breakpointId = widthPx !== undefined && bp ? bp.id : "auto";
       // Item 9 — see handleBreakpointBarSelect's matching comment.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designDataJson, setActiveBreakpointMutation],
+    [id, designDataJson, persistActiveBreakpoint],
   );
   // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu (Remove /
   // Change width) and full-view entry. Width-first, same convention as
