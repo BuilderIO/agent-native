@@ -24,10 +24,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import {
-  nanoid,
-  parseDatabaseViewConfig,
-} from "./_property-utils.js";
+import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
   databaseId: z.string().min(1).describe("Content database ID"),
@@ -55,9 +52,8 @@ function resolveFormView(
 ) {
   const requested = requestedViewId
     ? views.find((view) => view.id === requestedViewId)
-    : (views.find(
-        (view) => view.id === activeViewId && view.type === "form",
-      ) ?? views.find((view) => view.type === "form"));
+    : (views.find((view) => view.id === activeViewId && view.type === "form") ??
+      views.find((view) => view.type === "form"));
   if (!requested) throw new Error("This database does not have a form view.");
   if (requested.type !== "form") {
     throw new Error(`Database view "${requested.id}" is not a form view.`);
@@ -126,7 +122,9 @@ function resolveSubmittedProperties(
   enabledPropertyIds: Set<string>,
   submitted: Record<string, unknown>,
 ) {
-  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+  const byId = new Map(
+    definitions.map((definition) => [definition.id, definition]),
+  );
   const byName = new Map<string, PropertyDefinitionRow[]>();
   for (const definition of definitions) {
     const key = definition.name.trim().toLocaleLowerCase();
@@ -145,14 +143,20 @@ function resolveSubmittedProperties(
     const definition = exact ?? named[0];
     if (!definition) throw new Error(`Unknown form property "${inputKey}".`);
     if (!enabledPropertyIds.has(definition.id)) {
-      throw new Error(`Property "${definition.name}" is not enabled in this form.`);
+      throw new Error(
+        `Property "${definition.name}" is not enabled in this form.`,
+      );
     }
     const type = definition.type as DocumentPropertyType;
     if (isComputedPropertyType(type)) {
-      throw new Error(`Computed property "${definition.name}" cannot be submitted.`);
+      throw new Error(
+        `Computed property "${definition.name}" cannot be submitted.`,
+      );
     }
     if (resolved.has(definition.id)) {
-      throw new Error(`Property "${definition.name}" was submitted more than once.`);
+      throw new Error(
+        `Property "${definition.name}" was submitted more than once.`,
+      );
     }
     resolved.set(
       definition.id,
@@ -194,7 +198,11 @@ export default defineAction({
       );
     if (!database) throw new Error(`Database "${databaseId}" not found.`);
 
-    const access = await assertAccess("document", database.documentId, "editor");
+    const access = await assertAccess(
+      "document",
+      database.documentId,
+      "editor",
+    );
     const databaseDocument = access.resource;
     const definitions = await db
       .select()
@@ -247,7 +255,9 @@ export default defineAction({
         : [];
     });
     if (missing.length > 0) {
-      throw new Error(`Required form fields are missing: ${missing.join(", ")}.`);
+      throw new Error(
+        `Required form fields are missing: ${missing.join(", ")}.`,
+      );
     }
 
     const documentId = nanoid();
@@ -448,7 +458,9 @@ export default defineAction({
         !standardValuesVerified ||
         !additionalBlocksVerified
       ) {
-        throw new Error("The form submission could not be verified; no row was saved.");
+        throw new Error(
+          "The form submission could not be verified; no row was saved.",
+        );
       }
     });
 
@@ -469,9 +481,8 @@ export default defineAction({
     };
   },
   link: ({ result }) => {
-    const documentId = (
-      result as SubmitContentDatabaseFormResponse | null
-    )?.createdDocumentId;
+    const documentId = (result as SubmitContentDatabaseFormResponse | null)
+      ?.createdDocumentId;
     if (!documentId) return null;
     return {
       url: buildDeepLink({

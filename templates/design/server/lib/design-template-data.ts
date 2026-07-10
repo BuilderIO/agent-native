@@ -1,3 +1,5 @@
+import { designDataForAccessRole } from "./design-data-access.js";
+
 interface CanvasFrame {
   width?: unknown;
   height?: unknown;
@@ -19,6 +21,18 @@ export function parseDesignTemplateData(
   } catch {
     return {};
   }
+}
+
+/**
+ * Templates are portable/shareable snapshots, so they must never retain
+ * localhost bridge credentials. Reuse the same viewer-safe redaction applied
+ * to exported design metadata before either saving or instantiating a template.
+ */
+export function redactTemplateDesignData(
+  raw: string | null | undefined,
+): string {
+  const redacted = designDataForAccessRole(raw ?? "{}", "viewer");
+  return typeof redacted === "string" ? redacted : "{}";
 }
 
 export function remapTemplateFileIds(

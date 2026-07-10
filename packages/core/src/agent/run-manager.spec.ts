@@ -22,6 +22,7 @@ vi.mock("./run-store.js", () => ({
   cleanupOldRuns: vi.fn(() => Promise.resolve()),
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
+  setRunInFlightMarker: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   // Faithful copy of the real pure predicate (5-min redispatch bound) so the
@@ -79,6 +80,7 @@ import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
+  abortRunDurably,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -685,6 +687,36 @@ describe("run manager soft timeout", () => {
     expect(terminalEvents).toContainEqual({ type: "done" });
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
+  });
+
+  it("waits for a cross-isolate abort to become durable before resolving", async () => {
+    let persistAbort: (() => void) | undefined;
+    vi.mocked(markRunAborted).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          persistAbort = resolve;
+        }),
+    );
+
+    let resolved = false;
+    const abortPromise = abortRunDurably(
+      "run-cross-isolate",
+      "user_stuck_retry",
+    ).then((abortedInMemory) => {
+      resolved = true;
+      return abortedInMemory;
+    });
+
+    await Promise.resolve();
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-cross-isolate",
+      "user_stuck_retry",
+    );
+    expect(resolved).toBe(false);
+
+    persistAbort?.();
+    await expect(abortPromise).resolves.toBe(false);
+    expect(resolved).toBe(true);
   });
 
   it("skips completion callbacks for no-progress recovery aborts", async () => {
@@ -1894,11 +1926,16 @@ describe("run manager soft timeout", () => {
     // The unclaimed reap was skipped — the sweep owns recovery inside the bound.
     expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
     // The run is still surfaced as an active background run (client keeps
-    // following; no premature manual-retry error).
+    // following; no premature manual-retry error). `awaitingRedispatch: true`
+    // is the wire signal `/runs/active` (agent-chat-plugin.ts) forwards
+    // as-is so the client's follow loop (agent-chat-adapter.ts) can tell
+    // this apart from a dead run and stop counting it against its idle
+    // timeout — see the THREE-SITE INVARIANT comment above this function.
     expect(result).toMatchObject({
       runId: "run-deferred",
       status: "running",
       dispatchMode: "background",
+      awaitingRedispatch: true,
     });
   });
 
@@ -1925,6 +1962,87 @@ describe("run manager soft timeout", () => {
       status: "running",
       dispatchMode: "background-processing",
       diagStage: '{"stage":"worker_started","at":1}',
+      // A CLAIMED worker is not the "unclaimed, awaiting sweep redispatch"
+      // state — this must stay false so the client's idle-timeout tolerance
+      // only applies to the actually-deferred case.
+      awaitingRedispatch: false,
+    });
+  });
+
+  // ─── hasInFlightWork wire signal (server-authoritative in-flight marker) ──
+  it("surfaces hasInFlightWork: true from the SQL fallback path when in_flight_since is set", async () => {
+    // Same shape as the "claimed, heartbeating worker" case above, but with
+    // an open tool call / A2A agent_call — the exact scenario that triggered
+    // the false stale_run reap: reapIfStale (called just above this in the
+    // real implementation) reads the SAME in_flight_since column and did NOT
+    // reap this row, so the wire signal here must agree.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-in-flight",
+      threadId: "thread-in-flight",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 95_000, // stale heartbeat, exactly the bug scenario
+      completedAt: null,
+      lastProgressAt: Date.now() - 95_000,
+      dispatchMode: "background-processing",
+      diagStage: null,
+      inFlightSince: Date.now() - 5_000,
+    } as any);
+    vi.mocked(reapIfStale).mockResolvedValueOnce(false);
+
+    const result = await getActiveRunForThreadAsync("thread-in-flight");
+
+    expect(result).toMatchObject({
+      runId: "run-in-flight",
+      status: "running",
+      hasInFlightWork: true,
+    });
+  });
+
+  it("surfaces hasInFlightWork: false from the SQL fallback path when in_flight_since is not set", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-idle",
+      threadId: "thread-idle",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      diagStage: null,
+      inFlightSince: null,
+    } as any);
+    vi.mocked(reapIfStale).mockResolvedValueOnce(false);
+
+    const result = await getActiveRunForThreadAsync("thread-idle");
+
+    expect(result).toMatchObject({
+      runId: "run-idle",
+      status: "running",
+      hasInFlightWork: false,
+    });
+  });
+
+  it("surfaces hasInFlightWork: false for a terminal run — no live work can still be in flight", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-terminal",
+      threadId: "thread-terminal",
+      status: "completed",
+      startedAt: Date.now() - 10_000,
+      heartbeatAt: Date.now() - 2_000,
+      completedAt: Date.now() - 1_000,
+      lastProgressAt: Date.now() - 2_000,
+      dispatchMode: null,
+      diagStage: null,
+      inFlightSince: Date.now() - 2_000, // stale marker from before completion
+    } as any);
+
+    const result = await getActiveRunForThreadAsync("thread-terminal");
+
+    expect(result).toMatchObject({
+      runId: "run-terminal",
+      status: "completed",
+      hasInFlightWork: false,
     });
   });
 

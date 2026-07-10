@@ -58,33 +58,39 @@ Content UI sidebar to repaint immediately.
 
 ## Database And Intake Workflows
 
-Use Content databases for structured team queues such as **Design Asks**. A
-request for a database, table, board, intake form, prioritized queue, or a
-record to be filed belongs to Content even when the subject is design. Use the
-Design app only when the requested output itself is a visual design, mockup, or
-interface.
+Content databases are one available capability for structured team queues,
+tables, boards, and intake forms. Select Content when workspace instructions or
+app-capability discovery identify it as the owner of the workflow. Do not route
+from a department or subject word alone, and do not embed an organization's
+queue name, destination ID, schema, required fields, or owner in this reusable
+skill. If workspace instructions assign the workflow to another app, follow
+those instructions.
 
 For a named intake workflow:
 
-1. Find the canonical database by exact title with `list-documents` or
-   `search-documents`; inspect it with `get-content-database` and, when
-   available, `get-content-database-form`. Preserve its database and document
-   IDs. Never guess IDs or create a duplicate queue.
-2. Read the current property/form schema and required fields before asking the
+1. Read the loaded workspace instruction/resource first. It may identify the
+   owning app, canonical database ID or title, form view, and intake policy.
+   Treat that live instruction as authoritative instead of applying defaults
+   from this skill.
+2. Once Content is selected, find the canonical database by the instructed ID
+   or exact title with `list-documents` or `search-documents`; inspect it with
+   `get-content-database` and, when available,
+   `get-content-database-form`. Preserve its database and document IDs. Never
+   guess IDs or create a duplicate queue.
+3. Read the current property/form schema and required fields before asking the
    user anything. Ask only for required values that are actually missing.
-3. You may infer low-risk values from the request, sender identity, and source
-   context, but state the proposed values and confirm uncertain or consequential
-   inferences such as deadline, priority, assignee, or scope. Do not silently
-   turn urgency language into a deadline.
-4. Preserve a provided `Source Slack thread` URL verbatim in the matching URL
+4. You may infer low-risk values from the request, sender identity, and source
+   context, but state proposed values and confirm any uncertain or consequential
+   inference. Never invent a value for a field marked required.
+5. Preserve a provided `Source Slack thread` URL verbatim in the matching URL
    or source field. It is request provenance; never replace it with an invented
    Slack URL.
-5. Submit exactly once with `submit-content-database-form` when that action is
+6. Submit exactly once with `submit-content-database-form` when that action is
    available. Prefer it over piecemeal writes because it validates required
    fields and verifies the saved row. Fall back to `add-database-item` only
    when the database has no form contract and all required values have already
    been confirmed.
-6. Treat submission as complete only when the successful result includes a
+7. Treat submission as complete only when the successful result includes a
    `createdDocumentId` and verification. Return the exact `url` or `urlPath`
    from the result. The canonical Content row route is `/page/<createdDocumentId>`;
    never invent a different path, slug, ID, or host.

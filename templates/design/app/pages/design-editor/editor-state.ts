@@ -358,11 +358,28 @@ export type UndoRedoOrderKind =
   | "content"
   | "file-content"
   | "geometry"
-  | "file-created";
+  | "file-created"
+  | "file-deleted";
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
 ): UndoRedoOrderKind[] {
+  if (preferred === "file-deleted")
+    return [
+      "file-deleted",
+      "file-created",
+      "content",
+      "file-content",
+      "geometry",
+    ];
+  if (preferred === "file-created")
+    return [
+      "file-created",
+      "file-deleted",
+      "content",
+      "file-content",
+      "geometry",
+    ];
   if (preferred === "geometry") return ["geometry", "content", "file-content"];
   if (preferred === "file-content")
     return ["file-content", "content", "geometry"];
@@ -386,6 +403,10 @@ export interface FileContentSaveRequest {
    */
   expectedVersionHash?: string;
 }
+
+type FileContentSaveRequestsById = Readonly<
+  Record<string, FileContentSaveRequest>
+>;
 
 /**
  * A completed save may retire the unload retry only when it still represents
@@ -416,12 +437,38 @@ export function shouldClearLatestUnloadSave(
  * the final edit.
  */
 export function flushPendingFileContentSavesOnCleanup(
-  pendingByFileId: Readonly<Record<string, FileContentSaveRequest>>,
+  pendingByFileId: FileContentSaveRequestsById,
   timerIds: readonly number[],
   save: (pending: FileContentSaveRequest) => void,
   clearTimer: (timerId: number) => void,
 ): void {
   for (const pending of Object.values(pendingByFileId)) save(pending);
+  for (const timerId of timerIds) clearTimer(timerId);
+}
+
+/**
+ * A desktop app switch keeps the guest page mounted, so neither pagehide nor
+ * React cleanup runs. Flush the newest known request per file through the
+ * ordinary serialized mutation path and cancel its debounce timer.
+ */
+export function flushFileContentSavesOnBackground(
+  pendingByFileId: FileContentSaveRequestsById,
+  latestUnacknowledgedByFileId: FileContentSaveRequestsById,
+  timerIds: readonly number[],
+  save: (pending: FileContentSaveRequest) => void,
+  clearTimer: (timerId: number) => void,
+): void {
+  const newestByFileId = new Map<string, FileContentSaveRequest>();
+  for (const pending of Object.values(latestUnacknowledgedByFileId)) {
+    newestByFileId.set(pending.id, pending);
+  }
+  for (const pending of Object.values(pendingByFileId)) {
+    const current = newestByFileId.get(pending.id);
+    if (!current || pending.operationRevision >= current.operationRevision) {
+      newestByFileId.set(pending.id, pending);
+    }
+  }
+  for (const pending of newestByFileId.values()) save(pending);
   for (const timerId of timerIds) clearTimer(timerId);
 }
 

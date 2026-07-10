@@ -33,6 +33,74 @@
       "port": 3101
     },
     {
+      "name": "design-w1",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w1.sqlite",
+        "PORT=9317",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9317"
+      ],
+      "port": 9317
+    },
+    {
+      "name": "design-dragdrop",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-dragdrop.sqlite",
+        "PORT=9319",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9319"
+      ],
+      "port": 9319
+    },
+    {
+      "name": "design-w3",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w3.sqlite",
+        "PORT=9320",
+        "AUTH_MODE=local",
+        "APP_NAME=design-w3",
+        "APP_URL=http://localhost:9320",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9320"
+      ],
+      "port": 9320
+    },
+    {
+      "name": "design-w5",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w5.sqlite",
+        "PORT=9322",
+        "AUTH_MODE=local",
+        "APP_NAME=design-w5",
+        "APP_URL=http://localhost:9322",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9322"
+      ],
+      "port": 9322
+    },
+    {
       "name": "analytics",
       "runtimeExecutable": "env",
       "runtimeArgs": [

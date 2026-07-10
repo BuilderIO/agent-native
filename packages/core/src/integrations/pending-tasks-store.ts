@@ -129,6 +129,31 @@ export interface PendingTask {
   completedAt: number | null;
 }
 
+/**
+ * Whether a provider thread currently has queued or executing work.
+ *
+ * Messaging adapters use this to accept unmentioned replies only while an
+ * agent task is active. This prevents broad message subscriptions from turning
+ * every channel message into an agent invocation.
+ */
+export async function hasActivePendingTask(
+  platform: string,
+  externalThreadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT 1 AS active
+      FROM integration_pending_tasks
+      WHERE platform = ?
+        AND external_thread_id = ?
+        AND status IN ('pending', 'processing')
+      LIMIT 1`,
+    args: [platform, externalThreadId],
+  });
+  return rows.length > 0;
+}
+
 function rowToTask(row: Record<string, unknown>): PendingTask {
   return {
     id: row.id as string,
@@ -240,10 +265,24 @@ export async function claimPendingTask(
       ? `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ? AND status = 'pending'
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks active
+             WHERE active.platform = integration_pending_tasks.platform
+               AND active.external_thread_id = integration_pending_tasks.external_thread_id
+               AND active.status = 'processing'
+               AND active.id <> integration_pending_tasks.id
+           )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status = 'pending'`,
+         WHERE id = ? AND status = 'pending'
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks active
+             WHERE active.platform = integration_pending_tasks.platform
+               AND active.external_thread_id = integration_pending_tasks.external_thread_id
+               AND active.status = 'processing'
+               AND active.id <> integration_pending_tasks.id
+           )`,
     args: ["processing", now, id],
   });
   const rows = result.rows ?? [];
@@ -262,6 +301,21 @@ export async function claimPendingTask(
   const fetched = await getPendingTask(id);
   if (!fetched || fetched.status !== "processing") return null;
   return fetched;
+}
+
+/** Next queued turn for a provider thread after its current task completes. */
+export async function getNextPendingTaskIdForThread(
+  platform: string,
+  externalThreadId: string,
+): Promise<string | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM integration_pending_tasks
+      WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
+      ORDER BY created_at ASC LIMIT 1`,
+    args: [platform, externalThreadId],
+  });
+  return rows[0]?.id ? String(rows[0].id) : null;
 }
 
 /** Mark a task as completed. */

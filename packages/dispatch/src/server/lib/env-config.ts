@@ -4,6 +4,16 @@ export const envKeys: EnvKeyConfig[] = [
   {
     key: "SLACK_BOT_TOKEN",
     label: "Slack bot token",
+    required: false,
+  },
+  {
+    key: "SLACK_CLIENT_ID",
+    label: "Slack OAuth client ID",
+    required: true,
+  },
+  {
+    key: "SLACK_CLIENT_SECRET",
+    label: "Slack OAuth client secret",
     required: true,
   },
   {

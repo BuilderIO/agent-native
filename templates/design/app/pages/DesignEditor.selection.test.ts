@@ -30,14 +30,20 @@ import {
   shouldSkipVisualStyleCommitForPreview,
 } from "./design-editor/editor-state";
 import {
+  buildStaticForeignObjectSvg,
   computeExportCropBox,
+  createMultiPageRasterPdf,
+  createSinglePageRasterPdf,
   EDITOR_CHROME_OVERLAY_SELECTOR,
   getExportCompositeBounds,
+  PDF_MIN_PRINT_RASTER_SCALE,
+  resolveRasterExportScale,
   unionExportCropRects,
 } from "./design-editor/export-capture";
 import { geometrySnapshotsEqual } from "./design-editor/geometry-persistence";
 import {
   applyGeometryHistoryDiff,
+  contentHistoryScopeForViewMode,
   getAvailableContentHistoryChanges,
   getContentHistoryChanges,
   geometryHistoryEntryTouchesFrameIds,
@@ -1103,6 +1109,158 @@ describe("computeExportCropBox (selected-frame image export)", () => {
   });
 });
 
+describe("buildStaticForeignObjectSvg (non-zero selection crop)", () => {
+  it("keeps the full document coordinate space while covering the cropped viewBox", () => {
+    const svg = buildStaticForeignObjectSvg({
+      documentWidth: 1280,
+      documentHeight: 900,
+      cropRect: { x: 24, y: 163, width: 1232, height: 505.25 },
+      scale: 1,
+      safeTitle: "Complex artboard",
+      serializedHtml: '<html xmlns="http://www.w3.org/1999/xhtml"></html>',
+    });
+    expect(svg).toContain('width="1232" height="505.25"');
+    expect(svg).toContain('viewBox="24 163 1232 505.25"');
+    expect(svg).toContain(
+      '<foreignObject x="0" y="0" width="1280" height="900">',
+    );
+  });
+
+  it("expands the foreignObject when a fractional crop extends past stale document metrics", () => {
+    const svg = buildStaticForeignObjectSvg({
+      documentWidth: 100,
+      documentHeight: 100,
+      cropRect: { x: 80, y: 70, width: 40, height: 50 },
+      scale: 2,
+      safeTitle: "Overflow",
+      serializedHtml: "<html></html>",
+    });
+    expect(svg).toContain('width="80" height="100"');
+    expect(svg).toContain(
+      '<foreignObject x="0" y="0" width="120" height="120">',
+    );
+  });
+});
+
+describe("resolveRasterExportScale (high-fidelity bounded raster export)", () => {
+  it("defaults a 1280x900 design to a crisp 2x artifact on a 1x display", () => {
+    expect(
+      resolveRasterExportScale({
+        width: 1280,
+        height: 900,
+        devicePixelRatio: 1,
+      }),
+    ).toBe(2);
+  });
+
+  it("honors explicit Figma-style scale presets through 4x", () => {
+    expect(
+      resolveRasterExportScale({
+        width: 1280,
+        height: 900,
+        requestedScale: 4,
+      }),
+    ).toBe(4);
+  });
+
+  it("bounds extreme artboards by both canvas side and pixel-area limits", () => {
+    const scale = resolveRasterExportScale({
+      width: 40_000,
+      height: 20_000,
+      requestedScale: 4,
+    });
+    expect(40_000 * scale).toBeLessThanOrEqual(16_384);
+    expect(40_000 * 20_000 * scale * scale).toBeLessThanOrEqual(
+      64 * 1024 * 1024,
+    );
+  });
+
+  it("does not re-expand million-pixel artboards past the allocation budget", () => {
+    const width = 1_000_000;
+    const height = 1_000_000;
+    const scale = resolveRasterExportScale({
+      width,
+      height,
+      requestedScale: 4,
+    });
+    expect(width * scale).toBeLessThanOrEqual(16_384);
+    expect(width * height * scale * scale).toBeLessThanOrEqual(
+      64 * 1024 * 1024,
+    );
+  });
+});
+
+describe("createSinglePageRasterPdf (real non-web artifact export)", () => {
+  const onePixelPng =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("produces a valid PDF payload at a fixed 1280x900 artboard size", async () => {
+    const pdf = await createSinglePageRasterPdf({
+      dataUrl: onePixelPng,
+      width: 1280,
+      height: 900,
+    });
+    const signature = new TextDecoder().decode(
+      new Uint8Array(await pdf.arrayBuffer()).subarray(0, 5),
+    );
+    expect(signature).toBe("%PDF-");
+    expect(pdf.type).toBe("application/pdf");
+    expect(pdf.size).toBeGreaterThan(500);
+  });
+
+  // US Letter at 96dpi (816x1056px) must produce an 8.5in x 11in physical
+  // page (612pt x 792pt) — this is the "px -> pt" conversion
+  // createSinglePageRasterPdf relies on the jsPDF `px_scaling` hotfix for; a
+  // regression here would silently ship wrong-sized print PDFs. Parse the
+  // page's /MediaBox directly from the raw PDF bytes rather than adding a
+  // parser dependency for one assertion.
+  it("maps 96dpi US Letter pixel dimensions to an exact 612x792pt page", async () => {
+    const letterPdf = await createSinglePageRasterPdf({
+      dataUrl: onePixelPng,
+      width: 816,
+      height: 1056,
+    });
+    const text = new TextDecoder("latin1").decode(
+      new Uint8Array(await letterPdf.arrayBuffer()),
+    );
+    const match = text.match(
+      /\/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\]/,
+    );
+    expect(match).not.toBeNull();
+    const [, , , widthPt, heightPt] = match!;
+    expect(Number(widthPt)).toBeCloseTo(612, 0);
+    expect(Number(heightPt)).toBeCloseTo(792, 0);
+  });
+});
+
+describe("createMultiPageRasterPdf (multi-screen -> multi-page PDF export)", () => {
+  const onePixelPng =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("builds one page per screen, each at its own artboard size", async () => {
+    const pdf = await createMultiPageRasterPdf([
+      { dataUrl: onePixelPng, width: 816, height: 1056 }, // US Letter
+      { dataUrl: onePixelPng, width: 1080, height: 1080 }, // social square
+      { dataUrl: onePixelPng, width: 300, height: 250 }, // ad unit
+    ]);
+    const signature = new TextDecoder().decode(
+      new Uint8Array(await pdf.arrayBuffer()).subarray(0, 5),
+    );
+    expect(signature).toBe("%PDF-");
+    expect(pdf.type).toBe("application/pdf");
+  });
+
+  it("throws instead of producing an empty document", async () => {
+    await expect(createMultiPageRasterPdf([])).rejects.toThrow();
+  });
+});
+
+describe("PDF_MIN_PRINT_RASTER_SCALE (print sharpness floor)", () => {
+  it("is at least 2x so a fixed-physical-size PDF page isn't a blurry 96dpi raster", () => {
+    expect(PDF_MIN_PRINT_RASTER_SCALE).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("unionExportCropRects (multi-selection image export)", () => {
   it("returns the visual bounds spanning every selected layer", () => {
     expect(
@@ -1159,6 +1317,7 @@ describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
     "data-agent-native-spacing-overlay",
     "data-agent-native-insertion-guide",
     "data-agent-native-measurement-overlay",
+    "data-agent-native-editor-chrome-style",
   ])("targets the %s overlay marker", (marker) => {
     expect(EDITOR_CHROME_OVERLAY_SELECTOR).toContain(`[${marker}]`);
   });
@@ -2027,6 +2186,13 @@ describe("DesignEditor undo order helpers", () => {
       "file-content",
       "geometry",
     ]);
+    expect(getUndoRedoPriorityOrder("file-deleted")).toEqual([
+      "file-deleted",
+      "file-created",
+      "content",
+      "file-content",
+      "geometry",
+    ]);
   });
 });
 
@@ -2302,6 +2468,16 @@ describe("U18: undo/redo refreshes stale layer selection", () => {
     expect(refreshSelectedLayerIdsFromContent(html, [keptNode!.id])).toEqual([
       keptNode!.id,
     ]);
+  });
+});
+
+describe("external content checkpoint history scope", () => {
+  it("uses shared content history in overview so an agent replacement is undoable", () => {
+    expect(contentHistoryScopeForViewMode("overview")).toBe("global");
+  });
+
+  it("uses the active-file fallback in single-screen mode", () => {
+    expect(contentHistoryScopeForViewMode("single")).toBe("local");
   });
 });
 

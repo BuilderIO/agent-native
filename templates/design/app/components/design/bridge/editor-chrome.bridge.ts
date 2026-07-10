@@ -246,7 +246,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     if (!document.head) return "";
     var clone = document.head.cloneNode(true) as HTMLElement;
     Array.prototype.slice
-      .call(clone.querySelectorAll("[data-agent-native-editor-chrome-style]"))
+      .call(
+        clone.querySelectorAll(
+          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]",
+        ),
+      )
       .forEach(function (node) {
         if (node.parentNode) node.parentNode.removeChild(node);
       });
@@ -429,6 +433,8 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   var runtimeLayerSnapshotTimer: number | null = null;
   var runtimeLayerSnapshotMaxTimer: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
+  var runtimeDocumentId =
+    "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
   function runtimeLayerHash(value: string): string {
     var hash = 0x811c9dc5;
@@ -685,7 +691,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
     var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
     if (html.length > 2_000_000) return null;
-    return { html: html, nodeCount: nodeCount };
+    return {
+      html: html,
+      nodeCount: nodeCount,
+      documentId: runtimeDocumentId,
+    };
   }
 
   function postRuntimeLayerSnapshot(): void {
@@ -6758,6 +6768,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     });
     if (!children.length) return null;
     var axis = parentFlowAxis(container);
+    var containerStyles = window.getComputedStyle(container);
+    var multiTrackGrid =
+      (containerStyles.display === "grid" ||
+        containerStyles.display === "inline-grid") &&
+      (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
+        .length > 1;
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -6769,11 +6785,27 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      var distance = Math.abs(pointer - center);
+      // A multi-column grid is two-dimensional. Comparing X alone ties cells
+      // in the same column across every row, so a drop beside row 2 used to
+      // anchor against row 1 and jump to the beginning of the grid. Resolve
+      // the nearest visual cell in both axes, then use X for row-major
+      // before/after placement. One-column grids retain the normal Y path.
+      var distance = multiTrackGrid
+        ? Math.hypot(
+            clientX - (rect.left + rect.width / 2),
+            clientY - (rect.top + rect.height / 2),
+          )
+        : Math.abs(pointer - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = children[j];
-        placement = pointer < center ? "before" : "after";
+        placement = multiTrackGrid
+          ? clientX < rect.left + rect.width / 2
+            ? "before"
+            : "after"
+          : pointer < center
+            ? "before"
+            : "after";
       }
     }
     if (!best) return null;
@@ -7335,6 +7367,29 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     "right",
     "bottom",
   ];
+  // Flex/grid-item-only inline properties. A member leaving auto-layout flow
+  // for an absolute/freeform container (prepareFlowMembersForAbsoluteDrop)
+  // must lose these — they only affect how a flow child sizes/aligns itself
+  // among siblings inside an auto-layout parent, and are meaningless once the
+  // element is position:absolute. Left in place they silently keep
+  // controlling nothing today but would immediately re-activate (with a
+  // stale, source-parent-relative value) the moment the element was ever
+  // reparented BACK into flow — e.g. by an undo, or a later drag into another
+  // auto-layout container that doesn't explicitly reset every one of these.
+  var FLEX_ITEM_INLINE_PROPS = [
+    "flex",
+    "flex-grow",
+    "flex-shrink",
+    "flex-basis",
+    "align-self",
+    "order",
+  ];
+  function stripFlexItemInlineStyles(el: Element): void {
+    var htmlEl = el as HTMLElement;
+    for (var i = 0; i < FLEX_ITEM_INLINE_PROPS.length; i += 1) {
+      htmlEl.style.removeProperty(FLEX_ITEM_INLINE_PROPS[i]);
+    }
+  }
   // Snapshot of the inline position/left/top/right/bottom VALUES (not just
   // whether they existed) taken right before stripAbsolutePositioningForFlowInsert
   // runs, so a failed move-node round-trip can restore exactly what was
@@ -7568,13 +7623,87 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       htmlEl.style.top = Math.round(startRect.top + deltaY - originY) + "px";
       htmlEl.style.removeProperty("right");
       htmlEl.style.removeProperty("bottom");
+      stripFlexItemInlineStyles(htmlEl);
+      // Preserve the exact intended client-space release point for the
+      // post-reparent transform correction. Raw left/top are in the new
+      // containing block's local space; when that parent is rotated/scaled,
+      // subtracting bounding-box origins alone cannot keep this client point.
+      (
+        htmlEl as HTMLElement & {
+          __agentNativeDesiredDropPoint?: { left: number; top: number };
+        }
+      ).__agentNativeDesiredDropPoint = {
+        left: startRect.left + deltaX,
+        top: startRect.top + deltaY,
+      };
     });
     target.absoluteCoordinatesPrepared = true;
+  }
+
+  /**
+   * Correct an absolute member after it enters a transformed containing block.
+   * CSS transforms (including rotated/scaled ancestors) make client-space
+   * deltas differ from local left/top deltas. Measure the two local 1px basis
+   * vectors through the browser's actual layout engine, invert that 2x2 matrix,
+   * and apply the exact local correction. This also covers nested transforms
+   * without trying to reconstruct the browser's full transform-origin chain.
+   */
+  function correctAbsoluteMemberClientPosition(
+    el: Element,
+    desired: { left: number; top: number } | null,
+  ): void {
+    if (!desired) return;
+    var htmlEl = el as HTMLElement;
+    var cs = window.getComputedStyle(htmlEl);
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    var baseLeft = readPx(htmlEl.style.left || cs.left);
+    var baseTop = readPx(htmlEl.style.top || cs.top);
+    var baseRect = htmlEl.getBoundingClientRect();
+    var clientDx = desired.left - baseRect.left;
+    var clientDy = desired.top - baseRect.top;
+    if (Math.abs(clientDx) < 0.01 && Math.abs(clientDy) < 0.01) return;
+
+    htmlEl.style.left = baseLeft + 1 + "px";
+    var leftRect = htmlEl.getBoundingClientRect();
+    htmlEl.style.left = baseLeft + "px";
+    htmlEl.style.top = baseTop + 1 + "px";
+    var topRect = htmlEl.getBoundingClientRect();
+    htmlEl.style.top = baseTop + "px";
+
+    var xx = leftRect.left - baseRect.left;
+    var xy = leftRect.top - baseRect.top;
+    var yx = topRect.left - baseRect.left;
+    var yy = topRect.top - baseRect.top;
+    var determinant = xx * yy - yx * xy;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.000001) {
+      return;
+    }
+    var localDx = (clientDx * yy - yx * clientDy) / determinant;
+    var localDy = (xx * clientDy - clientDx * xy) / determinant;
+    htmlEl.style.left = baseLeft + localDx + "px";
+    htmlEl.style.top = baseTop + localDy + "px";
   }
 
   function applyRuntimeReorder(el, target) {
     if (!el || !target || !target.anchor || !target.anchor.parentElement)
       return;
+    var desiredDropPoint =
+      target.dropMode === "absolute-container"
+        ? ((
+            el as HTMLElement & {
+              __agentNativeDesiredDropPoint?: { left: number; top: number };
+            }
+          ).__agentNativeDesiredDropPoint ??
+          (function () {
+            var rect = el.getBoundingClientRect();
+            return { left: rect.left, top: rect.top };
+          })())
+        : null;
+    delete (
+      el as HTMLElement & {
+        __agentNativeDesiredDropPoint?: { left: number; top: number };
+      }
+    ).__agentNativeDesiredDropPoint;
     stripAbsolutePositioningForFlowInsert(el, target);
     // Must run BEFORE the DOM move below: the delta math reads the member's
     // CURRENT containing block via offsetParent. Called here (the single
@@ -7585,14 +7714,15 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     rebaseAbsoluteMemberForContainerDrop(el, target);
     if (target.placement === "inside") {
       target.anchor.appendChild(el);
-      return;
-    }
-    var parent = target.anchor.parentElement;
-    if (target.placement === "before") {
-      parent.insertBefore(el, target.anchor);
     } else {
-      parent.insertBefore(el, target.anchor.nextSibling);
+      var parent = target.anchor.parentElement;
+      if (target.placement === "before") {
+        parent.insertBefore(el, target.anchor);
+      } else {
+        parent.insertBefore(el, target.anchor.nextSibling);
+      }
     }
+    correctAbsoluteMemberClientPosition(el, desiredDropPoint);
   }
 
   function postVisualStructureChange(el, target, origin) {
@@ -8007,6 +8137,20 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       var reorderGroupStartRects = groupEls.map(function (member) {
         return member.getBoundingClientRect();
       });
+      // Capture structural + inline positioning origins before any drop
+      // preparation. Control-dragging a flow child calls
+      // prepareFlowMembersForAbsoluteDrop on pointer-up, which writes
+      // position/left/top before the optimistic DOM move. Taking this snapshot
+      // afterward made a rejected persistence ack (and the equivalent undo
+      // boundary) "restore" those new absolute values instead of flow state.
+      var reorderOrigins = groupEls.map(function (member) {
+        return {
+          el: member,
+          prevParent: member.parentElement,
+          prevNextSibling: member.nextSibling,
+          prevInlinePositionStyles: snapshotInlinePositionStyles(member),
+        };
+      });
       var reorderGestureStartRect = reorderEl.getBoundingClientRect();
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
       var currentTarget = flowMoveTargetForPoint(
@@ -8213,19 +8357,39 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
             currentTarget,
           );
         } else if (isGroupDrag) {
-          applyGroupStructureDrop(groupEls, currentTarget, ev);
+          applyGroupStructureDrop(
+            groupEls,
+            currentTarget,
+            ev,
+            function (member) {
+              var origin = reorderOrigins.filter(function (candidate) {
+                return candidate.el === member;
+              })[0];
+              return origin
+                ? origin.prevInlinePositionStyles
+                : snapshotInlinePositionStyles(member);
+            },
+          );
         } else {
           // Capture the pre-drag DOM anchor so we can revert if the parent
           // reports applied===false on the structure-ack.
-          var prevParent = reorderEl.parentElement;
-          var prevNextSibling = reorderEl.nextSibling;
+          var reorderOrigin = reorderOrigins.filter(function (candidate) {
+            return candidate.el === reorderEl;
+          })[0];
+          var prevParent = reorderOrigin
+            ? reorderOrigin.prevParent
+            : reorderEl.parentElement;
+          var prevNextSibling = reorderOrigin
+            ? reorderOrigin.prevNextSibling
+            : reorderEl.nextSibling;
           // Usually a no-op here (flow-reorder drags a member that's
           // already in flow, so there's nothing to strip), but captured for
           // consistency so an absolute-positioned element reordered through
           // this gesture still rolls back its inline styles correctly on a
           // rejected move-node round-trip.
-          var prevInlinePositionStyles =
-            snapshotInlinePositionStyles(reorderEl);
+          var prevInlinePositionStyles = reorderOrigin
+            ? reorderOrigin.prevInlinePositionStyles
+            : snapshotInlinePositionStyles(reorderEl);
           adaptAutoTextColorForNest(
             reorderEl,
             dropContainerForTarget(currentTarget),

@@ -15,15 +15,20 @@ describe("Design editor mobile layout", () => {
     );
   });
 
-  it("keeps wide editor chrome out of the mobile viewport", () => {
+  it("keeps wide rails out while preserving mobile editor controls", () => {
     expect(editorSource).toContain(
-      "hidden max-w-[calc(100%-2rem)] -translate-x-1/2",
+      "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
     );
+    expect(editorSource).toContain("overflow-x-auto rounded-xl");
     expect(editorSource).toContain(
       "relative hidden h-full min-h-0 shrink-0 flex-col",
     );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-57px)] shrink-0 flex-col",
+    );
+    expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
+    expect(editorSource).toContain(
+      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
     );
   });
 

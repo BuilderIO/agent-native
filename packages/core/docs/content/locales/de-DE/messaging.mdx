@@ -82,7 +82,6 @@ Verbinden Sie Ihren Agenten mit Slack, Microsoft Teams, Discord-Interaktionen, E
    - `chat:write` – ermöglicht dem Agenten das Senden von Nachrichten
    - `app_mentions:read` – lässt den Agenten sehen, wann es @-erwähnt wird (optional)
    - `im:history` – ermöglicht dem Agenten, an ihn gesendete DMs zu lesen
-   - `assistant:write` – optional; Lässt Slack den nativen „Denkt...“-Status in Assistententhreads anzeigen
    - `users:read.email` – optional; hilft Vorlagen wie Mail bei der Überprüfung der Slack-Absender-E-Mail auf die Identität der Entwurfswarteschlange
 3. Klicken Sie oben auf dieser Seite auf **In Workspace installieren**. Mit Slack erhalten Sie ein **Bot-Benutzer-OAuth-Token**, das mit `xoxb-` beginnt. Kopieren Sie es.
 4. Gehen Sie in der Seitenleiste zu **Grundlegende Informationen** und kopieren Sie das **Signierungsgeheimnis**.
@@ -127,11 +126,83 @@ und `link_shared`-Ereignisse an den Clips-Unfurl-Handler.
 
 ### Tipps
 
-- **Kanalerwähnungen** – der Bot antwortet in Kanälen nur, wenn er @-erwähnt wird, um Störgeräusche zu vermeiden.
-- **DMs** – jede DM wird als private Konversation mit dem Agenten behandelt.
-- **Gleiche Identität, alle Kanäle** – wenn ein Slack-Benutzer dieselbe E-Mail-Adresse wie ein registrierter Benutzer in Ihrer App hat, behandelt der Agent ihn als dieselbe Person.
+- **Kanalerwähnungen** – Starten Sie Arbeit mit einer @Erwähnung. Antworten ohne Erwähnung gelten nur, solange genau dieser Thread aktive Arbeit enthält.
+- **DMs** – akzeptierte persönliche DMs sind private Unterhaltungen und erfordern ein verifiziertes Organisationsmitglied oder eine verknüpfte Slack-Identität.
+- **Identität** – DMs können eine verifizierte Slack-E-Mail demselben App-Benutzer zuordnen; verwaltete Kanäle verwenden ihre Dienstidentität und Richtlinie.
 - **Produktionszulassungslisten** – Legen Sie `SLACK_ALLOWED_TEAM_IDS` und für freigegebene Slack-Apps `SLACK_ALLOWED_API_APP_IDS` fest, damit ein gültiges Signaturgeheimnis nicht von einem unerwarteten Arbeitsbereich wiederverwendet werden kann.
 - **Clips-App entfaltet sich** – installierbare Agent-Native-Clips für Slack verwenden `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` und `/api/slack/oauth/callback`. Jeder verbundene Slack-Arbeitsbereich erhält seinen eigenen verschlüsselten Bot-Token in `app_secrets`; `SLACK_BOT_TOKEN` ist nur ein Legacy-Fallback für einen einzelnen Arbeitsbereich.
+
+### Verwaltetes Add to Slack
+
+Verwaltetes OAuth ist die empfohlene Einrichtung. Wählen Sie unter
+**Einstellungen → Messaging** die Option **Agent manifest**, laden Sie die
+hostspezifische Datei `agent-native-slack-manifest.json` herunter und importieren
+Sie sie in Slack unter **App Manifest**. Das Manifest aktiviert die aktuelle
+`agent_view`-Oberfläche und einen beschreibbaren **Messages**-Tab für DMs.
+Prüfen Sie anschließend diese Bot-Bereiche:
+
+App-Symbole sind nicht Bestandteil des Manifests. Laden Sie unter **Basic
+Information → Display Information** das Agent-Native-Symbol hoch, damit die
+Agents-Auswahl zur Produktmarke passt. Sie können das öffentliche
+`icon-512.svg` der App als Quelle verwenden und es bei Bedarf in ein von Slack
+unterstütztes Uploadformat konvertieren.
+
+```text
+assistant:write
+app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+files:read
+   groups:history
+   groups:read
+   im:history
+im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+users:read
+users:read.email
+```
+
+Setzen Sie die OAuth Redirect URL auf
+`https://your-app.example.com/_agent-native/integrations/slack/oauth/callback`,
+die Event Subscriptions Request URL auf
+`https://your-app.example.com/_agent-native/integrations/slack/webhook` und die
+Interactivity Request URL auf
+`https://your-app.example.com/_agent-native/integrations/slack/interactions`.
+Abonnieren Sie `app_home_opened`, `app_context_changed`, `app_mention`,
+`message.channels`, `message.groups`, `message.im` und `message.mpim`.
+Konfigurieren Sie `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`
+und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Einstellungen → Messaging**
+auf **Add to Slack**. Jede Installation besitzt einen verschlüsselten Token und
+team-, app-, kanal- und threadbezogene Konversationsschlüssel.
+
+Installieren Sie die Slack-App nach Änderungen an Manifest, Bereichen,
+Ereignissen, Agent View oder Messages-Tab erneut. `app_home_opened` erkennt das
+Öffnen der DMs, `app_context_changed` liefert den aktuell sichtbaren Slack-Kontext
+und `message.im` übermittelt Direktnachrichten. Slack-Administratoren können
+installierte Agenten organisationsweit ausblenden; Mitglieder können sie zudem
+aus ihrer eigenen oberen Leiste entfernen. Prüfen Sie bei einer erfolgreichen,
+aber unsichtbaren Installation diese Anzeigeeinstellungen oder öffnen Sie die App
+unter **Tools → Apps**.
+
+Persönliche Slack-DMs werden nur von verifizierten Mitgliedern der
+Agent-Native-Organisation oder von bereits verknüpften Slack-Identitäten
+angenommen. Richtlinien und Budgets des Dienstprinzipals eines Kanals sind davon
+getrennt.
+
+Antworten ohne Erwähnung steuern nur einen gerade aktiven Thread weiter; sonstiger
+Kanalverkehr wird ignoriert. Der Agent lädt begrenzten Thread-Kontext samt
+Reaktionen und Dateiverweisen und zeigt einen nativen Live-Arbeitsplan mit
+Abbrechen sowie Genehmigen/Ablehnen. DMs verwenden die persönliche Identität,
+verwaltete Kanäle eine ausdrückliche Dienstidentität mit Gast-, Slack-Connect-
+und Modellrichtlinien. Kanalspeicher wird nur auf ausdrücklichen Wunsch gespeichert
+oder gelöscht. Im Kanal erstellte Routinen liefern dorthin zurück. Tägliche oder
+monatliche Budgets für Organisation, Anfragende und Kanal werden mit vollständiger
+Audit-Lineage durchgesetzt. `assistant:write` aktiviert die Kontextereignisse von
+Agent View; `chat:write` ermöglicht Antworten und Live-Statusaktualisierungen.
 
 ## Telegramm einrichten {#telegram}
 

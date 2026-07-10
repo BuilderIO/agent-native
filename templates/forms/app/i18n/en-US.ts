@@ -189,6 +189,9 @@ const messages = {
       successMessage: "Success message",
       defaultSuccessMessage: "Thank you! Your response has been recorded.",
       redirectUrl: "Redirect URL (optional)",
+      anonymousResponses: "Anonymous responses",
+      anonymousResponsesDescription:
+        "Do not retain IP addresses, submitter identity, or source metadata.",
       saveSettings: "Save Settings",
     },
     integrations: {

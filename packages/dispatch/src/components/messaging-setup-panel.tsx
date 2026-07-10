@@ -1,11 +1,25 @@
 import {
+  disconnectManagedIntegrationInstallation,
+  listManagedIntegrationBudgets,
+  listManagedIntegrationInstallations,
+  listManagedIntegrationScopes,
   listIntegrationEnvStatuses,
   listIntegrationStatuses,
+  managedIntegrationOAuthUrl,
+  managedSlackAgentManifestUrl,
   saveIntegrationEnvVars,
+  saveManagedIntegrationBudget,
+  saveManagedIntegrationScope,
   setIntegrationEnabled,
   setupIntegration,
+  testManagedIntegrationInstallation,
+  type ClientIntegrationInstallation,
+  type ClientIntegrationScope,
+  type ClientIntegrationUsageBudget,
   type ClientIntegrationStatus,
   type IntegrationEnvStatus,
+  useFormatters,
+  useT,
 } from "@agent-native/core/client";
 import {
   listBuiltInChannelIntegrations,
@@ -22,6 +36,7 @@ import {
   IconChevronRight,
   IconCopy,
   IconExternalLink,
+  IconFileDescription,
   IconInfoCircle,
   IconLoader2,
   IconMail,
@@ -37,6 +52,7 @@ import {
   CollapsibleTrigger,
 } from "./ui/collapsible";
 import { Input } from "./ui/input";
+import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const CHANNELS = listBuiltInChannelIntegrations();
@@ -148,6 +164,8 @@ function ConnectionStatus({
 }
 
 export function MessagingSetupPanel() {
+  const t = useT();
+  const { formatDate } = useFormatters();
   const [statuses, setStatuses] = useState<ClientIntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [envStatuses, setEnvStatuses] = useState<IntegrationEnvStatus[]>([]);
@@ -157,6 +175,16 @@ export function MessagingSetupPanel() {
   const [togglingPlatform, setTogglingPlatform] = useState<string | null>(null);
   const [setupPlatform, setSetupPlatform] = useState<string | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
+  const [installations, setInstallations] = useState<
+    ClientIntegrationInstallation[]
+  >([]);
+  const [installationAction, setInstallationAction] = useState<string | null>(
+    null,
+  );
+  const [scopes, setScopes] = useState<ClientIntegrationScope[]>([]);
+  const [budgets, setBudgets] = useState<ClientIntegrationUsageBudget[]>([]);
+  const [scopeBudget, setScopeBudget] = useState<Record<string, string>>({});
+  const [savingScope, setSavingScope] = useState<string | null>(null);
 
   const refreshStatuses = async () => {
     setLoading(true);
@@ -179,6 +207,28 @@ export function MessagingSetupPanel() {
       .catch(() => {
         if (active) setLoading(false);
       });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    listManagedIntegrationInstallations("slack")
+      .then((rows) => {
+        if (active) setInstallations(rows);
+      })
+      .catch(() => {});
+    listManagedIntegrationScopes("slack")
+      .then((rows) => {
+        if (active) setScopes(rows);
+      })
+      .catch(() => {});
+    listManagedIntegrationBudgets()
+      .then((rows) => {
+        if (active) setBudgets(rows);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
@@ -303,12 +353,106 @@ export function MessagingSetupPanel() {
     setTimeout(() => setCopiedWebhook(null), 1500);
   };
 
+  const runInstallationAction = async (
+    installation: ClientIntegrationInstallation,
+    action: "test" | "disconnect",
+  ) => {
+    setInstallationAction(`${action}:${installation.id}`);
+    try {
+      await (action === "test"
+        ? testManagedIntegrationInstallation(installation.id)
+        : disconnectManagedIntegrationInstallation(installation.id));
+      setInstallations(await listManagedIntegrationInstallations("slack"));
+      toast.success(
+        action === "test"
+          ? t("messaging.managed.connectionChecked")
+          : t("messaging.managed.workspaceDisconnected"),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.actionFailed"),
+      );
+    } finally {
+      setInstallationAction(null);
+    }
+  };
+
+  const updateScopePolicy = async (
+    scope: ClientIntegrationScope,
+    policy: Partial<ClientIntegrationScope["policy"]>,
+  ) => {
+    setSavingScope(scope.id);
+    try {
+      await saveManagedIntegrationScope({
+        platform: scope.platform,
+        tenantId: scope.tenantId,
+        conversationId: scope.conversationId,
+        conversationType: scope.conversationType,
+        trust: scope.trust,
+        orgId: scope.orgId,
+        serviceOwnerEmail: scope.serviceOwnerEmail,
+        defaultModel: scope.defaultModel,
+        policy: { ...scope.policy, ...policy },
+      });
+      setScopes(await listManagedIntegrationScopes("slack"));
+      toast.success(t("messaging.managed.channelPolicyUpdated"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.policyUpdateFailed"),
+      );
+    } finally {
+      setSavingScope(null);
+    }
+  };
+
+  const saveScopeBudget = async (scope: ClientIntegrationScope) => {
+    const dollars = Number(scopeBudget[scope.id]);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      toast.error(t("messaging.managed.positiveMonthlyBudget"));
+      return;
+    }
+    setSavingScope(`budget:${scope.id}`);
+    try {
+      await saveManagedIntegrationBudget({
+        subject: {
+          type: "scope",
+          scope: {
+            platform: scope.platform,
+            tenantId: scope.tenantId,
+            conversationId: scope.conversationId,
+          },
+        },
+        period: "month",
+        limitMicros: Math.round(dollars * 1_000_000),
+      });
+      setBudgets(await listManagedIntegrationBudgets());
+      toast.success(t("messaging.managed.channelBudgetSaved"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.budgetSaveFailed"),
+      );
+    } finally {
+      setSavingScope(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-2">
         {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
-          const configured = !!status?.configured;
+          const configured =
+            !!status?.configured ||
+            (platform.id === "slack" &&
+              installations.some(
+                (installation) => installation.status === "connected",
+              ));
           const enabled = !!status?.enabled;
           const envKeys = platform.credentialRequirements;
           const missingRequiredCredentials = hasMissingRequiredCredentials(
@@ -377,6 +521,240 @@ export function MessagingSetupPanel() {
                   ) : null}
                 </div>
               </div>
+
+              {platform.id === "slack" ? (
+                <div className="mt-5 space-y-3 rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {t("messaging.managed.title")}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("messaging.managed.description")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("messaging.managed.agentManifestDescription")}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button asChild variant="outline" size="sm">
+                          <a href={managedSlackAgentManifestUrl()}>
+                            <IconFileDescription className="mr-2 h-4 w-4" />
+                            {t("messaging.managed.agentManifest")}
+                          </a>
+                        </Button>
+                        {missingRequiredCredentials ? (
+                          <Button size="sm" disabled>
+                            <IconBrandSlack className="mr-2 h-4 w-4" />
+                            {t("messaging.managed.addToSlack")}
+                          </Button>
+                        ) : (
+                          <Button asChild size="sm">
+                            <a href={managedIntegrationOAuthUrl("slack")}>
+                              <IconBrandSlack className="mr-2 h-4 w-4" />
+                              {t("messaging.managed.addToSlack")}
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                      {missingRequiredCredentials ? (
+                        <p className="max-w-72 text-xs text-amber-700 dark:text-amber-300">
+                          {t("messaging.managed.requiredCredentials")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {installations.length ? (
+                    <div className="space-y-2">
+                      {installations.map((installation) => (
+                        <div
+                          key={installation.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2"
+                        >
+                          <div>
+                            <div className="text-sm font-medium text-foreground">
+                              {installation.teamName ||
+                                installation.enterpriseName ||
+                                installation.teamId ||
+                                t("messaging.managed.workspaceFallback")}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t("messaging.managed.scopesUpdated", {
+                                count: installation.scopes.length,
+                                date: formatDate(installation.updatedAt, {
+                                  dateStyle: "medium",
+                                }),
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <StatusPill
+                              tone={
+                                installation.health === "healthy"
+                                  ? "success"
+                                  : installation.health === "degraded" ||
+                                      installation.health === "revoked"
+                                    ? "warning"
+                                    : "neutral"
+                              }
+                              label={t(
+                                `messaging.managed.health.${installation.health}`,
+                              )}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                runInstallationAction(installation, "test")
+                              }
+                              disabled={
+                                installationAction === `test:${installation.id}`
+                              }
+                            >
+                              {t("messaging.managed.test")}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                runInstallationAction(
+                                  installation,
+                                  "disconnect",
+                                )
+                              }
+                              disabled={
+                                installationAction ===
+                                `disconnect:${installation.id}`
+                              }
+                            >
+                              {t("messaging.managed.disconnect")}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t("messaging.managed.empty")}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {platform.id === "slack" && scopes.length ? (
+                <div className="mt-4 space-y-3 rounded-xl border bg-muted/20 p-4">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t("messaging.managed.channelAccessTitle")}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("messaging.managed.channelAccessDescription")}
+                    </p>
+                  </div>
+                  {scopes.map((scope) => {
+                    const subjectId = JSON.stringify([
+                      scope.platform,
+                      scope.tenantId,
+                      scope.conversationId,
+                    ]);
+                    const budget = budgets.find(
+                      (item) =>
+                        item.subjectType === "scope" &&
+                        item.subjectId === subjectId &&
+                        item.period === "month",
+                    );
+                    return (
+                      <div
+                        key={scope.id}
+                        className="space-y-3 rounded-lg border bg-background/60 p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-mono text-xs text-foreground">
+                              {scope.conversationId}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t("messaging.managed.isolatedIdentity", {
+                                trust: t(
+                                  `messaging.managed.trust.${scope.trust}`,
+                                ),
+                              })}
+                            </div>
+                          </div>
+                          <StatusPill
+                            tone={
+                              scope.trust === "trusted" ? "success" : "warning"
+                            }
+                            label={t(`messaging.managed.trust.${scope.trust}`)}
+                          />
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {[
+                            [
+                              "requireMention",
+                              t("messaging.managed.requireMention"),
+                            ],
+                            ["allowGuests", t("messaging.managed.allowGuests")],
+                            [
+                              "allowExternalShared",
+                              t("messaging.managed.allowSlackConnect"),
+                            ],
+                          ].map(([key, label]) => (
+                            <label
+                              key={key}
+                              className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-xs"
+                            >
+                              {label}
+                              <Switch
+                                checked={
+                                  scope.policy[
+                                    key as keyof ClientIntegrationScope["policy"]
+                                  ]
+                                }
+                                disabled={savingScope === scope.id}
+                                onCheckedChange={(checked) =>
+                                  updateScopePolicy(scope, { [key]: checked })
+                                }
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="min-w-40 flex-1 space-y-1">
+                            <label className="text-xs font-medium text-foreground">
+                              {t("messaging.managed.monthlyBudgetUsd")}
+                            </label>
+                            <Input
+                              inputMode="decimal"
+                              value={
+                                scopeBudget[scope.id] ??
+                                (budget
+                                  ? String(budget.limitMicros / 1_000_000)
+                                  : "")
+                              }
+                              onChange={(event) =>
+                                setScopeBudget((current) => ({
+                                  ...current,
+                                  [scope.id]: event.target.value,
+                                }))
+                              }
+                              placeholder="25"
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => saveScopeBudget(scope)}
+                            disabled={savingScope === `budget:${scope.id}`}
+                          >
+                            {t("messaging.managed.saveBudget")}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
 
               <Collapsible className="mt-5">
                 <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">

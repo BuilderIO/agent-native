@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
 
+import {
+  evaluateIntegrationScopePolicy,
+  getActiveIntegrationInstallationByKey,
+  getIntegrationScope,
+  resolveIntegrationTokenBundle,
+  saveIntegrationScope,
+  slackInstallationKey,
+} from "@agent-native/core/integrations";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   readDeployCredentialEnv,
@@ -8,6 +16,7 @@ import {
 } from "@agent-native/core/server";
 import type {
   IncomingMessage,
+  IntegrationExecutionContext,
   PlatformAdapter,
 } from "@agent-native/core/server";
 
@@ -21,6 +30,7 @@ import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
 type SlackSenderProfile = {
   email: string | null;
   name: string | null;
+  trust: "trusted" | "guest" | "external_shared" | "unknown";
 };
 
 const slackProfileCache = new Map<
@@ -112,6 +122,33 @@ function configuredDispatchIdentitiesUrl(): string | null {
   }
 }
 
+async function resolveManagedSlackInstallation(incoming: IncomingMessage) {
+  if (incoming.platform !== "slack") return null;
+  const teamId = contextString(incoming.platformContext.teamId);
+  const apiAppId = contextString(incoming.platformContext.apiAppId);
+  if (!teamId) return null;
+  try {
+    return await getActiveIntegrationInstallationByKey(
+      "slack",
+      slackInstallationKey({ teamId, apiAppId }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function resolveManagedSlackToken(
+  incoming: IncomingMessage,
+): Promise<string | null> {
+  const installation = await resolveManagedSlackInstallation(incoming);
+  if (!installation) return null;
+  const bundle = await resolveIntegrationTokenBundle(
+    "slack",
+    installation.installationKey,
+  );
+  return bundle?.accessToken ?? null;
+}
+
 function formatTelegramLinkRequiredMessage(): string {
   const identitiesUrl = configuredDispatchIdentitiesUrl();
   const linkStep = identitiesUrl
@@ -120,16 +157,30 @@ function formatTelegramLinkRequiredMessage(): string {
   return `Telegram is connected, but this Telegram account is not linked to an Agent-Native user yet. ${linkStep} After that I can use your Builder.io org and connected apps.`;
 }
 
+function formatSlackLinkRequiredMessage(): string {
+  const identitiesUrl = configuredDispatchIdentitiesUrl();
+  const linkStep = identitiesUrl
+    ? `Open ${identitiesUrl}, create a Slack link token, then send \`/link <token>\` in this DM.`
+    : "Open Dispatch while signed in, create a Slack link token, then send `/link <token>` in this DM.";
+  return `Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. ${linkStep}`;
+}
+
 async function resolveSlackSenderProfile(
   incoming: IncomingMessage,
 ): Promise<SlackSenderProfile> {
-  if (incoming.platform !== "slack") return { email: null, name: null };
+  if (incoming.platform !== "slack") {
+    return { email: null, name: null, trust: "unknown" };
+  }
+  const managedToken = await resolveManagedSlackToken(incoming);
   const token =
+    managedToken ??
     (await resolveSecret("SLACK_BOT_TOKEN")) ??
     readDeployCredentialEnv("SLACK_BOT_TOKEN");
   const userId = contextString(incoming.senderId);
   const teamId = contextString(incoming.platformContext.teamId);
-  if (!token || !userId) return { email: null, name: null };
+  if (!token || !userId) {
+    return { email: null, name: null, trust: "unknown" };
+  }
 
   // Slack user IDs are scoped per workspace, so without a teamId we can't
   // safely cache: two installs of the bot in different workspaces could
@@ -156,6 +207,8 @@ async function resolveSlackSenderProfile(
           real_name?: string;
           display_name?: string;
         };
+        is_restricted?: boolean;
+        is_ultra_restricted?: boolean;
       };
     };
     const profile = data.ok
@@ -167,8 +220,14 @@ async function resolveSlackSenderProfile(
             data.user?.real_name?.trim() ||
             data.user?.name?.trim() ||
             null,
+          trust:
+            data.user?.is_ultra_restricted === true
+              ? ("external_shared" as const)
+              : data.user?.is_restricted === true
+                ? ("guest" as const)
+                : ("trusted" as const),
         }
-      : { email: null, name: null };
+      : { email: null, name: null, trust: "unknown" as const };
     if (cacheKey) {
       slackProfileCache.set(cacheKey, {
         profile,
@@ -177,7 +236,7 @@ async function resolveSlackSenderProfile(
     }
     return profile;
   } catch {
-    return { email: null, name: null };
+    return { email: null, name: null, trust: "unknown" };
   }
 }
 
@@ -196,6 +255,51 @@ async function resolveSlackOwnerFromVerifiedEmail(
 
   const orgId = await resolveOrgIdForEmail(profile.email);
   return orgId ? profile.email : null;
+}
+
+async function resolveSlackConversationTrust(
+  incoming: IncomingMessage,
+  actorTrust: SlackSenderProfile["trust"],
+): Promise<{
+  trust: SlackSenderProfile["trust"];
+  conversationType: "channel" | "direct_message" | "group_direct_message";
+}> {
+  if (incoming.triggerKind === "dm") {
+    return { trust: actorTrust, conversationType: "direct_message" };
+  }
+  const token = await resolveManagedSlackToken(incoming);
+  const channel = contextString(incoming.platformContext.channelId);
+  if (!token || !channel) {
+    return { trust: "unknown", conversationType: "channel" };
+  }
+  try {
+    const params = new URLSearchParams({ channel });
+    const response = await fetch(
+      `https://slack.com/api/conversations.info?${params}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = (await response.json()) as {
+      ok?: boolean;
+      channel?: {
+        is_ext_shared?: boolean;
+        is_im?: boolean;
+        is_mpim?: boolean;
+      };
+    };
+    if (!data.ok) {
+      return { trust: "unknown", conversationType: "channel" };
+    }
+    return {
+      trust: data.channel?.is_ext_shared ? "external_shared" : actorTrust,
+      conversationType: data.channel?.is_im
+        ? "direct_message"
+        : data.channel?.is_mpim
+          ? "group_direct_message"
+          : "channel",
+    };
+  } catch {
+    return { trust: "unknown", conversationType: "channel" };
+  }
 }
 
 export async function resolveDispatchOwner(
@@ -264,6 +368,119 @@ export async function resolveDispatchOwner(
   }
 }
 
+/**
+ * Resolve a personal DM user or a workspace-qualified channel service
+ * principal. Managed Slack channels never silently inherit one requester's
+ * personal credentials or memory.
+ */
+export async function resolveDispatchExecutionContext(
+  incoming: IncomingMessage,
+): Promise<IntegrationExecutionContext> {
+  if (incoming.platform !== "slack" || incoming.triggerKind === "dm") {
+    const ownerEmail = await resolveDispatchOwner(incoming);
+    if (
+      incoming.platform === "slack" &&
+      ownerEmail.endsWith("@integration.local")
+    ) {
+      // Preserve a credential-less principal long enough for beforeProcess to
+      // deliver linking guidance or consume `/link <token>`. Never run the
+      // agent under this synthetic owner.
+      incoming.platformContext.identityLinkRequired = true;
+    }
+    return {
+      ownerEmail,
+      orgId: (await resolveOrgIdForEmail(ownerEmail)) ?? null,
+      principalType: "user",
+    };
+  }
+
+  const installation = await resolveManagedSlackInstallation(incoming);
+  if (!installation) {
+    // Preserve the legacy manually configured app path while managed installs
+    // roll out. Its behavior remains explicit and visible in Settings.
+    const ownerEmail = await resolveDispatchOwner(incoming);
+    return {
+      ownerEmail,
+      orgId: (await resolveOrgIdForEmail(ownerEmail)) ?? null,
+      principalType: "user",
+    };
+  }
+
+  const teamId = contextString(incoming.platformContext.teamId);
+  const channelId = contextString(incoming.platformContext.channelId);
+  if (!teamId || !channelId) {
+    throw new Error("Slack channel identity is incomplete");
+  }
+  const profile = await resolveSlackSenderProfile(incoming);
+  const conversation = await resolveSlackConversationTrust(
+    incoming,
+    profile.trust,
+  );
+  const access = {
+    ownerEmail: installation.ownerEmail,
+    orgId: installation.orgId,
+  };
+  const key = {
+    platform: "slack",
+    tenantId: teamId,
+    conversationId: channelId,
+  };
+  let scope = await getIntegrationScope(key, access);
+  if (!scope && incoming.triggerKind === "mention") {
+    const serviceOwnerEmail = installation.orgId
+      ? `dispatch+slack-${crypto
+          .createHash("sha256")
+          .update(`${teamId}:${channelId}`)
+          .digest("hex")
+          .slice(0, 16)}@service.agent-native.local`
+      : installation.ownerEmail;
+    scope = await saveIntegrationScope(
+      {
+        ...key,
+        conversationType: conversation.conversationType,
+        trust: conversation.trust,
+        orgId: installation.orgId,
+        installationId: installation.id,
+        serviceOwnerEmail,
+      },
+      access,
+    );
+  }
+  if (!scope) throw new Error("Slack channel is not enabled for Agent Native");
+  const decision = evaluateIntegrationScopePolicy(scope, {
+    // Thread replies reached this point only after the adapter's active-task
+    // gate, so they are continuation steering rather than ambient chatter.
+    mentioned:
+      incoming.triggerKind === "mention" ||
+      incoming.triggerKind === "thread_reply",
+  });
+  if (!decision.allowed) {
+    throw new Error(`Slack channel policy denied: ${decision.reason}`);
+  }
+  incoming.integrationScopeId = scope.id;
+  if (scope.defaultModel) {
+    incoming.platformContext.defaultModel = scope.defaultModel;
+  }
+  incoming.actorTrust = {
+    memberType:
+      conversation.trust === "guest"
+        ? "guest"
+        : conversation.trust === "external_shared"
+          ? "external"
+          : conversation.trust === "trusted"
+            ? "member"
+            : "unknown",
+    verified: conversation.trust !== "unknown",
+  };
+  return {
+    ownerEmail: scope.serviceOwnerEmail,
+    orgId: scope.orgId,
+    principalType: "service",
+    installationId: installation.id,
+    scopeId: scope.id,
+  };
+}
+
 export async function beforeDispatchProcess(
   incoming: IncomingMessage,
   adapter: PlatformAdapter,
@@ -277,6 +494,16 @@ export async function beforeDispatchProcess(
       routingHint?: DispatchIntegrationRoutingHint;
     };
     routedIncoming.routingHint ??= dispatchIntegrationRoutingHint(trimmed);
+    if (
+      incoming.platform === "slack" &&
+      incoming.triggerKind === "dm" &&
+      incoming.platformContext.identityLinkRequired === true
+    ) {
+      return {
+        handled: true,
+        responseText: formatSlackLinkRequiredMessage(),
+      };
+    }
     if (platformRequiresExplicitLink(incoming)) {
       const owner = await resolveLinkedOwner(
         incoming.platform,

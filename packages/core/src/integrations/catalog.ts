@@ -115,10 +115,10 @@ const BUILT_IN_CHANNEL_CATALOG = [
     supportMaturity: "built-in",
     iconKey: "slack",
     description:
-      "Receive Slack DMs and channel @mentions in the agent runtime.",
+      "Install managed Slack workspaces with channel identities, contextual threads, native progress, and governance.",
     caveats: [
       "Replies stay in Slack's native message thread when a thread timestamp is available.",
-      "Production deployments should restrict accepted workspaces with SLACK_ALLOWED_TEAM_IDS.",
+      "Managed installations select encrypted credentials by workspace; legacy manual installs should use SLACK_ALLOWED_TEAM_IDS.",
     ],
     documentation: {
       href: "/docs/messaging#slack",
@@ -128,18 +128,31 @@ const BUILT_IN_CHANNEL_CATALOG = [
     setup: {
       steps: [
         "Create or open a Slack app at api.slack.com/apps.",
-        "Configure the bot token and signing secret.",
-        "Enable Event Subscriptions and paste the webhook URL.",
-        "Subscribe to message.im and app_mention, then install the app.",
+        "Apply the Agent Native Slack manifest to enable Agent View and writable direct messages.",
+        "Configure the OAuth client id, client secret, and signing secret.",
+        "Enable Event Subscriptions and Interactivity with the documented URLs.",
+        "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im/channels/groups, then use Add to Slack.",
       ],
     },
     credentialRequirements: [
       {
         key: "SLACK_BOT_TOKEN",
         label: "Slack Bot Token",
-        required: true,
+        required: false,
         helpText:
           "OAuth & Permissions → Bot User OAuth Token (starts with `xoxb-`).",
+      },
+      {
+        key: "SLACK_CLIENT_ID",
+        label: "Slack OAuth Client ID",
+        required: true,
+        helpText: "Basic Information → App Credentials → Client ID.",
+      },
+      {
+        key: "SLACK_CLIENT_SECRET",
+        label: "Slack OAuth Client Secret",
+        required: true,
+        helpText: "Basic Information → App Credentials → Client Secret.",
       },
       {
         key: "SLACK_SIGNING_SECRET",

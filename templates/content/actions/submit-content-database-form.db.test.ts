@@ -2,8 +2,8 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
 import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -195,7 +195,9 @@ describe("submit-content-database-form", () => {
     const values = await db
       .select()
       .from(schema.documentPropertyValues)
-      .where(eq(schema.documentPropertyValues.documentId, result.createdDocumentId));
+      .where(
+        eq(schema.documentPropertyValues.documentId, result.createdDocumentId),
+      );
     expect(
       values.find((value) => value.propertyId === seeded.priorityId)?.valueJson,
     ).toBe('"p1"');
@@ -203,7 +205,8 @@ describe("submit-content-database-form", () => {
       values.find((value) => value.propertyId === seeded.deadlineId)?.valueJson,
     ).toContain("2026-08-15");
     expect(
-      values.find((value) => value.propertyId === seeded.requesterId)?.valueJson,
+      values.find((value) => value.propertyId === seeded.requesterId)
+        ?.valueJson,
     ).toBe('["requester@example.com","partner@example.com"]');
 
     const [notes] = await db

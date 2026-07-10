@@ -19,6 +19,10 @@ export interface RuntimeStructureMoveRequest {
   placement: "before" | "after" | "inside";
 }
 
+export interface RuntimeVerificationRequest {
+  requestId: number;
+}
+
 export interface ElementInfo {
   tagName: string;
   componentName?: string;

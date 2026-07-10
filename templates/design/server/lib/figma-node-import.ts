@@ -18,10 +18,12 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import {
   collectFallbackNodeIds,
+  collectFontUsage,
   collectImageFillRefs,
   mapFigmaNodeToHtml,
   type FidelityEntry,
   type FidelityLevel,
+  type FigmaFontUsage,
   type FigmaNode,
 } from "./figma-node-to-html.js";
 import {
@@ -323,8 +325,89 @@ async function mirrorFigmaImageUrls(
  * this Figma-import pipeline only — the shared `normalizeImportedHtmlDocument`
  * is also used by non-Figma import paths that must not be affected.
  */
-function withFigmaBoxModelReset(html: string): string {
+export function withFigmaBoxModelReset(html: string): string {
   return `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}</style>\n${html}`;
+}
+
+/**
+ * Build a Google Fonts CSS2 URL from the font usage collected for one
+ * imported node (mirrors the equivalent helper in `fig-file-to-html.ts` for
+ * `.fig` imports, kept separate here to avoid coupling the REST-node and
+ * `.fig`-binary import pipelines). Returns null when no custom fonts were
+ * used (nothing to request).
+ */
+export function buildGoogleFontsUrl(
+  fontUsage: FigmaFontUsage[],
+): string | null {
+  if (fontUsage.length === 0) return null;
+  const maxVariants = 256;
+  const maxUrlLength = 16_384;
+  const byFamily = new Map<
+    string,
+    Array<{ weight: number; italic: boolean }>
+  >();
+  for (const { family, weight, italic } of fontUsage) {
+    if (!byFamily.has(family)) byFamily.set(family, []);
+    byFamily.get(family)!.push({ weight, italic });
+  }
+  const families: string[] = [];
+  let variantCount = 0;
+  for (const [family, variants] of byFamily) {
+    if (variantCount >= maxVariants) break;
+    const famParam = encodeURIComponent(family.trim()).replace(/%20/g, "+");
+    if (!famParam) continue;
+    const hasItalic = variants.some((variant) => variant.italic);
+    let familyParam: string;
+    if (hasItalic) {
+      const tuples = Array.from(
+        new Set(
+          variants.map(
+            (variant) => `${variant.italic ? 1 : 0},${variant.weight}`,
+          ),
+        ),
+      )
+        .sort()
+        .slice(0, maxVariants - variantCount);
+      familyParam = `family=${famParam}:ital,wght@${tuples.join(";")}`;
+      variantCount += tuples.length;
+    } else {
+      const weights = Array.from(
+        new Set(variants.map((variant) => variant.weight)),
+      )
+        .sort((a, b) => a - b)
+        .slice(0, maxVariants - variantCount);
+      familyParam = `family=${famParam}:wght@${weights.join(";")}`;
+      variantCount += weights.length;
+    }
+    const candidate = `https://fonts.googleapis.com/css2?${[...families, familyParam].join("&")}&display=swap`;
+    if (candidate.length > maxUrlLength) {
+      break;
+    }
+    families.push(familyParam);
+  }
+  if (families.length === 0) return null;
+  return `https://fonts.googleapis.com/css2?${families.join("&")}&display=swap`;
+}
+
+/**
+ * Prepend `<link>` tags requesting the imported node's real fonts from Google
+ * Fonts. `normalizeImportedHtmlDocument` wraps content with no `<html>` tag
+ * into a fresh document whose `<body>` is exactly this string -- so, like
+ * `withFigmaBoxModelReset` above, these tags land in `<body>`, which browsers
+ * still apply `rel="stylesheet"` links from. This is the same fallback-font
+ * substitution problem `code-layer-state.ts` and `fig-file-to-html.ts`
+ * already solve for other design-generation/import paths; the REST-node
+ * Figma importer had no equivalent, so every imported font silently
+ * substituted the browser default sans-serif.
+ */
+export function withFigmaFontLoading(
+  html: string,
+  fontUsage: FigmaFontUsage[],
+): string {
+  const url = buildGoogleFontsUrl(fontUsage);
+  if (!url) return html;
+  const escapedUrl = url.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapedUrl}">\n${html}`;
 }
 
 type FigmaProviderEnvelope = {
@@ -609,6 +692,22 @@ export async function buildScreenFilesFromFigmaNodes(
     fetchFallbackImageUrls(fileKey, Array.from(fallbackNodeIds)),
     fetchImageFillUrls(fileKey, Array.from(imageFillRefs)),
   ]);
+  const missingFallbackNodeIds = Array.from(fallbackNodeIds).filter(
+    (nodeId) => !fallbackImageUrls[nodeId],
+  );
+  if (missingFallbackNodeIds.length > 0) {
+    throw new Error(
+      `Figma could not render ${missingFallbackNodeIds.length} required fallback layer${missingFallbackNodeIds.length === 1 ? "" : "s"} (${missingFallbackNodeIds.slice(0, 5).join(", ")}${missingFallbackNodeIds.length > 5 ? ", …" : ""}). Nothing was imported so the design would not silently lose visible content. Try a smaller selection or retry the import.`,
+    );
+  }
+  const missingImageFillRefs = Array.from(imageFillRefs).filter(
+    (imageRef) => !imageFillUrls[imageRef],
+  );
+  if (missingImageFillRefs.length > 0) {
+    throw new Error(
+      `Figma did not return ${missingImageFillRefs.length} required image fill${missingImageFillRefs.length === 1 ? "" : "s"}. Nothing was imported so the design would not silently omit imagery. Retry the import or export the affected frame from Figma.`,
+    );
+  }
   const durableUrls = await mirrorFigmaImageUrls([
     ...Object.values(fallbackImageUrls),
     ...Object.values(imageFillUrls),
@@ -637,8 +736,12 @@ export async function buildScreenFilesFromFigmaNodes(
     const sourceLabel =
       options.sourceLabel?.(nodeId, node) ??
       `Figma file ${fileKey}, node ${nodeId}`;
+    const fontUsage = collectFontUsage(node);
     const content = normalizeImportedHtmlDocument(
-      withFigmaBoxModelReset(html || "<div></div>"),
+      withFigmaFontLoading(
+        withFigmaBoxModelReset(html || "<div></div>"),
+        fontUsage,
+      ),
       sourceLabel,
     );
     files.push({

@@ -220,6 +220,19 @@ function buildSoftOpenScript(path: string): string {
   return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
 
+function buildGuestLifecycleScript(
+  eventName: "agent-native:app-background" | "agent-native:app-foreground",
+): string {
+  const encodedEventName = JSON.stringify(eventName);
+  return `(() => {
+    const eventName = ${encodedEventName};
+    window.dispatchEvent(new Event(eventName));
+    for (const iframe of document.querySelectorAll("iframe")) {
+      iframe.contentWindow?.postMessage({ type: eventName }, "*");
+    }
+  })()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
@@ -243,12 +256,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const url = withUrlParams(
       withUrlPath(resolveUrl(app, appConfig), urlPath),
-      urlParams,
+      {
+        ...(appConfig?.mode === "dev" && appConfig.localPath
+          ? { _agentNativeDesktopCode: "1" }
+          : {}),
+        ...urlParams,
+      },
     );
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
+    const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
 
     useEffect(() => {
@@ -303,6 +322,20 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }),
       [app.placeholder, url],
     );
+
+    useEffect(() => {
+      const wasActive = prevIsActiveRef.current;
+      prevIsActiveRef.current = isActive;
+      if (wasActive === isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      const eventName = isActive
+        ? "agent-native:app-foreground"
+        : "agent-native:app-background";
+      void wv
+        .executeJavaScript(buildGuestLifecycleScript(eventName), false)
+        .catch(() => {});
+    }, [app.placeholder, isActive]);
 
     function reportActiveWebview() {
       if (!isActive || !window.electronAPI?.setActiveWebview) return;

@@ -34,7 +34,9 @@ export type AgentChatSurfaceKind =
    */
   | "app"
   /** Chat rendered by the outer local dev frame, outside the app iframe. */
-  | "dev-frame";
+  | "dev-frame"
+  /** Chat hosted by Desktop for a local app with explicit code access. */
+  | "desktop";
 
 type AdapterHistoryMessage = {
   role: "user" | "assistant";
@@ -150,7 +152,27 @@ const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // the 25s grace plus sweep/DB latency. This stays below the background
 // reconnect stuck threshold, but gives the server-owned recovery brain time to
 // surface the successor or terminal errored run before the client reports idle.
-const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
+//
+// THREE-SITE INVARIANT (keep in lockstep with run-store.ts and
+// agent-chat-plugin.ts — see `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`'s doc
+// comment in run-store.ts for the full derivation): a `chainServerDrivenContinuation`
+// deferral (server/production-agent.ts) leaves a successor row `running` with
+// no live worker until a sweep redispatches it. The budget is a derived
+// chain, each bound comfortably inside the next:
+//   UNCLAIMED_BACKGROUND_RUN_GRACE_MS            (25s)
+// + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS       (20s)
+// = ~45-65s worst-case time-to-first-redispatch-attempt
+// < BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS            (150s, this constant)
+// < UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS (300s, run-store.ts)
+// On top of that margin, the follow loop below never counts a tick against
+// this timeout at all while `/runs/active` reports `awaitingRedispatch:
+// true` — a server-authoritative "known deferred, recovery in progress"
+// signal, not a guess — so this timeout is a backstop for a genuinely lost
+// run, not the primary mechanism racing the sweep. Do NOT raise this value to
+// paper over a slow sweep; fix the sweep timing (run-store.ts /
+// agent-chat-plugin.ts) instead, and keep this comment's inequality chain
+// accurate if any of the four numbers change.
+export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
 
 /**
  * User-facing copy for the server's background terminal reasons
@@ -2411,10 +2433,24 @@ export function createAgentChatAdapter(
               if (isTerminal) {
                 replayedTerminalRunIds.add(activeRunId);
               }
-              if (attach === "detached") {
+              // Server-authoritative "silently deferred, recovery in
+              // progress" signal (see `awaitingRedispatch` on
+              // `getActiveRunForThreadAsync`, run-manager.ts): a
+              // `chainServerDrivenContinuation` successor still inside
+              // `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`, being
+              // redispatched by the server's fast/slow sweeps. This is known
+              // to demonstrably exist — same as a "detached" attach — so
+              // treat it identically and never accumulate idle time against
+              // it. Once the server's own bound is exceeded (or the row is
+              // claimed/terminal) this flips false and normal idle accounting
+              // resumes, so a truly stuck deferral still fails loud via the
+              // existing timeout below.
+              const awaitingRedispatch = active?.awaitingRedispatch === true;
+              if (attach === "detached" || awaitingRedispatch) {
                 // We really attached to a live stream (chunk boundary or
-                // transport blip) — the run demonstrably exists; keep
-                // following with a fresh idle window.
+                // transport blip), or the server told us recovery is
+                // in-flight — the run demonstrably exists; keep following
+                // with a fresh idle window.
                 idleSince = null;
               } else {
                 // "gone": /runs/active reported the run but its event stream
@@ -2859,7 +2895,20 @@ export function createAgentChatAdapter(
                     recoverable: true,
                     runId: activeRunId,
                   };
+                  // This is a terminal outcome for the attempted turn. Settle
+                  // both real in-flight calls and activity-only placeholders
+                  // before yielding the error; otherwise a prior "Preparing
+                  // run-code" event remains an unresolved tool card and the UI
+                  // keeps showing a spinner beside an already-terminal error.
+                  settleInterruptedToolCalls(content, undefined, {
+                    includeActivity: true,
+                  });
                   if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("agent-chat:activity-clear", {
+                        detail: { tabId },
+                      }),
+                    );
                     window.dispatchEvent(
                       new CustomEvent("agent-chat:run-error", {
                         detail: { ...runError, tabId },

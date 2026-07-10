@@ -741,6 +741,61 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain("<title>Two Element Screen</title>");
     expect(svg.trim().endsWith("</svg>")).toBe(true);
   });
+
+  it('does not emit a phantom fill="none" shape for a paint-less layout wrapper (no fills/border/shadow)', () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Wrapper",
+      kind: "box",
+      // Deliberately oversized vs. its single child, mirroring <body>
+      // stretching to the full render viewport while real content is
+      // narrower — this must never surface as a visible/invisible shape.
+      rect: { x: 0, y: 0, width: 1440, height: 300 },
+      children: [
+        {
+          id: "child",
+          name: "Card",
+          kind: "box",
+          rect: { x: 0, y: 0, width: 400, height: 300 },
+          fills: [{ kind: "solid", color: "#ffffff" }],
+        },
+      ],
+    };
+    const { svg, report } = buildFigmaSvgDocument({
+      width: 1440,
+      height: 300,
+      root,
+    });
+    expect(svg).not.toContain('fill="none"');
+    expect(svg).toContain(
+      '<rect x="0" y="0" width="400" height="300" fill="#ffffff"/>',
+    );
+    // Exactly one <rect> — the child's — no phantom shape for the wrapper.
+    expect((svg.match(/<rect /g) || []).length).toBe(1);
+    // Still recorded as a (paint-less) vectorized layer, just no shape emitted.
+    expect(report.vectorized).toContain("Wrapper");
+  });
+
+  it("still emits a carrier shape for a box that has a shadow filter but no fill", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "ShadowOnly",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 100, height: 50 },
+      shadows: [
+        {
+          offsetX: 0,
+          offsetY: 4,
+          blur: 8,
+          spread: 0,
+          color: "rgba(0,0,0,0.3)",
+        },
+      ],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 100, height: 50, root });
+    expect(svg).toContain('fill="none"');
+    expect(svg).toContain("filter=");
+  });
 });
 
 describe("safeFigmaSvgFilename", () => {

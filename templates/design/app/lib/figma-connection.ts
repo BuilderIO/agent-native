@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, callAction } from "@agent-native/core/client";
 
 export const FIGMA_ACCESS_TOKEN_SECRET_KEY = "FIGMA_ACCESS_TOKEN";
 
@@ -21,6 +21,8 @@ export interface FigmaConnectionStatus {
   docsUrl?: string;
   last4?: string;
   updatedAt?: number;
+  /** True when the runtime supplies Figma without a user-vault token. */
+  managed?: boolean;
 }
 
 const SECRETS_ENDPOINT = agentNativePath("/_agent-native/secrets");
@@ -86,15 +88,32 @@ export async function getFigmaConnectionStatus(options?: {
     throw new Error("Figma connection is not registered for this app.");
   }
 
+  // An invalid user-vault token wins over any managed fallback because the
+  // importer resolves that scoped row first. Prompt the user to replace it.
+  // For an unset vault row, ask the authenticated runtime whether it has a
+  // usable managed credential. This returns only a boolean and follows the
+  // same request-scoped resolver as Figma imports.
+  const managedAvailable =
+    figma.status === "unset"
+      ? await callAction<{ available: boolean }>(
+          "get-figma-connection-status",
+          {},
+          { method: "GET", signal: options?.signal },
+        )
+          .then((result) => result.available)
+          .catch(() => false)
+      : false;
+
   return {
-    connected: figma.status === "set",
-    status: figma.status,
+    connected: figma.status === "set" || managedAvailable,
+    status: managedAvailable ? "set" : figma.status,
     key: FIGMA_ACCESS_TOKEN_SECRET_KEY,
     label: figma.label,
     description: figma.description,
     docsUrl: figma.docsUrl,
     last4: figma.last4,
     updatedAt: figma.updatedAt,
+    managed: managedAvailable || undefined,
   };
 }
 

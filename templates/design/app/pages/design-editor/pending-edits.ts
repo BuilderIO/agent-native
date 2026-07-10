@@ -146,6 +146,13 @@ export interface PendingLiveStructureEdit {
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
   placement: "before" | "after" | "inside";
+  /** Runtime layout semantics captured at drop time. These are required for
+   * the coding agent to distinguish a flow/auto-layout insertion from an
+   * absolute child whose visual offset must be rebased into its new parent. */
+  dropMode?: "flow-insert" | "absolute-container";
+  forceFlowPositionOverride?: boolean;
+  sourceRect?: { x: number; y: number; width: number; height: number };
+  anchorRect?: { x: number; y: number; width: number; height: number };
   requestId?: string;
   updatedAt: number;
 }
@@ -309,6 +316,23 @@ export type PendingLiveStructureUndoEntry = {
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveStructureUndoEntry;
+
+export function pendingLiveStructureEditsMatch(
+  left: PendingLiveStructureEdit,
+  right: PendingLiveStructureEdit,
+): boolean {
+  return (
+    left.screenId === right.screenId &&
+    left.selector === right.selector &&
+    (left.sourceId ?? "") === (right.sourceId ?? "") &&
+    left.anchorSelector === right.anchorSelector &&
+    (left.anchorSourceId ?? "") === (right.anchorSourceId ?? "") &&
+    left.placement === right.placement &&
+    left.dropMode === right.dropMode &&
+    Boolean(left.forceFlowPositionOverride) ===
+      Boolean(right.forceFlowPositionOverride)
+  );
+}
 
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
@@ -510,7 +534,14 @@ export function formatPendingVisualStylePrompt(args: {
       subjectAnchor && targetAnchor
         ? buildReactSemanticHandoff({
             operation: edit.placement === "inside" ? "reparent" : "move",
-            desiredChange: `Move the selected runtime element ${edit.placement} the target runtime element.`,
+            desiredChange: [
+              `Move the selected runtime element ${edit.placement} the target runtime element.`,
+              edit.dropMode === "flow-insert"
+                ? `The drop is a flow/auto-layout insertion${edit.forceFlowPositionOverride ? "; remove authored absolute positioning so the moved element participates in the target container's layout" : "; preserve normal flow participation"}.`
+                : edit.dropMode === "absolute-container"
+                  ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
+                  : "Preserve the runtime layout behavior observed in the preview.",
+            ].join(" "),
             sourceAnchors: [subjectAnchor, targetAnchor],
             runtimeRelationship: {
               kind: edit.placement,
@@ -543,6 +574,12 @@ export function formatPendingVisualStylePrompt(args: {
       anchorSourceId: edit.anchorSourceId ?? null,
       anchorSourceAnchor: redactReactSourceAnchor(edit.anchorSourceAnchor),
       placement: edit.placement,
+      ...(edit.dropMode ? { dropMode: edit.dropMode } : {}),
+      ...(edit.forceFlowPositionOverride
+        ? { forceFlowPositionOverride: true }
+        : {}),
+      ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
+      ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
       ...(semanticHandoff.ok
         ? { semanticHandoff: semanticHandoff.handoff }
         : { semanticHandoffFailure: semanticHandoff.rejection }),

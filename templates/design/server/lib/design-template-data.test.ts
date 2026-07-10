@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   firstTemplateDimensions,
+  redactTemplateDesignData,
   remapTemplateFileIds,
 } from "./design-template-data.js";
 
@@ -27,5 +28,28 @@ describe("design template data", () => {
       width: 1080,
       height: 1080,
     });
+  });
+
+  it("redacts localhost credentials before template persistence or reuse", () => {
+    const redacted = redactTemplateDesignData(
+      JSON.stringify({
+        screenMetadata: {
+          screen: {
+            sourceType: "localhost",
+            connectionId: "connection-example",
+            bridgeUrl: "http://127.0.0.1:7331",
+            bridgeToken: "example-private-bridge-token",
+            previewToken: "example-private-preview-token",
+            nested: { bridgeToken: "example-nested-token" },
+          },
+        },
+      }),
+    );
+
+    expect(redacted).toContain("connection-example");
+    expect(redacted).toContain("bridgeUrl");
+    expect(redacted).not.toContain("bridgeToken");
+    expect(redacted).not.toContain("previewToken");
+    expect(redacted).not.toContain("example-private");
   });
 });

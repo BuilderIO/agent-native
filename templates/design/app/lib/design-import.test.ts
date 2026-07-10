@@ -49,6 +49,69 @@ describe("import result notifications", () => {
         "2 embedded images were omitted because file storage is unavailable.",
     });
   });
+
+  it("surfaces complex Figma fallback and approximation counts instead of reporting a clean success", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Stress-Frame.html" }],
+          fidelityReport: {
+            exactCount: 40,
+            imageFallbacks: [
+              {
+                nodeId: "4:12",
+                nodeName: "Masked vector",
+                nodeType: "VECTOR",
+                notes: ["Mask subtree rendered by Figma."],
+              },
+              {
+                nodeId: "4:20",
+                nodeName: "Rich text",
+                nodeType: "TEXT",
+                notes: ["Advanced typography rendered by Figma."],
+              },
+            ],
+            approximated: [
+              {
+                nodeId: "4:30",
+                nodeName: "Diamond gradient",
+                nodeType: "ELLIPSE",
+                notes: ["CSS has no diamond-gradient primitive."],
+              },
+            ],
+          },
+        },
+        "Imported from Figma.",
+      ),
+    ).toEqual({
+      variant: "warning",
+      title: "Imported Stress-Frame.html.",
+      description:
+        "2 layers use image fallbacks to preserve their appearance and are not fully editable.\n1 layer was approximated because HTML/CSS cannot represent every Figma property exactly.",
+    });
+  });
+
+  it("keeps fidelity warnings bounded with existing import warnings", () => {
+    const notification = importResultNotification(
+      {
+        warnings: ["Storage warning", "Font warning", "Another warning"],
+        fidelityReport: {
+          exactCount: 0,
+          imageFallbacks: [
+            { nodeId: "1:1", nodeType: "VECTOR", notes: ["Fallback"] },
+          ],
+          approximated: [
+            { nodeId: "1:2", nodeType: "TEXT", notes: ["Approximation"] },
+          ],
+        },
+      },
+      "Imported from Figma.",
+    );
+
+    expect(notification.variant).toBe("warning");
+    expect(notification.description?.split("\n")).toHaveLength(3);
+    expect(notification.description).not.toContain("image fallback");
+  });
 });
 
 function clipboardData(values: Record<string, string>) {

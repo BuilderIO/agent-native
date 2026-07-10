@@ -78,6 +78,15 @@ export const AGENT_BACKGROUND_FUNCTION_NAME = "server-agent-background";
 export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_BACKGROUND_FUNCTION_NAME}`;
 
 /**
+ * Marker carried in a Netlify background-function body when the shared
+ * long-running worker should route to a processor other than agent chat.
+ * The emitted wrapper defaults to the normal agent-chat `_process-run` route;
+ * A2A uses this marker to reuse the same 15-minute function for async tasks.
+ */
+export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
+export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
+
+/**
  * The per-app workspace background function URL path. Workspace deploy emits one
  * background function per app named `<app>-agent-background`, reachable at its
  * DEFAULT url `/.netlify/functions/<app>-agent-background` (no custom

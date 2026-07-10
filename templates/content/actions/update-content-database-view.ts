@@ -66,15 +66,7 @@ const viewSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z
-    .enum([
-      "table",
-      "board",
-      "list",
-      "gallery",
-      "calendar",
-      "timeline",
-      "form",
-    ])
+    .enum(["table", "board", "list", "gallery", "calendar", "timeline", "form"])
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),

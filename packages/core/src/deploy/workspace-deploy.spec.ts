@@ -1227,6 +1227,16 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         )}`,
       );
       expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+      expect(entry).toContain(
+        `const A2A_PROCESS_TASK_PATH = ${JSON.stringify(
+          `/${app}/_agent-native/a2a/_process-task`,
+        )}`,
+      );
+      expect(entry).toContain(
+        'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
+      );
+      expect(entry).toContain("if (isA2AProcessorBody(body))");
+      expect(entry).toContain("url.pathname = A2A_PROCESS_TASK_PATH");
       // The HMAC Authorization header + body must survive the rewrite.
       expect(entry).toContain("await request.text()");
       expect(entry).toContain("headers: request.headers");

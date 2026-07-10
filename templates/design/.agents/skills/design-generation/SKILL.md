@@ -278,6 +278,29 @@ pnpm action generate-design \
 
 Always pass `canvasFrames` with an explicit `width`/`height` matching the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024 as above) — a screen saved without a placement falls back to a generic default that won't match a desktop-intended design. For multiple screens generated together, call `generate-screens` first and pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
+#### Non-web sizes — ad units, print one-pagers, social sizes
+
+`canvasFrames` accepts any exact `width`/`height` in px, so "create a 300x250
+ad" style requests work the same way — no special action, just the pixel
+dimensions the artifact actually needs. The editor's own Frame tool preset
+list (`app/components/design/inspector/frame-size-presets.ts`) documents the
+canonical sizes to reuse instead of guessing:
+
+- **Ad units (IAB standard)**: Medium Rectangle 300×250, Leaderboard 728×90,
+  Wide Skyscraper 160×600, Mobile Leaderboard 320×50, Billboard 970×250.
+- **Print (96dpi CSS px, matching this app's PNG/PDF export unit)**: US
+  Letter 816×1056, A4 794×1123, A5 559×794, Tabloid 1056×1632. Design print
+  one-pagers with real multi-column layout, tables, and a footer — a
+  fixed-size print artifact has no responsive fallback, so lay out the exact
+  canvas once. The editor's Download PDF export renders these at a
+  print-quality floor (2x raster, ~192dpi) regardless of the export panel's
+  default scale setting.
+- **Social**: Instagram Post 1080×1080, Instagram Story 1080×1920, X Post
+  1200×675, Facebook Cover 820×312, LinkedIn Cover 1584×396.
+
+At small ad-unit sizes (320×50, 160×600), keep body text at or above the
+11px floor and avoid dense multi-line copy — there is no room to reflow.
+
 ### Phase 4 — Always ship tweaks with the design
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.

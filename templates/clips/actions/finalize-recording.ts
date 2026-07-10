@@ -15,10 +15,7 @@ import {
   deleteAppState,
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
-import {
-  getActiveFileUploadProvider,
-  uploadFile,
-} from "@agent-native/core/file-upload";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -43,6 +40,7 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -582,7 +580,9 @@ export default defineAction({
           providerId: resumableSession.providerId,
         });
         try {
-          const uploadProvider = getActiveFileUploadProvider();
+          const uploadProvider = await resolveResumableUploadProvider(
+            resumableSession.providerId,
+          );
           if (!uploadProvider?.resumable) {
             throw new Error("No resumable upload provider configured");
           }

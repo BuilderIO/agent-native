@@ -125,7 +125,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return draft!;
   }
 
-  async function renderSelectedFrame() {
+  async function renderSelectedFrame(width = 320) {
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -141,7 +141,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           activeId="screen-a"
           selectedScreenIds={["screen-a"]}
           geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-a": { x: 0, y: 0, width, height: 640 },
           }}
           onPick={() => {}}
         />,
@@ -155,6 +155,23 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(label).not.toBeNull();
     return { frame: frame!, label: label! };
   }
+
+  it("keeps the Full view action inside narrow frames as a compact icon", async () => {
+    const { frame } = await renderSelectedFrame(240);
+    const fullView = frame.querySelector<HTMLElement>("[data-frame-full-view]");
+    const fullViewLabel = fullView?.querySelector("span");
+
+    expect(fullView).not.toBeNull();
+    expect(fullView!.getAttribute("data-compact")).toBe("true");
+    expect(fullView!.classList.contains("right-1")).toBe(true);
+    expect(fullView!.classList.contains("w-5")).toBe(true);
+    expect(fullView!.classList.contains("left-full")).toBe(false);
+    expect(fullView!.style.maxWidth).toBe("20px");
+    expect(fullViewLabel?.classList.contains("sr-only")).toBe(true);
+    expect(fullView!.getAttribute("aria-label")).toBe(
+      "multiScreenCanvas.fullView",
+    );
+  });
 
   it("does not visually nudge a draft for pointer jitter below the drag threshold", async () => {
     const surface = await renderHarness("rect");

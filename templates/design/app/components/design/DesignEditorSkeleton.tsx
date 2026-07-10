@@ -18,7 +18,7 @@ export function DesignEditorSkeleton({
     return (
       <div className="flex h-full overflow-hidden bg-[var(--design-editor-canvas-bg)]">
         {!embedded && (
-          <aside className="relative flex min-h-0 shrink-0 border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]">
+          <aside className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <div className="flex w-[57px] shrink-0 flex-col items-center p-3">
               <Skeleton className={`size-8 rounded-md ${panelGhost}`} />
               <div className="mt-8 flex w-full flex-col items-center gap-3">

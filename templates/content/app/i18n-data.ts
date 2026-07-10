@@ -222,7 +222,8 @@ const databaseMessages = {
   filterRowsWhere: "Filter rows where",
   formChecked: "Checked",
   formChooseOption: "Choose an option",
-  formDescription: "Fill out the questions below to add a page to this database.",
+  formDescription:
+    "Fill out the questions below to add a page to this database.",
   formEditorAccessRequired: "Editor access is required to submit this form.",
   formLongAnswerPlaceholder: "Enter a detailed response...",
   formMoveQuestionDown: "Move {{name}} down",
@@ -610,8 +611,10 @@ const databaseMessagesByLocale = {
   "es-ES": {
     formChecked: "Marcado",
     formChooseOption: "Elige una opción",
-    formDescription: "Responde estas preguntas para añadir una página a esta base de datos.",
-    formEditorAccessRequired: "Se necesita acceso de editor para enviar este formulario.",
+    formDescription:
+      "Responde estas preguntas para añadir una página a esta base de datos.",
+    formEditorAccessRequired:
+      "Se necesita acceso de editor para enviar este formulario.",
     formLongAnswerPlaceholder: "Escribe una respuesta detallada...",
     formMoveQuestionDown: "Mover {{name}} hacia abajo",
     formMoveQuestionUp: "Mover {{name}} hacia arriba",
@@ -619,7 +622,8 @@ const databaseMessagesByLocale = {
     formNotChecked: "Sin marcar",
     formOnePerLinePlaceholder: "Introduce un valor por línea",
     formQuestions: "Preguntas",
-    formQuestionsDescription: "Elige qué preguntas aparecen, marca las obligatorias y ordénalas.",
+    formQuestionsDescription:
+      "Elige qué preguntas aparecen, marca las obligatorias y ordénalas.",
     formRequired: "Obligatorio",
     formRequiredError: "Esta pregunta es obligatoria.",
     formShowQuestion: "Mostrar",
@@ -804,8 +808,10 @@ const databaseMessagesByLocale = {
   "fr-FR": {
     formChecked: "Coché",
     formChooseOption: "Choisir une option",
-    formDescription: "Répondez aux questions ci-dessous pour ajouter une page à cette base de données.",
-    formEditorAccessRequired: "Un accès éditeur est requis pour envoyer ce formulaire.",
+    formDescription:
+      "Répondez aux questions ci-dessous pour ajouter une page à cette base de données.",
+    formEditorAccessRequired:
+      "Un accès éditeur est requis pour envoyer ce formulaire.",
     formLongAnswerPlaceholder: "Saisissez une réponse détaillée...",
     formMoveQuestionDown: "Descendre {{name}}",
     formMoveQuestionUp: "Monter {{name}}",
@@ -813,7 +819,8 @@ const databaseMessagesByLocale = {
     formNotChecked: "Non coché",
     formOnePerLinePlaceholder: "Saisissez une valeur par ligne",
     formQuestions: "Questions",
-    formQuestionsDescription: "Choisissez les questions affichées, les réponses obligatoires et leur ordre.",
+    formQuestionsDescription:
+      "Choisissez les questions affichées, les réponses obligatoires et leur ordre.",
     formRequired: "Obligatoire",
     formRequiredError: "Cette question est obligatoire.",
     formShowQuestion: "Afficher",
@@ -999,7 +1006,8 @@ const databaseMessagesByLocale = {
   "de-DE": {
     formChecked: "Ausgewählt",
     formChooseOption: "Option auswählen",
-    formDescription: "Beantworten Sie die Fragen, um dieser Datenbank eine Seite hinzuzufügen.",
+    formDescription:
+      "Beantworten Sie die Fragen, um dieser Datenbank eine Seite hinzuzufügen.",
     formEditorAccessRequired: "Zum Absenden ist Editorzugriff erforderlich.",
     formLongAnswerPlaceholder: "Ausführliche Antwort eingeben...",
     formMoveQuestionDown: "{{name}} nach unten verschieben",
@@ -1008,7 +1016,8 @@ const databaseMessagesByLocale = {
     formNotChecked: "Nicht ausgewählt",
     formOnePerLinePlaceholder: "Einen Wert pro Zeile eingeben",
     formQuestions: "Fragen",
-    formQuestionsDescription: "Legen Sie sichtbare und erforderliche Fragen sowie ihre Reihenfolge fest.",
+    formQuestionsDescription:
+      "Legen Sie sichtbare und erforderliche Fragen sowie ihre Reihenfolge fest.",
     formRequired: "Erforderlich",
     formRequiredError: "Diese Frage ist erforderlich.",
     formShowQuestion: "Anzeigen",
@@ -1195,7 +1204,8 @@ const databaseMessagesByLocale = {
   "ja-JP": {
     formChecked: "チェック済み",
     formChooseOption: "オプションを選択",
-    formDescription: "以下の質問に回答して、このデータベースにページを追加します。",
+    formDescription:
+      "以下の質問に回答して、このデータベースにページを追加します。",
     formEditorAccessRequired: "このフォームの送信には編集権限が必要です。",
     formLongAnswerPlaceholder: "詳しい回答を入力...",
     formMoveQuestionDown: "{{name}} を下へ移動",
@@ -1386,7 +1396,8 @@ const databaseMessagesByLocale = {
   "ko-KR": {
     formChecked: "선택됨",
     formChooseOption: "옵션 선택",
-    formDescription: "아래 질문에 답하여 이 데이터베이스에 페이지를 추가하세요.",
+    formDescription:
+      "아래 질문에 답하여 이 데이터베이스에 페이지를 추가하세요.",
     formEditorAccessRequired: "이 양식을 제출하려면 편집자 권한이 필요합니다.",
     formLongAnswerPlaceholder: "자세한 답변 입력...",
     formMoveQuestionDown: "{{name}} 아래로 이동",
@@ -1575,8 +1586,10 @@ const databaseMessagesByLocale = {
   "pt-BR": {
     formChecked: "Marcado",
     formChooseOption: "Escolha uma opção",
-    formDescription: "Responda às perguntas abaixo para adicionar uma página a este banco de dados.",
-    formEditorAccessRequired: "É necessário acesso de editor para enviar este formulário.",
+    formDescription:
+      "Responda às perguntas abaixo para adicionar uma página a este banco de dados.",
+    formEditorAccessRequired:
+      "É necessário acesso de editor para enviar este formulário.",
     formLongAnswerPlaceholder: "Digite uma resposta detalhada...",
     formMoveQuestionDown: "Mover {{name}} para baixo",
     formMoveQuestionUp: "Mover {{name}} para cima",
@@ -1584,7 +1597,8 @@ const databaseMessagesByLocale = {
     formNotChecked: "Desmarcado",
     formOnePerLinePlaceholder: "Digite um valor por linha",
     formQuestions: "Perguntas",
-    formQuestionsDescription: "Escolha as perguntas exibidas, marque as obrigatórias e defina a ordem.",
+    formQuestionsDescription:
+      "Escolha as perguntas exibidas, marque as obrigatórias e defina a ordem.",
     formRequired: "Obrigatório",
     formRequiredError: "Esta pergunta é obrigatória.",
     formShowQuestion: "Mostrar",

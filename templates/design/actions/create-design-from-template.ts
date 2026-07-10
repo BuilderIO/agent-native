@@ -10,10 +10,14 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { remapTemplateFileIds } from "../server/lib/design-template-data.js";
+import {
+  redactTemplateDesignData,
+  remapTemplateFileIds,
+} from "../server/lib/design-template-data.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
-import { countLockedLayers } from "../shared/locked-layers.js";
+import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 
 interface TemplateFile {
   id: string;
@@ -97,8 +101,7 @@ export default defineAction({
       templateDescription =
         typeof template.description === "string" ? template.description : null;
       templateCategory = String(template.category ?? "other");
-      templateData =
-        typeof template.data === "string" ? template.data : "{}";
+      templateData = typeof template.data === "string" ? template.data : "{}";
       templateDesignSystemId =
         typeof template.designSystemId === "string"
           ? template.designSystemId
@@ -124,7 +127,8 @@ export default defineAction({
       try {
         await assertAccess("design-system", linkedDesignSystemId, "viewer");
       } catch {
-        if (designSystemId !== undefined) throw new Error("Design system not found");
+        if (designSystemId !== undefined)
+          throw new Error("Design system not found");
         linkedDesignSystemId = null;
       }
     }
@@ -135,7 +139,10 @@ export default defineAction({
     const designId = nanoid();
     const now = new Date().toISOString();
     const fileIdMap = new Map(files.map((file) => [file.id, nanoid()]));
-    const data = remapTemplateFileIds(templateData, fileIdMap);
+    const data = remapTemplateFileIds(
+      redactTemplateDesignData(templateData),
+      fileIdMap,
+    );
     data.templateSource = {
       templateId,
       title: templateTitle,
@@ -144,6 +151,12 @@ export default defineAction({
       instantiatedAt: now,
     };
     if (prompt) data.templatePrompt = prompt;
+
+    const persistedFiles = files.map((file) => ({
+      ...file,
+      id: fileIdMap.get(file.id)!,
+      content: annotateScreenHtmlForPersist(file.content, file.fileType),
+    }));
 
     await db.transaction(async (tx) => {
       await tx.insert(schema.designs).values({
@@ -160,12 +173,12 @@ export default defineAction({
         updatedAt: now,
       });
       await tx.insert(schema.designFiles).values(
-        files.map((file) => ({
-          id: fileIdMap.get(file.id)!,
+        persistedFiles.map((file) => ({
+          id: file.id,
           designId,
           filename: file.filename,
           fileType: file.fileType,
-          content: annotateScreenHtmlForPersist(file.content, file.fileType),
+          content: file.content,
           createdAt: now,
           updatedAt: now,
         })),
@@ -178,10 +191,11 @@ export default defineAction({
       templateId,
       templateTitle,
       fileCount: files.length,
-      lockedLayerCount: files.reduce(
-        (count, file) => count + countLockedLayers(file.content),
-        0,
-      ),
+      lockedLayerCount: countLockedLayersAcrossFiles(persistedFiles),
+      templateBaselineFiles: persistedFiles.map((file) => ({
+        id: file.id,
+        contentHash: sourceContentHash(file.content),
+      })),
       promptPending: Boolean(prompt),
       nextRequiredAction: prompt
         ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."

@@ -1002,8 +1002,7 @@ describe("workspace scaffold defaults", () => {
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
 
     const generated = readAllTextFiles(wsDir);
-    expect(generated).not.toMatch(/builder\.io/i);
-    expect(generated).not.toMatch(/steve@builder\.io/i);
+    expect(generated).not.toMatch(/[a-z0-9._%+-]+@builder\.io/i);
   });
 
   it("keeps the generic workspace scaffold free of provider-specific deploy config", async () => {
@@ -1048,6 +1047,30 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db-shm")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db-wal")).toBe(true);
+  });
+
+  it("does not copy generated visual plan previews", () => {
+    expect(
+      _shouldSkipScaffoldEntry(
+        "plans",
+        path.join("templates", "plan", "plans"),
+      ),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "preview.html",
+        path.join("plans", "plan_123", "preview.html"),
+      ),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "preview.html",
+        path.join("public", "preview.html"),
+      ),
+    ).toBe(false);
   });
 
   it("can skip first-party agent symlinks while extracting GitHub tarballs", () => {

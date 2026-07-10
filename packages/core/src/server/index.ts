@@ -350,6 +350,7 @@ export {
   type ImmediateWebhookResponse,
   type IntegrationStatus,
   type IntegrationsPluginOptions,
+  type IntegrationExecutionContext,
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,
   getIntegrationCatalogEntry,

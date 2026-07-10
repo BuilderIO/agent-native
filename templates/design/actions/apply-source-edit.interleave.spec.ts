@@ -340,6 +340,46 @@ beforeEach(() => {
   seedFile(buildDoc());
 });
 
+describe("locked-layer write boundaries", () => {
+  const lockedDoc = buildDoc().replace(
+    'data-agent-native-node-id="an-node-container-1"',
+    'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+  );
+
+  it("blocks locked subtree mutations through the shared inline writer", async () => {
+    designFilesStore.rows.clear();
+    seedFile(lockedDoc);
+    const live = await readLiveSourceFile(currentFileRef());
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: lockedDoc.replace("Hello world", "Changed"),
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/locked layer/i);
+  });
+
+  it("blocks agent update-file bypasses but permits the frontend unlock path", async () => {
+    designFilesStore.rows.clear();
+    seedFile(lockedDoc);
+    const unlocked = lockedDoc.replace(' data-agent-native-locked="true"', "");
+
+    await expect(
+      updateFileAction.run({ id: FILE_ID, content: unlocked }, {
+        caller: "tool",
+      } as any),
+    ).rejects.toThrow(/locked layer/i);
+
+    await expect(
+      updateFileAction.run({ id: FILE_ID, content: unlocked }, {
+        caller: "frontend",
+      } as any),
+    ).resolves.toMatchObject({ updated: true });
+  });
+});
+
 describe("apply-source-edit / update-file cross-pipeline interleave", () => {
   it("sequential apply-source-edit then update-file stays well-formed (baseline)", async () => {
     const live = await readLiveSourceFile(currentFileRef());

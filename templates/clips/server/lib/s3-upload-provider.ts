@@ -39,6 +39,8 @@ function cleanValue(value: string | null | undefined): string | undefined {
 // small best-effort cleanup call and can fail fast.
 const S3_PUT_TIMEOUT_MS = 120_000;
 const S3_DELETE_TIMEOUT_MS = 30_000;
+const S3_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
+const S3_MULTIPART_MAX_PARTS = 10_000;
 
 async function fetchWithTimeout(
   url: string,
@@ -173,12 +175,33 @@ function rfc3986(str: string): string {
   );
 }
 
-async function putObject(
+function objectUri(cfg: S3Config, key: string): string {
+  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+}
+
+function canonicalQueryString(query: Record<string, string>): string {
+  return Object.entries(query)
+    .map(([key, value]) => [rfc3986(key), rfc3986(value)] as const)
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      const left = leftKey === rightKey ? leftValue : leftKey;
+      const right = leftKey === rightKey ? rightValue : rightKey;
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+async function signedS3Request(
   cfg: S3Config,
   key: string,
-  body: Uint8Array,
-  contentType: string,
-): Promise<string> {
+  options: {
+    method: "DELETE" | "GET" | "POST" | "PUT";
+    query?: Record<string, string>;
+    body?: Uint8Array;
+    contentType?: string;
+    timeoutMs: number;
+  },
+): Promise<Response> {
   const now = new Date();
   const amzDate =
     now
@@ -187,34 +210,33 @@ async function putObject(
       .slice(0, 15) + "Z";
   const dateStamp = amzDate.slice(0, 8);
   const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-
-  const hostUrl = new URL(cfg.endpoint);
-  const host = hostUrl.host;
-  const canonicalUri = `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
-
+  const host = new URL(cfg.endpoint).host;
+  const canonicalUri = objectUri(cfg, key);
+  const canonicalQuery = canonicalQueryString(options.query ?? {});
+  const body = options.body ?? new Uint8Array(0);
   const payloadHash = await sha256(body);
 
   const headers: Record<string, string> = {
     host,
-    "content-type": contentType,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate,
   };
+  if (options.contentType) headers["content-type"] = options.contentType;
 
   const signedHeaderKeys = Object.keys(headers).sort();
   const signedHeaders = signedHeaderKeys.join(";");
   const canonicalHeaders =
-    signedHeaderKeys.map((k) => `${k}:${headers[k]}`).join("\n") + "\n";
-
+    signedHeaderKeys
+      .map((header) => `${header}:${headers[header]}`)
+      .join("\n") + "\n";
   const canonicalRequest = [
-    "PUT",
+    options.method,
     canonicalUri,
-    "", // no query string
+    canonicalQuery,
     canonicalHeaders,
     signedHeaders,
     payloadHash,
   ].join("\n");
-
   const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
   const stringToSign = [
     "AWS4-HMAC-SHA256",
@@ -222,35 +244,53 @@ async function putObject(
     credentialScope,
     crHash,
   ].join("\n");
-
   const signingKey = await deriveSigningKey(
     cfg.secretAccessKey,
     dateStamp,
     cfg.region,
   );
   const signature = toHex(await hmac(signingKey, stringToSign));
-
   const authorization =
     `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-  const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetchWithTimeout(
+  const url = `${cfg.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
+  return fetchWithTimeout(
     url,
     {
-      method: "PUT",
+      method: options.method,
       headers: {
         ...headers,
         Authorization: authorization,
-        "Content-Length": String(body.byteLength),
+        ...(options.body
+          ? { "Content-Length": String(options.body.byteLength) }
+          : {}),
       },
-      body: body.buffer.slice(
-        body.byteOffset,
-        body.byteOffset + body.byteLength,
-      ) as BodyInit,
+      ...(options.body
+        ? {
+            body: options.body.buffer.slice(
+              options.body.byteOffset,
+              options.body.byteOffset + options.body.byteLength,
+            ) as BodyInit,
+          }
+        : {}),
     },
-    S3_PUT_TIMEOUT_MS,
+    options.timeoutMs,
   );
+}
+
+async function putObject(
+  cfg: S3Config,
+  key: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<string> {
+  const res = await signedS3Request(cfg, key, {
+    method: "PUT",
+    body,
+    contentType,
+    timeoutMs: S3_PUT_TIMEOUT_MS,
+  });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -311,71 +351,10 @@ function objectKeyFromUrl(cfg: S3Config, rawUrl: string): string | null {
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-
-  const hostUrl = new URL(cfg.endpoint);
-  const host = hostUrl.host;
-  const canonicalUri = `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
-  const payloadHash = await sha256(new Uint8Array(0));
-
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys.map((k) => `${k}:${headers[k]}`).join("\n") + "\n";
-
-  const canonicalRequest = [
-    "DELETE",
-    canonicalUri,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const url = `${cfg.endpoint}${canonicalUri}`;
-  const res = await fetchWithTimeout(
-    url,
-    {
-      method: "DELETE",
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-    },
-    S3_DELETE_TIMEOUT_MS,
-  );
+  const res = await signedS3Request(cfg, key, {
+    method: "DELETE",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
 
   if (!res.ok && res.status !== 404) {
     const text = await res.text().catch(() => "");
@@ -383,6 +362,156 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
       `S3 DeleteObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
+}
+
+async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
+  const res = await signedS3Request(cfg, key, {
+    method: "GET",
+    timeoutMs: S3_PUT_TIMEOUT_MS,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 GetObject failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+function xmlElement(xml: string, name: string): string | null {
+  const match = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));
+  if (!match?.[1]) return null;
+  return match[1]
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+interface S3MultipartPart {
+  partNumber: number;
+  etag: string;
+}
+
+interface S3MultipartMeta {
+  objectKey: string;
+  stagingKey: string;
+  mimeType: string;
+  maxBytes: number;
+  pendingBytes: number;
+  parts: S3MultipartPart[];
+}
+
+function readMultipartMeta(meta: Record<string, unknown>): S3MultipartMeta {
+  const objectKey = typeof meta.objectKey === "string" ? meta.objectKey : "";
+  const stagingKey = typeof meta.stagingKey === "string" ? meta.stagingKey : "";
+  const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
+  const maxBytes =
+    typeof meta.maxBytes === "number" &&
+    Number.isSafeInteger(meta.maxBytes) &&
+    meta.maxBytes > 0
+      ? meta.maxBytes
+      : -1;
+  const pendingBytes =
+    typeof meta.pendingBytes === "number" &&
+    Number.isSafeInteger(meta.pendingBytes) &&
+    meta.pendingBytes >= 0
+      ? meta.pendingBytes
+      : -1;
+  const parts = Array.isArray(meta.parts)
+    ? meta.parts.filter(
+        (part): part is S3MultipartPart =>
+          Boolean(part) &&
+          typeof part === "object" &&
+          Number.isSafeInteger((part as S3MultipartPart).partNumber) &&
+          (part as S3MultipartPart).partNumber >= 1 &&
+          (part as S3MultipartPart).partNumber <= S3_MULTIPART_MAX_PARTS &&
+          typeof (part as S3MultipartPart).etag === "string" &&
+          (part as S3MultipartPart).etag.length > 0,
+      )
+    : [];
+  if (
+    !objectKey.startsWith("clips/") ||
+    !stagingKey.startsWith("clips/.multipart/") ||
+    !mimeType ||
+    maxBytes < 0 ||
+    pendingBytes < 0 ||
+    parts.length !== (Array.isArray(meta.parts) ? meta.parts.length : -1)
+  ) {
+    throw new Error("S3 resumable upload session metadata is invalid");
+  }
+  return { objectKey, stagingKey, mimeType, maxBytes, pendingBytes, parts };
+}
+
+function contentRangeEndExclusive(contentRange: string): number | null {
+  const dataRange = contentRange.match(/^bytes (\d+)-(\d+)\/(?:\*|\d+)$/);
+  if (dataRange) {
+    const start = Number(dataRange[1]);
+    const end = Number(dataRange[2]);
+    if (
+      Number.isSafeInteger(start) &&
+      Number.isSafeInteger(end) &&
+      start >= 0 &&
+      end >= start
+    ) {
+      return end + 1;
+    }
+    return null;
+  }
+  const closeRange = contentRange.match(/^bytes \*\/(\d+)$/);
+  if (!closeRange) return null;
+  const total = Number(closeRange[1]);
+  return Number.isSafeInteger(total) && total >= 0 ? total : null;
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const combined = new Uint8Array(left.byteLength + right.byteLength);
+  combined.set(left, 0);
+  combined.set(right, left.byteLength);
+  return combined;
+}
+
+async function uploadMultipartPart(
+  cfg: S3Config,
+  uploadId: string,
+  meta: S3MultipartMeta,
+  bytes: Uint8Array,
+): Promise<S3MultipartPart> {
+  const partNumber = meta.parts.length + 1;
+  if (partNumber > S3_MULTIPART_MAX_PARTS) {
+    throw new Error("S3 multipart upload exceeds the 10,000 part limit");
+  }
+  const res = await signedS3Request(cfg, meta.objectKey, {
+    method: "PUT",
+    query: { partNumber: String(partNumber), uploadId },
+    body: bytes,
+    timeoutMs: S3_PUT_TIMEOUT_MS,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 UploadPart failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  const etag = res.headers.get("etag");
+  if (!etag) throw new Error("S3 UploadPart did not return an ETag");
+  return { partNumber, etag };
+}
+
+function publicObjectUrl(cfg: S3Config, key: string): string {
+  return cfg.publicBaseUrl
+    ? `${cfg.publicBaseUrl}/${key}`
+    : `${cfg.endpoint}/${cfg.bucket}/${key}`;
 }
 
 export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
@@ -418,5 +547,168 @@ export const s3FileUploadProvider: FileUploadProvider = {
 
     const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
     return { url: publicUrl, provider: "s3" };
+  },
+  resumable: {
+    async startSession(filename, mimeType, maxBytes) {
+      const cfg = await readS3Config();
+      if (!cfg) throw new Error("S3 credentials are not configured");
+
+      const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+      if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+        throw new Error("S3 resumable upload requires a positive byte limit");
+      }
+      const objectKey = `clips/${safeFilename}`;
+      const stagingKey = `clips/.multipart/${safeFilename}.pending`;
+      const res = await signedS3Request(cfg, objectKey, {
+        method: "POST",
+        query: { uploads: "" },
+        contentType: mimeType,
+        timeoutMs: S3_PUT_TIMEOUT_MS,
+      });
+      const body = await res.text().catch(() => "");
+      if (!res.ok) {
+        throw new Error(
+          `S3 CreateMultipartUpload failed (${res.status}): ${body || res.statusText}`,
+        );
+      }
+      const uploadId = xmlElement(body, "UploadId");
+      if (!uploadId) {
+        throw new Error("S3 CreateMultipartUpload did not return an UploadId");
+      }
+      return {
+        sessionId: uploadId,
+        meta: {
+          objectKey,
+          stagingKey,
+          mimeType,
+          maxBytes,
+          pendingBytes: 0,
+          parts: [],
+        },
+      };
+    },
+
+    async relayChunk(session, contentRange, bytes) {
+      const cfg = await readS3Config();
+      if (!cfg) throw new Error("S3 credentials are not configured");
+      const meta = readMultipartMeta(session.meta);
+      const isFinal = !contentRange.endsWith("/*");
+      const rangeEnd = contentRangeEndExclusive(contentRange);
+      if (rangeEnd === null) {
+        throw new Error(
+          "S3 resumable upload received an invalid Content-Range",
+        );
+      }
+      if (rangeEnd > meta.maxBytes) {
+        throw new Error(
+          `S3 resumable upload exceeds its ${meta.maxBytes} byte limit`,
+        );
+      }
+
+      let pending: Uint8Array = new Uint8Array(0);
+      if (meta.pendingBytes > 0) {
+        pending = await getObject(cfg, meta.stagingKey);
+        if (pending.byteLength !== meta.pendingBytes) {
+          throw new Error(
+            `S3 resumable staging object has ${pending.byteLength} bytes; expected ${meta.pendingBytes}`,
+          );
+        }
+      }
+      const combined = concatBytes(pending, bytes);
+
+      if (combined.byteLength === 0) {
+        return { ok: true, status: 200 };
+      }
+
+      if (!isFinal && combined.byteLength < S3_MULTIPART_MIN_PART_BYTES) {
+        await putObject(cfg, meta.stagingKey, combined, meta.mimeType);
+        return {
+          ok: true,
+          status: 200,
+          updatedMeta: { pendingBytes: combined.byteLength },
+        };
+      }
+
+      const part = await uploadMultipartPart(
+        cfg,
+        session.sessionId,
+        meta,
+        combined,
+      );
+      return {
+        ok: true,
+        status: 200,
+        updatedMeta: {
+          pendingBytes: 0,
+          parts: [...meta.parts, part],
+        },
+      };
+    },
+
+    async completeSession(session) {
+      const cfg = await readS3Config();
+      if (!cfg) throw new Error("S3 credentials are not configured");
+      const meta = readMultipartMeta(session.meta);
+      if (meta.pendingBytes > 0) {
+        throw new Error(
+          "S3 multipart upload still has an uncommitted final part",
+        );
+      }
+      if (meta.parts.length === 0) {
+        throw new Error("Cannot complete an empty S3 multipart upload");
+      }
+      const manifest =
+        "<CompleteMultipartUpload>" +
+        meta.parts
+          .map(
+            (part) =>
+              `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${xmlEscape(part.etag)}</ETag></Part>`,
+          )
+          .join("") +
+        "</CompleteMultipartUpload>";
+      const res = await signedS3Request(cfg, meta.objectKey, {
+        method: "POST",
+        query: { uploadId: session.sessionId },
+        body: new TextEncoder().encode(manifest),
+        contentType: "application/xml",
+        timeoutMs: S3_PUT_TIMEOUT_MS,
+      });
+      const body = await res.text().catch(() => "");
+      if (!res.ok || /<Error(?:\s|>)/.test(body)) {
+        throw new Error(
+          `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
+        );
+      }
+      await deleteObject(cfg, meta.stagingKey).catch((err) => {
+        console.warn(
+          "[s3-upload] failed to delete multipart staging object:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+      return publicObjectUrl(cfg, meta.objectKey);
+    },
+
+    async abortSession(session) {
+      const cfg = await readS3Config();
+      if (!cfg) throw new Error("S3 credentials are not configured");
+      const meta = readMultipartMeta(session.meta);
+      const abortRes = await signedS3Request(cfg, meta.objectKey, {
+        method: "DELETE",
+        query: { uploadId: session.sessionId },
+        timeoutMs: S3_DELETE_TIMEOUT_MS,
+      });
+      if (!abortRes.ok && abortRes.status !== 404) {
+        const body = await abortRes.text().catch(() => "");
+        throw new Error(
+          `S3 AbortMultipartUpload failed (${abortRes.status}): ${body || abortRes.statusText}`,
+        );
+      }
+      await deleteObject(cfg, meta.stagingKey).catch((err) => {
+        console.warn(
+          "[s3-upload] failed to delete aborted multipart staging object:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    },
   },
 };

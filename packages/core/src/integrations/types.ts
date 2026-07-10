@@ -1,6 +1,40 @@
 import type { H3Event } from "h3";
 
+import type { AgentChatEvent } from "../agent/types.js";
 import type { EnvKeyConfig } from "../server/create-server.js";
+
+export type IntegrationConversationType =
+  | "channel"
+  | "private_channel"
+  | "dm"
+  | "group_dm"
+  | "unknown";
+
+export type IntegrationTriggerKind = "mention" | "dm" | "thread_reply";
+
+export interface IntegrationActorTrust {
+  memberType: "owner" | "admin" | "member" | "guest" | "external" | "unknown";
+  verified: boolean;
+}
+
+export interface IntegrationContextMessage {
+  senderId?: string;
+  senderName?: string;
+  text: string;
+  timestamp: number;
+  sourceUrl?: string;
+  reactions?: Array<{ name: string; count: number }>;
+  files?: IntegrationFileReference[];
+}
+
+export interface IntegrationFileReference {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  size?: number;
+  permalink?: string;
+  downloadUrl?: string;
+}
 
 /**
  * Normalized incoming message from any messaging platform.
@@ -18,6 +52,22 @@ export interface IncomingMessage {
   senderEmail?: string;
   /** Platform-specific sender ID */
   senderId?: string;
+  /** How this message intentionally invoked an agent. */
+  triggerKind?: IntegrationTriggerKind;
+  /** Normalized provider conversation type for policy evaluation. */
+  conversationType?: IntegrationConversationType;
+  /** Provider tenant/workspace identifier. */
+  tenantId?: string;
+  /** Authorized integration scope resolved before execution. */
+  integrationScopeId?: string;
+  /** Normalized actor trust; unknown/unverified callers fail closed. */
+  actorTrust?: IntegrationActorTrust;
+  /** Bounded provider-native conversation context hydrated at run time. */
+  contextMessages?: IntegrationContextMessage[];
+  /** Provider file references only. Raw file bodies never belong here. */
+  files?: IntegrationFileReference[];
+  /** Server-verified approval grants carried by an interaction continuation. */
+  approvedToolCalls?: string[];
   /**
    * Whether the platform cryptographically authenticated that the message
    * genuinely came from the claimed sender (e.g. inbound email that passed
@@ -51,7 +101,7 @@ export interface IncomingMessage {
    * should not copy this from user-controlled webhook payload fields.
    */
   routingHint?: {
-    targetAgent: string;
+    targetAgent?: string;
     instruction: string;
   };
   /** Provider-native message/activity reference for contextual replies. */
@@ -82,6 +132,10 @@ export interface OutboundTarget {
   threadRef?: string | null;
   /** Optional fallback display label */
   label?: string;
+  /** Provider tenant/workspace used to select an installation credential. */
+  tenantId?: string;
+  /** Managed installation id when the caller already resolved it. */
+  installationId?: string;
 }
 
 /**
@@ -120,6 +174,19 @@ export interface PlatformAdapterCapabilities {
   deferredWebhookResponse: boolean;
   /** The adapter only receives explicit interactions, not ordinary messages. */
   interactionOnly?: boolean;
+  /** The adapter can hydrate bounded native thread/file/reaction context. */
+  nativeContextHydration?: boolean;
+  /** The adapter can surface live agent progress in the provider UI. */
+  liveRunProgress?: boolean;
+}
+
+export interface PlatformRunProgress {
+  /** Receive normalized agent events. Implementations should throttle writes. */
+  onEvent(event: AgentChatEvent): Promise<void> | void;
+  /** Finalize the provider-native progress surface with the answer. */
+  complete(message: OutgoingMessage): Promise<void>;
+  /** Mark the provider-native surface failed and leave a retryable explanation. */
+  fail?(message: string): Promise<void>;
 }
 
 export interface ImmediateWebhookResponse {
@@ -182,6 +249,13 @@ export interface PlatformAdapter {
   parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null>;
 
   /**
+   * Hydrate bounded provider-native context after durable enqueue, outside the
+   * provider acknowledgement budget. Implementations must return references,
+   * metadata, and text only — never persist file bodies or credentials.
+   */
+  hydrateIncomingMessage?(incoming: IncomingMessage): Promise<IncomingMessage>;
+
+  /**
    * Provider-specific response returned only after a message is verified and
    * durably enqueued. Discord uses this to return a type-5 deferred response
    * within its three-second interaction deadline.
@@ -224,6 +298,11 @@ export interface PlatformAdapter {
   postProcessingPlaceholder?(
     incoming: IncomingMessage,
   ): Promise<{ placeholderRef: string } | null>;
+
+  /** Start a provider-native progress/streaming surface for an agent run. */
+  startRunProgress?(
+    incoming: IncomingMessage,
+  ): Promise<PlatformRunProgress | null>;
 
   /**
    * Send a proactive outbound message to a platform destination. Adapters that
@@ -291,6 +370,14 @@ export interface IntegrationsPluginOptions {
    */
   resolveOwner?: (incoming: IncomingMessage) => string | Promise<string>;
   /**
+   * Resolve the durable execution principal for an inbound provider message.
+   * Shared channels should use a service principal; DMs may use a verified
+   * linked user. When present this supersedes `resolveOwner`.
+   */
+  resolveExecutionContext?: (
+    incoming: IncomingMessage,
+  ) => IntegrationExecutionContext | Promise<IntegrationExecutionContext>;
+  /**
    * Optional preprocessor for inbound platform messages. Can intercept special
    * commands (such as `/link`) before the agent loop runs.
    */
@@ -304,4 +391,12 @@ export interface IntegrationsPluginOptions {
       }
     | { handled: false }
   >;
+}
+
+export interface IntegrationExecutionContext {
+  ownerEmail: string;
+  orgId: string | null;
+  principalType: "user" | "service";
+  installationId?: string;
+  scopeId?: string;
 }

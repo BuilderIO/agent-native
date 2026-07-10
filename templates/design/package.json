@@ -25,6 +25,7 @@
     "@paper-design/shaders-react": "0.0.76",
     "@tabler/icons-react": "catalog:",
     "drizzle-orm": "^0.45.2",
+    "entities": "8.0.0",
     "fzstd": "^0.1.1",
     "h3": "^2.0.1-rc.20",
     "html2canvas": "^1.4.1",

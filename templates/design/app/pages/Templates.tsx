@@ -18,8 +18,8 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -78,6 +78,7 @@ interface TemplatesResult {
 export default function Templates() {
   const t = useT();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<DesignTemplateSummary | null>(null);
@@ -86,6 +87,7 @@ export default function Templates() {
   const [deleteTemplate, setDeleteTemplate] =
     useState<DesignTemplateSummary | null>(null);
   const anchorElRef = useRef<HTMLElement | null>(null);
+  const handledTemplateIdRef = useRef<string | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   anchorRef.current = anchorElRef.current;
 
@@ -97,6 +99,7 @@ export default function Templates() {
   const deleteMutation = useActionMutation("delete-design-template");
 
   const templates = data?.templates ?? [];
+  const linkedTemplateId = searchParams.get("templateId");
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return query
@@ -110,6 +113,31 @@ export default function Templates() {
   }, [search, templates]);
   const starters = filtered.filter((template) => template.source === "starter");
   const saved = filtered.filter((template) => template.source === "saved");
+
+  useEffect(() => {
+    if (
+      !linkedTemplateId ||
+      handledTemplateIdRef.current === linkedTemplateId
+    ) {
+      return;
+    }
+    const template = templates.find(
+      (candidate) => candidate.id === linkedTemplateId,
+    );
+    if (!template) return;
+
+    const card = document.getElementById(`design-template-${linkedTemplateId}`);
+    const useButton = card?.querySelector<HTMLElement>(
+      "[data-template-use-button]",
+    );
+    anchorElRef.current = useButton ?? card;
+    handledTemplateIdRef.current = linkedTemplateId;
+    setSearch("");
+    setSelected(template);
+    setPromptOpen(true);
+    card?.scrollIntoView({ block: "center", behavior: "smooth" });
+    useButton?.focus();
+  }, [linkedTemplateId, templates]);
 
   const openTemplatePrompt = (
     template: DesignTemplateSummary,
@@ -132,7 +160,11 @@ export default function Templates() {
         templateId: template.id,
         title,
         ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
-      })) as { id?: string; title?: string };
+      })) as {
+        id?: string;
+        title?: string;
+        templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+      };
       if (!result.id)
         throw new Error("Template copy did not return a design ID");
       if (prompt?.trim()) {
@@ -141,6 +173,7 @@ export default function Templates() {
           title: result.title ?? title,
           source: template.title,
           templateId: template.id,
+          templateBaselineFiles: result.templateBaselineFiles,
           skipQuestions: true,
           ...options,
         });
@@ -227,12 +260,14 @@ export default function Templates() {
             <TemplateSection
               title={t("templatesPage.starterTemplates")}
               templates={starters}
+              linkedTemplateId={linkedTemplateId}
               onUse={openTemplatePrompt}
             />
             <TemplateSection
               title={t("templatesPage.savedTemplates")}
               description={t("templatesPage.savedTemplatesDescription")}
               templates={saved}
+              linkedTemplateId={linkedTemplateId}
               empty={t("templatesPage.savedEmpty")}
               onUse={openTemplatePrompt}
               onDelete={setDeleteTemplate}
@@ -292,6 +327,7 @@ function TemplateSection({
   title,
   description,
   templates,
+  linkedTemplateId,
   empty,
   onUse,
   onDelete,
@@ -299,6 +335,7 @@ function TemplateSection({
   title: string;
   description?: string;
   templates: DesignTemplateSummary[];
+  linkedTemplateId?: string | null;
   empty?: string;
   onUse: (template: DesignTemplateSummary, element: HTMLElement) => void;
   onDelete?: (template: DesignTemplateSummary) => void;
@@ -322,6 +359,7 @@ function TemplateSection({
             <TemplateCard
               key={template.id}
               template={template}
+              linked={template.id === linkedTemplateId}
               onUse={onUse}
               onDelete={onDelete}
             />
@@ -334,16 +372,26 @@ function TemplateSection({
 
 function TemplateCard({
   template,
+  linked,
   onUse,
   onDelete,
 }: {
   template: DesignTemplateSummary;
+  linked?: boolean;
   onUse: (template: DesignTemplateSummary, element: HTMLElement) => void;
   onDelete?: (template: DesignTemplateSummary) => void;
 }) {
   const t = useT();
   return (
-    <article className="group overflow-hidden rounded-xl border bg-card">
+    <article
+      id={`design-template-${template.id}`}
+      aria-current={linked ? "true" : undefined}
+      className={`group overflow-hidden rounded-xl border bg-card ${
+        linked
+          ? "ring-2 ring-[var(--design-editor-accent-color)] ring-offset-2 ring-offset-background"
+          : ""
+      }`}
+    >
       <TemplatePreview
         html={template.previewHtml}
         title={template.title}
@@ -421,6 +469,7 @@ function TemplateCard({
           variant="outline"
           size="sm"
           onClick={(event) => onUse(template, event.currentTarget)}
+          data-template-use-button
           className="mt-auto w-full"
         >
           <IconTemplate className="size-4" />

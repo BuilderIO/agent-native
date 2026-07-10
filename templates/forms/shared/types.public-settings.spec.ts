@@ -66,6 +66,7 @@ const ownerSettings: FormSettings = {
   successMessage: "Thanks, we got your response!",
   redirectUrl: "https://example.com/thanks",
   showProgressBar: true,
+  anonymous: true,
   // owner-private secrets that must NOT leak
   integrations: [
     {
@@ -113,6 +114,13 @@ check("omits the `allowedOrigins` key entirely", () => {
   assert(
     !("allowedOrigins" in projected),
     "projected object still has an `allowedOrigins` key",
+  );
+});
+
+check("omits the owner-only `anonymous` privacy setting", () => {
+  assert(
+    !("anonymous" in projected),
+    "projected object still has the `anonymous` key",
   );
 });
 

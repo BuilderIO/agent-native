@@ -6,7 +6,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
-  description: "Delete a saved Design template owned or administered by the user.",
+  description:
+    "Delete a saved Design template owned or administered by the user.",
   schema: z.object({ id: z.string().min(1).describe("Saved template ID") }),
   run: async ({ id }) => {
     await assertAccess("design-template", id, "admin");
@@ -18,7 +19,9 @@ export default defineAction({
       await tx
         .delete(schema.designTemplateFiles)
         .where(eq(schema.designTemplateFiles.templateId, id));
-      await tx.delete(schema.designTemplates).where(eq(schema.designTemplates.id, id));
+      await tx
+        .delete(schema.designTemplates)
+        .where(eq(schema.designTemplates.id, id));
     });
     return { id, deleted: true };
   },

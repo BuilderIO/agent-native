@@ -32,6 +32,7 @@ import { queueBuilderMediaCompression } from "../../server/lib/builder-media-com
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import {
   makeSeekable,
+  normalizeTimelineToMp4,
   type VideoFormat,
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
@@ -46,6 +47,7 @@ export type EnsureSeekableStatus =
   | "skipped-local-media"
   | "skipped-too-large"
   | "skipped-fetch-failed"
+  | "skipped-normalize-failed"
   | "skipped-upload-failed"
   | "not-found";
 
@@ -137,8 +139,14 @@ export async function ensureRecordingSeekable(params: {
   recordingId: string;
   ownerEmail: string;
   force?: boolean;
+  normalizeTimeline?: boolean;
 }): Promise<EnsureSeekableResult> {
-  const { recordingId, ownerEmail, force = false } = params;
+  const {
+    recordingId,
+    ownerEmail,
+    force = false,
+    normalizeTimeline = false,
+  } = params;
   const db = getDb();
 
   const [rec] = await db
@@ -181,7 +189,11 @@ export async function ensureRecordingSeekable(params: {
     };
   }
 
-  if (!force && (await isAlreadyMarked(recordingId, rec.videoUrl))) {
+  if (
+    !normalizeTimeline &&
+    !force &&
+    (await isAlreadyMarked(recordingId, rec.videoUrl))
+  ) {
     return {
       recordingId,
       status: "already-optimized",
@@ -196,12 +208,27 @@ export async function ensureRecordingSeekable(params: {
   }
 
   const videoFormat: VideoFormat = rec.videoFormat === "mp4" ? "mp4" : "webm";
-  const seekable = await makeSeekable({
-    mediaBytes: fetched.bytes,
-    videoFormat,
-  });
+  const seekable = normalizeTimeline
+    ? await normalizeTimelineToMp4({
+        mediaBytes: fetched.bytes,
+        videoFormat,
+      })
+    : await makeSeekable({
+        mediaBytes: fetched.bytes,
+        videoFormat,
+      });
 
   if (!seekable.changed) {
+    if (normalizeTimeline) {
+      return {
+        recordingId,
+        status: "skipped-normalize-failed",
+        changed: false,
+        videoUrl: rec.videoUrl,
+        detail:
+          "Timeline normalization could not produce a verified MP4; the original recording was left unchanged.",
+      };
+    }
     // Already seekable (or unimprovable) — remember so we don't refetch it.
     await markRecordingSeekable(recordingId, rec.videoUrl);
     return {
@@ -212,14 +239,23 @@ export async function ensureRecordingSeekable(params: {
     };
   }
 
-  const mimeType = videoFormat === "mp4" ? "video/mp4" : "video/webm";
+  const outputFormat: VideoFormat = normalizeTimeline ? "mp4" : videoFormat;
+  const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
   const upload = await uploadFile({
     data: seekable.bytes,
-    filename: `${recordingId}.${videoFormat}`,
+    filename: normalizeTimeline
+      ? `${recordingId}-timeline-normalized-${Date.now()}.mp4`
+      : `${recordingId}.${outputFormat}`,
     mimeType,
     ownerEmail,
     stableUrl: true,
     recordAsset: false,
+  }).catch((err) => {
+    console.warn("[ensure-seekable-video] repaired media upload failed", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   });
 
   if (!upload?.url) {
@@ -232,10 +268,11 @@ export async function ensureRecordingSeekable(params: {
     };
   }
 
-  await db
+  const updated = await db
     .update(schema.recordings)
     .set({
       videoUrl: upload.url,
+      videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,
       updatedAt: new Date().toISOString(),
     })
@@ -243,8 +280,28 @@ export async function ensureRecordingSeekable(params: {
       and(
         eq(schema.recordings.id, recordingId),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.videoUrl, rec.videoUrl),
       ),
-    );
+    )
+    .returning({
+      id: schema.recordings.id,
+      videoUrl: schema.recordings.videoUrl,
+      videoFormat: schema.recordings.videoFormat,
+    });
+
+  if (
+    updated.length !== 1 ||
+    updated[0]?.videoUrl !== upload.url ||
+    updated[0]?.videoFormat !== outputFormat
+  ) {
+    return {
+      recordingId,
+      status: "skipped-upload-failed",
+      changed: false,
+      videoUrl: rec.videoUrl,
+      detail: "Recording changed while repaired media was uploading.",
+    };
+  }
 
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
@@ -257,6 +314,7 @@ export async function ensureRecordingSeekable(params: {
     providerId: upload.provider,
     assetDbId: upload.id,
     sourceSizeBytes: seekable.bytes.byteLength,
+    locallyTranscoded: normalizeTimeline,
   }).catch((err) => {
     console.warn("[ensure-seekable-video] media compression queue failed", {
       recordingId,

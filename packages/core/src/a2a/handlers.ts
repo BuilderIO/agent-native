@@ -1,7 +1,14 @@
 import { setResponseHeader, setResponseStatus } from "h3";
 
-import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  dispatchPathTargetsNetlifyBackgroundFunction,
+  isAgentChatDurableBackgroundEnabled,
+  resolveAgentChatProcessRunDispatchPath,
+} from "../agent/durable-background.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
   hasConfiguredA2ASecret,
@@ -37,79 +44,33 @@ const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 
 /**
- * Resolve the base URL we should fire the A2A processor request to. Mirrors
- * the integration-webhook resolveBaseUrl pattern — prefer explicit env vars
- * (most reliable on serverless), fall back to inbound request headers.
- */
-function resolveSelfBaseUrl(event: any | undefined): string {
-  const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
-  if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
-  if (isA2AProductionRuntime()) {
-    throw new Error(
-      "A2A self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in production.",
-    );
-  }
-
-  try {
-    const headers = event?.node?.req?.headers ?? event?.headers;
-    const get = (name: string): string | undefined => {
-      if (!headers) return undefined;
-      if (typeof headers.get === "function") {
-        return headers.get(name) ?? undefined;
-      }
-      const map = headers as Record<string, string | undefined>;
-      return map[name] ?? map[String(name).toLowerCase()];
-    };
-    const proto = get("x-forwarded-proto") || "http";
-    const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return withConfiguredAppBasePath(`${proto}://${host}`);
-  } catch {
-    return withConfiguredAppBasePath(
-      `http://localhost:${process.env.PORT || 3000}`,
-    );
-  }
-}
-
-/**
- * Fire-and-forget POST to the A2A processor route on the same deployment.
- * Used when an A2A send is requested in async mode — the processor runs the
- * handler in a fresh function execution so it gets its own full timeout.
+ * Dispatch an async A2A task to a fresh function execution. Apps that opted
+ * into durable background runs reuse the emitted Netlify 15-minute worker;
+ * other hosts and apps retain the normal portable self-webhook route.
  */
 async function fireProcessTaskDispatch(
   event: any,
   taskId: string,
+  config: A2AConfig,
 ): Promise<void> {
-  const baseUrl = resolveSelfBaseUrl(event);
-  const url = `${baseUrl}${A2A_PROCESS_TASK_PATH}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  try {
-    headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch {
-    // No A2A_SECRET configured — self-fire unsigned. The processor accepts
-    // unsigned dispatches when no secret is set (mirrors the integration
-    // webhook flow).
-  }
-  // Race the fetch against a short timer. On Netlify Lambda, returning
-  // immediately can freeze the function before the outbound TCP handshake
-  // starts, leaving the request stuck. This gives it ~250ms to leave the
-  // box at the cost of slightly higher response latency on async A2A sends.
-  const dispatchPromise = fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ taskId }),
-  }).catch((err) => {
-    console.error("[a2a] Process-task dispatch fetch failed:", err);
+  const backgroundPath = resolveAgentChatProcessRunDispatchPath();
+  const useBackgroundWorker =
+    isAgentChatDurableBackgroundEnabled({
+      appOptIn: config.durableBackgroundRuns === true,
+    }) && dispatchPathTargetsNetlifyBackgroundFunction(backgroundPath);
+
+  await fireInternalDispatch({
+    event,
+    path: useBackgroundWorker ? backgroundPath : A2A_PROCESS_TASK_PATH,
+    taskId,
+    ...(useBackgroundWorker
+      ? {
+          body: {
+            [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
+          },
+        }
+      : {}),
   });
-  await Promise.race([
-    dispatchPromise,
-    new Promise<void>((resolve) => setTimeout(resolve, 250)),
-  ]);
 }
 
 /**
@@ -522,7 +483,7 @@ async function handleSend(
     );
     const working = await updateTask(task.id, { state: "working" });
 
-    fireProcessTaskDispatch(event, task.id).catch((err) => {
+    fireProcessTaskDispatch(event, task.id, config).catch((err) => {
       console.error("[a2a] Failed to dispatch process-task:", err);
     });
 
@@ -764,12 +725,14 @@ async function handleGet(
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
-  const taskChanged = await refireStuckAsyncTaskIfNeeded(id, event).catch(
-    (err) => {
-      console.error("[a2a] Failed to refire stuck async task:", err);
-      return false;
-    },
-  );
+  const taskChanged = await refireStuckAsyncTaskIfNeeded(
+    id,
+    event,
+    config,
+  ).catch((err) => {
+    console.error("[a2a] Failed to refire stuck async task:", err);
+    return false;
+  });
   if (taskChanged) {
     const updated = await getTask(id);
     if (updated) return jsonRpcResult(0, sanitizeTaskForResponse(updated));
@@ -780,6 +743,7 @@ async function handleGet(
 async function refireStuckAsyncTaskIfNeeded(
   taskId: string,
   event: any,
+  config: A2AConfig,
 ): Promise<boolean> {
   const state = await getA2ATaskDispatchState(taskId);
   if (!state) return false;
@@ -791,7 +755,7 @@ async function refireStuckAsyncTaskIfNeeded(
     state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS
   ) {
     if (await touchQueuedA2ATaskDispatch(taskId)) {
-      await fireProcessTaskDispatch(event, taskId);
+      await fireProcessTaskDispatch(event, taskId, config);
       return true;
     }
     return false;

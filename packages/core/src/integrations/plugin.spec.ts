@@ -64,6 +64,9 @@ vi.mock("./google-docs-poller.js", () => ({
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "shared",
   WORKSPACE_OWNER: "workspace",
+  organizationIdFromResourceOwner: () => null,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `organization:${orgId}` : "shared",
   ensurePersonalDefaults: vi.fn(async () => {}),
   resourceGet: resourceGetMock,
   resourceGetByPath: resourceGetByPathMock,
@@ -75,6 +78,7 @@ vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: vi.fn(),
+  getNextPendingTaskIdForThread: vi.fn(async () => null),
   insertPendingTask: vi.fn(),
   isDuplicateEventError: vi.fn(() => false),
   markTaskCompleted: markTaskCompletedMock,
@@ -255,6 +259,50 @@ describe("integrations plugin routes", () => {
     ]);
   });
 
+  it("serves a deployment-qualified Slack Agent View manifest", async () => {
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/manifest",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      display_information: { name: "Agent Native" },
+      features: {
+        app_home: {
+          messages_tab_enabled: true,
+          messages_tab_read_only_enabled: false,
+        },
+        agent_view: {
+          agent_description: expect.any(String),
+        },
+      },
+      oauth_config: {
+        redirect_urls: [
+          "https://app.test/_agent-native/integrations/slack/oauth/callback",
+        ],
+      },
+      settings: {
+        event_subscriptions: {
+          request_url:
+            "https://app.test/_agent-native/integrations/slack/webhook",
+          bot_events: expect.arrayContaining([
+            "app_home_opened",
+            "app_context_changed",
+            "message.im",
+          ]),
+        },
+        interactivity: {
+          request_url:
+            "https://app.test/_agent-native/integrations/slack/interactions",
+        },
+      },
+    });
+  });
+
   it("runs integration status checks in the signed-in request context", async () => {
     getSessionMock.mockResolvedValue({
       email: "alice+qa@agent-native.test",
@@ -362,7 +410,7 @@ describe("integrations plugin routes", () => {
         },
       }),
       ownerEmail: "owner+qa@example.com",
-      orgId: null,
+      orgId: "org-qa",
       status: "processing",
       attempts: 1,
       errorMessage: null,
@@ -373,6 +421,9 @@ describe("integrations plugin routes", () => {
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
+      }
+      if (owner === "organization:org-qa" && path === "AGENTS.md") {
+        return { content: "Builder organization instruction" };
       }
       if (owner === "owner+qa@example.com" && path === "AGENTS.md") {
         return { content: "Personal Dispatch instruction" };
@@ -401,14 +452,23 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
     expect(options.systemPrompt).toContain(
-      "Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
+      "Organization learnings above and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
     );
+    expect(options.systemPrompt).toContain("Builder organization instruction");
     expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
     expect(resourceGetByPathMock).not.toHaveBeenCalledWith(
       "owner+qa@example.com",
       "memory/MEMORY.md",
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "owner+qa@example.com",
+        orgId: "org-qa",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
   });
 
   it("reschedules transient processor failures without terminally scrubbing the task", async () => {

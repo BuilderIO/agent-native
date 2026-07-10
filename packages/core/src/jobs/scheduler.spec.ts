@@ -10,6 +10,7 @@ const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const sendMessageToTargetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourceListAllOwners: resourceListAllOwnersMock,
@@ -38,6 +39,13 @@ vi.mock("../agent/run-manager.js", () => ({
 
 vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
+}));
+
+vi.mock("../integrations/adapters/index.js", () => ({
+  getDefaultAdapter: () => ({
+    formatAgentResponse: (text: string) => ({ text, platformContext: {} }),
+    sendMessageToTarget: sendMessageToTargetMock,
+  }),
 }));
 
 // Partial-mock db/client so the user/membership validation lookup is
@@ -205,6 +213,68 @@ Summarize the inbox.`,
         app: "mail",
         refId: expect.stringMatching(/^job-daily-report-\d+-[a-z0-9]+$/),
       }),
+    );
+  });
+
+  it("delivers a channel-bound routine through its managed adapter target", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-channel",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+originScopeId: scope-1
+deliveryPlatform: slack
+deliveryDestination: C123
+deliveryThreadRef: 123.456
+deliveryTenantId: T123
+---
+
+Post the digest.`,
+      },
+    ]);
+    startRunMock.mockImplementationOnce(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: unknown) => void,
+          signal: AbortSignal,
+        ) => Promise<void>,
+        onComplete?: (run: any) => void | Promise<void>,
+      ) => {
+        const abort = new AbortController();
+        const activeRun = { runId, threadId, status: "running", abort };
+        void Promise.resolve().then(async () => {
+          await runFn(vi.fn(), abort.signal);
+          activeRun.status = "completed";
+          await onComplete?.({
+            ...activeRun,
+            events: [{ seq: 0, event: { type: "text", text: "Digest ready" } }],
+          });
+        });
+        return activeRun;
+      },
+    );
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(sendMessageToTargetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Digest ready" }),
+      {
+        destination: "C123",
+        threadRef: "123.456",
+        tenantId: "T123",
+      },
     );
   });
 

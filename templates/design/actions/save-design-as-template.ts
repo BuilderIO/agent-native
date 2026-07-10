@@ -12,9 +12,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
 import {
   firstTemplateDimensions,
+  redactTemplateDesignData,
   remapTemplateFileIds,
 } from "../server/lib/design-template-data.js";
-import { countLockedLayers } from "../shared/locked-layers.js";
+import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 
 export const designTemplateCategorySchema = z.enum([
   "ad",
@@ -64,7 +65,9 @@ export default defineAction({
       ["html", "jsx", "css"].includes(file.fileType),
     );
     if (renderableFiles.length === 0) {
-      throw new Error("Add at least one design screen before saving a template.");
+      throw new Error(
+        "Add at least one design screen before saving a template.",
+      );
     }
 
     const ownerEmail = getRequestUserEmail();
@@ -75,7 +78,10 @@ export default defineAction({
     const fileIdMap = new Map(
       snapshot.files.map((file) => [file.id, nanoid()]),
     );
-    const data = remapTemplateFileIds(rawData, fileIdMap);
+    const data = remapTemplateFileIds(
+      redactTemplateDesignData(rawData),
+      fileIdMap,
+    );
     const preferredFile =
       snapshot.files.find((file) => file.filename === "index.html") ??
       snapshot.files[0];
@@ -83,10 +89,7 @@ export default defineAction({
       data,
       preferredFile ? fileIdMap.get(preferredFile.id) : undefined,
     );
-    const lockedLayerCount = snapshot.files.reduce(
-      (count, file) => count + countLockedLayers(file.content),
-      0,
-    );
+    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);
 
     const db = getDb();
     await db.transaction(async (tx) => {

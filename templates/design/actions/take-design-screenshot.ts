@@ -572,6 +572,18 @@ export default defineAction({
           viewport: { width: viewport.widthPx, height: viewport.heightPx },
           deviceScaleFactor: 2,
         });
+        // esbuild/tsx `keepNames` rewrites a named inner function inside a
+        // page.evaluate callback (e.g. `collectPageDiagnostics`'s local
+        // helpers) into `__name(fn, "name")`. Playwright serializes that
+        // callback with Function#toString() and runs it in the page, where
+        // `__name` doesn't exist — this throws `ReferenceError: __name is
+        // not defined` and the action fails outright whenever it's invoked
+        // through a tsx/esbuild-transpiled entrypoint (e.g. `pnpm action`).
+        // Mirrors the identical fix in packages/core/src/cli/recap.ts
+        // (RECAP_SHOT_NAME_SHIM) — same root cause, same shim.
+        await context.addInitScript(
+          "globalThis.__name = globalThis.__name || function (value) { return value; };",
+        );
         const page = await context.newPage();
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
@@ -592,11 +604,69 @@ export default defineAction({
 
         try {
           await page.setContent(html, { waitUntil: "networkidle" });
-          // Best-effort settle for Alpine.js x-init / CDN Tailwind JIT compile.
-          await page.waitForTimeout(300);
+          // Bounded wait for webfonts to finish loading. `networkidle` alone
+          // is not enough: a screenshot taken while a custom Google Font is
+          // still downloading renders with fallback-font metrics — a
+          // different, often overflowing layout — which is exactly the kind
+          // of "broken layout" this action's visual self-review pass exists
+          // to catch, not produce.
+          await page
+            .evaluate(async () => {
+              const fontsReady = document.fonts?.ready;
+              if (!fontsReady) return;
+              await Promise.race([
+                fontsReady,
+                new Promise<void>((resolve) => setTimeout(resolve, 4_000)),
+              ]);
+            })
+            .catch(() => {});
+          // Best-effort settle for Alpine.js x-init / CDN Tailwind JIT
+          // compile: wait for the page's total CSSOM rule count to stop
+          // growing across polls (a CDN stylesheet injected after
+          // `networkidle` fires looks exactly like this), instead of a flat
+          // guess that either wastes time or fires too early on a complex
+          // design with many stylesheets.
+          await page
+            .waitForFunction(
+              () => {
+                const win = window as unknown as {
+                  __anExportRuleCounts?: number[];
+                  __anExportRuleStart?: number;
+                };
+                win.__anExportRuleStart ??= Date.now();
+                const count = Array.from(document.styleSheets).reduce(
+                  (sum, sheet) => {
+                    try {
+                      return sum + (sheet.cssRules?.length ?? 0);
+                    } catch {
+                      return sum + 1;
+                    }
+                  },
+                  0,
+                );
+                const history = [
+                  ...(win.__anExportRuleCounts ?? []).slice(-5),
+                  count,
+                ];
+                win.__anExportRuleCounts = history;
+                return (
+                  history.length >= 6 &&
+                  history.every((value) => value === history[0]) &&
+                  Date.now() - win.__anExportRuleStart >= 600
+                );
+              },
+              { timeout: 2500, polling: 100 },
+            )
+            .catch(() => {});
 
           const pageDiagnostics = await page.evaluate(collectPageDiagnostics);
-          const png = await page.screenshot({ type: "png" });
+          // `fullPage` is required here: Playwright's default screenshot
+          // crops to the current viewport, so any screen taller than the
+          // requested viewport height (tall landing pages, long dashboards)
+          // silently loses everything below the fold instead of erroring —
+          // this is the "PNG export produces ... broken layouts" complaint
+          // for tall complex screens, reproduced on a 1440x3200 fixture.
+          const png = await page.screenshot({ type: "png", fullPage: true });
 
           const uploaded = await uploadFile({
             data: png,

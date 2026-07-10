@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertLockedLayersPreserved,
   countLockedLayers,
+  countLockedLayersAcrossFiles,
 } from "./locked-layers.js";
 
 const source = `<!doctype html><html><body>
@@ -30,5 +31,18 @@ describe("locked layers", () => {
         ),
       ),
     ).toThrow(/locked layer/i);
+  });
+
+  it("counts only durable DOM locks across files", () => {
+    expect(
+      countLockedLayersAcrossFiles([
+        { content: source },
+        {
+          content:
+            '<section data-agent-native-node-id="second" data-agent-native-locked="true">Fixed</section>',
+        },
+        { content: "screen-id-only" },
+      ]),
+    ).toBe(2);
   });
 });

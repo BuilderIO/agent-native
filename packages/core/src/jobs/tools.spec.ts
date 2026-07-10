@@ -11,6 +11,7 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getIntegrationRequestContextMock = vi.hoisted(() => vi.fn());
 
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 
@@ -25,6 +26,7 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
+  getIntegrationRequestContext: getIntegrationRequestContextMock,
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other
@@ -62,6 +64,7 @@ describe("manage-jobs tool", () => {
     vi.clearAllMocks();
     getRequestUserEmailMock.mockReturnValue("alice@example.com");
     getRequestOrgIdMock.mockReturnValue("org-1");
+    getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(true);
   });
@@ -135,6 +138,36 @@ describe("manage-jobs tool", () => {
       });
       const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
       expect(meta.runAs).toBe("shared");
+    });
+
+    it("binds routines created from a messaging scope back to that channel", async () => {
+      getIntegrationRequestContextMock.mockReturnValue({
+        scopeId: "scope:slack:T1:C1",
+        incoming: {
+          platform: "slack",
+          tenantId: "T1",
+          threadRef: "123.456",
+          platformContext: { channelId: "C1" },
+        },
+      });
+
+      await run({
+        action: "create",
+        name: "channel-digest",
+        schedule: "0 9 * * *",
+        instructions: "Post the digest.",
+        model: "channel-model",
+      });
+
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta).toMatchObject({
+        originScopeId: "scope:slack:T1:C1",
+        deliveryPlatform: "slack",
+        deliveryDestination: "C1",
+        deliveryThreadRef: "123.456",
+        deliveryTenantId: "T1",
+        model: "channel-model",
+      });
     });
   });
 

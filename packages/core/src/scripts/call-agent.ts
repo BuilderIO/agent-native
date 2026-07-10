@@ -6,6 +6,7 @@ import {
   shouldPreferGlobalA2ASecret,
   signA2AToken,
 } from "../a2a/client.js";
+import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -244,6 +245,70 @@ export async function run(
       // trade-off is we lose progressive in-UI text streaming for cross-app
       // A2A calls, but the receiving agent's full response still surfaces via
       // the tool_result event below.
+      //
+      // That trade-off has a second-order cost: callAgent()'s poll (see
+      // A2AClient.sendAndWait in a2a/client.ts) can legitimately run for
+      // minutes with nothing emitted to the parent between the "start" event
+      // above and "done" below. On the parent run, that silence freezes
+      // `last_progress_at` — shouldBumpProgressForEvent in
+      // agent/run-manager.ts treats a stream of literally nothing as no
+      // progress — which trips the client's stuck-detector
+      // (DEFAULT_STUCK_THRESHOLD_MS = 90_000 in
+      // client/use-run-stuck-detection.ts) and the server's stale-run sweep
+      // (BACKGROUND_RUN_STALE_MS = 90_000 in agent/run-store.ts). In
+      // production this handed users a "still working, no progress" Retry
+      // button that aborted a perfectly healthy call and re-ran the sub-agent
+      // from scratch.
+      //
+      // Fix: surface the REAL remote liveness the poll already gathers. The
+      // A2A poll round-trips to the remote agent every ~2s and gets back a
+      // task with `status.state` (see A2AClient.sendAndWait / `onUpdate`). We
+      // emit an `agent_call_progress` event ONLY from that callback, and ONLY
+      // when a poll actually succeeds AND reports an actively-working state.
+      // Crucially this is NOT a timer: if the remote hangs or dies, the poll
+      // fetch throws, `onUpdate` stops firing, we emit nothing, and the
+      // stuck-detector correctly surfaces its banner. A wall-clock heartbeat
+      // would instead keep a dead sub-agent looking alive forever — trading a
+      // false stuck-positive for a worse false stuck-negative.
+      //
+      // Throttle: the poll runs every ~2s but both thresholds above are 90s,
+      // so emitting per-poll would be ~45 events per stuck-window. We coalesce
+      // to at most one emission per 30s — a 3x margin under 90s, so at least
+      // two land inside either window even with jitter, without flooding.
+      //
+      // Shape: a dedicated `agent_call_progress` event type (see
+      // agent/types.ts), not an extra `agent_call` status. `agent_call`
+      // consumers (production-agent.ts's step summarizer, slack.ts's task
+      // cards) render any status that isn't "start"/"done" as a failure, so a
+      // "progress" status would surface an in-flight tick as an error. A
+      // distinct type is instead ignored gracefully everywhere: the run-event
+      // switches fall to their `default`, the client if-chains fall through,
+      // and sse-event-processor returns `{action:"continue"}`. It still counts
+      // as real progress in shouldBumpProgressForEvent (any non-special event
+      // type does), which is the whole point.
+      const PROGRESS_MIN_INTERVAL_MS = 30_000;
+      // Terminal states resolve the poll; "input-required" means the remote is
+      // blocked waiting on us, not making progress. Only actively-working
+      // states count as liveness worth surfacing.
+      const ACTIVELY_WORKING_STATES = new Set(["working", "submitted"]);
+      const callStartedAt = Date.now();
+      let lastProgressEmitAt = callStartedAt;
+      const onRemotePollUpdate = (task: Task) => {
+        const state = task?.status?.state;
+        if (!state || !ACTIVELY_WORKING_STATES.has(state)) return;
+        const now = Date.now();
+        if (now - lastProgressEmitAt < PROGRESS_MIN_INTERVAL_MS) return;
+        lastProgressEmitAt = now;
+        const detail = extractRemoteProgressDetail(task);
+        context.send!({
+          type: "agent_call_progress",
+          agent: agent.name,
+          state,
+          elapsedSeconds: Math.round((now - callStartedAt) / 1000),
+          ...(detail ? { detail } : {}),
+        });
+      };
+
       try {
         // Apply a polling cap ONLY for integration-platform callers on
         // serverless hosts. Normal chat, local Node, self-hosted Node, and
@@ -255,6 +320,7 @@ export async function run(
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
+          onUpdate: onRemotePollUpdate,
           ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
         });
         responseText =
@@ -382,6 +448,26 @@ async function enqueueIntegrationContinuationIfPossible(
     console.error("[call-agent] Failed to enqueue A2A continuation:", err);
     return false;
   }
+}
+
+// Pull a short human-readable detail from a polled A2A task's status message,
+// when the remote includes one, so the progress event can surface a real
+// signal (e.g. "Generating hero image…") instead of a bare elapsed counter.
+// Bounded so a chatty remote can't push a large payload through the event.
+const MAX_PROGRESS_DETAIL_CHARS = 200;
+function extractRemoteProgressDetail(task: Task): string | undefined {
+  const parts = task.status?.message?.parts;
+  if (!parts) return undefined;
+  const text = parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return undefined;
+  return text.length > MAX_PROGRESS_DETAIL_CHARS
+    ? `${text.slice(0, MAX_PROGRESS_DETAIL_CHARS - 1)}…`
+    : text;
 }
 
 function getA2ATaskTimeoutTaskId(err: unknown): string | null {

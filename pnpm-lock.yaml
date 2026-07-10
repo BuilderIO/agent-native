@@ -3027,6 +3027,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(postgres@3.4.9)
+      entities:
+        specifier: 8.0.0
+        version: 8.0.0
       fzstd:
         specifier: ^0.1.1
         version: 0.1.1

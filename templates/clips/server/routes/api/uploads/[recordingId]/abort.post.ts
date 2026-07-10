@@ -26,7 +26,11 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
-import { deleteResumableSession } from "../../../../lib/resumable-session.js";
+import {
+  deleteResumableSession,
+  getResumableSession,
+} from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -111,6 +115,25 @@ export default defineEventHandler(async (event: H3Event) => {
       ? 0
       : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
     if (!preserveRecoveryState) {
+      const resumableSession = await getResumableSession(recordingId).catch(
+        () => null,
+      );
+      if (resumableSession) {
+        const provider = await resolveResumableUploadProvider(
+          resumableSession.providerId,
+        ).catch(() => null);
+        await provider?.resumable
+          ?.abortSession?.({
+            sessionId: resumableSession.sessionId,
+            meta: resumableSession.meta,
+          })
+          .catch((err) => {
+            console.warn(
+              "[abort] resumable upload provider cleanup failed:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+      }
       await deleteResumableSession(recordingId).catch(() => {});
     }
     await writeAppState("refresh-signal", { ts: Date.now() });

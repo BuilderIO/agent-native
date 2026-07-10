@@ -369,11 +369,35 @@ const enUS = {
         watch: "Watch",
         paper: "Paper",
         socialMedia: "Social media",
+        adUnit: "Ad unit",
       },
     },
   },
   designEditor: {
     askAgent: "Ask agent",
+    autoLayoutSuggestion: {
+      menuLabel: "Suggest auto layout…",
+      title: "Suggest auto layout",
+      description:
+        "Review the layout inferred from measured child geometry. Nothing changes until you apply it.",
+      preview: "Auto layout preview",
+      sizing: "Sizing",
+      fixed: "Fixed",
+      hug: "Hug",
+      cancel: "Cancel",
+      apply: "Apply auto layout",
+      selectContainer:
+        "Select one container with children to get a suggestion.",
+      stale:
+        "The container changed. Preview a fresh suggestion before applying.",
+      warnings: {
+        overlap:
+          "Some children overlap, so this proposal cannot be safely applied.",
+        irregular: "Spacing is irregular; the median gap is shown.",
+        transformed:
+          "Transformed children need manual review before conversion.",
+      },
+    },
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
@@ -852,10 +876,17 @@ const enUS = {
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
       applyWithAgent: "Apply with Design agent",
+      verifying: "Verifying source and runtime…",
+      retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Style edits sent to the Design agent",
+      verifiedToast: "Source and runtime structure verified",
+      conflictToast:
+        "The reloaded runtime did not match the pending structure edit. The preview is still undoable; retry after resolving the source conflict.",
+      sourceCheckFailedToast:
+        "Could not verify the connected source files. The preview was kept so you can retry or undo.",
       copiedToast: "Style prompt copied",
       abortedToast: "Pending preview discarded",
       interactBlocked:
@@ -9355,6 +9386,24 @@ const designCanvasFeatureOverrides = {
   },
   "zh-CN": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "建议自动布局…",
+        title: "建议自动布局",
+        description: "预览根据子层实测几何推断的布局。应用前不会更改任何内容。",
+        preview: "自动布局预览",
+        sizing: "尺寸调整",
+        fixed: "固定",
+        hug: "适应内容",
+        cancel: "取消",
+        apply: "应用自动布局",
+        selectContainer: "请选择一个含子层的容器以获取建议。",
+        stale: "容器已更改。请重新预览后再应用。",
+        warnings: {
+          overlap: "部分子层重叠，无法安全应用此建议。",
+          irregular: "间距不规则；当前显示中位数间距。",
+          transformed: "变换后的子层需要手动检查后再转换。",
+        },
+      },
       toasts: {
         annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
         propsCopied: "属性已复制",
@@ -9432,6 +9481,26 @@ const designCanvasFeatureOverrides = {
   },
   "es-ES": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Sugerir diseño automático…",
+        title: "Sugerir diseño automático",
+        description:
+          "Revisa el diseño inferido de la geometría medida. Nada cambia hasta aplicarlo.",
+        preview: "Vista previa del diseño automático",
+        sizing: "Tamaño",
+        fixed: "Fijo",
+        hug: "Ajustar",
+        cancel: "Cancelar",
+        apply: "Aplicar diseño automático",
+        selectContainer: "Selecciona un contenedor con elementos secundarios.",
+        stale: "El contenedor cambió. Genera una vista previa nueva.",
+        warnings: {
+          overlap:
+            "Algunos elementos se superponen; no es seguro aplicar la propuesta.",
+          irregular: "El espaciado es irregular; se muestra la mediana.",
+          transformed: "Los elementos transformados requieren revisión manual.",
+        },
+      },
       toasts: {
         annotationSendError:
           "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
@@ -9512,6 +9581,28 @@ const designCanvasFeatureOverrides = {
   },
   "fr-FR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Suggérer une mise en page auto…",
+        title: "Suggérer une mise en page auto",
+        description:
+          "Vérifiez la disposition déduite de la géométrie mesurée. Rien ne change avant l’application.",
+        preview: "Aperçu de la mise en page auto",
+        sizing: "Dimensionnement",
+        fixed: "Fixe",
+        hug: "Ajusté",
+        cancel: "Annuler",
+        apply: "Appliquer la mise en page auto",
+        selectContainer: "Sélectionnez un conteneur avec des enfants.",
+        stale: "Le conteneur a changé. Générez un nouvel aperçu.",
+        warnings: {
+          overlap:
+            "Des enfants se chevauchent ; la proposition ne peut pas être appliquée sûrement.",
+          irregular:
+            "L’espacement est irrégulier ; l’écart médian est affiché.",
+          transformed:
+            "Les enfants transformés nécessitent une vérification manuelle.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
@@ -9592,6 +9683,27 @@ const designCanvasFeatureOverrides = {
   },
   "de-DE": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Auto-Layout vorschlagen…",
+        title: "Auto-Layout vorschlagen",
+        description:
+          "Prüfe das aus der gemessenen Geometrie abgeleitete Layout. Bis zum Anwenden bleibt alles unverändert.",
+        preview: "Auto-Layout-Vorschau",
+        sizing: "Größenanpassung",
+        fixed: "Fest",
+        hug: "Inhalt",
+        cancel: "Abbrechen",
+        apply: "Auto-Layout anwenden",
+        selectContainer: "Wähle einen Container mit untergeordneten Ebenen.",
+        stale: "Der Container wurde geändert. Erstelle eine neue Vorschau.",
+        warnings: {
+          overlap:
+            "Einige Ebenen überlappen; der Vorschlag kann nicht sicher angewendet werden.",
+          irregular:
+            "Die Abstände sind unregelmäßig; der Median wird angezeigt.",
+          transformed: "Transformierte Ebenen müssen manuell geprüft werden.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
@@ -9673,6 +9785,25 @@ const designCanvasFeatureOverrides = {
   },
   "ja-JP": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "オートレイアウトを提案…",
+        title: "オートレイアウトを提案",
+        description:
+          "測定した子要素の形状から推定したレイアウトを確認します。適用するまで変更されません。",
+        preview: "オートレイアウトのプレビュー",
+        sizing: "サイズ調整",
+        fixed: "固定",
+        hug: "内容に合わせる",
+        cancel: "キャンセル",
+        apply: "オートレイアウトを適用",
+        selectContainer: "子要素を含むコンテナを1つ選択してください。",
+        stale: "コンテナが変更されました。新しい提案をプレビューしてください。",
+        warnings: {
+          overlap: "子要素が重なっているため、安全に適用できません。",
+          irregular: "間隔が不規則です。中央値を表示しています。",
+          transformed: "変形した子要素は手動確認が必要です。",
+        },
+      },
       toasts: {
         annotationSendError:
           "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
@@ -9752,6 +9883,25 @@ const designCanvasFeatureOverrides = {
   },
   "ko-KR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "오토 레이아웃 제안…",
+        title: "오토 레이아웃 제안",
+        description:
+          "측정된 자식 도형에서 추론한 레이아웃을 검토합니다. 적용 전에는 변경되지 않습니다.",
+        preview: "오토 레이아웃 미리보기",
+        sizing: "크기 조정",
+        fixed: "고정",
+        hug: "내용에 맞춤",
+        cancel: "취소",
+        apply: "오토 레이아웃 적용",
+        selectContainer: "자식이 있는 컨테이너 하나를 선택하세요.",
+        stale: "컨테이너가 변경되었습니다. 새 제안을 미리 보세요.",
+        warnings: {
+          overlap: "일부 자식이 겹쳐 안전하게 적용할 수 없습니다.",
+          irregular: "간격이 불규칙하여 중앙값을 표시합니다.",
+          transformed: "변형된 자식은 수동 검토가 필요합니다.",
+        },
+      },
       toasts: {
         annotationSendError:
           "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
@@ -9831,6 +9981,26 @@ const designCanvasFeatureOverrides = {
   },
   "pt-BR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Sugerir layout automático…",
+        title: "Sugerir layout automático",
+        description:
+          "Revise o layout inferido da geometria medida. Nada muda até você aplicar.",
+        preview: "Prévia do layout automático",
+        sizing: "Dimensionamento",
+        fixed: "Fixo",
+        hug: "Ajustar",
+        cancel: "Cancelar",
+        apply: "Aplicar layout automático",
+        selectContainer: "Selecione um contêiner com filhos.",
+        stale: "O contêiner mudou. Gere uma nova prévia.",
+        warnings: {
+          overlap:
+            "Alguns filhos se sobrepõem; não é seguro aplicar a proposta.",
+          irregular: "O espaçamento é irregular; a mediana é exibida.",
+          transformed: "Filhos transformados exigem revisão manual.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
@@ -9911,6 +10081,25 @@ const designCanvasFeatureOverrides = {
   },
   "hi-IN": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "ऑटो लेआउट सुझाएँ…",
+        title: "ऑटो लेआउट सुझाएँ",
+        description:
+          "मापी गई ज्यामिति से अनुमानित लेआउट देखें। लागू करने तक कुछ नहीं बदलेगा।",
+        preview: "ऑटो लेआउट पूर्वावलोकन",
+        sizing: "आकार",
+        fixed: "निश्चित",
+        hug: "सामग्री के अनुसार",
+        cancel: "रद्द करें",
+        apply: "ऑटो लेआउट लागू करें",
+        selectContainer: "बच्चों वाला एक कंटेनर चुनें।",
+        stale: "कंटेनर बदल गया है। नया सुझाव देखें।",
+        warnings: {
+          overlap: "कुछ बच्चे ओवरलैप हैं; सुझाव सुरक्षित रूप से लागू नहीं हो सकता।",
+          irregular: "अंतर अनियमित है; मध्य अंतर दिखाया गया है।",
+          transformed: "रूपांतरित बच्चों की मैन्युअल समीक्षा आवश्यक है।",
+        },
+      },
       toasts: {
         annotationSendError:
           "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
@@ -9990,6 +10179,25 @@ const designCanvasFeatureOverrides = {
   },
   "ar-SA": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "اقتراح تخطيط تلقائي…",
+        title: "اقتراح تخطيط تلقائي",
+        description:
+          "راجع التخطيط المستنتج من القياسات. لن يتغير شيء حتى تطبقه.",
+        preview: "معاينة التخطيط التلقائي",
+        sizing: "التحجيم",
+        fixed: "ثابت",
+        hug: "ملائم للمحتوى",
+        cancel: "إلغاء",
+        apply: "تطبيق التخطيط التلقائي",
+        selectContainer: "حدد حاوية واحدة تحتوي على عناصر فرعية.",
+        stale: "تغيرت الحاوية. عاين اقتراحا جديدا.",
+        warnings: {
+          overlap: "بعض العناصر متداخلة؛ لا يمكن تطبيق الاقتراح بأمان.",
+          irregular: "التباعد غير منتظم؛ تعرض الفجوة الوسيطة.",
+          transformed: "العناصر المحولة تحتاج إلى مراجعة يدوية.",
+        },
+      },
       toasts: {
         annotationSendError:
           "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
@@ -10736,10 +10944,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "套用樣式",
         previewLabel: "待處理的視覺預覽",
         applyWithAgent: "用 Design 代理套用",
+        verifying: "正在驗證來源與執行階段…",
+        retryWithAgent: "重試來源驗證",
         copyPrompt: "將提示複製給您的代理",
         abortPreview: "中止預覽並互動",
         agentMessage: "將待處理的視覺樣式編輯套用到來源。",
         sentToast: "樣式編輯已傳送給 Design 代理",
+        verifiedToast: "已驗證來源與執行階段結構",
+        conflictToast:
+          "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
+        sourceCheckFailedToast:
+          "無法驗證連接的來源檔案。預覽已保留，您可以重試或復原。",
         copiedToast: "樣式提示已複製",
         abortedToast: "待處理的預覽已捨棄",
         interactBlocked: "請先套用或中止待處理的即時編輯，再切換到互動模式。",
@@ -10760,10 +10975,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "应用样式",
         previewLabel: "待处理的视觉预览",
         applyWithAgent: "用 Design 代理应用",
+        verifying: "正在验证源文件和运行时…",
+        retryWithAgent: "重试源文件验证",
         copyPrompt: "将提示复制给你的代理",
         abortPreview: "中止预览并互动",
         agentMessage: "将待处理的视觉样式编辑应用到源文件。",
         sentToast: "样式编辑已发送给 Design 代理",
+        verifiedToast: "已验证源文件和运行时结构",
+        conflictToast:
+          "重新加载的运行时与待处理的结构编辑不匹配。预览仍可撤销；请解决源文件冲突后重试。",
+        sourceCheckFailedToast:
+          "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
         copiedToast: "样式提示已复制",
         abortedToast: "待处理的预览已丢弃",
         interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
@@ -10784,11 +11006,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Vista previa visual pendiente",
         applyWithAgent: "Aplicar con el agente de Design",
+        verifying: "Verificando el código y el runtime…",
+        retryWithAgent: "Reintentar verificación del código",
         copyPrompt: "Copiar prompt a tu agente",
         abortPreview: "Cancelar vista previa e interactuar",
         agentMessage:
           "Aplica las ediciones visuales de estilo pendientes al código fuente.",
         sentToast: "Ediciones de estilo enviadas al agente de Design",
+        verifiedToast: "Código y estructura del runtime verificados",
+        conflictToast:
+          "El runtime recargado no coincide con la edición estructural pendiente. La vista previa aún se puede deshacer; resuelve el conflicto y vuelve a intentarlo.",
+        sourceCheckFailedToast:
+          "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
         copiedToast: "Prompt de estilo copiado",
         abortedToast: "Vista previa pendiente descartada",
         interactBlocked:
@@ -10810,11 +11039,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Appliquer les styles",
         previewLabel: "Aperçu visuel en attente",
         applyWithAgent: "Appliquer avec l’agent Design",
+        verifying: "Vérification de la source et du runtime…",
+        retryWithAgent: "Réessayer la vérification de la source",
         copyPrompt: "Copier le prompt vers votre agent",
         abortPreview: "Annuler l’aperçu et interagir",
         agentMessage:
           "Appliquez les modifications visuelles de style en attente à la source.",
         sentToast: "Modifications de style envoyées à l’agent Design",
+        verifiedToast: "Source et structure du runtime vérifiées",
+        conflictToast:
+          "Le runtime rechargé ne correspond pas à la modification de structure en attente. L’aperçu reste annulable ; résolvez le conflit puis réessayez.",
+        sourceCheckFailedToast:
+          "Impossible de vérifier les fichiers source connectés. L’aperçu a été conservé pour réessayer ou annuler.",
         copiedToast: "Prompt de style copié",
         abortedToast: "Aperçu en attente supprimé",
         interactBlocked:
@@ -10836,11 +11072,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Stile anwenden",
         previewLabel: "Ausstehende visuelle Vorschau",
         applyWithAgent: "Mit Design-Agent anwenden",
+        verifying: "Quelle und Laufzeit werden überprüft…",
+        retryWithAgent: "Quellprüfung wiederholen",
         copyPrompt: "Prompt an deinen Agent kopieren",
         abortPreview: "Vorschau abbrechen und interagieren",
         agentMessage:
           "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
         sentToast: "Stiländerungen an den Design-Agent gesendet",
+        verifiedToast: "Quelle und Laufzeitstruktur überprüft",
+        conflictToast:
+          "Die neu geladene Laufzeit stimmt nicht mit der ausstehenden Strukturänderung überein. Die Vorschau kann weiterhin rückgängig gemacht werden; löse den Konflikt und versuche es erneut.",
+        sourceCheckFailedToast:
+          "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
         copiedToast: "Stil-Prompt kopiert",
         abortedToast: "Ausstehende Vorschau verworfen",
         interactBlocked:
@@ -10862,11 +11105,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "スタイルを適用",
         previewLabel: "保留中のビジュアルプレビュー",
         applyWithAgent: "Design エージェントで適用",
+        verifying: "ソースとランタイムを検証中…",
+        retryWithAgent: "ソース検証を再試行",
         copyPrompt: "エージェントにプロンプトをコピー",
         abortPreview: "プレビューを中止して操作",
         agentMessage:
           "保留中のビジュアルスタイル編集をソースに適用してください。",
         sentToast: "スタイル編集を Design エージェントに送信しました",
+        verifiedToast: "ソースとランタイム構造を検証しました",
+        conflictToast:
+          "再読み込みしたランタイムが保留中の構造編集と一致しません。プレビューは元に戻せます。ソースの競合を解決して再試行してください。",
+        sourceCheckFailedToast:
+          "接続されたソースファイルを検証できませんでした。再試行または元に戻せるよう、プレビューは保持されています。",
         copiedToast: "スタイルプロンプトをコピーしました",
         abortedToast: "保留中のプレビューを破棄しました",
         interactBlocked:
@@ -10888,10 +11138,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "스타일 적용",
         previewLabel: "보류 중인 시각 미리보기",
         applyWithAgent: "Design 에이전트로 적용",
+        verifying: "소스와 런타임 확인 중…",
+        retryWithAgent: "소스 확인 다시 시도",
         copyPrompt: "에이전트에 프롬프트 복사",
         abortPreview: "미리보기를 중단하고 상호작용",
         agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
         sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        verifiedToast: "소스와 런타임 구조를 확인했습니다",
+        conflictToast:
+          "다시 로드된 런타임이 보류 중인 구조 편집과 일치하지 않습니다. 미리보기는 계속 실행 취소할 수 있으니 소스 충돌을 해결한 뒤 다시 시도하세요.",
+        sourceCheckFailedToast:
+          "연결된 소스 파일을 확인할 수 없습니다. 다시 시도하거나 실행 취소할 수 있도록 미리보기를 유지했습니다.",
         copiedToast: "스타일 프롬프트가 복사되었습니다",
         abortedToast: "보류 중인 미리보기를 버렸습니다",
         interactBlocked:
@@ -10913,11 +11170,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Prévia visual pendente",
         applyWithAgent: "Aplicar com o agente Design",
+        verifying: "Verificando origem e runtime…",
+        retryWithAgent: "Tentar verificar a origem novamente",
         copyPrompt: "Copiar prompt para seu agente",
         abortPreview: "Cancelar prévia e interagir",
         agentMessage:
           "Aplique as edições visuais de estilo pendentes à origem.",
         sentToast: "Edições de estilo enviadas ao agente Design",
+        verifiedToast: "Origem e estrutura do runtime verificadas",
+        conflictToast:
+          "O runtime recarregado não corresponde à edição estrutural pendente. A prévia ainda pode ser desfeita; resolva o conflito e tente novamente.",
+        sourceCheckFailedToast:
+          "Não foi possível verificar os arquivos de origem conectados. A prévia foi mantida para tentar novamente ou desfazer.",
         copiedToast: "Prompt de estilo copiado",
         abortedToast: "Prévia pendente descartada",
         interactBlocked:
@@ -10939,10 +11203,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Styles लागू करें",
         previewLabel: "लंबित visual preview",
         applyWithAgent: "Design agent से लागू करें",
+        verifying: "Source और runtime सत्यापित हो रहे हैं…",
+        retryWithAgent: "Source verification फिर करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
         abortPreview: "Preview रोकें और interact करें",
         agentMessage: "लंबित visual style edits को source पर लागू करें।",
         sentToast: "Style edits Design agent को भेजे गए",
+        verifiedToast: "Source और runtime structure सत्यापित हैं",
+        conflictToast:
+          "Reload हुआ runtime pending structure edit से मेल नहीं खाता। Preview अभी भी undo किया जा सकता है; source conflict हल करके फिर कोशिश करें।",
+        sourceCheckFailedToast:
+          "Connected source files सत्यापित नहीं हो सके। Retry या undo के लिए preview रखा गया है।",
         copiedToast: "Style prompt कॉपी हुआ",
         abortedToast: "लंबित preview हटा दिया गया",
         interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
@@ -10963,10 +11234,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "تطبيق الأنماط",
         previewLabel: "معاينة مرئية معلقة",
         applyWithAgent: "تطبيق عبر وكيل Design",
+        verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
+        retryWithAgent: "إعادة التحقق من المصدر",
         copyPrompt: "نسخ الموجه إلى وكيلك",
         abortPreview: "إلغاء المعاينة والتفاعل",
         agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
         sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        verifiedToast: "تم التحقق من المصدر وبنية وقت التشغيل",
+        conflictToast:
+          "لا يطابق وقت التشغيل المعاد تحميله تعديل البنية المعلق. لا تزال المعاينة قابلة للتراجع؛ عالج تعارض المصدر ثم أعد المحاولة.",
+        sourceCheckFailedToast:
+          "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
         copiedToast: "تم نسخ موجه النمط",
         abortedToast: "تم تجاهل المعاينة المعلقة",
         interactBlocked:
@@ -12441,6 +12719,7 @@ const designFramePresetsOverrides = {
           watch: "手表",
           paper: "纸张",
           socialMedia: "社交媒体",
+          adUnit: "广告单元",
         },
       },
     },
@@ -12457,6 +12736,7 @@ const designFramePresetsOverrides = {
           watch: "Reloj",
           paper: "Papel",
           socialMedia: "Redes sociales",
+          adUnit: "Unidad de anuncio",
         },
       },
     },
@@ -12473,6 +12753,7 @@ const designFramePresetsOverrides = {
           watch: "Montre",
           paper: "Papier",
           socialMedia: "Réseaux sociaux",
+          adUnit: "Unité publicitaire",
         },
       },
     },
@@ -12489,6 +12770,7 @@ const designFramePresetsOverrides = {
           watch: "Uhr",
           paper: "Papier",
           socialMedia: "Soziale Medien",
+          adUnit: "Anzeigenformat",
         },
       },
     },
@@ -12505,6 +12787,7 @@ const designFramePresetsOverrides = {
           watch: "ウォッチ",
           paper: "用紙",
           socialMedia: "ソーシャルメディア",
+          adUnit: "広告ユニット",
         },
       },
     },
@@ -12521,6 +12804,7 @@ const designFramePresetsOverrides = {
           watch: "시계",
           paper: "용지",
           socialMedia: "소셜 미디어",
+          adUnit: "광고 단위",
         },
       },
     },
@@ -12537,6 +12821,7 @@ const designFramePresetsOverrides = {
           watch: "Relógio",
           paper: "Papel",
           socialMedia: "Redes sociais",
+          adUnit: "Unidade de anúncio",
         },
       },
     },
@@ -12553,6 +12838,7 @@ const designFramePresetsOverrides = {
           watch: "वॉच",
           paper: "पेपर",
           socialMedia: "सोशल मीडिया",
+          adUnit: "विज्ञापन इकाई",
         },
       },
     },
@@ -12569,6 +12855,7 @@ const designFramePresetsOverrides = {
           watch: "الساعة",
           paper: "الورق",
           socialMedia: "وسائل التواصل الاجتماعي",
+          adUnit: "وحدة إعلانية",
         },
       },
     },

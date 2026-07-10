@@ -22,6 +22,8 @@ import { fileURLToPath } from "url";
 
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "../agent/durable-background.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
@@ -2344,6 +2346,11 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
+  const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const backgroundProcessorField = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_FIELD,
+  );
+  const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2355,6 +2362,18 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
+const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
+const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+
+function isA2AProcessorBody(body) {
+  if (!body) return false;
+  try {
+    return JSON.parse(body)?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A;
+  } catch {
+    return false;
+  }
+}
 
 let cachedHandler;
 
@@ -2370,11 +2389,14 @@ export default async function handler(request, context) {
   try {
     cachedHandler ??= (await import("./main.mjs")).default;
     const url = new URL(request.url);
-    url.pathname = PROCESS_RUN_PATH;
     // Read the body once and pass it through. GET/HEAD have no body.
     const method = request.method || "POST";
     const hasBody = method !== "GET" && method !== "HEAD";
     const body = hasBody ? await request.text() : undefined;
+    url.pathname = PROCESS_RUN_PATH;
+    if (isA2AProcessorBody(body)) {
+      url.pathname = A2A_PROCESS_TASK_PATH;
+    }
     const rewritten = new Request(url.toString(), {
       method,
       headers: request.headers,
@@ -2526,6 +2548,18 @@ export function assertSingleTemplateNetlifyBuildOutput(
 ): void {
   const failures: string[] = [];
   const publishDir = path.join(projectCwd, "dist");
+  const workspaceAppBasePath =
+    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
+    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+      ? normalizeConfiguredAppBasePath()
+      : "";
+  const assetsRelativeDir = workspaceAppBasePath
+    ? path.join(workspaceAppBasePath.slice(1), "assets")
+    : "assets";
+  const assetsDisplayPath = path
+    .join("dist", assetsRelativeDir)
+    .split(path.sep)
+    .join("/");
   const redirectsPath = path.join(publishDir, "_redirects");
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverDir = path.join(internalDir, "server");
@@ -2535,13 +2569,13 @@ export function assertSingleTemplateNetlifyBuildOutput(
   if (!fs.existsSync(publishDir)) {
     failures.push("missing publish directory: dist");
   } else {
-    const assetsDir = path.join(publishDir, "assets");
+    const assetsDir = path.join(publishDir, assetsRelativeDir);
     if (
       !fs.existsSync(assetsDir) ||
       fs.readdirSync(assetsDir).every((name) => name.startsWith("."))
     ) {
       failures.push(
-        "dist/assets is missing hashed client assets — the publish dir would load an infinite spinner",
+        `${assetsDisplayPath} is missing hashed client assets — the publish dir would load an infinite spinner`,
       );
     }
   }

@@ -12,12 +12,22 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { buildCodeLayerProjection } from "../shared/code-layer.js";
+
 const mockRow = {
   id: "file_1",
   designId: "design_1",
   filename: "index.html",
   fileType: "html",
   content: "<div>hi</div>",
+};
+
+/** Matches the `source` triple `resolveFigmaSvgNodeSelector` builds from `file`/`designId`. */
+const MOCK_SOURCE = {
+  kind: "design-file" as const,
+  designId: "design_1",
+  fileId: "file_1",
+  filename: "index.html",
 };
 
 function chainable(rows: unknown[]) {
@@ -65,11 +75,23 @@ vi.mock("../server/lib/design-export.js", () => ({
 }));
 
 const renderDesignToFigmaSvg = vi.fn();
+const { MockFigmaSvgRootSelectorNotFoundError } = vi.hoisted(() => {
+  class MockFigmaSvgRootSelectorNotFoundError extends Error {
+    constructor(rootSelector: string) {
+      super(`No element matched rootSelector "${rootSelector}"`);
+      this.name = "FigmaSvgRootSelectorNotFoundError";
+    }
+  }
+  return { MockFigmaSvgRootSelectorNotFoundError };
+});
 vi.mock("../server/lib/design-to-figma-svg.js", () => ({
   renderDesignToFigmaSvg: (...args: unknown[]) =>
     renderDesignToFigmaSvg(...args),
   safeFigmaSvgFilename: (title?: string | null) =>
     `${title ?? "design"}-figma-123.svg`,
+  FigmaSvgRootSelectorNotFoundError: MockFigmaSvgRootSelectorNotFoundError,
+  isMissingRootSelectorError: (err: unknown) =>
+    err instanceof MockFigmaSvgRootSelectorNotFoundError,
 }));
 
 vi.mock("../server/lib/playwright-runtime.js", () => ({
@@ -159,6 +181,12 @@ describe("export-design-as-figma-svg action.run", () => {
   });
 
   it("returns the svg, report, and filename on success", async () => {
+    fileRows = [
+      {
+        ...mockRow,
+        content: '<div data-agent-native-node-id="node_1">hi</div>',
+      },
+    ];
     renderDesignToFigmaSvg.mockResolvedValueOnce({
       svg: "<svg></svg>",
       report: {
@@ -194,5 +222,146 @@ describe("export-design-as-figma-svg action.run", () => {
         rootSelector: '[data-agent-native-node-id="node_1"]',
       }),
     );
+    fileRows = [mockRow];
+  });
+
+  it("resolves a live-DOM code-layer id (no persisted attribute) to the node's own selector path instead of 500ing", async () => {
+    const content = '<div class="outer"><p class="target">Target</p></div>';
+    const projection = buildCodeLayerProjection(content, {
+      source: MOCK_SOURCE,
+    });
+    const targetNode = projection.nodes.find((n) => n.tag === "p");
+    expect(targetNode).toBeTruthy();
+    expect(targetNode!.dataAttributes["data-agent-native-node-id"]).toBe(
+      undefined,
+    );
+
+    fileRows = [{ ...mockRow, content }];
+    renderDesignToFigmaSvg.mockResolvedValueOnce({
+      svg: "<svg></svg>",
+      report: {
+        vectorized: [],
+        approximated: [],
+        rasterized: [],
+        omitted: [],
+        warnings: [],
+        vectorizedTextCaveat: "...",
+      },
+    });
+    await action.run(
+      {
+        designId: "design_1",
+        filename: "index.html",
+        nodeId: targetNode!.id, // the live-DOM "html:<hash>" id, not a persisted attribute
+      } as never,
+      {} as never,
+    );
+    expect(renderDesignToFigmaSvg).toHaveBeenCalledWith(
+      expect.objectContaining({ rootSelector: targetNode!.path }),
+    );
+    fileRows = [mockRow];
+  });
+
+  it("fails soft (whole-screen export + report warning) instead of 500ing on an unresolvable nodeId", async () => {
+    fileRows = [{ ...mockRow, content: "<div>hi</div>" }];
+    renderDesignToFigmaSvg.mockResolvedValueOnce({
+      svg: "<svg></svg>",
+      report: {
+        vectorized: ["root"],
+        approximated: [],
+        rasterized: [],
+        omitted: [],
+        warnings: [],
+        vectorizedTextCaveat: "...",
+      },
+    });
+    const result = (await action.run(
+      {
+        designId: "design_1",
+        filename: "index.html",
+        nodeId: "html:stale-live-dom-id",
+      } as never,
+      {} as never,
+    )) as { ok: boolean; report: { warnings: string[] } };
+    expect(result.ok).toBe(true);
+    expect(renderDesignToFigmaSvg).toHaveBeenCalledWith(
+      expect.objectContaining({ rootSelector: null }),
+    );
+    expect(
+      result.report.warnings.some((w) => w.includes("html:stale-live-dom-id")),
+    ).toBe(true);
+    fileRows = [mockRow];
+  });
+
+  it("retries the whole screen (never 500s) when the resolved selector still misses at render time", async () => {
+    fileRows = [
+      {
+        ...mockRow,
+        content: '<div data-agent-native-node-id="node_1">hi</div>',
+      },
+    ];
+    renderDesignToFigmaSvg
+      .mockRejectedValueOnce(
+        new MockFigmaSvgRootSelectorNotFoundError(
+          '[data-agent-native-node-id="node_1"]',
+        ),
+      )
+      .mockResolvedValueOnce({
+        svg: "<svg></svg>",
+        report: {
+          vectorized: ["root"],
+          approximated: [],
+          rasterized: [],
+          omitted: [],
+          warnings: [],
+          vectorizedTextCaveat: "...",
+        },
+      });
+    const callsBefore = renderDesignToFigmaSvg.mock.calls.length;
+    const result = (await action.run(
+      {
+        designId: "design_1",
+        filename: "index.html",
+        nodeId: "node_1",
+      } as never,
+      {} as never,
+    )) as { ok: boolean; report: { warnings: string[] } };
+    expect(result.ok).toBe(true);
+    expect(renderDesignToFigmaSvg.mock.calls.length - callsBefore).toBe(2);
+    expect(renderDesignToFigmaSvg).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rootSelector: null }),
+    );
+    expect(result.report.warnings.some((w) => w.includes("node_1"))).toBe(true);
+    fileRows = [mockRow];
+  });
+
+  it("prefers the design's saved canvas-frame width/height over the 1440x1200 default", async () => {
+    designRows = [
+      {
+        title: "My Screen",
+        data: JSON.stringify({
+          canvasFrames: { file_1: { width: 400, height: 300 } },
+        }),
+      },
+    ];
+    renderDesignToFigmaSvg.mockResolvedValueOnce({
+      svg: "<svg></svg>",
+      report: {
+        vectorized: ["root"],
+        approximated: [],
+        rasterized: [],
+        omitted: [],
+        warnings: [],
+        vectorizedTextCaveat: "...",
+      },
+    });
+    await action.run(
+      { designId: "design_1", filename: "index.html" } as never,
+      {} as never,
+    );
+    expect(renderDesignToFigmaSvg).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 400, height: 300 }),
+    );
+    designRows = [{ title: "My Screen" }];
   });
 });

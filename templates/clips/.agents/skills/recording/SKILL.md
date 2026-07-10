@@ -67,6 +67,18 @@ idempotent (already-seekable clips are skipped unless `--force`) and only touche
 provider-hosted clips owned by the caller. This is the right tool when a user
 reports a specific slow/buffering clip.
 
+Seekability remuxing cannot repair a recording whose audio continues while the
+video track has a large timestamp gap (common when a mobile browser suspends the
+camera after the user switches apps). For a clip that freezes or appears to stop
+before its declared duration, call `reprocess-recording` with
+`--normalizeTimeline=true`. That explicit mode uses the same owner-scoped fetch
+and upload flow but fully transcodes to a constant-30-fps faststart MP4 (H.264 +
+AAC). It preserves audio and duplicates the last decoded video frame through
+missing-frame gaps. The action uploads to a new media object and atomically
+repoints the row only after verified output is stored; any transcode, audio
+verification, upload, or concurrent-update failure leaves the original URL and
+format untouched.
+
 ## Loom import
 
 Use `import-loom-recording` for Loom share or embed URLs. The action validates

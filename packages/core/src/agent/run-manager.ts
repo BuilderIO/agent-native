@@ -14,6 +14,7 @@ import {
   cleanupOldRuns,
   updateRunHeartbeat,
   bumpRunProgress,
+  setRunInFlightMarker,
   reapIfStale,
   reapUnclaimedBackgroundRun,
   shouldRedispatchUnclaimedBackgroundRun,
@@ -619,6 +620,7 @@ export function startRun(
   let lastRealProgressAt = Date.now();
   let inFlightWorkCount = 0;
   const trackInFlightWork = (event: AgentChatEvent) => {
+    const wasIdle = inFlightWorkCount === 0;
     if (event.type === "tool_start") {
       inFlightWorkCount += 1;
     } else if (event.type === "tool_done") {
@@ -629,6 +631,23 @@ export function startRun(
       } else {
         inFlightWorkCount = Math.max(0, inFlightWorkCount - 1);
       }
+    } else {
+      return; // Not a work-tracking event — no transition possible.
+    }
+    // Mirror the 0<->N transition into SQL so a stale reaper running in a
+    // DIFFERENT isolate (a client's SQL-subscription poll, a sibling
+    // isolate's opportunistic cleanup, a fresh boot's startup sweep) can
+    // grant this demonstrably-alive run a bounded grace even when THIS
+    // isolate's own heartbeat write is failing (e.g. Neon pooler saturation)
+    // — `inFlightWorkCount` itself is in-memory and invisible to those other
+    // isolates. Fire-and-forget: never block event emission on this write,
+    // and a write failure here is no worse than today's behavior (the row
+    // just gets no grace). See `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS`
+    // in run-store.ts for the full reasoning and the bounded-grace derivation.
+    if (wasIdle && inFlightWorkCount > 0) {
+      setRunInFlightMarker(runId, true).catch(() => {});
+    } else if (!wasIdle && inFlightWorkCount === 0) {
+      setRunInFlightMarker(runId, false).catch(() => {});
     }
   };
   const checkNoProgressBackstop = () => {
@@ -1401,7 +1420,11 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
  * dead even before the server-side stale reap has fired. Returns
  * `lastProgressAt` so the client-side stuck-detector can show a
  * user-visible "this chat looks stuck" affordance when a run is alive
- * (heartbeating) but not actually emitting events.
+ * (heartbeating) but not actually emitting events. Returns
+ * `awaitingRedispatch` so the client's background follow loop can tell a
+ * legitimately-deferred `chainServerDrivenContinuation` successor (recovery
+ * in progress server-side) apart from a genuinely dead run — see this
+ * field's own doc comment below.
  */
 export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   runId: string;
@@ -1420,6 +1443,37 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
    * diagnosable from the client WITHOUT the unreadable bg-fn logs.
    */
   diagStage?: string | null;
+  /**
+   * True exactly when this run is a `chainServerDrivenContinuation` deferral
+   * (dispatch_mode === 'background', never claimed) still inside
+   * `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` — the same condition this
+   * function already uses below to skip its own `reapUnclaimedBackgroundRun`.
+   * Surfaced on `/runs/active` (agent-chat-plugin.ts) so
+   * `agent-chat-adapter.ts`'s follow loop can tell "silently deferred,
+   * server-side recovery in progress" apart from "dead" and stop counting the
+   * quiet gap against its idle timeout — see the THREE-SITE INVARIANT comment
+   * below and in agent-chat-plugin.ts / production-agent.ts. Always false for
+   * an in-memory run (that isolate IS the live producer) and for any run that
+   * isn't an unclaimed background dispatch.
+   */
+  awaitingRedispatch: boolean;
+  /**
+   * True exactly when this run's `in_flight_since` marker is set — a tool
+   * call or A2A `agent_call` delegation is open and has not yet resolved
+   * (see `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS` in
+   * run-store.ts). This is the SAME signal `reapIfStale` reads to grant its
+   * bounded stale-reap grace — computed here from the identical
+   * `in_flight_since` column via `getRunByThread`, never re-derived, so the
+   * client and the reaper cannot disagree about what "in flight" means.
+   *
+   * Surfaced on `/runs/active` (agent-chat-plugin.ts) as the
+   * server-authoritative alternative to the client-side proxy
+   * `RunStuckBanner` currently infers from unresolved `tool-call` content
+   * parts in the local message list — that proxy can go stale after a
+   * reconnect or reader-mode replay; this cannot, because it is read fresh
+   * from SQL on every poll.
+   */
+  hasInFlightWork: boolean;
 } | null> {
   // Check memory first — return both running AND recently-completed runs
   // that still have events in memory. This allows sub-agent tabs to replay
@@ -1452,6 +1506,18 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       dispatchMode: sqlSnapshot?.dispatchMode ?? null,
       terminalReason: sqlSnapshot?.terminalReason ?? null,
       diagStage: sqlSnapshot?.diagStage ?? null,
+      // In-memory means this isolate is the live producer — never the
+      // "deferred, nobody producing" state this flag identifies.
+      awaitingRedispatch: false,
+      // Read from the SAME SQL snapshot the other fields above already read
+      // (`fetchRunThreadSnapshot` -> `getRunByThread`) rather than the
+      // producer's own in-memory `inFlightWorkCount` — this isolate IS the
+      // live producer, but there is no separate in-memory channel wired for
+      // that counter today, and the SQL marker is written on every 0<->N
+      // transition (see run-manager's `trackInFlightWork`), so it is at most
+      // one event behind here — the same tolerance `lastProgressAt` above
+      // already accepts.
+      hasInFlightWork: sqlSnapshot?.inFlightSince != null,
     };
   }
   // Fall back to SQL — also surface recently terminated runs so the client
@@ -1494,12 +1560,17 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       // follow loop AUTO-continues — and once the redispatch bound is exceeded
       // this reap fires loudly as before. So recovery stays automatic in the
       // common case and loud failure is only moved later, never removed.
-      if (
-        sqlRun.dispatchMode === "background" &&
-        !shouldRedispatchUnclaimedBackgroundRun({
-          startedAt: sqlRun.startedAt,
-        })
-      ) {
+      //
+      // `isUnclaimedBackgroundDispatch` also becomes the `awaitingRedispatch`
+      // wire field below once the still-inside-the-bound check passes — see
+      // this function's doc comment and the THREE-SITE INVARIANT comment in
+      // agent-chat-plugin.ts / production-agent.ts.
+      const isUnclaimedBackgroundDispatch =
+        sqlRun.dispatchMode === "background";
+      const stillInsideRedispatchBound = shouldRedispatchUnclaimedBackgroundRun(
+        { startedAt: sqlRun.startedAt },
+      );
+      if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
         const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
           () => false,
         );
@@ -1520,6 +1591,12 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         dispatchMode: sqlRun.dispatchMode,
         terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
+        awaitingRedispatch:
+          isUnclaimedBackgroundDispatch && stillInsideRedispatchBound,
+        // Same `in_flight_since` column `reapIfStale` (just called above,
+        // and it did NOT reap this row) reads for its own grace decision —
+        // one source of truth, not a second re-derived notion of "in flight".
+        hasInFlightWork: sqlRun.inFlightSince != null,
       };
     }
     if (sqlRun.status === "completed" || sqlRun.status === "errored") {
@@ -1548,6 +1625,10 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         dispatchMode: sqlRun.dispatchMode,
         terminalReason: sqlRun.terminalReason,
         diagStage: sqlRun.diagStage,
+        // Terminal already — never the "still deferred, running" state.
+        awaitingRedispatch: false,
+        // Terminal already — no live work can still be in flight.
+        hasInFlightWork: false,
       };
     }
   } catch {
@@ -1575,15 +1656,35 @@ export function getRun(runId: string): ActiveRun | null {
   return activeRuns.get(runId) ?? null;
 }
 
-/** Explicitly abort a run (e.g. Stop button) */
-export function abortRun(runId: string, reason: string = "user"): boolean {
+function abortRunInMemory(runId: string, reason: string): boolean {
   const run = activeRuns.get(runId);
   if (run) {
     abortInMemoryRun(run, reason);
   }
+  return !!run;
+}
+
+/** Explicitly abort a run (e.g. Stop button). */
+export function abortRun(runId: string, reason: string = "user"): boolean {
+  const abortedInMemory = abortRunInMemory(runId, reason);
   // Also mark as aborted in SQL (for cross-isolate abort on Workers)
   markRunAborted(runId, reason).catch(() => {});
-  return !!run;
+  return abortedInMemory;
+}
+
+/**
+ * Abort a run and wait until the cross-isolate SQL state and terminal event
+ * are durable. Request handlers that start recovery immediately after aborting
+ * must use this path; otherwise the recovery POST can race the old row while
+ * it is still marked running.
+ */
+export async function abortRunDurably(
+  runId: string,
+  reason: string = "user",
+): Promise<boolean> {
+  const abortedInMemory = abortRunInMemory(runId, reason);
+  await markRunAborted(runId, reason);
+  return abortedInMemory;
 }
 
 // Re-export so callers can avoid importing from run-store directly.

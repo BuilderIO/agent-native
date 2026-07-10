@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -781,6 +782,12 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain(`<base href="${base}/">`);
       expect(html.body).toContain('src="/src/main.ts"');
       expect(html.body).toContain("agent-native:editor-chrome-ready");
+      const previewSessionCookie = (
+        Array.isArray(html.headers["set-cookie"])
+          ? html.headers["set-cookie"][0]
+          : html.headers["set-cookie"]
+      )?.split(";")[0];
+      expect(previewSessionCookie).toContain("agent-native-preview-token=");
 
       const interactHtml = await getText(
         `${base}/live-edit?path=/dashboard&bridge=0&previewToken=${bridge.previewToken}`,
@@ -793,9 +800,9 @@ describe("design connect bridge endpoints", () => {
       );
 
       const module = await getText(`${base}/src/main.ts`, {
-        "sec-fetch-site": "same-origin",
+        "sec-fetch-site": "cross-site",
         "sec-fetch-dest": "script",
-        cookie: "pilot_session=must-not-forward",
+        cookie: `${previewSessionCookie}; pilot_session=must-not-forward`,
         authorization: "Bearer example-must-not-forward",
       });
       expect(module.status).toBe(200);
@@ -822,6 +829,298 @@ describe("design connect bridge endpoints", () => {
       );
       expect(panOnlyHtml.body).toContain("embedded-canvas-pan");
     } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("keeps cookie and bearer auth shared across authenticated live-edit routes", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const seen: Array<{
+      method: string;
+      url: string;
+      cookie?: string;
+      authorization?: string;
+      origin?: string;
+      body: string;
+    }> = [];
+    const devServer = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        seen.push({
+          method: req.method ?? "",
+          url: req.url ?? "",
+          cookie:
+            typeof req.headers.cookie === "string"
+              ? req.headers.cookie
+              : undefined,
+          authorization:
+            typeof req.headers.authorization === "string"
+              ? req.headers.authorization
+              : undefined,
+          origin:
+            typeof req.headers.origin === "string"
+              ? req.headers.origin
+              : undefined,
+          body,
+        });
+        if (req.url === "/api/login" && req.method === "POST") {
+          res.writeHead(303, {
+            location: "/dashboard",
+            "set-cookie": [
+              "preview_session=server-session; HttpOnly; Path=/; SameSite=Lax",
+              "csrf=server-csrf; Path=/; SameSite=Lax",
+            ],
+          });
+          res.end();
+          return;
+        }
+        if (req.url === "/login" && req.method === "GET") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end("<!doctype html><html><body>Sign in</body></html>");
+          return;
+        }
+        if (req.url === "/dashboard") {
+          const authenticated = req.headers.cookie?.includes(
+            "preview_session=server-session",
+          );
+          res.writeHead(authenticated ? 200 : 401, {
+            "content-type": "text/html; charset=utf-8",
+          });
+          res.end(
+            authenticated
+              ? "<!doctype html><html><body>Authenticated dashboard</body></html>"
+              : "Signed out",
+          );
+          return;
+        }
+        if (req.url === "/api/me") {
+          const cookie = req.headers.cookie ?? "";
+          const authorized =
+            cookie.includes("preview_session=server-session") &&
+            cookie.includes("client_pref=updated") &&
+            req.headers.authorization === "Bearer local-storage-token";
+          res.writeHead(authorized ? 200 : 401, {
+            "content-type": "application/json",
+          });
+          res.end(JSON.stringify({ authorized }));
+          return;
+        }
+        res.writeHead(404).end();
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const primed = await getText(
+        `${base}/live-edit?path=/login&previewToken=${bridge.previewToken}`,
+      );
+      const previewSessionCookie = (
+        Array.isArray(primed.headers["set-cookie"])
+          ? primed.headers["set-cookie"].find((value) =>
+              value.startsWith("agent-native-preview-token="),
+            )
+          : primed.headers["set-cookie"]
+      )?.split(";")[0];
+      expect(previewSessionCookie).toContain("agent-native-preview-token=");
+      const login = await fetch(`${base}/api/login`, {
+        method: "POST",
+        redirect: "follow",
+        headers: {
+          "content-type": "application/json",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-dest": "document",
+          cookie: `${previewSessionCookie}; client_pref=initial`,
+        },
+        body: JSON.stringify({ email: "designer@example.test" }),
+      });
+      expect(login.status).toBe(200);
+      expect(await login.text()).toContain("Authenticated dashboard");
+      expect(login.headers.getSetCookie().join("\n")).toContain(
+        "preview_session=server-session",
+      );
+
+      // A second URL-backed screen shares the bridge's isolated upstream jar.
+      // A client-side document.cookie update and localStorage bearer token are
+      // merged only for this same-origin app request.
+      const me = await fetch(`${base}/api/me`, {
+        headers: {
+          "sec-fetch-site": "same-origin",
+          cookie: `${previewSessionCookie}; csrf=server-csrf; client_pref=updated`,
+          authorization: "Bearer local-storage-token",
+        },
+      });
+      expect(me.status).toBe(200);
+      expect(await me.json()).toEqual({ authorized: true });
+
+      const loginRequest = seen.find((request) => request.url === "/api/login");
+      expect(loginRequest).toMatchObject({
+        method: "POST",
+        origin: `http://127.0.0.1:${devPort}`,
+        body: JSON.stringify({ email: "designer@example.test" }),
+      });
+      const dashboardRequest = seen.find(
+        (request) => request.url === "/dashboard",
+      );
+      expect(dashboardRequest?.cookie).toContain(
+        "preview_session=server-session",
+      );
+      const meRequest = seen.find((request) => request.url === "/api/me");
+      expect(meRequest?.cookie).toContain("client_pref=updated");
+      expect(meRequest?.authorization).toBe("Bearer local-storage-token");
+
+      const oversizedStatus = await new Promise<number>((resolve, reject) => {
+        const request = http.request(
+          `${base}/api/login`,
+          {
+            method: "POST",
+            headers: {
+              "content-length": String(8 * 1024 * 1024 + 1),
+              "sec-fetch-site": "same-origin",
+              cookie: previewSessionCookie,
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () => resolve(response.statusCode ?? 0));
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(oversizedStatus).toBe(413);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("tunnels same-origin Vite HMR WebSocket upgrades to the connected dev server", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const upgradeRequests: Array<{
+      url?: string;
+      host?: string;
+      origin?: string;
+    }> = [];
+    const phases: string[] = [];
+    const upgradeSockets = new Set<{ destroy(): void }>();
+    const devServer = http.createServer((_req, res) =>
+      res.writeHead(404).end(),
+    );
+    devServer.on("upgrade", (req, socket) => {
+      phases.push("upstream-upgrade");
+      upgradeSockets.add(socket);
+      socket.once("close", () => upgradeSockets.delete(socket));
+      upgradeRequests.push({
+        url: req.url,
+        host: req.headers.host,
+        origin:
+          typeof req.headers.origin === "string"
+            ? req.headers.origin
+            : undefined,
+      });
+      const key = String(req.headers["sec-websocket-key"] ?? "");
+      const accept = crypto
+        .createHash("sha1")
+        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest("base64");
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+          "Upgrade: websocket\r\n" +
+          "Connection: Upgrade\r\n" +
+          `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    let pendingClientRequest: ReturnType<typeof http.request> | null = null;
+    try {
+      const bridgeOrigin = `http://127.0.0.1:${port}`;
+      const statusPromise = new Promise<number>((resolve, reject) => {
+        phases.push("client-request");
+        const request = http.request({
+          hostname: "127.0.0.1",
+          port,
+          path: "/@vite/client?token=hmr-token",
+          headers: {
+            connection: "Upgrade",
+            upgrade: "websocket",
+            origin: bridgeOrigin,
+            cookie: `agent-native-preview-token=${bridge.previewToken}`,
+            "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "sec-websocket-version": "13",
+          },
+        });
+        pendingClientRequest = request;
+        request.on("upgrade", (response, socket) => {
+          phases.push("client-upgrade");
+          resolve(response.statusCode ?? 0);
+          socket.destroy();
+        });
+        request.on("response", (response) => {
+          phases.push(`client-response-${response.statusCode}`);
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        });
+        request.on("error", (error) => {
+          phases.push(`client-error-${error.message}`);
+          reject(error);
+        });
+        request.end();
+      });
+      const status = await Promise.race([
+        statusPromise,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error(`upgrade stalled: ${phases.join(", ")}`)),
+            2_000,
+          ),
+        ),
+      ]);
+      expect(status).toBe(101);
+      expect(upgradeRequests).toEqual([
+        {
+          url: "/@vite/client?token=hmr-token",
+          host: `127.0.0.1:${devPort}`,
+          origin: `http://127.0.0.1:${devPort}`,
+        },
+      ]);
+    } finally {
+      pendingClientRequest?.destroy();
+      for (const socket of upgradeSockets) socket.destroy();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );

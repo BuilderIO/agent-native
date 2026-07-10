@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  callAction: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client")>();
+  return { ...actual, callAction: mocks.callAction };
+});
+
 import {
   FIGMA_ACCESS_TOKEN_SECRET_KEY,
   getFigmaConnectionStatus,
@@ -16,6 +26,7 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 }
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -58,6 +69,41 @@ describe("Figma connection client", () => {
       expect.stringContaining("/_agent-native/secrets"),
       expect.objectContaining({ method: "GET", credentials: "same-origin" }),
     );
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a managed request-scoped credential without exposing metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse([
+          {
+            key: FIGMA_ACCESS_TOKEN_SECRET_KEY,
+            label: "Figma access token",
+            description: "Connect Figma files.",
+            status: "unset",
+          },
+        ]),
+      ),
+    );
+    mocks.callAction.mockResolvedValue({ available: true });
+
+    await expect(getFigmaConnectionStatus()).resolves.toEqual({
+      connected: true,
+      status: "set",
+      key: FIGMA_ACCESS_TOKEN_SECRET_KEY,
+      label: "Figma access token",
+      description: "Connect Figma files.",
+      docsUrl: undefined,
+      last4: undefined,
+      updatedAt: undefined,
+      managed: true,
+    });
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-figma-connection-status",
+      {},
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it.each(["unset", "invalid"] as const)(
@@ -75,6 +121,7 @@ describe("Figma connection client", () => {
           ]),
         ),
       );
+      mocks.callAction.mockResolvedValue({ available: false });
 
       await expect(getFigmaConnectionStatus()).resolves.toMatchObject({
         connected: false,
@@ -82,6 +129,27 @@ describe("Figma connection client", () => {
       });
     },
   );
+
+  it("does not mask an invalid user token with a managed fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse([
+          {
+            key: FIGMA_ACCESS_TOKEN_SECRET_KEY,
+            label: "Figma access token",
+            status: "invalid",
+          },
+        ]),
+      ),
+    );
+
+    await expect(getFigmaConnectionStatus()).resolves.toMatchObject({
+      connected: false,
+      status: "invalid",
+    });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
 
   it("saves through the registered-secret route, then returns refreshed status", async () => {
     const fetchMock = vi

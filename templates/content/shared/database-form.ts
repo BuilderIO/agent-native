@@ -18,9 +18,7 @@ export function contentDatabaseFormQuestions(
   const availableKeys = [
     "name",
     ...properties
-      .filter(
-        (property) => !isComputedPropertyType(property.definition.type),
-      )
+      .filter((property) => !isComputedPropertyType(property.definition.type))
       .map((property) => property.definition.id),
   ];
   const available = new Set(availableKeys);

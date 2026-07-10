@@ -18,7 +18,11 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
+import {
+  AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_CHAT_PROCESS_RUN_PATH,
+} from "../agent/durable-background.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -746,6 +750,7 @@ function emitNetlifyBackgroundFunction(
   // The function is reached at its default url, so the entry rewrites the
   // incoming pathname to `/<app>/_agent-native/agent-chat/_process-run`.
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
+  const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
   const server = `// Mark this isolate as the durable background runtime BEFORE the handler bundle
 // is imported, so isInBackgroundFunctionRuntime() reliably returns true in this
 // function (the deployed Lambda name is not guaranteed to end in -background). A
@@ -756,6 +761,18 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 const basePath = ${JSON.stringify(basePath)};
 // The base-path-prefixed framework route the Nitro router dispatches to.
 const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
+const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
+const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+
+function isA2AProcessorBody(body) {
+  if (!body) return false;
+  try {
+    return JSON.parse(body)?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A;
+  } catch {
+    return false;
+  }
+}
 
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
@@ -790,10 +807,13 @@ export default async function handler(request) {
   setBasePathEnv();
   cachedHandler ??= (await import("./main.mjs")).default;
   const url = new URL(request.url);
-  url.pathname = PROCESS_RUN_PATH;
   const method = request.method || "POST";
   const hasBody = method !== "GET" && method !== "HEAD";
   const body = hasBody ? await request.text() : undefined;
+  url.pathname = PROCESS_RUN_PATH;
+  if (isA2AProcessorBody(body)) {
+    url.pathname = A2A_PROCESS_TASK_PATH;
+  }
   const rewritten = new Request(url.toString(), {
     method,
     headers: request.headers,

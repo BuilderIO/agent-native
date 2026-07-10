@@ -8,6 +8,7 @@ import http, {
   type Server,
   type ServerResponse,
 } from "node:http";
+import https from "node:https";
 import path from "node:path";
 
 const DEFAULT_BRIDGE_PORT = 7331;
@@ -142,6 +143,7 @@ export interface DesignConnectBridgeOptions {
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const PREVIEW_SESSION_COOKIE_NAME = "agent-native-preview-token";
 
 /**
  * Derive a read-only preview credential from the stronger filesystem token.
@@ -749,9 +751,10 @@ function configureBridgeCors(
   (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] = approved
     ? {
         "access-control-allow-origin": origin,
-        "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
+        "access-control-allow-methods":
+          "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
         "access-control-allow-headers":
-          "content-type, x-bridge-token, x-design-preview-token",
+          "authorization, content-type, x-bridge-token, x-design-preview-token, x-csrf-token, x-xsrf-token, x-requested-with",
         "access-control-allow-private-network": "true",
         vary: "Origin",
       }
@@ -780,9 +783,11 @@ function sendText(
   statusCode: number,
   body: string,
   contentType: string,
+  setCookieHeaders: string[] = [],
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
+    ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
     ...bridgeCorsHeaders(res),
   });
   res.end(body);
@@ -794,10 +799,12 @@ function sendBytes(
   body: Buffer,
   headers: Headers,
   contentLength = body.length,
+  setCookieHeaders: string[] = [],
 ) {
-  const responseHeaders: Record<string, string> = {
+  const responseHeaders: Record<string, string | string[]> = {
     ...bridgeCorsHeaders(res),
     "content-length": String(contentLength),
+    ...(setCookieHeaders.length > 0 ? { "set-cookie": setCookieHeaders } : {}),
   };
   for (const name of [
     "content-type",
@@ -842,23 +849,247 @@ function readHeader(req: IncomingMessage, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function readRequestCookie(req: IncomingMessage, name: string): string {
+  for (const rawPair of readHeader(req, "cookie").split(";")) {
+    const pair = rawPair.trim();
+    const separator = pair.indexOf("=");
+    if (separator <= 0 || pair.slice(0, separator).trim() !== name) continue;
+    return pair.slice(separator + 1).trim();
+  }
+  return "";
+}
+
+function previewSessionSetCookie(previewToken: string): string {
+  // Partitioned SameSite=None keeps the read-only bridge credential available
+  // to nested Design frames without granting an unpartitioned third-party
+  // cookie. Loopback origins are potentially trustworthy in Chromium, which
+  // permits Secure cookies for local development.
+  return `${PREVIEW_SESSION_COOKIE_NAME}=${previewToken}; HttpOnly; Path=/; SameSite=None; Secure; Partitioned`;
+}
+
 /**
- * Preserve only the browser request metadata a local dev server needs to
- * classify Vite source-module and stylesheet requests. Agent Native's dev
- * gateway intentionally varies source-file handling by `Sec-Fetch-Dest`; if
- * the bridge drops it, React Router module URLs such as `/app/root.tsx` fall
- * through to Nitro and 404. Keep this allowlist narrow: cookies, authorization,
- * bridge tokens, origins, and referrers must never be forwarded upstream.
+ * Preserve only browser metadata a local dev server needs to classify module
+ * requests and parse ordinary same-origin app mutations. Browser cookies and
+ * Authorization are forwarded only when Sec-Fetch-Site says the request came
+ * from the proxied app itself; cross-site callers cannot relay them. Bridge
+ * control tokens and referrers are never forwarded, and mutation origins are
+ * replaced with the connected dev-server origin. Cookie-backed login also
+ * uses the isolated in-memory upstream jar below so iframe cookie restrictions
+ * cannot split the session across URL-backed screens.
  */
 function previewProxyRequestHeaders(
   req: IncomingMessage,
+  devServerUrl: string,
+  cookieHeader = "",
 ): Record<string, string> {
   const headers: Record<string, string> = {};
-  for (const name of ["accept", "sec-fetch-dest"] as const) {
+  for (const name of [
+    "accept",
+    "accept-language",
+    "content-type",
+    "sec-fetch-dest",
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "x-csrf-token",
+    "x-xsrf-token",
+    "x-requested-with",
+  ] as const) {
     const value = readHeader(req, name);
     if (value) headers[name] = value;
   }
+  const browserSameOrigin = readHeader(req, "sec-fetch-site") === "same-origin";
+  const browserCookie = browserSameOrigin ? readHeader(req, "cookie") : "";
+  const mergedCookie = mergePreviewCookieHeaders(cookieHeader, browserCookie);
+  if (mergedCookie) headers["cookie"] = mergedCookie;
+  // Same-origin app code may use localStorage-backed bearer auth. Forward it
+  // only from a browser request already classified as same-origin; cross-site
+  // callers still authenticate to the bridge with the separate preview token,
+  // which is never copied upstream.
+  if (browserSameOrigin) {
+    const authorization = readHeader(req, "authorization");
+    if (authorization && authorization.length <= 16 * 1024) {
+      headers["authorization"] = authorization;
+    }
+  }
+  if (req.method && !["GET", "HEAD"].includes(req.method)) {
+    headers["origin"] = new URL(devServerUrl).origin;
+  }
   return headers;
+}
+
+function mergePreviewCookieHeaders(
+  jarCookieHeader: string,
+  browserCookieHeader: string,
+): string {
+  const values = new Map<string, string>();
+  const absorb = (header: string) => {
+    if (!header || Buffer.byteLength(header) > MAX_PREVIEW_COOKIE_BYTES) return;
+    for (const rawPair of header.split(";")) {
+      const pair = rawPair.trim();
+      const separator = pair.indexOf("=");
+      if (separator <= 0) continue;
+      const name = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+      if (/^(?:x-)?agent-native-(?:bridge|preview)(?:-|$)/i.test(name)) {
+        continue;
+      }
+      values.set(name, value);
+    }
+  };
+  absorb(jarCookieHeader);
+  // A client-readable same-origin cookie is allowed to update the jar's stale
+  // value for this request. HttpOnly cookies arrive with the same value and
+  // remain effectively jar-owned.
+  absorb(browserCookieHeader);
+  return [...values].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
+const MAX_PREVIEW_SESSION_COOKIES = 128;
+const MAX_PREVIEW_COOKIE_BYTES = 8 * 1024;
+
+type PreviewSessionCookie = {
+  name: string;
+  value: string;
+  path: string;
+  secure: boolean;
+  expiresAt?: number;
+};
+
+function responseSetCookieHeaders(headers: Headers): string[] {
+  const withGetSetCookie = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  if (typeof withGetSetCookie.getSetCookie === "function") {
+    return withGetSetCookie.getSetCookie();
+  }
+  const single = headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
+function defaultCookiePath(url: URL): string {
+  const pathname = url.pathname || "/";
+  const lastSlash = pathname.lastIndexOf("/");
+  return lastSlash <= 0 ? "/" : pathname.slice(0, lastSlash);
+}
+
+function sanitizedBridgeSetCookie(raw: string): string {
+  return raw
+    .split(";")
+    .filter((part) => !/^\s*domain\s*=/i.test(part))
+    .join(";");
+}
+
+/**
+ * Ephemeral cookie session for one connected dev-server origin. Cookies never
+ * enter SQL, disk, logs, or another target origin, and disappear when the
+ * local bridge exits. This keeps authenticated URL screens in one bridge
+ * process on the same upstream session even when browser third-party-cookie
+ * rules would otherwise isolate or reject the nested iframe cookies.
+ */
+class PreviewSessionCookieJar {
+  private readonly origin: string;
+  private readonly cookies = new Map<string, PreviewSessionCookie>();
+
+  constructor(devServerUrl: string) {
+    this.origin = new URL(devServerUrl).origin;
+  }
+
+  store(headers: Headers, responseUrl: string): string[] {
+    const parsedUrl = new URL(responseUrl);
+    if (parsedUrl.origin !== this.origin) return [];
+    const browserCookies: string[] = [];
+    for (const raw of responseSetCookieHeaders(headers)) {
+      if (!raw || Buffer.byteLength(raw) > MAX_PREVIEW_COOKIE_BYTES) continue;
+      const parts = raw.split(";");
+      const first = parts.shift()?.trim() ?? "";
+      const separator = first.indexOf("=");
+      if (separator <= 0) continue;
+      const name = first.slice(0, separator).trim();
+      const value = first.slice(separator + 1).trim();
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+      let cookiePath = defaultCookiePath(parsedUrl);
+      let secure = false;
+      let expiresAt: number | undefined;
+      let deleteCookie = false;
+      for (const attribute of parts) {
+        const trimmed = attribute.trim();
+        const equals = trimmed.indexOf("=");
+        const key = (equals < 0 ? trimmed : trimmed.slice(0, equals))
+          .trim()
+          .toLowerCase();
+        const attributeValue =
+          equals < 0 ? "" : trimmed.slice(equals + 1).trim();
+        if (key === "path" && attributeValue.startsWith("/")) {
+          cookiePath = attributeValue;
+        } else if (key === "secure") {
+          secure = true;
+        } else if (key === "max-age") {
+          const seconds = Number(attributeValue);
+          if (Number.isFinite(seconds)) {
+            deleteCookie = seconds <= 0;
+            expiresAt = Date.now() + seconds * 1000;
+          }
+        } else if (key === "expires" && expiresAt === undefined) {
+          const parsed = Date.parse(attributeValue);
+          if (Number.isFinite(parsed)) expiresAt = parsed;
+        }
+      }
+      const mapKey = `${cookiePath}\u0000${name}`;
+      if (
+        deleteCookie ||
+        (expiresAt !== undefined && expiresAt <= Date.now())
+      ) {
+        this.cookies.delete(mapKey);
+      } else {
+        this.cookies.delete(mapKey);
+        this.cookies.set(mapKey, {
+          name,
+          value,
+          path: cookiePath,
+          secure,
+          ...(expiresAt !== undefined ? { expiresAt } : {}),
+        });
+        while (this.cookies.size > MAX_PREVIEW_SESSION_COOKIES) {
+          const oldest = this.cookies.keys().next().value;
+          if (typeof oldest !== "string") break;
+          this.cookies.delete(oldest);
+        }
+      }
+      browserCookies.push(sanitizedBridgeSetCookie(raw));
+    }
+    return browserCookies;
+  }
+
+  headerFor(targetUrl: string): string {
+    const parsed = new URL(targetUrl);
+    if (parsed.origin !== this.origin) return "";
+    const now = Date.now();
+    const matches: PreviewSessionCookie[] = [];
+    for (const [key, cookie] of this.cookies) {
+      if (cookie.expiresAt !== undefined && cookie.expiresAt <= now) {
+        this.cookies.delete(key);
+        continue;
+      }
+      if (
+        cookie.secure &&
+        parsed.protocol !== "https:" &&
+        !isLoopbackOrigin(parsed)
+      ) {
+        continue;
+      }
+      const pathMatches =
+        cookie.path === "/" ||
+        parsed.pathname === cookie.path ||
+        (cookie.path.endsWith("/")
+          ? parsed.pathname.startsWith(cookie.path)
+          : parsed.pathname.startsWith(`${cookie.path}/`));
+      if (!pathMatches) continue;
+      matches.push(cookie);
+    }
+    matches.sort((a, b) => b.path.length - a.path.length);
+    return matches.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  }
 }
 
 function resolvePreviewSnapshotUrl(
@@ -897,12 +1128,14 @@ function resolvePreviewProxyUrl(
 async function fetchPreviewSnapshot(
   devServerUrl: string,
   targetUrl: string,
+  cookieJar?: PreviewSessionCookieJar,
   redirects = 0,
 ): Promise<{
   url: string;
   status: number;
   contentType: string;
   html: string;
+  setCookieHeaders: string[];
 }> {
   if (redirects > 5) {
     throw new Error("Too many redirects while fetching preview snapshot.");
@@ -916,8 +1149,13 @@ async function fetchPreviewSnapshot(
       signal: controller.signal,
       headers: {
         accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        ...(cookieJar?.headerFor(targetUrl)
+          ? { cookie: cookieJar.headerFor(targetUrl) }
+          : {}),
       },
     });
+    const setCookieHeaders =
+      cookieJar?.store(response.headers, targetUrl) ?? [];
     const location = response.headers.get("location");
     if (location && response.status >= 300 && response.status < 400) {
       const redirected = new URL(location, targetUrl);
@@ -928,6 +1166,7 @@ async function fetchPreviewSnapshot(
       return fetchPreviewSnapshot(
         devServerUrl,
         redirected.toString(),
+        cookieJar,
         redirects + 1,
       );
     }
@@ -936,6 +1175,7 @@ async function fetchPreviewSnapshot(
       status: response.status,
       contentType: response.headers.get("content-type") ?? "",
       html: await response.text(),
+      setCookieHeaders,
     };
   } finally {
     clearTimeout(timeout);
@@ -945,13 +1185,19 @@ async function fetchPreviewSnapshot(
 async function fetchPreviewProxyResource(
   devServerUrl: string,
   targetUrl: string,
-  requestHeaders: Record<string, string> = {},
+  request: {
+    method: string;
+    headers?: Record<string, string>;
+    body?: Buffer;
+  },
+  cookieJar?: PreviewSessionCookieJar,
   redirects = 0,
 ): Promise<{
   url: string;
   status: number;
   headers: Headers;
   body: Buffer;
+  setCookieHeaders: string[];
 }> {
   if (redirects > 5) {
     throw new Error("Too many redirects while proxying preview resource.");
@@ -960,11 +1206,17 @@ async function fetchPreviewProxyResource(
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch(targetUrl, {
-      method: "GET",
+      method: request.method,
       redirect: "manual",
       signal: controller.signal,
-      headers: requestHeaders,
+      headers: request.headers,
+      body:
+        request.method === "GET" || request.method === "HEAD"
+          ? undefined
+          : request.body,
     });
+    const setCookieHeaders =
+      cookieJar?.store(response.headers, targetUrl) ?? [];
     const location = response.headers.get("location");
     if (location && response.status >= 300 && response.status < 400) {
       const redirected = new URL(location, targetUrl);
@@ -972,18 +1224,40 @@ async function fetchPreviewProxyResource(
       if (!sameOrigin(redirected.toString(), devServerUrl)) {
         throw new Error("Proxy redirect left the connected dev server.");
       }
-      return fetchPreviewProxyResource(
+      const switchToGet =
+        response.status === 303 ||
+        ((response.status === 301 || response.status === 302) &&
+          request.method === "POST");
+      const redirectedResponse = await fetchPreviewProxyResource(
         devServerUrl,
         redirected.toString(),
-        requestHeaders,
+        {
+          method: switchToGet ? "GET" : request.method,
+          headers: {
+            ...(request.headers ?? {}),
+            ...(cookieJar?.headerFor(redirected.toString())
+              ? { cookie: cookieJar.headerFor(redirected.toString()) }
+              : {}),
+          },
+          body: switchToGet ? undefined : request.body,
+        },
+        cookieJar,
         redirects + 1,
       );
+      return {
+        ...redirectedResponse,
+        setCookieHeaders: [
+          ...setCookieHeaders,
+          ...redirectedResponse.setCookieHeaders,
+        ],
+      };
     }
     return {
       url: response.url || targetUrl,
       status: response.status,
       headers: response.headers,
       body: Buffer.from(await response.arrayBuffer()),
+      setCookieHeaders,
     };
   } finally {
     clearTimeout(timeout);
@@ -1058,6 +1332,50 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+const MAX_PREVIEW_PROXY_REQUEST_BYTES = 8 * 1024 * 1024;
+
+class PreviewProxyRequestTooLargeError extends Error {}
+
+async function readPreviewProxyRequestBody(
+  req: IncomingMessage,
+): Promise<Buffer> {
+  const declaredLength = Number(readHeader(req, "content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_PREVIEW_PROXY_REQUEST_BYTES
+  ) {
+    throw new PreviewProxyRequestTooLargeError(
+      "Preview request body exceeds the 8 MB limit.",
+    );
+  }
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let tooLarge = false;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_PREVIEW_PROXY_REQUEST_BYTES) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      if (!tooLarge) chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (tooLarge) {
+        reject(
+          new PreviewProxyRequestTooLargeError(
+            "Preview request body exceeds the 8 MB limit.",
+          ),
+        );
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
     req.on("error", reject);
   });
 }
@@ -1869,6 +2187,9 @@ export async function startDesignConnectBridge(
   // registered" (id changed, safe to transparently re-POST `/live-edit-bridge`
   // and retry) — instead of guessing from the error text or retrying forever.
   const bridgeInstanceId = crypto.randomBytes(16).toString("hex");
+  const previewSessionCookies = new PreviewSessionCookieJar(
+    manifest.devServerUrl,
+  );
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
@@ -1889,6 +2210,7 @@ export async function startDesignConnectBridge(
       const providedPreviewToken =
         readHeader(req, "x-design-preview-token") ||
         requestUrl.searchParams.get("previewToken") ||
+        readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
         "";
       const previewTokenValid = constantTimeTokenMatches(
         providedPreviewToken,
@@ -2010,6 +2332,7 @@ export async function startDesignConnectBridge(
             const snapshot = await fetchPreviewSnapshot(
               manifest.devServerUrl,
               targetUrl,
+              previewSessionCookies,
             );
             const includeEditorBridge =
               requestUrl.searchParams.get("bridge") !== "0";
@@ -2058,6 +2381,10 @@ export async function startDesignConnectBridge(
               snapshot.contentType.includes("html")
                 ? snapshot.contentType
                 : "text/html; charset=utf-8",
+              [
+                ...snapshot.setCookieHeaders,
+                previewSessionSetCookie(previewToken),
+              ],
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -2084,6 +2411,7 @@ export async function startDesignConnectBridge(
             const snapshot = await fetchPreviewSnapshot(
               manifest.devServerUrl,
               targetUrl,
+              previewSessionCookies,
             );
             sendJson(res, snapshot.status >= 400 ? snapshot.status : 200, {
               ok: snapshot.status < 400,
@@ -2344,10 +2672,11 @@ export async function startDesignConnectBridge(
         return;
       }
 
-      if (req.method === "GET" || req.method === "HEAD") {
-        const sameOriginPreviewSubresource =
-          readHeader(req, "sec-fetch-site") === "same-origin";
-        if (!previewTokenValid && !sameOriginPreviewSubresource) {
+      if (
+        req.method &&
+        ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(req.method)
+      ) {
+        if (!previewTokenValid) {
           sendJson(res, 401, {
             ok: false,
             error: "invalid or missing preview token",
@@ -2356,27 +2685,66 @@ export async function startDesignConnectBridge(
         }
         void (async () => {
           try {
+            const proxyRequestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+            proxyRequestUrl.searchParams.delete("previewToken");
             const targetUrl = resolvePreviewProxyUrl(
               manifest.devServerUrl,
-              req.url,
+              `${proxyRequestUrl.pathname}${proxyRequestUrl.search}`,
             );
+            const method = req.method ?? "GET";
+            const requestBody =
+              method === "GET" || method === "HEAD"
+                ? undefined
+                : await readPreviewProxyRequestBody(req);
+            const cookieHeader = previewSessionCookies.headerFor(targetUrl);
             const proxied = await fetchPreviewProxyResource(
               manifest.devServerUrl,
               targetUrl,
-              previewProxyRequestHeaders(req),
+              {
+                method,
+                headers: previewProxyRequestHeaders(
+                  req,
+                  manifest.devServerUrl,
+                  cookieHeader,
+                ),
+                body: requestBody,
+              },
+              previewSessionCookies,
             );
+            const contentType = proxied.headers.get("content-type") ?? "";
+            const documentNavigation =
+              readHeader(req, "sec-fetch-dest") === "document";
+            const responseBody =
+              documentNavigation && contentType.includes("html")
+                ? Buffer.from(
+                    injectLiveEditBridge(
+                      proxied.body.toString("utf8"),
+                      new URL("/", manifest.bridgeUrl).toString(),
+                      liveEditBridgeScript,
+                      (() => {
+                        const parsed = new URL(proxied.url);
+                        return `${parsed.pathname}${parsed.search}` || "/";
+                      })(),
+                    ),
+                  )
+                : proxied.body;
             sendBytes(
               res,
-              proxied.status >= 400 ? proxied.status : 200,
-              req.method === "HEAD" ? Buffer.alloc(0) : proxied.body,
+              proxied.status,
+              method === "HEAD" ? Buffer.alloc(0) : responseBody,
               proxied.headers,
-              proxied.body.length,
+              responseBody.length,
+              proxied.setCookieHeaders,
             );
           } catch (err: unknown) {
-            sendJson(res, 400, {
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            });
+            sendJson(
+              res,
+              err instanceof PreviewProxyRequestTooLargeError ? 413 : 400,
+              {
+                ok: false,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
           }
         })();
         return;
@@ -2385,6 +2753,105 @@ export async function startDesignConnectBridge(
       sendJson(res, 404, { ok: false, error: "not found" });
     },
   );
+
+  // Vite's proxied /@vite/client derives its HMR socket from the document's
+  // bridge origin. Tunnel WebSocket upgrades to the one connected dev-server
+  // origin so Fast Refresh remains live inside URL-backed screens. The target
+  // is never caller-controlled, bridge credentials are stripped, and only a
+  // same-origin iframe (or an explicit preview-token caller) can open it.
+  server.on("upgrade", (req, clientSocket, clientHead) => {
+    const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+    const providedPreviewToken =
+      readHeader(req, "x-design-preview-token") ||
+      requestUrl.searchParams.get("previewToken") ||
+      readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
+      "";
+    const browserOrigin = readHeader(req, "origin");
+    const sameBridgeOrigin =
+      browserOrigin === new URL(manifest.bridgeUrl).origin;
+    if (!constantTimeTokenMatches(providedPreviewToken, previewToken)) {
+      clientSocket.end(
+        "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+      );
+      return;
+    }
+    requestUrl.searchParams.delete("previewToken");
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(
+        resolvePreviewProxyUrl(
+          manifest.devServerUrl,
+          `${requestUrl.pathname}${requestUrl.search}`,
+        ),
+      );
+    } catch {
+      clientSocket.end(
+        "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+      );
+      return;
+    }
+
+    const upstreamHeaders = { ...req.headers };
+    delete upstreamHeaders["x-bridge-token"];
+    delete upstreamHeaders["x-design-preview-token"];
+    delete upstreamHeaders["authorization"];
+    delete upstreamHeaders["cookie"];
+    upstreamHeaders.host = targetUrl.host;
+    upstreamHeaders.origin = new URL(manifest.devServerUrl).origin;
+    const cookie = mergePreviewCookieHeaders(
+      previewSessionCookies.headerFor(targetUrl.toString()),
+      sameBridgeOrigin ? readHeader(req, "cookie") : "",
+    );
+    if (cookie) upstreamHeaders.cookie = cookie;
+
+    const requestImpl = targetUrl.protocol === "https:" ? https : http;
+    const upstreamRequest = requestImpl.request({
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port,
+      path: `${targetUrl.pathname}${targetUrl.search}`,
+      method: "GET",
+      headers: upstreamHeaders,
+    });
+    upstreamRequest.on(
+      "upgrade",
+      (upstreamResponse, upstreamSocket, upstreamHead) => {
+        const statusLine = `HTTP/1.1 ${upstreamResponse.statusCode ?? 101} ${upstreamResponse.statusMessage || "Switching Protocols"}\r\n`;
+        const headerLines: string[] = [];
+        for (
+          let index = 0;
+          index < upstreamResponse.rawHeaders.length;
+          index += 2
+        ) {
+          const name = upstreamResponse.rawHeaders[index];
+          const value = upstreamResponse.rawHeaders[index + 1];
+          if (name && value !== undefined)
+            headerLines.push(`${name}: ${value}`);
+        }
+        clientSocket.write(`${statusLine}${headerLines.join("\r\n")}\r\n\r\n`);
+        if (clientHead.length > 0) upstreamSocket.write(clientHead);
+        if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+        clientSocket.once("close", () => upstreamSocket.destroy());
+        upstreamSocket.once("close", () => clientSocket.destroy());
+        upstreamSocket.pipe(clientSocket);
+        clientSocket.pipe(upstreamSocket);
+      },
+    );
+    upstreamRequest.on("response", (upstreamResponse) => {
+      clientSocket.end(
+        `HTTP/1.1 ${upstreamResponse.statusCode ?? 502} ${upstreamResponse.statusMessage || "WebSocket upgrade failed"}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+      );
+      upstreamResponse.resume();
+    });
+    upstreamRequest.on("error", () => {
+      if (!clientSocket.destroyed) {
+        clientSocket.end(
+          "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
+      }
+    });
+    upstreamRequest.end();
+  });
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

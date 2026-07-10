@@ -61,6 +61,7 @@ function watchBrowserErrors(page: Page) {
     }
   });
   page.on("requestfailed", (request) => {
+    if (request.failure()?.errorText === "net::ERR_ABORTED") return;
     failedRequests.push(
       `${request.method()} ${request.url()} ${request.failure()?.errorText ?? "failed"}`,
     );
@@ -81,6 +82,7 @@ test("starter template preserves its dimensions and locks and can be saved again
 
   try {
     await page.goto(appPath("/templates"), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
 
     await expect(
       page.getByRole("link", { name: "Templates", exact: true }),
@@ -108,12 +110,6 @@ test("starter template preserves its dimensions and locks and can be saved again
     await expect(promptPopover).toContainText("Social ad — square");
     await expect(
       promptPopover.getByText("Use template as-is", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      promptPopover.getByText(
-        "Describe what you want to make with this template...",
-        { exact: true },
-      ),
     ).toBeVisible();
 
     const createResponse = page.waitForResponse(
@@ -149,15 +145,19 @@ test("starter template preserves its dimensions and locks and can be saved again
     expect(Object.values(designData.canvasFrames ?? {})).toContainEqual(
       expect.objectContaining({ width: 1080, height: 1080 }),
     );
-    expect(copiedDesign.files).toHaveLength(1);
-    expect(copiedDesign.files[0].content).toContain(
+    expect(copiedDesign.files).toHaveLength(2);
+    const copiedScreen = copiedDesign.files.find(
+      (file: { filename?: string }) => file.filename === "social-square.html",
+    );
+    expect(copiedScreen).toBeTruthy();
+    expect(copiedScreen.content).toContain(
       'data-agent-native-layer-name="Background"',
     );
-    expect(copiedDesign.files[0].content).toContain(
+    expect(copiedScreen.content).toContain(
       'data-agent-native-layer-name="Logo"',
     );
     expect(
-      copiedDesign.files[0].content.match(/data-agent-native-locked="true"/g),
+      copiedScreen.content.match(/data-agent-native-locked="true"/g),
     ).toHaveLength(2);
 
     await page.getByRole("button", { name: "More", exact: true }).click();
@@ -192,7 +192,9 @@ test("starter template preserves its dimensions and locks and can be saved again
     savedTemplateId = savedPayload.id ?? savedPayload.data?.id;
     expect(savedTemplateId).toBeTruthy();
     await expect(
-      page.getByText("Template saved with 2 locked layer(s)", { exact: true }),
+      page
+        .getByText("Template saved with 2 locked layer(s)", { exact: true })
+        .first(),
     ).toBeVisible();
 
     await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {

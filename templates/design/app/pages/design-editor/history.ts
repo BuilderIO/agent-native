@@ -25,6 +25,41 @@ export interface FileCreationHistoryEntry {
   geometry?: CanvasFrameGeometry;
 }
 
+export interface FileDeletionHistorySnapshot {
+  id: string;
+  filename: string;
+  content: string;
+  fileType: string;
+  createdAt: string;
+  updatedAt: string;
+  geometry?: CanvasFrameGeometry;
+}
+
+export interface FileDeletionHistoryEntry {
+  files: FileDeletionHistorySnapshot[];
+}
+
+export function filterFileDeletionHistoryEntry(
+  entry: FileDeletionHistoryEntry,
+  fileIds: ReadonlySet<string>,
+): FileDeletionHistoryEntry {
+  return {
+    files: entry.files.filter((file) => fileIds.has(file.id)),
+  };
+}
+
+export function remapFileDeletionHistoryEntryIds(
+  entry: FileDeletionHistoryEntry,
+  fileIds: readonly string[],
+): FileDeletionHistoryEntry {
+  return {
+    files: entry.files.flatMap((file, index) => {
+      const id = fileIds[index];
+      return id ? [{ ...file, id }] : [];
+    }),
+  };
+}
+
 export function pruneFileCreationHistoryStack(
   stack: FileCreationHistoryEntry[],
   deletedFilenames: Set<string>,
@@ -67,13 +102,34 @@ export function pruneGeometryHistoryEntryForDeletedFiles(
     }
   }
   if (!hasRemainingChange) return null;
+  const pruneSelection = (
+    selection: GeometryHistorySelection | undefined,
+  ): GeometryHistorySelection | undefined => {
+    if (!selection) return undefined;
+    const activeFileDeleted =
+      !!selection.activeFileId && deletedFileIds.has(selection.activeFileId);
+    return {
+      overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
+        (fileId) => !deletedFileIds.has(fileId),
+      ),
+      // Layer ids are scoped to the active file. Once that file is deleted,
+      // retaining them makes a later undo/redo try to restore selection to a
+      // non-existent iframe and can visibly snap the inspector/canvas before
+      // reconciliation clears it. If the active file survives, its layer ids
+      // remain valid and should be preserved.
+      selectedLayerIds: activeFileDeleted ? [] : selection.selectedLayerIds,
+      activeFileId: activeFileDeleted ? null : selection.activeFileId,
+    };
+  };
   return {
     before,
     after,
     ...(entry.selectionBefore
-      ? { selectionBefore: entry.selectionBefore }
+      ? { selectionBefore: pruneSelection(entry.selectionBefore)! }
       : {}),
-    ...(entry.selectionAfter ? { selectionAfter: entry.selectionAfter } : {}),
+    ...(entry.selectionAfter
+      ? { selectionAfter: pruneSelection(entry.selectionAfter)! }
+      : {}),
   };
 }
 
@@ -154,6 +210,12 @@ export function findLastContentHistoryChangeIndex(
     if (stack[index]?.fileId === fileId) return index;
   }
   return -1;
+}
+
+export function contentHistoryScopeForViewMode(
+  viewMode: "single" | "overview",
+): "local" | "global" {
+  return viewMode === "overview" ? "global" : "local";
 }
 
 export function mergeLocalContentHistoryFallback(

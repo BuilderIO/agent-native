@@ -128,7 +128,8 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-vi.mock("../shared/code-layer.js", () => ({
+vi.mock("../shared/code-layer.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../shared/code-layer.js")>()),
   applyVisualEdit: mocks.applyVisualEdit,
 }));
 

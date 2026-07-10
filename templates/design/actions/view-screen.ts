@@ -18,8 +18,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
-import { designGenerationSessionKey } from "../shared/generation-session.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import { designGenerationSessionKey } from "../shared/generation-session.js";
 
 function stringProp(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;

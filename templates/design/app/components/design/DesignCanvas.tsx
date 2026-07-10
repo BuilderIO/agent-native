@@ -95,6 +95,7 @@ import type {
   ElementSelectionIntent,
   DeviceFrameType,
   RuntimeStructureMoveRequest,
+  RuntimeVerificationRequest,
 } from "./types";
 
 /**
@@ -327,6 +328,13 @@ interface DesignCanvasProps {
   onRuntimeLayerSnapshot?: (snapshot: {
     html: string;
     nodeCount: number;
+    documentId?: string;
+  }) => void;
+  onRuntimeVerificationSnapshot?: (snapshot: {
+    requestId: number;
+    html: string;
+    nodeCount: number;
+    documentId?: string;
   }) => void;
   /**
    * Explicit Builder-hosted app URL for fusion source rendering.
@@ -392,6 +400,9 @@ interface DesignCanvasProps {
   } | null;
   /** One-shot host request to optimistically move a runtime-only layer. */
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
+  /** Mounts a separate hidden runtime only after a guarded source hash
+   * changes. The editable iframe remains untouched and fully undoable. */
+  runtimeVerificationRequest?: RuntimeVerificationRequest | null;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
@@ -918,6 +929,7 @@ export function DesignCanvas({
   externalSnapshotHtml,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onRuntimeVerificationSnapshot,
   fusionUrl,
   previewToken,
   zoom,
@@ -932,6 +944,7 @@ export function DesignCanvas({
   textRevertRequest,
   structureAckRequest,
   runtimeStructureMoveRequest,
+  runtimeVerificationRequest,
   embeddedFrameBackground,
   transparentBackground = false,
   editorChromeScaleX = 1,
@@ -995,6 +1008,7 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const runtimeVerificationIframeRef = useRef<HTMLIFrameElement>(null);
   const embeddedCanvasPanSessionRef = useRef<EmbeddedCanvasPanSession | null>(
     null,
   );
@@ -1241,8 +1255,10 @@ export function DesignCanvas({
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
         "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
         "false",
-      ).replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false"),
-    [],
+      )
+        .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
+        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
+    [interactMode],
   );
   const includeLiveEditEditorChrome = !interactMode && !readOnly;
   const liveEditBridgeScript = useMemo(
@@ -1325,6 +1341,10 @@ export function DesignCanvas({
       : activeExternalSnapshotHtml
         ? null
         : rawExternalPreviewUrl);
+  const runtimeVerificationUrl = useMemo(() => {
+    if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
+    return externalPreviewUrl;
+  }, [externalPreviewUrl, runtimeVerificationRequest]);
   // Source hydration is parallel and must never block or replace the one live
   // iframe. Apply-to-source remains guarded until the callback has populated
   // DesignEditor's source snapshot.
@@ -2058,6 +2078,45 @@ export function DesignCanvas({
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       const iframeWindow = iframeRef.current?.contentWindow;
+      const runtimeVerificationWindow =
+        runtimeVerificationIframeRef.current?.contentWindow;
+      const trustedRuntimeVerificationFrame =
+        runtimeVerificationRequest !== null &&
+        runtimeVerificationRequest !== undefined &&
+        runtimeVerificationWindow !== null &&
+        isTrustedCanvasBridgeMessage({
+          source: e.source,
+          origin: e.origin,
+          iframeWindow: runtimeVerificationWindow,
+          parentOrigin: window.location.origin,
+          allowedOrigins:
+            sourceType === "localhost" && bridgeUrl
+              ? [originFromUrl(bridgeUrl)].filter((origin): origin is string =>
+                  Boolean(origin),
+                )
+              : [],
+        });
+      if (trustedRuntimeVerificationFrame) {
+        if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
+        const payload = e.data.payload;
+        if (
+          payload &&
+          typeof payload.html === "string" &&
+          payload.html.length <= 2_000_000 &&
+          Number.isFinite(payload.nodeCount)
+        ) {
+          onRuntimeVerificationSnapshot?.({
+            requestId: runtimeVerificationRequest.requestId,
+            html: payload.html,
+            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+            documentId:
+              typeof payload.documentId === "string"
+                ? payload.documentId
+                : undefined,
+          });
+        }
+        return;
+      }
       const lateReadyRecovery =
         e.data?.type === "agent-native:editor-chrome-ready"
           ? lateLiveEditReadyRecoveryRef.current
@@ -2105,6 +2164,16 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:runtime-reloading") {
+        // A local dev server full reload is unavoidable after some source
+        // writes. Keep the last authenticated snapshot painted instead of
+        // exposing the iframe's blank navigation frame; the replacement
+        // document's ready handshake clears this fallback again.
+        if (usesLiveEditEditorBridge) {
+          setReadyIframeDocumentIdentity(null);
+        }
+        return;
+      }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;
         if (
@@ -2116,6 +2185,10 @@ export function DesignCanvas({
           onRuntimeLayerSnapshot?.({
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+            documentId:
+              typeof payload.documentId === "string"
+                ? payload.documentId
+                : undefined,
           });
         }
         return;
@@ -2603,6 +2676,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onRuntimeVerificationSnapshot,
     onElementMarqueeSelect,
     onElementHover,
     onClearSelection,
@@ -2625,6 +2699,7 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    runtimeVerificationRequest,
     fusionUrl,
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,
@@ -3755,6 +3830,28 @@ export function DesignCanvas({
         }}
         title={t("designEditor.designPreview")}
       />
+      {runtimeVerificationUrl ? (
+        <iframe
+          key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
+          ref={runtimeVerificationIframeRef}
+          src={runtimeVerificationUrl}
+          sandbox={getDesignCanvasIframeSandbox({
+            externalPreview: true,
+            readOnly: true,
+          })}
+          data-runtime-verification-iframe
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none fixed border-0 opacity-0"
+          style={{
+            left: -100_000,
+            top: -100_000,
+            width: embeddedFrame?.viewportWidth ?? previewWidthPx ?? 1280,
+            height: embeddedFrame?.viewportHeight ?? 900,
+          }}
+          title=""
+        />
+      ) : null}
       {/* Single-screen click-to-place creation overlay — sits over the
           iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
           below. Only mounts while a creation tool is active so it never

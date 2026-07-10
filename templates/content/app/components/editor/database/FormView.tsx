@@ -1,5 +1,16 @@
 import { useT } from "@agent-native/core/client";
-import { IconCheck, IconChevronDown, IconExternalLink } from "@tabler/icons-react";
+import type {
+  ContentDatabaseView,
+  DocumentProperty,
+  DocumentPropertyOption,
+  DocumentPropertyValue,
+} from "@shared/api";
+import { contentDatabaseFormQuestions } from "@shared/database-form";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -14,13 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSubmitContentDatabaseForm } from "@/hooks/use-content-database";
 import { cn } from "@/lib/utils";
-import type {
-  ContentDatabaseView,
-  DocumentProperty,
-  DocumentPropertyOption,
-  DocumentPropertyValue,
-} from "@shared/api";
-import { contentDatabaseFormQuestions } from "@shared/database-form";
 
 import { OPTION_COLOR_CLASSES } from "../DocumentProperties";
 
@@ -42,7 +46,9 @@ function valueIsEmpty(value: unknown) {
 
 function optionValueIds(value: unknown) {
   if (Array.isArray(value)) {
-    return value.filter((candidate): candidate is string => typeof candidate === "string");
+    return value.filter(
+      (candidate): candidate is string => typeof candidate === "string",
+    );
   }
   return typeof value === "string" && value ? [value] : [];
 }
@@ -69,12 +75,14 @@ function QuestionLabel({
 }
 
 function OptionQuestion({
+  id,
   property,
   value,
   invalid,
   errorId,
   onChange,
 }: {
+  id: string;
   property: DocumentProperty;
   value: unknown;
   invalid: boolean;
@@ -106,6 +114,7 @@ function OptionQuestion({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
+          id={id}
           type="button"
           variant="outline"
           aria-invalid={invalid}
@@ -181,6 +190,7 @@ function PropertyQuestion({
   if (type === "select" || type === "status" || type === "multi_select") {
     return (
       <OptionQuestion
+        id={id}
         property={property}
         value={value}
         invalid={invalid}
@@ -210,9 +220,7 @@ function PropertyQuestion({
         >
           {checked ? <IconCheck className="size-3" /> : null}
         </span>
-        {checked
-          ? t("database.formChecked")
-          : t("database.formNotChecked")}
+        {checked ? t("database.formChecked") : t("database.formNotChecked")}
       </button>
     );
   }
@@ -263,7 +271,9 @@ function PropertyQuestion({
                   ? "tel"
                   : "text"
       }
-      value={typeof value === "number" || typeof value === "string" ? value : ""}
+      value={
+        typeof value === "number" || typeof value === "string" ? value : ""
+      }
       aria-invalid={invalid}
       aria-describedby={invalid ? errorId : undefined}
       onChange={(event) =>
@@ -296,13 +306,18 @@ export function DatabaseFormView({
   );
   const visibleQuestions = questions.filter((question) => question.enabled);
   const propertyById = useMemo(
-    () => new Map(properties.map((property) => [property.definition.id, property])),
+    () =>
+      new Map(properties.map((property) => [property.definition.id, property])),
     [properties],
   );
   const [title, setTitle] = useState("");
-  const [values, setValues] = useState<Record<string, DocumentPropertyValue>>({});
+  const [values, setValues] = useState<Record<string, DocumentPropertyValue>>(
+    {},
+  );
   const [invalidKeys, setInvalidKeys] = useState<string[]>([]);
-  const [createdDocumentId, setCreatedDocumentId] = useState<string | null>(null);
+  const [createdDocumentId, setCreatedDocumentId] = useState<string | null>(
+    null,
+  );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -359,7 +374,11 @@ export function DatabaseFormView({
         </div>
       ) : null}
 
-      <form className="grid gap-6" noValidate onSubmit={(event) => void handleSubmit(event)}>
+      <form
+        className="grid gap-6"
+        noValidate
+        onSubmit={(event) => void handleSubmit(event)}
+      >
         {visibleQuestions.map((question) => {
           const invalid = invalidKeys.includes(question.key);
           const errorId = `database-form-${question.key}-error`;
@@ -401,7 +420,10 @@ export function DatabaseFormView({
                 invalid={invalid}
                 errorId={errorId}
                 onChange={(value) =>
-                  setValues((current) => ({ ...current, [question.key]: value }))
+                  setValues((current) => ({
+                    ...current,
+                    [question.key]: value,
+                  }))
                 }
               />
               {invalid ? (

@@ -54,7 +54,7 @@ export function TemplatePreview({
       <iframe
         title={`${title} preview`}
         srcDoc={html}
-        sandbox="allow-scripts"
+        sandbox=""
         loading="lazy"
         tabIndex={-1}
         aria-hidden

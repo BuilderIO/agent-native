@@ -197,6 +197,16 @@ export default defineAction({
       ),
   }),
   http: false,
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "provider-api",
+      id: String(args.provider),
+      visibility: "private",
+    }),
+    summary: (args) =>
+      `${String(args.method || "GET").toUpperCase()} ${String(args.provider)} ${String(args.path).slice(0, 200)}`,
+  },
   run: async (args) => {
     if (args.stageAs) {
       const ctx = getCredentialContext();

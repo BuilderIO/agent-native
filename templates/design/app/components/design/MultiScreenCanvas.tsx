@@ -131,8 +131,9 @@ const DRAG_THRESHOLD = 3;
  *  live zoom) to count as "equal" for the smart-spacing guides (CV11). */
 const EQUAL_GAP_TOLERANCE_SCREEN_PX = 2;
 const FRAME_LABEL_HEIGHT = 28;
-const FRAME_HEADER_BUTTON_OUTSIDE_WIDTH = 260;
+const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
+const FRAME_HEADER_COMPACT_BUTTON_RESERVE = 32;
 const TRANSFORM_BADGE_OFFSET = 12;
 const TRANSFORM_BADGE_EDGE_PADDING = 8;
 const TRANSFORM_BADGE_HEIGHT = 28;
@@ -8951,21 +8952,19 @@ const Screen = memo(function Screen({
   }, []);
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
-  // BP-DEEP v2 item 1: the narrow-frame fallback that floats the Full-view
-  // pill OUTSIDE the frame's right edge (left-full) lands exactly where the
-  // breakpoint preview row starts, covering the first breakpoint frame's
-  // label/corner (the pill is z-40 over the row). When this screen has
-  // breakpoint frames, always keep the pill INSIDE the frame header —
-  // labelInfoMaxWidth already reserves room for the inside placement.
-  const fullViewOutsideFrame =
-    frameScreenWidth < FRAME_HEADER_BUTTON_OUTSIDE_WIDTH &&
-    !(screen.breakpointWidths && screen.breakpointWidths.length > 0);
+  // Keep frame actions inside their own frame so closely spaced screens cannot
+  // cover one another. Narrow frames collapse Full view to its familiar icon;
+  // the accessible name and native tooltip preserve the action's meaning.
+  const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
   const labelInfoMaxWidth = Math.max(
     64,
-    frameScreenWidth - (fullViewOutsideFrame ? 8 : FRAME_HEADER_BUTTON_RESERVE),
+    frameScreenWidth -
+      (compactFullView
+        ? FRAME_HEADER_COMPACT_BUTTON_RESERVE
+        : FRAME_HEADER_BUTTON_RESERVE),
   );
-  const fullViewMaxWidth = fullViewOutsideFrame
-    ? 120
+  const fullViewMaxWidth = compactFullView
+    ? 20
     : Math.max(84, Math.min(180, frameScreenWidth * 0.46));
 
   return (
@@ -9076,18 +9075,17 @@ const Screen = memo(function Screen({
         <button
           type="button"
           data-frame-full-view
+          data-compact={compactFullView || undefined}
           className={cn(
-            "absolute top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             fullViewVisible && "opacity-100",
-            fullViewOutsideFrame ? "left-full" : "right-1",
           )}
           style={{
             maxWidth: fullViewMaxWidth,
             transform: `translateY(-50%) scale(${chromeScale})`,
-            transformOrigin: fullViewOutsideFrame
-              ? "left center"
-              : "right center",
+            transformOrigin: "right center",
             transition: getChromeLabelTransition(chromeSettling),
           }}
           aria-label={t("multiScreenCanvas.fullView")}
@@ -9101,7 +9099,9 @@ const Screen = memo(function Screen({
           onMouseLeave={() => updateDirectHover(false)}
         >
           <IconMaximize className="size-3 shrink-0" />
-          <span className="truncate">{t("multiScreenCanvas.fullView")}</span>
+          <span className={cn("truncate", compactFullView && "sr-only")}>
+            {t("multiScreenCanvas.fullView")}
+          </span>
         </button>
       </div>
       <div

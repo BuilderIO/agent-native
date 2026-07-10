@@ -75,31 +75,127 @@ Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Teleg
 - A Slack workspace where you can install apps (admin access)
 - About 5 minutes
 
-### Steps
+### Managed Add to Slack
 
-1. Go to **[api.slack.com/apps](https://api.slack.com/apps)** and click **Create New App** → **From scratch**. Name it (e.g. "Agent") and pick your workspace.
-2. In the left sidebar, open **OAuth & Permissions**. Under **Bot Token Scopes**, add:
-   - `chat:write` — lets the agent send messages
-   - `app_mentions:read` — lets the agent see when it's @-mentioned (optional)
-   - `im:history` — lets the agent read DMs sent to it
-   - `assistant:write` — optional; lets Slack show native "is thinking..." status in assistant threads
-   - `users:read.email` — optional; helps templates such as Mail verify Slack sender email for draft-queue identity
-3. Click **Install to Workspace** at the top of that page. Slack will give you a **Bot User OAuth Token** that starts with `xoxb-`. Copy it.
-4. Go to **Basic Information** in the sidebar and copy the **Signing Secret**.
-5. Open your app's settings (or your hosting provider's environment variable panel) and paste:
-   - `SLACK_BOT_TOKEN` — the `xoxb-…` token
-   - `SLACK_SIGNING_SECRET` — the signing secret
-   - `SLACK_ALLOWED_TEAM_IDS` — recommended in production; comma-separated Slack workspace/team IDs allowed to send events
-   - `SLACK_ALLOWED_API_APP_IDS` — recommended for multi-workspace apps; comma-separated Slack app IDs allowed to use this signing secret
-6. Back in Slack, open **Event Subscriptions**, toggle it on, and paste this Request URL:
+Managed OAuth is the recommended setup for Dispatch and multi-workspace apps.
+Each install gets its own encrypted bot-token bundle and health record, and
+Slack workspace, app, channel, and thread IDs are part of the conversation key.
+
+1. In **Settings → Messaging**, select **Agent manifest** to download the
+   host-specific `agent-native-slack-manifest.json`, then create or update your
+   Slack app at **[api.slack.com/apps](https://api.slack.com/apps)** by importing
+   it from **App Manifest**. The manifest enables Slack's current `agent_view`
+   experience plus a writable App Home **Messages** tab for direct messages.
+   Slack app icons are not part of the manifest. Under **Basic Information →
+   Display Information**, upload the Agent Native icon so the Agents picker
+   matches the product; you can use the app's public `icon-512.svg` as the source
+   and convert it to a Slack-supported upload format if needed.
+2. Verify that the manifest requests these exact **Bot Token Scopes** under
+   **OAuth & Permissions**:
+
+   ```text
+   assistant:write
+   app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+   files:read
+   groups:history
+   groups:read
+   im:history
+   im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+   users:read
+   users:read.email
+   ```
+
+3. Add this **OAuth Redirect URL**:
+
+   ```text
+   https://your-app.example.com/_agent-native/integrations/slack/oauth/callback
+   ```
+
+4. Turn on **Event Subscriptions**, set the **Request URL**, and subscribe to
+   `app_home_opened`, `app_context_changed`, `app_mention`, `message.channels`,
+   `message.groups`, `message.im`, and `message.mpim`:
 
    ```text
    https://your-app.example.com/_agent-native/integrations/slack/webhook
    ```
 
-   Then under **Subscribe to bot events**, add `message.im` (for DMs) and optionally `app_mention` (for channel mentions). Save.
+5. Turn on **Interactivity & Shortcuts** and set its **Request URL**:
 
-7. Send your bot a DM in Slack. It should reply.
+   ```text
+   https://your-app.example.com/_agent-native/integrations/slack/interactions
+   ```
+
+6. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
+   `SLACK_SIGNING_SECRET` on your app. Then open **Settings → Messaging** and
+   click **Add to Slack**. Only an organization owner or admin can create a
+   shared workspace install.
+7. Reinstall the Slack app after applying or changing the manifest, scopes,
+   events, Agent view, or Messages tab so the installation receives the updated
+   permissions and surfaces.
+
+In the current Agent view, `app_home_opened` detects when someone opens the
+Messages tab, `app_context_changed` provides the Slack surface they are viewing,
+and `message.im` delivers their direct messages. Slack owners and admins can hide
+installed agents for the workspace or organization, and each member can hide an
+agent from their own top bar. If the install succeeds but the agent is not
+visible there, check those Slack display controls or open it from **Tools →
+Apps**.
+
+The OAuth entry and callback endpoints are
+`/_agent-native/integrations/slack/oauth/install` and
+`/_agent-native/integrations/slack/oauth/callback`. Slack access and refresh
+tokens remain server-side. The canonical manifest leaves Slack token rotation
+disabled.
+Use the install health control in Messaging settings to test or disconnect a
+workspace.
+
+### Legacy single-workspace setup
+
+For a private, single-workspace deployment, you can still install the app
+manually and configure `SLACK_BOT_TOKEN` plus `SLACK_SIGNING_SECRET`.
+`SLACK_ALLOWED_TEAM_IDS` and `SLACK_ALLOWED_API_APP_IDS` are recommended in
+production. The environment token is a compatibility fallback; managed installs
+take precedence.
+
+### Slack-native collaboration
+
+- **Active thread steering.** Start in a channel with an `@mention`. While that
+  exact task is queued or running, ordinary replies in its Slack thread continue
+  the task without another mention. Inactive threads and general channel chatter
+  do not invoke the agent. DMs remain direct invocations.
+- **Bounded native context.** Before execution, the adapter loads a bounded
+  slice of the Slack thread plus channel, sender, reaction, and file metadata.
+  It keeps file references and permalinks, never raw file bodies, in durable
+  integration state.
+- **Live work card.** Slack's streaming task surface shows the plan, tool and
+  delegated-agent progress, and final answer. The requester can cancel a running
+  task or approve/deny a gated action from signed, single-use controls.
+  `assistant:write` enables Agent View context events; `chat:write` powers
+  replies and live status updates.
+- **Personal and channel identity.** A personal Slack DM is accepted only for a
+  verified Agent Native organization member or a Slack identity already linked
+  to that member. Configured channels instead run as the channel's explicit
+  service principal, with separate channel policies and budgets, so shared tools
+  and connections do not silently inherit the latest speaker's personal access.
+- **Explicit channel memory.** Channel memory is isolated by authorized
+  conversation scope. The agent saves or removes it only when someone explicitly
+  asks; ordinary conversation is not auto-memorized.
+- **Channel routines.** A recurring job created from Slack keeps its origin
+  scope, destination, thread, workspace, and optional model, then delivers its
+  scheduled result back to that Slack conversation.
+- **Governance.** Messaging settings expose configured-channel controls for
+  guest access, Slack Connect, service principals, default models, and budgets.
+  Daily or monthly organization, requester, and channel budgets are reserved
+  before a run and settled from actual usage. Audit and usage records keep
+  platform, workspace, channel, requester, task, run, source URL, and model
+  lineage.
 
 ### Optional: app unfurls
 
@@ -127,11 +223,11 @@ and `link_shared` events to the Clips unfurl handler.
 
 ### Tips
 
-- **Channel mentions** — the bot only responds in channels when it's @-mentioned, to avoid noise.
-- **DMs** — every DM is treated as a private conversation with the agent.
-- **Same identity, all channels** — if a Slack user has the same email as a registered user in your app, the agent treats them as the same person.
+- **Channel mentions** — use an @mention to start work. Unmentioned replies are accepted only while that exact thread has active work.
+- **DMs** — accepted personal DMs are private conversations and require a verified organization member or linked Slack identity.
+- **Identity** — personal DMs require a verified Agent Native organization member or an already linked Slack identity. Configured channels use a separate service principal, policy, and budget.
 - **Production allowlists** — set `SLACK_ALLOWED_TEAM_IDS` and, for shared Slack apps, `SLACK_ALLOWED_API_APP_IDS` so a valid signing secret cannot be reused by an unexpected workspace.
-- **Clips app unfurls** — installable Agent-Native Clips for Slack uses `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`, and `/api/slack/oauth/callback`. Each connected Slack workspace gets its own encrypted bot token in `app_secrets`; `SLACK_BOT_TOKEN` is only a legacy single-workspace fallback.
+- **Clips app unfurls** — Clips can share the managed Slack app credentials, but a Slack app has only one Events API Request URL; route `link_shared` to Clips when chat and unfurls share an app.
 
 ## Set up Microsoft Teams {#microsoft-teams}
 

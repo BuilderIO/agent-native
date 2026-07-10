@@ -60,6 +60,11 @@ const {
   listUnclaimedBackgroundRunIds,
   reapUnclaimedBackgroundRun,
   getRunById,
+  getRunByThread,
+  reapIfStale,
+  setRunInFlightMarker,
+  IN_FLIGHT_RUN_STALE_GRACE_MS,
+  BACKGROUND_RUN_STALE_MS,
 } = await import("./run-store.js");
 
 let seq = 0;
@@ -78,6 +83,30 @@ function setLiveness(runId: string, atMs: number): void {
       `UPDATE agent_runs SET heartbeat_at = ?, started_at = ? WHERE id = ?`,
     )
     .run(atMs, atMs, runId);
+}
+
+/** Backdates BOTH heartbeat_at and last_progress_at (the full liveness basis
+ *  `reapIfStale` reads — see `livenessBasisSql`, which takes the MAX of the
+ *  two), leaving started_at (and in_flight_since) untouched. Mirrors the real
+ *  incident: a run that started seconds ago (recent started_at) whose
+ *  heartbeat AND progress writes both went silent for the whole stale window
+ *  (reported time-since-progress: 90.1s) while an A2A call was demonstrably
+ *  still in flight. Backdating heartbeat_at alone is NOT enough to reproduce
+ *  the bug — a fresh `last_progress_at` from `insertRun` would keep the
+ *  MAX-based liveness basis "fresh" regardless of in-flight grace. */
+function setStaleLiveness(runId: string, atMs: number): void {
+  sqlite
+    .prepare(
+      `UPDATE agent_runs SET heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
+    )
+    .run(atMs, atMs, runId);
+}
+
+function readInFlightSince(runId: string): number | null {
+  const row = sqlite
+    .prepare(`SELECT in_flight_since FROM agent_runs WHERE id = ?`)
+    .get(runId) as { in_flight_since: number | null } | undefined;
+  return row?.in_flight_since ?? null;
 }
 
 describe("foreground self-chain — pre-inserted successor vs racing client continuation", () => {
@@ -224,5 +253,150 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
     expect(await reapUnclaimedBackgroundRun(successor)).toBe(false);
     expect((await getRunById(successor))?.status).toBe("running");
     expect(await claimBackgroundRun(successor)).toBe(false);
+  });
+});
+
+/**
+ * In-flight grace for `reapIfStale` — the fix for the Design/Assets A2A
+ * incident: a `call-agent` A2A delegation held a background-dispatched run in
+ * genuine, demonstrable progress while the heartbeat WRITE failed (Neon
+ * pooler saturation), and the cross-isolate reaper (a client's SQL-
+ * subscription poll / `getActiveRunForThreadAsync`) killed it at
+ * `BACKGROUND_RUN_STALE_MS` anyway because it had no visibility into
+ * run-manager's in-memory `inFlightWorkCount`. `setRunInFlightMarker` mirrors
+ * that counter's 0<->N transitions into the additive `in_flight_since`
+ * column so the reaper — running in a different isolate, against a real SQL
+ * engine here — can grant a bounded grace instead.
+ */
+describe("reapIfStale — in-flight grace (in_flight_since)", () => {
+  it("setRunInFlightMarker round-trips through real SQL: sets on true, clears on false", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    // Simulate a worker having claimed the run (dispatch_mode
+    // 'background' -> 'background-processing') — the real state while it
+    // holds a long A2A call.
+    await claimBackgroundRun(runId);
+    expect(readInFlightSince(runId)).toBeNull();
+
+    await setRunInFlightMarker(runId, true);
+    const since = readInFlightSince(runId);
+    expect(since).not.toBeNull();
+    expect(since).toBeGreaterThan(Date.now() - 5_000);
+
+    // A nested 0->1 transition (defense-in-depth WHERE) must not clobber the
+    // ORIGINAL start time with a later one.
+    await new Promise((r) => setTimeout(r, 5));
+    await setRunInFlightMarker(runId, true);
+    expect(readInFlightSince(runId)).toBe(since);
+
+    await setRunInFlightMarker(runId, false);
+    expect(readInFlightSince(runId)).toBeNull();
+  });
+
+  it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    // Simulate a worker having claimed the run (dispatch_mode
+    // 'background' -> 'background-processing') — the real state while it
+    // holds a long A2A call.
+    await claimBackgroundRun(runId);
+    // Heartbeat write failed for the whole stale window (the reported
+    // incident: 90.1s time-since-progress) while an A2A call started only
+    // seconds ago and is still well within IN_FLIGHT_RUN_STALE_GRACE_MS.
+    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    await setRunInFlightMarker(runId, true);
+
+    const reaped = await reapIfStale(runId);
+
+    expect(reaped).toBe(false);
+    expect((await getRunById(runId))?.status).toBe("running");
+  });
+
+  it("DOES reap the SAME run loudly once the bounded in-flight grace is exceeded", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    // Simulate a worker having claimed the run (dispatch_mode
+    // 'background' -> 'background-processing') — the real state while it
+    // holds a long A2A call.
+    await claimBackgroundRun(runId);
+    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    // The marker is still SET (work never resolved), but its own start time
+    // is now past the bounded grace — a genuinely dead in-flight call, not a
+    // slow one. Written directly (not via setRunInFlightMarker, which only
+    // writes when NULL) to simulate time having passed since the real 0->1
+    // transition.
+    sqlite
+      .prepare(`UPDATE agent_runs SET in_flight_since = ? WHERE id = ?`)
+      .run(Date.now() - (IN_FLIGHT_RUN_STALE_GRACE_MS + 5_000), runId);
+
+    const reaped = await reapIfStale(runId);
+
+    expect(reaped).toBe(true);
+    const row = await getRunById(runId);
+    expect(row?.status).toBe("errored");
+    expect(row?.errorCode).toBe("stale_run");
+  });
+
+  it("still reaps a background run with NO in-flight work at the ORIGINAL BACKGROUND_RUN_STALE_MS — no weakening of the no-in-flight case", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    // Simulate a worker having claimed the run (dispatch_mode
+    // 'background' -> 'background-processing') — the real state while it
+    // holds a long A2A call.
+    await claimBackgroundRun(runId);
+    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    // No setRunInFlightMarker call — in_flight_since stays NULL, exactly like
+    // every pre-existing row before this migration.
+    expect(readInFlightSince(runId)).toBeNull();
+
+    const reaped = await reapIfStale(runId);
+
+    expect(reaped).toBe(true);
+    expect((await getRunById(runId))?.status).toBe("errored");
+  });
+
+  it("surfaces hasInFlightWork via getRunByThread's inFlightSince for the /runs/active wire signal", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    // Simulate a worker having claimed the run (dispatch_mode
+    // 'background' -> 'background-processing') — the real state while it
+    // holds a long A2A call.
+    await claimBackgroundRun(runId);
+
+    let byThread = await getRunByThread(thread);
+    expect(byThread?.inFlightSince).toBeNull();
+
+    await setRunInFlightMarker(runId, true);
+    byThread = await getRunByThread(thread);
+    expect(byThread?.inFlightSince).not.toBeNull();
+
+    await setRunInFlightMarker(runId, false);
+    byThread = await getRunByThread(thread);
+    expect(byThread?.inFlightSince).toBeNull();
+  });
+
+  it("claimBackgroundRun's CAS still rejects a second claimer on a row that also carries an in-flight marker", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    await setRunInFlightMarker(runId, true);
+
+    const [a, b] = await Promise.all([
+      claimBackgroundRun(runId),
+      claimBackgroundRun(runId),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(await claimBackgroundRun(runId)).toBe(false);
   });
 });

@@ -353,6 +353,60 @@ Tell users who need a path based only on Figma's public contract to copy a
 frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
 when `selectedNodeData` is present, with conservative fallback if it changes.
 
+### Reading a Figma file/frame without importing it
+
+**When the user just asks a question about a Figma file/frame** ("what's in
+this file?", "what's in this frame?", "show me a screenshot of this Figma
+frame", "what components/instances does it use?") — do not call
+`import-figma-frame` just to inspect it; that persists a new Design screen.
+Use `get-figma-design-context` instead, the chat equivalent of the official
+Figma MCP's `get_metadata` + `get_design_context` for this app:
+
+```bash
+# No nodeId: lists pages and top-level frames (like get_metadata with no node id)
+pnpm action get-figma-design-context --figmaUrl "https://www.figma.com/design/<fileKey>/<name>"
+# A specific frame/node: full structural summary + screenshot
+pnpm action get-figma-design-context --figmaUrl "https://www.figma.com/design/<fileKey>/<name>?node-id=<id>"
+```
+
+- **Overview mode** (no `nodeId`, none parsed from the URL) returns the file's
+  pages and each page's top-level frames (id, name, type, child count) so the
+  agent can pick a frame before drilling in — mirrors the official MCP's
+  `get_metadata` behavior when called with no node id.
+- **Node mode** (a `nodeId`, or a link with `?node-id=`) returns a
+  depth-limited, size-capped tree (`depth`/`maxNodes` args) describing box
+  geometry, fills/strokes/effects/corner-radii (including per-corner arrays),
+  auto-layout, text/style (font, case, decoration, line-height), and
+  component/instance identity (`isComponent`/`isInstance`/`componentId`) for
+  every visible descendant — plus a rendered screenshot URL by default
+  (`includeScreenshot: false` to skip it). It never writes anything; use
+  `import-figma-frame` afterward if the user wants the frame brought in as a
+  real, editable screen.
+- This also answers "what components does this file use?" for **local,
+  unpublished** components/instances that never show up in
+  `list-figma-library-assets` — that action's REST source
+  (`/files/:key/components`) only returns components **published to a team
+  library**, not every `COMPONENT`/`INSTANCE` node in the file. Use
+  `get-figma-design-context` for "what components exist in this file/frame",
+  and `list-figma-library-assets` + `insert-figma-library-asset` for "insert a
+  reusable library component". The screenshot URL `get-figma-design-context`
+  returns for a component/instance node can be passed straight to
+  `insert-figma-library-asset` as `renderUrl` even when the component isn't
+  published.
+- For Figma **variables** ("what tokens/variables does this file define?"),
+  give an honest answer instead of guessing: the REST Variables API is
+  Enterprise-plan-gated, so `get-figma-design-context`'s summary of a node's
+  own paints only shows resolved colors, not variable bindings, and
+  `get-figma-styles` only covers the file's published FILL/TEXT/EFFECT/GRID
+  **Styles** (a separate, non-Enterprise feature) — neither is the Variables
+  API. If the user has Enterprise access and a connected Figma MCP with
+  `get_variable_defs`, call that directly for real variable definitions and
+  pass the result to `index-design-system-with-builder`. Otherwise, tell the
+  user variables need Enterprise access or a connected Figma MCP, and offer
+  Styles (`get-figma-styles`) or a manual `import-design-tokens` /
+  `apply-design-token-edit` pass as the available fallback — do not claim to
+  have enumerated variables from a plain `FIGMA_ACCESS_TOKEN`.
+
 ### Source: Brand Analysis (combines website + notes)
 
 ```bash

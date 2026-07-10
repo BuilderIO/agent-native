@@ -113,4 +113,172 @@ describe("s3FileUploadProvider", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("coalesces Netlify-safe chunks into valid S3 multipart parts", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    const firstChunk = new Uint8Array(3 * 1024 * 1024).fill(1);
+    const secondChunk = new Uint8Array(3 * 1024 * 1024).fill(2);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("?uploads=")) {
+        return new Response(
+          "<InitiateMultipartUploadResult><UploadId>upload-example</UploadId></InitiateMultipartUploadResult>",
+        );
+      }
+      if (init?.method === "GET") return new Response(firstChunk);
+      if (url.includes("partNumber=1&uploadId=upload-example")) {
+        return new Response(null, {
+          status: 200,
+          headers: { ETag: '"part-1-example"' },
+        });
+      }
+      if (url.endsWith("?uploadId=upload-example")) {
+        return new Response("<CompleteMultipartUploadResult />");
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resumable = s3FileUploadProvider.resumable!;
+    let session = await resumable.startSession(
+      "recording-example.webm",
+      "video/webm",
+      20 * 1024 * 1024,
+    );
+    const first = await resumable.relayChunk(
+      session,
+      `bytes 0-${firstChunk.byteLength - 1}/*`,
+      firstChunk,
+    );
+    expect(first.updatedMeta).toEqual({ pendingBytes: firstChunk.byteLength });
+    session = { ...session, meta: { ...session.meta, ...first.updatedMeta } };
+
+    const second = await resumable.relayChunk(
+      session,
+      `bytes ${firstChunk.byteLength}-${firstChunk.byteLength + secondChunk.byteLength - 1}/*`,
+      secondChunk,
+    );
+    expect(second.updatedMeta).toEqual({
+      pendingBytes: 0,
+      parts: [{ partNumber: 1, etag: '"part-1-example"' }],
+    });
+    session = { ...session, meta: { ...session.meta, ...second.updatedMeta } };
+
+    await expect(
+      resumable.completeSession(session, "recording-example.webm"),
+    ).resolves.toBe(
+      "https://cdn.example.com/media/clips/recording-example.webm",
+    );
+
+    const partCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("partNumber=1&uploadId=upload-example"),
+    );
+    expect(partCall?.[1]).toEqual(
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({
+          "Content-Length": String(
+            firstChunk.byteLength + secondChunk.byteLength,
+          ),
+        }),
+      }),
+    );
+    const completeCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("?uploadId=upload-example"),
+    );
+    expect(
+      new TextDecoder().decode(completeCall?.[1]?.body as ArrayBuffer),
+    ).toContain("<ETag>&quot;part-1-example&quot;</ETag>");
+  });
+
+  it("commits a staged final part and aborts incomplete multipart uploads", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const chunk = new Uint8Array([1, 2, 3]);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("?uploads=")) {
+        return new Response(
+          "<InitiateMultipartUploadResult><UploadId>upload-example</UploadId></InitiateMultipartUploadResult>",
+        );
+      }
+      if (init?.method === "GET") return new Response(chunk);
+      if (url.includes("partNumber=1&uploadId=upload-example")) {
+        return new Response(null, { headers: { ETag: '"final-example"' } });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resumable = s3FileUploadProvider.resumable!;
+    let session = await resumable.startSession(
+      "recording-example.webm",
+      "video/webm",
+      1024,
+    );
+    const staged = await resumable.relayChunk(session, "bytes 0-2/*", chunk);
+    session = { ...session, meta: { ...session.meta, ...staged.updatedMeta } };
+    const closed = await resumable.relayChunk(
+      session,
+      "bytes */3",
+      new Uint8Array(0),
+    );
+    expect(closed.updatedMeta).toEqual({
+      pendingBytes: 0,
+      parts: [{ partNumber: 1, etag: '"final-example"' }],
+    });
+
+    await expect(resumable.abortSession!(session)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("?uploadId=upload-example"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("rejects resumable chunks beyond the session byte limit", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            "<InitiateMultipartUploadResult><UploadId>upload-example</UploadId></InitiateMultipartUploadResult>",
+          ),
+      ),
+    );
+
+    const resumable = s3FileUploadProvider.resumable!;
+    const session = await resumable.startSession(
+      "recording-example.webm",
+      "video/webm",
+      3,
+    );
+    await expect(
+      resumable.relayChunk(session, "bytes 0-3/*", new Uint8Array(4)),
+    ).rejects.toThrow("exceeds its 3 byte limit");
+  });
 });

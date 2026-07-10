@@ -8,6 +8,7 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
 import {
@@ -318,6 +319,14 @@ export async function writeInlineSourceFile(args: {
         changed: false,
         updatedAt: currentFile.updatedAt ?? updatedAt,
       };
+    }
+
+    if (
+      currentFile.fileType === "html" ||
+      currentFile.fileType === "jsx" ||
+      current.content.includes("data-agent-native-locked")
+    ) {
+      assertLockedLayersPreserved(current.content, args.content);
     }
 
     if (await hasCollabState(args.file.id)) {

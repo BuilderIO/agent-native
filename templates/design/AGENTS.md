@@ -77,15 +77,18 @@ patterns live in `.agents/skills/`.
   extraction through Builder-backed indexing.
 - To import a Figma frame/screen as a real, editable Design screen (not a
   rendered image), use `import-figma-frame` with a `figmaUrl` (or
-  `fileKey`/`nodeId`) — it maps position, auto-layout, text, fills/gradients,
-  strokes, corner radii, effects, opacity, and blend modes pixel-accurately,
-  falling back to an exact PNG only for vector networks/boolean ops/unsupported
-  node types, and saves the result as a new screen. Read the returned
+  `fileKey`/`nodeId`) — it maps supported position, auto-layout, text,
+  fills/gradients, strokes, corner radii, effects, opacity, and blend modes,
+  falling back to a rendered PNG for masks, vector/boolean geometry,
+  lines/arcs, advanced strokes/text, transformed image crops, and unsupported
+  node types, then saves the result as a new screen. Read the returned
   `fidelityReport` (`approximated`, `imageFallbacks`) back to the user when
   non-trivial. Use `get-figma-styles` for a file's published style names (not
   the Enterprise Variables API; full token extraction still routes through
-  Builder-backed indexing). See the `design-systems` skill's "Import from
-  Figma" section.
+  Builder-backed indexing). Never claim universal lossless import/export:
+  consult `FIGMA_INTEROPERABILITY.md` for the feature-level fidelity contract,
+  fallback rules, scale limits, and real-file golden corpus. See the
+  `design-systems` skill's "Import from Figma" section.
 - A current Figma Cmd+C clipboard includes exact selected node ids in
   `figmeta.selectedNodeData`; `import-figma-clipboard` uses those before any
   heuristic matching and supports multi-selection. Clipboard metadata is not a
@@ -93,6 +96,20 @@ patterns live in `.agents/skills/`.
   if Figma changes that field. Without a token, current Figma's binary-only
   clipboard has no browser-readable HTML fallback; give setup guidance instead
   of claiming a successful import.
+- For "what's in this Figma file/frame?" or "show me a screenshot of this
+  frame" without importing anything, use `get-figma-design-context` — no
+  `nodeId` lists pages/top-level frames (like the official Figma MCP's
+  `get_metadata`), a `nodeId`/node-id link returns a depth-limited structural
+  summary (box, fills/strokes/effects, auto-layout, text/style,
+  component/instance identity) plus a rendered screenshot URL. It never
+  creates a screen; use `import-figma-frame` for that. It also surfaces local,
+  unpublished components/instances that `list-figma-library-assets` cannot see
+  (that action's REST source only returns library-published components). For
+  variables, `get-figma-design-context` and `get-figma-styles` are honest
+  fallbacks, not the Enterprise Variables API — say so plainly rather than
+  guessing when no connected Figma MCP/Enterprise access is available. See the
+  `design-systems` skill's "Reading a Figma file/frame without importing"
+  section.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a
@@ -350,6 +367,14 @@ patterns live in `.agents/skills/`.
   `detach-component-instance` to turn an instance into plain editable markup.
   See the `design-generation` skill's "Component reuse" section — promote a
   3+ times repeated pattern instead of inventing another near-duplicate.
+- **Suggested auto layout**: for an absolute/freeform container, first measure
+  its direct children and present the proposed direction, visual order, gap,
+  four-side padding, alignment, and sizing. Do not mutate source until the user
+  applies the preview. Inline HTML/Alpine applies the reviewed proposal through
+  one `apply-visual-edit`-backed content transaction so undo restores the exact
+  prior structure. Local React uses the semantic source handoff (never generic
+  AST rewriting), preserves nested absolute descendants and responsive logic,
+  and applies the approved proposal as one reversible source edit.
 
 ## Full App Building
 

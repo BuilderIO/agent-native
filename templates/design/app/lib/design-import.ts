@@ -83,6 +83,28 @@ function isGenericFigFormatCaveat(warning: string): boolean {
   return /Figma's \.fig format is proprietary and undocumented/i.test(warning);
 }
 
+function figmaFidelityWarnings(
+  fidelityReport: FigmaFidelityReport | undefined,
+): string[] {
+  if (!fidelityReport) return [];
+  const warnings: string[] = [];
+  const fallbackCount = fidelityReport.imageFallbacks.length;
+  if (fallbackCount > 0) {
+    warnings.push(
+      fallbackCount === 1
+        ? "1 layer uses an image fallback to preserve its appearance and is not fully editable."
+        : `${fallbackCount} layers use image fallbacks to preserve their appearance and are not fully editable.`,
+    );
+  }
+  const approximatedCount = fidelityReport.approximated.length;
+  if (approximatedCount > 0) {
+    warnings.push(
+      `${approximatedCount} ${approximatedCount === 1 ? "layer was" : "layers were"} approximated because HTML/CSS cannot represent every Figma property exactly.`,
+    );
+  }
+  return warnings;
+}
+
 /**
  * Builds one import notification instead of stacking a success toast and a
  * warning toast. The generic experimental `.fig` caveat is already disclosed
@@ -94,9 +116,12 @@ export function importResultNotification(
   fallback: string,
 ): ImportResultNotification {
   const title = importResultSummary(result, fallback);
-  const actionableWarnings = (result?.warnings ?? [])
-    .filter((warning) => !isGenericFigFormatCaveat(warning))
-    .slice(0, 3);
+  const actionableWarnings = [
+    ...(result?.warnings ?? []).filter(
+      (warning) => !isGenericFigFormatCaveat(warning),
+    ),
+    ...figmaFidelityWarnings(result?.fidelityReport),
+  ].slice(0, 3);
 
   if (actionableWarnings.length === 0) {
     return { variant: "success", title };

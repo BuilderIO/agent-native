@@ -229,6 +229,24 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.form-submissions",
+    surface: "database",
+    label: "Submit public database forms as new rows",
+    uiEntrypoints: ["app/components/editor/database/FormView.tsx"],
+    durableEffect:
+      "A validated form submission atomically creates a database row document and its editable property values.",
+    uiImplementation:
+      "The public form view calls the same submission action exposed to agents and rolls back the row if a property write fails.",
+    status: "action-backed",
+    actions: ["submit-content-database-form"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/submit-content-database-form.db.test.ts"],
+  },
+  {
     id: "database.rows",
     surface: "database",
     label: "Add, duplicate, move, open, and delete database rows",

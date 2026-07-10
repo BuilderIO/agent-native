@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
+  createAgentChatAdapter,
+} from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
 const analyticsMock = vi.hoisted(() => ({
@@ -1768,6 +1771,88 @@ describe("createAgentChatAdapter", () => {
     expect(last.metadata.custom.runError.errorCode).toBe("active_run_conflict");
     expect(last.content.at(-1).text).toContain(
       "previous response is still finishing",
+    );
+  });
+
+  it("settles pending activity when a continuation conflict exhausts retries", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount === 1) {
+          return sseResponse(
+            [
+              {
+                type: "activity",
+                label: "Preparing run-code action",
+                tool: "run-code",
+              },
+              { type: "loop_limit", maxIterations: 1 },
+            ],
+            "run-old",
+          );
+        }
+        return jsonResponse({ activeRunId: "run-old" }, 409);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-continuation-conflict-exhausted",
+      threadId: "thread-continuation-conflict-exhausted",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish the task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.runAllTimersAsync();
+    const results = await promise;
+
+    expect(postCount).toBe(122);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError.errorCode).toBe("active_run_conflict");
+    expect(last.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "run-code",
+          activity: true,
+          result: "Stopped before this action started.",
+          isError: true,
+        }),
+      ]),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "chat-continuation-conflict-exhausted" },
+      }),
     );
   });
 
@@ -5440,6 +5525,210 @@ describe("createAgentChatAdapter", () => {
     );
     expect(last.content.at(-1).text).toContain(
       "stopped before finishing and no continuation appeared",
+    );
+  });
+
+  it("does not surface a fatal terminal outcome for a deferred successor still inside its redispatch bound (awaitingRedispatch)", async () => {
+    // The server marks a `chainServerDrivenContinuation` deferral's successor
+    // row `awaitingRedispatch: true` on /runs/active for as long as it is
+    // still inside UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS — a
+    // server-authoritative "recovery in progress, do not panic" signal. Even
+    // though the successor's own event stream 404s the whole time (nothing
+    // is producing it yet) and the client's idle window is comfortably
+    // exceeded, the follow loop must NOT report a fatal error and must still
+    // be running (not settled) once that window has passed.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-deferred",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-deferred",
+          threadId: "thread-bg-deferred",
+          status: "running",
+          dispatchMode: "background",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+          // The row is unclaimed the whole time — exactly the deferred-
+          // successor state this test exercises.
+          awaitingRedispatch: true,
+        });
+      }
+      if (url.includes("/runs/run-bg-deferred/events")) {
+        // No worker has claimed the row yet — the event stream provably
+        // does not exist until the sweep redispatches it.
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const abortController = new AbortController();
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-deferred",
+      threadId: "thread-bg-deferred",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background job" }],
+          },
+        ],
+        abortSignal: abortController.signal,
+      } as any),
+    );
+
+    // Advance well past BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS while the row is
+    // still awaitingRedispatch.
+    await vi.advanceTimersByTimeAsync(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS * 1.5);
+
+    // The turn must still be RUNNING — not settled with a fatal outcome —
+    // even though real (non-deferred-aware) idle accounting would have fired
+    // well before now. Race against an already-resolved value: if `promise`
+    // had already settled, awaiting the race resolves to "settled"; fake
+    // timers guarantee it cannot spontaneously settle without a further
+    // timer tick, so this reliably observes "still pending" here.
+    const raceResult = await Promise.race([
+      promise.then(() => "settled" as const),
+      Promise.resolve("pending" as const),
+    ]);
+    expect(raceResult).toBe("pending");
+
+    // Clean up: abort so the adapter's generator actually finishes and the
+    // test doesn't leave a dangling timer loop.
+    abortController.abort();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await promise;
+
+    expect(postCount).toBe(1);
+  });
+
+  it("still surfaces a loud terminal error once a stuck successor is no longer marked awaitingRedispatch (bound exceeded)", async () => {
+    // Loud-failure preservation: once the server itself gives up on a
+    // deferred successor (awaitingRedispatch stops being true — e.g. the
+    // redispatch bound was exceeded and the slow sweep is about to reap it
+    // loudly), the client's own idle timeout is the last backstop and must
+    // still fire. This is the same "gone" scenario as the previous test, but
+    // WITHOUT the awaitingRedispatch signal — the fatal outcome must return.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-stuck",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-stuck",
+          threadId: "thread-bg-stuck",
+          status: "running",
+          dispatchMode: "background",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+          awaitingRedispatch: false,
+        });
+      }
+      if (url.includes("/runs/run-bg-stuck/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-stuck",
+      threadId: "thread-bg-stuck",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do a long background job" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 5_000,
+    );
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
+  it("BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS sits comfortably between the server's redispatch budget and its hard bound", async () => {
+    // The full derived timing chain (see this constant's doc comment):
+    //   GRACE_MS + FAST_SWEEP_MS  <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
+    // Imports the REAL run-store constants (not copied literals) so this
+    // test breaks the moment any of the four numbers drift out of budget.
+    const {
+      UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+      UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
+      UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+    } = await import("../agent/run-store.js");
+
+    const worstCaseFirstAttemptMs =
+      UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
+      UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS;
+    // Leave headroom for at least one failed attempt before the client's
+    // window would even start to matter.
+    expect(
+      worstCaseFirstAttemptMs + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
+    ).toBeLessThan(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS);
+    expect(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS).toBeLessThan(
+      UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
   });
 

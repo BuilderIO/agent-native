@@ -8,6 +8,13 @@ export type {
   ImmediateWebhookResponse,
   PlatformAdapterCapabilities,
   UnsupportedPlatformCapabilityError,
+  IntegrationExecutionContext,
+  IntegrationActorTrust,
+  IntegrationContextMessage,
+  IntegrationFileReference,
+  IntegrationConversationType,
+  IntegrationTriggerKind,
+  PlatformRunProgress,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
 
@@ -87,6 +94,72 @@ export {
   listIntegrationConfigs,
   type IntegrationConfig,
 } from "./config-store.js";
+
+export {
+  disconnectIntegrationInstallation,
+  getActiveIntegrationInstallationByKey,
+  getActiveIntegrationInstallationForTenant,
+  getIntegrationInstallation,
+  listIntegrationInstallations,
+  resolveIntegrationTokenBundle,
+  updateIntegrationInstallation,
+  upsertIntegrationInstallation,
+} from "./installations-store.js";
+export type {
+  InstallationActor,
+  IntegrationInstallation,
+  IntegrationInstallationHealth,
+  IntegrationInstallationStatus,
+  IntegrationTokenBundle,
+} from "./installations-store.js";
+
+export {
+  assertSlackInstallAccess,
+  buildSlackAuthorizeUrl,
+  exchangeSlackOAuthCode,
+  refreshSlackOAuthToken,
+  slackInstallationKey,
+  slackOAuthResponseToInstallation,
+  testSlackAuth,
+} from "./slack-oauth.js";
+
+export {
+  SLACK_AGENT_BOT_EVENTS,
+  buildSlackAgentManifest,
+  type SlackAgentManifestUrls,
+} from "./slack-manifest.js";
+
+export {
+  DEFAULT_INTEGRATION_SCOPE_POLICY,
+  deleteIntegrationScope,
+  evaluateIntegrationScopePolicy,
+  getIntegrationScope,
+  integrationScopeSubjectKey,
+  listIntegrationScopes,
+  saveIntegrationScope,
+} from "./scope-store.js";
+export type {
+  IntegrationConversationTrust,
+  IntegrationScope,
+  IntegrationScopeAccess,
+  IntegrationScopePolicy,
+} from "./scope-store.js";
+
+export {
+  getIntegrationBudgetSnapshot,
+  getIntegrationUsageBudget,
+  listIntegrationUsageBudgets,
+  listIntegrationBudgetThresholdEvents,
+  releaseIntegrationUsageBudget,
+  reserveIntegrationUsageBudget,
+  saveIntegrationUsageBudget,
+  settleIntegrationUsageBudget,
+} from "./usage-budget-store.js";
+export type {
+  IntegrationBudgetPeriod,
+  IntegrationBudgetSubject,
+  IntegrationUsageBudget,
+} from "./usage-budget-store.js";
 
 export {
   getThreadMapping,

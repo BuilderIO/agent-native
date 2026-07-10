@@ -133,6 +133,10 @@ vi.mock("../server/lib/resumable-session.js", () => ({
   getResumableSession: vi.fn(async () => null),
 }));
 
+vi.mock("../server/lib/resumable-upload-provider.js", () => ({
+  resolveResumableUploadProvider: vi.fn(async () => null),
+}));
+
 vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   isStreamingUploadDisabled: vi.fn(() => false),
 }));

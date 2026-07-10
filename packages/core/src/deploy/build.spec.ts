@@ -1310,16 +1310,34 @@ describe("runNitroBuildPipeline", () => {
 describe("durable-background Netlify function emit (single-template, flag-gated)", () => {
   const dirs: string[] = [];
   let previousFlag: string | undefined;
+  let previousWorkspaceFlag: string | undefined;
+  let previousViteWorkspaceFlag: string | undefined;
+  let previousAppBasePath: string | undefined;
+  let previousViteAppBasePath: string | undefined;
 
   beforeEach(() => {
     previousFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    previousWorkspaceFlag = process.env.AGENT_NATIVE_WORKSPACE;
+    previousViteWorkspaceFlag = process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    previousAppBasePath = process.env.APP_BASE_PATH;
+    previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
   });
 
   afterEach(() => {
-    if (previousFlag === undefined)
-      delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-    else process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousFlag;
+    const restoreEnv = (key: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    };
+    restoreEnv("AGENT_CHAT_DURABLE_BACKGROUND", previousFlag);
+    restoreEnv("AGENT_NATIVE_WORKSPACE", previousWorkspaceFlag);
+    restoreEnv("VITE_AGENT_NATIVE_WORKSPACE", previousViteWorkspaceFlag);
+    restoreEnv("APP_BASE_PATH", previousAppBasePath);
+    restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
     for (const d of dirs.splice(0)) {
       fs.rmSync(d, { recursive: true, force: true });
     }
@@ -1460,6 +1478,14 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
     );
     expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+    expect(entry).toContain(
+      'const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task"',
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
+    );
+    expect(entry).toContain("if (isA2AProcessorBody(body))");
+    expect(entry).toContain("url.pathname = A2A_PROCESS_TASK_PATH");
     // It preserves the body (read once) and ALL headers (the HMAC Authorization
     // Bearer MUST survive — the plugin verifies it).
     expect(entry).toContain("await request.text()");
@@ -1530,6 +1556,31 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("passes workspace deploy output with client assets under the normalized app base path", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.APP_BASE_PATH = " //dispatch// ";
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    fs.mkdirSync(path.join(cwd, "dist", "dispatch"), { recursive: true });
+    fs.renameSync(
+      path.join(cwd, "dist", "assets"),
+      path.join(cwd, "dist", "dispatch", "assets"),
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("fails workspace deploy output without client assets under the app base path", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.APP_BASE_PATH = "/dispatch";
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /dist\/dispatch\/assets is missing hashed client assets/,
+    );
   });
 
   it("removes the incompatible default-function rewrite while keeping real redirects", () => {

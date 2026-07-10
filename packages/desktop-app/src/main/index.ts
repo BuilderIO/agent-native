@@ -37,6 +37,10 @@ import {
   type DesktopShortcutRegistration,
 } from "@shared/desktop-shortcuts";
 import {
+  canOpenDesktopExternalUrl,
+  isAllowedMacPrivacySettingsUrl,
+} from "@shared/external-navigation";
+import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
@@ -72,6 +76,11 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopAppContextAction,
+  type DesktopAppCreationSettings,
+  type DesktopAppRuntimeStatus,
+  type DesktopCreateAppRequest,
+  type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -101,6 +110,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -128,6 +138,7 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -196,6 +207,7 @@ if (IS_DEV) {
 
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
+let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
@@ -1283,6 +1295,8 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
+  if (appId !== "design") desktopDesignPreviewManager?.clearOwner();
+  void ensureManagedDesktopAppRunning(appId);
 });
 
 ipcMain.on(
@@ -1306,13 +1320,26 @@ ipcMain.on(
 
 ipcMain.on(
   IPC.SET_ACTIVE_WEBVIEW,
-  (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
+  (event: IpcMainEvent, target: ActiveWebviewTarget) => {
+    if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
     activeAppId = target.appId;
     activeWebviewContentsId = target.webContentsId;
     setSentryWebContentsMetadata(target.webContentsId, {
       role: "app-webview",
       appId: target.appId,
     });
+    desktopDesignPreviewManager?.registerOwner(
+      target.webContentsId,
+      target.appId,
+      target.hostBounds,
+    );
+  },
+);
+
+ipcMain.on(
+  IPC.DESIGN_PREVIEW_REQUEST,
+  (event: IpcMainEvent, request: unknown) => {
+    desktopDesignPreviewManager?.handleRequest(event.sender, request);
   },
 );
 
@@ -4847,6 +4874,415 @@ async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
   };
 }
 
+const managedDesktopAppProcesses = new Map<string, ChildProcess>();
+const managedDesktopAppRetryTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const managedDesktopAppStarts = new Set<string>();
+const managedDesktopAppStartAttempts = new Map<string, number>();
+
+function desktopAppCreationSettings(): DesktopAppCreationSettings {
+  return {
+    appsRoot: AppStore.loadDesktopAppPreferences().appsRoot,
+  };
+}
+
+function normalizeDesktopAppsRoot(value: unknown): string | null {
+  const expanded =
+    typeof value === "string" ? expandPathCandidate(value.trim()) : "";
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  return isFilesystemRoot(resolved) ? null : resolved;
+}
+
+function appFolderSlug(prompt: string): string {
+  const normalized = prompt
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .filter(Boolean)
+    .slice(0, 5)
+    .join("-");
+  return normalized || "new-app";
+}
+
+function uniqueDesktopAppFolder(
+  root: string,
+  baseSlug: string,
+): {
+  name: string;
+  path: string;
+} {
+  for (let index = 1; index < 10_000; index += 1) {
+    const name = index === 1 ? baseSlug : `${baseSlug}-${index}`;
+    const candidate = path.join(root, name);
+    if (!fs.existsSync(candidate)) return { name, path: candidate };
+  }
+  const name = `${baseSlug}-${randomUUID().slice(0, 8)}`;
+  return { name, path: path.join(root, name) };
+}
+
+function titleizeAppFolder(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function nextDesktopManagedAppPort(apps: AppConfig[]): number {
+  const used = new Set(
+    apps
+      .map((candidate) => candidate.devPort)
+      .filter((port) => Number.isInteger(port) && port > 0),
+  );
+  for (let port = 5180; port <= 5999; port += 1) {
+    if (!used.has(port)) return port;
+  }
+  return 6000 + Math.floor(Math.random() * 1000);
+}
+
+function buildDesktopCreateAppAgentPrompt(input: {
+  userPrompt: string;
+  folderName: string;
+  targetPath: string;
+  port: number;
+}): string {
+  return `${input.userPrompt.trim()}
+
+Build this as a polished, working Agent Native app at ${input.targetPath}.
+
+Start by running this non-interactive scaffold command from the current directory:
+npx --yes @agent-native/core@latest create ${input.folderName} --template chat
+
+Then work only inside ${input.targetPath}. Follow the generated AGENTS.md and the Agent Native architecture contract: actions are the shared UI/agent operation surface, app state describes navigation and selection, and all AI work goes through the agent chat. Implement the requested UI and behavior, install dependencies, and run the relevant typecheck/tests. The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`;
+}
+
+async function createDesktopAppFromPrompt(
+  input: DesktopCreateAppRequest,
+): Promise<DesktopCreateAppResult> {
+  const prompt = typeof input?.prompt === "string" ? input.prompt.trim() : "";
+  const currentApps = AppStore.loadApps();
+  if (!prompt) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Describe the app you want to build.",
+      error: "Missing prompt.",
+    };
+  }
+  if (prompt.length > 8_000) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Keep the first app prompt under 8,000 characters.",
+      error: "Prompt is too long.",
+    };
+  }
+
+  const appsRoot = normalizeDesktopAppsRoot(
+    input.appsRoot ?? AppStore.loadDesktopAppPreferences().appsRoot,
+  );
+  if (!appsRoot) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Choose a valid folder for new apps.",
+      error: "Invalid apps folder.",
+    };
+  }
+
+  try {
+    fs.mkdirSync(appsRoot, { recursive: true });
+    AppStore.saveDesktopAppPreferences({ appsRoot });
+  } catch (err) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Desktop could not prepare the apps folder.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const folder = uniqueDesktopAppFolder(appsRoot, appFolderSlug(prompt));
+  const port = nextDesktopManagedAppPort(currentApps);
+  const appId = `local-${folder.name}-${randomUUID().slice(0, 8)}`;
+  const agentPrompt = buildDesktopCreateAppAgentPrompt({
+    userPrompt: prompt,
+    folderName: folder.name,
+    targetPath: folder.path,
+    port,
+  });
+  const runResult = await createCodeAgentRun({
+    goalId: "task",
+    prompt: agentPrompt,
+    cwd: appsRoot,
+    permissionMode: "full-auto",
+    metadata: {
+      kind: "desktop-create-app",
+      appId,
+      appPath: folder.path,
+      userPrompt: prompt,
+    },
+  });
+  if (!runResult.ok || !runResult.run) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: runResult.message,
+      error: runResult.error,
+    };
+  }
+
+  const generatedName = runResult.run.title?.trim();
+  const appConfig: AppConfig = {
+    id: appId,
+    name:
+      generatedName &&
+      generatedName !== "Coding task" &&
+      generatedName.length <= 48 &&
+      !generatedName.endsWith("...")
+        ? generatedName
+        : titleizeAppFolder(folder.name),
+    icon: "Code",
+    description: prompt.replace(/\s+/g, " ").slice(0, 180),
+    url: "",
+    devPort: port,
+    devUrl: `http://localhost:${port}`,
+    devCommand: `pnpm exec agent-native dev --port ${port} --host 127.0.0.1`,
+    localPath: folder.path,
+    isBuiltIn: false,
+    enabled: true,
+    mode: "dev",
+  };
+  const apps = AppStore.addApp(appConfig);
+  AppStore.markDesktopManagedApp(appId, appsRoot);
+  scheduleManagedDesktopAppStart(appId, 1_500);
+  refreshDesktopShortcutBindings();
+  return {
+    ok: true,
+    apps,
+    app: appConfig,
+    run: runResult.run,
+    message: `Building ${appConfig.name}.`,
+  };
+}
+
+function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(IPC.APP_STATUS, status);
+}
+
+async function desktopAppUrlIsReachable(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(1_500),
+    });
+    return response.status > 0;
+  } catch {
+    return false;
+  }
+}
+
+function clearManagedDesktopAppRetry(appId: string): void {
+  const timer = managedDesktopAppRetryTimers.get(appId);
+  if (timer) clearTimeout(timer);
+  managedDesktopAppRetryTimers.delete(appId);
+}
+
+function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
+  if (appIsQuitting || activeAppId !== appId) return;
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppRetryTimers.set(
+    appId,
+    setTimeout(() => {
+      managedDesktopAppRetryTimers.delete(appId);
+      void ensureManagedDesktopAppRunning(appId);
+    }, delay),
+  );
+}
+
+async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
+  if (
+    appIsQuitting ||
+    !AppStore.isDesktopManagedApp(appId) ||
+    managedDesktopAppStarts.has(appId)
+  ) {
+    return;
+  }
+  const appConfig = AppStore.loadApps().find(
+    (candidate) =>
+      candidate.id === appId &&
+      candidate.enabled !== false &&
+      candidate.mode === "dev",
+  );
+  if (!appConfig?.localPath || !appConfig.devUrl || !appConfig.devCommand) {
+    return;
+  }
+  if (managedDesktopAppProcesses.get(appId)?.pid) return;
+
+  managedDesktopAppStarts.add(appId);
+  try {
+    if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
+      emitDesktopAppRuntimeStatus({ appId, state: "running" });
+      return;
+    }
+    if (
+      !fs.existsSync(appConfig.localPath) ||
+      !fs.existsSync(path.join(appConfig.localPath, "package.json"))
+    ) {
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "waiting",
+        message: "The coding agent is creating this app.",
+      });
+      scheduleManagedDesktopAppStart(appId);
+      return;
+    }
+
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "starting",
+      message: `Starting ${appConfig.name}.`,
+    });
+    managedDesktopAppStartAttempts.set(
+      appId,
+      (managedDesktopAppStartAttempts.get(appId) ?? 0) + 1,
+    );
+    const child = spawn(appConfig.devCommand, {
+      cwd: appConfig.localPath,
+      env: {
+        ...process.env,
+        BROWSER: "none",
+      },
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    managedDesktopAppProcesses.set(appId, child);
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.log(`[desktop-app:${appId}] ${text}`);
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.error(`[desktop-app:${appId}] ${text}`);
+    });
+    child.once("error", (err) => {
+      if (managedDesktopAppProcesses.get(appId) === child) {
+        managedDesktopAppProcesses.delete(appId);
+      }
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
+    child.once("exit", (code, signal) => {
+      if (managedDesktopAppProcesses.get(appId) === child) {
+        managedDesktopAppProcesses.delete(appId);
+      }
+      if (appIsQuitting) return;
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: code === 0 ? "stopped" : "error",
+        message:
+          code === 0
+            ? `${appConfig.name} stopped.`
+            : `${appConfig.name} exited (${signal ?? code ?? "unknown"}).`,
+      });
+      if (
+        activeAppId === appId &&
+        (managedDesktopAppStartAttempts.get(appId) ?? 0) < 20
+      ) {
+        scheduleManagedDesktopAppStart(appId, 3_000);
+      }
+    });
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
+        managedDesktopAppStartAttempts.delete(appId);
+        emitDesktopAppRuntimeStatus({ appId, state: "running" });
+        return;
+      }
+      if (child.exitCode !== null || child.killed) return;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  } catch (err) {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    managedDesktopAppStarts.delete(appId);
+  }
+}
+
+function stopManagedDesktopApp(appId: string): void {
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppStartAttempts.delete(appId);
+  const child = managedDesktopAppProcesses.get(appId);
+  if (!child) return;
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  } else {
+    child.kill("SIGTERM");
+  }
+  managedDesktopAppProcesses.delete(appId);
+}
+
+function showDesktopAppContextMenu(
+  appId: string,
+): Promise<DesktopAppContextAction | null> {
+  const apps = AppStore.loadApps();
+  const index = apps.findIndex((candidate) => candidate.id === appId);
+  const appConfig = apps[index];
+  if (!appConfig) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    let selected: DesktopAppContextAction | null = null;
+    const choose = (action: DesktopAppContextAction) => {
+      selected = action;
+    };
+    const menu = Menu.buildFromTemplate([
+      { label: "Edit App…", click: () => choose("edit") },
+      { type: "separator" },
+      {
+        label: "Move Up",
+        enabled: index > 0,
+        click: () => choose("move-up"),
+      },
+      {
+        label: "Move Down",
+        enabled: index < apps.length - 1,
+        click: () => choose("move-down"),
+      },
+      { type: "separator" },
+      {
+        label: appConfig.isBuiltIn
+          ? "Hide from Sidebar"
+          : "Remove from Sidebar",
+        click: () => choose("remove"),
+      },
+    ]);
+    menu.popup({
+      window: mainWindow ?? undefined,
+      callback: () => resolve(selected),
+    });
+  });
+}
+
 const CONTENT_FILES_STORE_FILE = "content-file-sync.json";
 const CONTENT_SOURCE_ROOT = "content";
 const CONTENT_SOURCE_EXTENSIONS = [".md", ".mdx"] as const;
@@ -7333,22 +7769,8 @@ ipcMain.handle(
 
 const contextMenuContents = new WeakSet<Electron.WebContents>();
 
-function canOpenExternalUrl(url: string): boolean {
-  try {
-    const protocol = new URL(url).protocol;
-    return (
-      protocol === "http:" ||
-      protocol === "https:" ||
-      protocol === "mailto:" ||
-      protocol === "tel:"
-    );
-  } catch {
-    return false;
-  }
-}
-
 function openExternalUrl(url: string) {
-  if (!canOpenExternalUrl(url)) return;
+  if (!canOpenDesktopExternalUrl(url, process.platform)) return;
   if (process.platform !== "darwin" || !/^https?:/i.test(url)) {
     shell.openExternal(url).catch(() => {});
     return;
@@ -7420,7 +7842,7 @@ function buildContextMenuTemplate(
     template.push(
       {
         label: "Open Link in Browser",
-        enabled: canOpenExternalUrl(params.linkURL),
+        enabled: canOpenDesktopExternalUrl(params.linkURL, process.platform),
         click: () => openExternalUrl(params.linkURL),
       },
       {
@@ -7584,6 +8006,7 @@ ipcMain.handle(
 ipcMain.handle(
   IPC.APPS_REMOVE,
   (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
+    stopManagedDesktopApp(id);
     const apps = AppStore.removeApp(id);
     refreshDesktopShortcutBindings();
     return apps;
@@ -7603,7 +8026,19 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  IPC.APPS_REORDER,
+  (
+    _event: IpcMainInvokeEvent,
+    id: string,
+    direction: "up" | "down",
+  ): AppConfig[] => AppStore.reorderApp(id, direction),
+);
+
 ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
+  for (const appId of managedDesktopAppProcesses.keys()) {
+    stopManagedDesktopApp(appId);
+  }
   const apps = AppStore.resetToDefaults();
   refreshDesktopShortcutBindings();
   return apps;
@@ -7612,6 +8047,41 @@ ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
 ipcMain.handle(
   IPC.APPS_CHOOSE_LOCAL_FOLDER,
   (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
+);
+
+ipcMain.handle(
+  IPC.APPS_GET_CREATION_SETTINGS,
+  (): DesktopAppCreationSettings => desktopAppCreationSettings(),
+);
+
+ipcMain.handle(
+  IPC.APPS_UPDATE_CREATION_SETTINGS,
+  (
+    _event: IpcMainInvokeEvent,
+    settings: Partial<DesktopAppCreationSettings>,
+  ): DesktopAppCreationSettings => {
+    const appsRoot = normalizeDesktopAppsRoot(settings?.appsRoot);
+    if (!appsRoot) return desktopAppCreationSettings();
+    AppStore.saveDesktopAppPreferences({ appsRoot });
+    return { appsRoot };
+  },
+);
+
+ipcMain.handle(
+  IPC.APPS_CREATE_FROM_PROMPT,
+  (
+    _event: IpcMainInvokeEvent,
+    input: DesktopCreateAppRequest,
+  ): Promise<DesktopCreateAppResult> => createDesktopAppFromPrompt(input),
+);
+
+ipcMain.handle(
+  IPC.APPS_SHOW_CONTEXT_MENU,
+  (
+    _event: IpcMainInvokeEvent,
+    appId: string,
+  ): Promise<DesktopAppContextAction | null> =>
+    showDesktopAppContextMenu(appId),
 );
 
 ipcMain.handle(
@@ -8108,7 +8578,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       server.on("request", handleCallbackRequest);
       const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
       const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
-      if (!canOpenExternalUrl(authUrl)) {
+      if (!canOpenDesktopExternalUrl(authUrl, process.platform)) {
         finish({
           ok: false,
           settings: getCodeAgentProviderSettings(),
@@ -8509,7 +8979,7 @@ function shouldOpenWebviewNavigationExternally(
   url: string,
   sourceContents: Electron.WebContents,
 ): boolean {
-  if (!canOpenExternalUrl(url)) return false;
+  if (!canOpenDesktopExternalUrl(url, process.platform)) return false;
   let next: URL;
   try {
     next = new URL(url);
@@ -8540,7 +9010,11 @@ function handleWindowOpenForContents(
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    if (
+      parsed.protocol !== "https:" &&
+      parsed.protocol !== "http:" &&
+      !canOpenDesktopExternalUrl(url, process.platform)
+    ) {
       return { action: "deny" as const };
     }
     const provider = matchOAuthProvider(url, {
@@ -8578,6 +9052,11 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
     if (openOAuthFromWebviewNavigation(url, contents)) {
       event.preventDefault();
+      return;
+    }
+    if (process.platform === "darwin" && isAllowedMacPrivacySettingsUrl(url)) {
+      event.preventDefault();
+      openExternalUrl(url);
       return;
     }
     if (
@@ -8896,6 +9375,50 @@ function configurePermissionHandlers(
       );
     },
   );
+
+  if (targetAppId === "clips") {
+    sess.setDisplayMediaRequestHandler(
+      (request, callback) => {
+        if (
+          !request.videoRequested ||
+          !request.userGesture ||
+          !isTrustedPermissionRequest(
+            undefined,
+            targetAppId,
+            request.securityOrigin,
+          )
+        ) {
+          callback({});
+          return;
+        }
+
+        void desktopCapturer
+          .getSources({
+            types: ["screen"],
+            thumbnailSize: { width: 0, height: 0 },
+          })
+          .then((sources) => {
+            const source = sources[0];
+            if (!source) {
+              callback({});
+              return;
+            }
+            callback({
+              video: source,
+              ...(request.audioRequested && process.platform !== "darwin"
+                ? { audio: "loopback" as const }
+                : {}),
+            });
+          })
+          .catch(() => callback({}));
+      },
+      {
+        // macOS 15+ provides a privacy-preserving native source picker. The
+        // handler above remains the documented fallback when it is unavailable.
+        useSystemPicker: process.platform === "darwin",
+      },
+    );
+  }
 }
 
 app.whenReady().then(() => {
@@ -9100,6 +9623,9 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   appIsQuitting = true;
+  for (const appId of managedDesktopAppProcesses.keys()) {
+    stopManagedDesktopApp(appId);
+  }
   pauseActiveCodeAgentProcessesForShutdown();
   if (remoteConnectorRestartTimer) {
     clearTimeout(remoteConnectorRestartTimer);

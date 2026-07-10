@@ -246,11 +246,11 @@ function defaultDatabaseView(
             ? "Gallery"
             : type === "calendar"
               ? "Calendar"
-            : type === "timeline"
-              ? "Timeline"
-              : type === "form"
-                ? "Form"
-              : "Table",
+              : type === "timeline"
+                ? "Timeline"
+                : type === "form"
+                  ? "Form"
+                  : "Table",
     type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],

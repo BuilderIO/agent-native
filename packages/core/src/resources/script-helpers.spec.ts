@@ -11,6 +11,7 @@ const mockEnsurePersonalDefaults = vi.fn();
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  sharedResourceOwner: () => "__shared__",
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),

@@ -34,6 +34,13 @@ let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   started_at: number;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
+// claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
+// = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
+// given runId can match the WHERE clause; every subsequent attempt (a
+// concurrent redispatch, a duplicate delivery, ...) must see rowsAffected=0.
+// Modeled as a Set of already-claimed run ids rather than a single counter so
+// a test can prove per-row independence too.
+const claimedBackgroundRunIds = new Set<string>();
 
 const mockDb = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
@@ -132,6 +139,22 @@ const mockDb = {
     if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
       return { rows: runCountRows, rowsAffected: 0 };
     }
+    // claimBackgroundRun: UPDATE agent_runs SET dispatch_mode =
+    // 'background-processing' WHERE id = ? AND status = 'running' AND
+    // dispatch_mode = 'background'. Stateful CAS simulation — see
+    // `claimedBackgroundRunIds`.
+    if (
+      /UPDATE agent_runs\s*SET dispatch_mode = 'background-processing'/i.test(
+        rawSql,
+      )
+    ) {
+      const runId = String(args[0]);
+      if (claimedBackgroundRunIds.has(runId)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      claimedBackgroundRunIds.add(runId);
+      return { rows: [], rowsAffected: 1 };
+    }
 
     return {
       rows: [],
@@ -161,6 +184,7 @@ const {
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   updateRunStatus,
+  bumpRunProgress,
   getRunStatus,
   listRunsForThread,
   readBackgroundRunClaim,
@@ -175,7 +199,10 @@ const {
   listUnclaimedBackgroundRunRows,
   countRunsForTurn,
   UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+  UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
   shouldRedispatchUnclaimedBackgroundRun,
+  claimBackgroundRun,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -192,6 +219,7 @@ describe("run store", () => {
     runListRows = [];
     refreshedRunListRows = null;
     runListSelectCount = 0;
+    claimedBackgroundRunIds.clear();
     runOwnerRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
@@ -271,6 +299,22 @@ describe("run store", () => {
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
     expect(insert?.args[3]).toBe('{"type":"done"}');
+  });
+
+  it("never lets an older progress write move the stored timestamp backward", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12_345);
+
+    await bumpRunProgress("run-progress");
+    nowSpy.mockRestore();
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs SET last_progress_at/i.test(call.sql),
+    );
+    expect(update?.sql).toMatch(
+      /CASE WHEN last_progress_at IS NULL OR last_progress_at < \? THEN \? ELSE last_progress_at END/i,
+    );
+    expect(update?.sql).toMatch(/AND status = 'running'/i);
+    expect(update?.args).toEqual([12_345, 12_345, "run-progress"]);
   });
 
   it("does not append another terminal event after auto_continue", async () => {
@@ -962,6 +1006,67 @@ describe("run store", () => {
     // A row from a very long time ago is not.
     expect(shouldRedispatchUnclaimedBackgroundRun({ startedAt: 0 })).toBe(
       false,
+    );
+  });
+
+  // ─── UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS (derived timing budget) ───────
+  // See this constant's doc comment for the full derivation. These assertions
+  // pin the DERIVED relationship, not the exact numbers, so the budget stays
+  // self-consistent if any one constant is retuned later.
+
+  it("the fast sweep is a real, finite, short interval — strictly tighter than the redispatch bound", () => {
+    expect(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS).toBeGreaterThan(0);
+    expect(Number.isFinite(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS)).toBe(true);
+    expect(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS).toBeLessThan(
+      UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+    );
+  });
+
+  // ─── claimBackgroundRun CAS (no-double-execution invariant) ───────────────
+  // Adding a tighter fast sweep alongside the existing slow sweep means two
+  // independent timers can now both try to redispatch the SAME unclaimed row
+  // around the same time, and a client-poll reap could interleave too. The
+  // CAS on `claimBackgroundRun` — not any sweep-level locking — is what makes
+  // that safe: only the FIRST claim attempt for a row can win.
+
+  it("claimBackgroundRun's CAS rejects a second claimer racing the same row (fast sweep vs slow sweep vs a real worker)", async () => {
+    const first = await claimBackgroundRun("run-race");
+    const second = await claimBackgroundRun("run-race");
+    const third = await claimBackgroundRun("run-race");
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(third).toBe(false);
+  });
+
+  it("claimBackgroundRun's CAS is per-row — one row's claim never blocks a different row's claim", async () => {
+    const rowA = await claimBackgroundRun("run-race-a");
+    const rowBFirst = await claimBackgroundRun("run-race-b");
+    const rowASecond = await claimBackgroundRun("run-race-a");
+    const rowBSecond = await claimBackgroundRun("run-race-b");
+
+    expect(rowA).toBe(true);
+    expect(rowBFirst).toBe(true);
+    expect(rowASecond).toBe(false);
+    expect(rowBSecond).toBe(false);
+  });
+
+  it("worst-case time-to-first-redispatch-attempt (grace + one fast-sweep tick, plus one retry) still leaves real headroom before the redispatch bound", () => {
+    // The full inequality against the CLIENT's
+    // BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS is asserted in
+    // agent-chat-adapter.spec.ts, which imports these same run-store
+    // constants (safe direction — a client test importing pure server
+    // constants) rather than the reverse (this server spec importing a
+    // browser-surface client module). This test proves the server-side half
+    // of the budget stands on its own: even with room for a full failed
+    // first attempt, recovery is a small fraction of the outer hard bound.
+    const worstCaseFirstAttemptMs =
+      UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
+      UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS;
+    const worstCaseWithOneRetryMs =
+      worstCaseFirstAttemptMs + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS;
+    expect(worstCaseWithOneRetryMs).toBeLessThan(
+      UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS / 2,
     );
   });
 });

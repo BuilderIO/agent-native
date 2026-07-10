@@ -34,6 +34,17 @@ export function countLockedLayers(html: string): number {
   return lockedLayerSnapshots(html).length;
 }
 
+export function countLockedLayersAcrossFiles(
+  files: readonly { content?: string | null }[],
+): number {
+  return files.reduce(
+    (count, file) =>
+      count +
+      (typeof file.content === "string" ? countLockedLayers(file.content) : 0),
+    0,
+  );
+}
+
 /**
  * Locked layers are immutable for agent-authored whole-file or text edits.
  * The human editor can still unlock a layer through its dedicated layer

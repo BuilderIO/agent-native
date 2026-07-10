@@ -256,6 +256,46 @@ describe("import-figma-frame", () => {
     );
   });
 
+  it("fails instead of silently dropping a visible fallback layer when Figma returns a null render URL", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ path }: any) => {
+        if (path === "/files/abcDEF12345/nodes") {
+          return jsonEnvelope({
+            nodes: {
+              "1:2": {
+                document: {
+                  ...SIMPLE_FRAME.document,
+                  children: [
+                    {
+                      id: "1:3",
+                      name: "Complex mask",
+                      type: "VECTOR",
+                      absoluteBoundingBox: {
+                        x: 0,
+                        y: 0,
+                        width: 24,
+                        height: 24,
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        if (path === "/images/abcDEF12345") {
+          return jsonEnvelope({ images: { "1:3": null } });
+        }
+        throw new Error(`Unexpected path ${path}`);
+      },
+    );
+
+    await expect(
+      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
+    ).rejects.toThrow(/could not render.*required fallback layer/i);
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
   it("mirrors expiring image-fill URLs before generated HTML is saved", async () => {
     const frameWithImageFill = {
       document: {
@@ -312,6 +352,52 @@ describe("import-figma-frame", () => {
         ownerEmail: "designer@example.com",
       }),
     );
+  });
+
+  it("fails instead of silently omitting an unresolved image fill", async () => {
+    mocks.executeProviderApiRequest.mockImplementation(
+      async ({ path }: any) => {
+        if (path === "/files/abcDEF12345/nodes") {
+          return jsonEnvelope({
+            nodes: {
+              "1:2": {
+                document: {
+                  ...SIMPLE_FRAME.document,
+                  children: [
+                    {
+                      id: "1:4",
+                      type: "RECTANGLE",
+                      absoluteBoundingBox: {
+                        x: 0,
+                        y: 0,
+                        width: 80,
+                        height: 60,
+                      },
+                      fills: [
+                        {
+                          type: "IMAGE",
+                          imageRef: "missing-photo",
+                          scaleMode: "FILL",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        if (path === "/files/abcDEF12345/images") {
+          return jsonEnvelope({ images: {} });
+        }
+        throw new Error(`Unexpected path ${path}`);
+      },
+    );
+
+    await expect(
+      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
+    ).rejects.toThrow(/did not return.*required image fill/i);
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });
 
   it("bounds parallel Figma image downloads while mirroring every unique URL", async () => {

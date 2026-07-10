@@ -126,6 +126,7 @@ function hydratedEditorChromeBridgeScriptWithTextEditing(): string {
 function hydratedEmbeddedCanvasGestureBridgeScript(options?: {
   wheel?: boolean;
   forwardSpaceKey?: boolean;
+  editingSafety?: boolean;
 }): string {
   return embeddedWheelBridgeScript
     .replace(
@@ -135,6 +136,10 @@ function hydratedEmbeddedCanvasGestureBridgeScript(options?: {
     .replace(
       "__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__",
       options?.forwardSpaceKey ? "true" : "false",
+    )
+    .replace(
+      "__EDITING_SAFETY_ENABLED__",
+      options?.editingSafety ? "true" : "false",
     );
 }
 
@@ -5699,6 +5704,7 @@ it(
           )?.payload,
       );
       expect(runtimeSnapshot.nodeCount).toBeGreaterThan(0);
+      expect(runtimeSnapshot.documentId).toMatch(/^runtime-/);
       expect(runtimeSnapshot.html).toContain("How can I help?");
       expect(runtimeSnapshot.html).toContain(
         'data-source-file="app/routes/_index.tsx"',

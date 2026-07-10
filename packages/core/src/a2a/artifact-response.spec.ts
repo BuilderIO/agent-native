@@ -60,6 +60,52 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("appends the focused Analytics URL returned by save-monitor", () => {
+    const text = appendA2AArtifactLinks(
+      "The uptime monitor was created.",
+      [
+        {
+          tool: "save-monitor",
+          result: JSON.stringify({
+            id: "monitor_123",
+            name: "clips.agent-native.com",
+            monitorAppUrl:
+              "https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Monitor "clips.agent-native.com": https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123 (ID: monitor_123)',
+    );
+  });
+
+  it("appends the direct public URL returned for an anonymous published form", () => {
+    const text = appendA2AArtifactLinks(
+      "The feedback form is live.",
+      [
+        {
+          tool: "create-form",
+          result: JSON.stringify({
+            id: "form_123",
+            title: "Product feedback",
+            status: "published",
+            settings: { anonymous: true },
+            publicUrl:
+              "https://forms.agent-native.com/f/product-feedback-a1b2c3",
+          }),
+        },
+      ],
+      { baseUrl: "https://forms.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Anonymous form "Product feedback": https://forms.agent-native.com/f/product-feedback-a1b2c3 (ID: form_123)',
+    );
+  });
+
   it("recognizes add-database-item as a recoverable Content row artifact", () => {
     const text = buildA2ARecoverableArtifactMessage(
       [

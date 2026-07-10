@@ -32,8 +32,8 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
-import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {

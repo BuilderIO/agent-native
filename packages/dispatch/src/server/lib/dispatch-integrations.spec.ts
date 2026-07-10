@@ -35,6 +35,7 @@ import {
   beforeDispatchProcess,
   identityKeyForIncoming,
   resolveDispatchOwner,
+  resolveDispatchExecutionContext,
 } from "./dispatch-integrations.js";
 
 const originalFetch = globalThis.fetch;
@@ -272,17 +273,18 @@ describe("resolveDispatchOwner", () => {
 });
 
 describe("beforeDispatchProcess", () => {
-  it("attaches a trusted Content routing hint for structured design intake", async () => {
+  it("attaches capability-based guidance for structured intake", async () => {
     const incoming = slackIncoming({
-      text: "File a design ask with priority and deadline",
+      text: "File this review request using our intake form",
     });
 
     await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
       { handled: false },
     );
-    expect((incoming as any).routingHint).toMatchObject({
-      targetAgent: "content",
-    });
+    expect((incoming as any).routingHint.targetAgent).toBeUndefined();
+    expect((incoming as any).routingHint.instruction).toContain(
+      "workspace instructions/resources",
+    );
   });
 
   it("asks unlinked Telegram users to link before using org context", async () => {
@@ -331,6 +333,58 @@ describe("beforeDispatchProcess", () => {
       token: "token-123",
       externalUserId: "777",
       externalUserName: "Steve",
+    });
+  });
+
+  it("replies with linking guidance instead of silently dropping an unlinked Slack DM", async () => {
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
+    const incoming = slackIncoming({
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T123",
+        channelId: "D123",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+    const result = await beforeDispatchProcess(incoming, noopAdapter);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(incoming.platformContext.identityLinkRequired).toBe(true);
+    expect(result).toEqual({
+      handled: true,
+      responseText:
+        "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+    });
+  });
+
+  it("lets an unlinked Slack DM consume a link token before the agent gate", async () => {
+    const incoming = slackIncoming({
+      text: "/link token-123",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T123",
+        channelId: "D123",
+        channelType: "im",
+      },
+    });
+
+    await resolveDispatchExecutionContext(incoming);
+    const result = await beforeDispatchProcess(incoming, noopAdapter);
+
+    expect(result).toEqual({
+      handled: true,
+      responseText:
+        "Linked successfully. Future slack messages will use owner@example.test's personal dispatch context.",
+    });
+    expect(mocks.consumeLinkToken).toHaveBeenCalledWith({
+      platform: "slack",
+      token: "token-123",
+      externalUserId: "T123:U123",
+      externalUserName: "U123",
     });
   });
 });

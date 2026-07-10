@@ -131,7 +131,8 @@ function databaseViewTypeValue(
     value === "list" ||
     value === "gallery" ||
     value === "calendar" ||
-    value === "timeline"
+    value === "timeline" ||
+    value === "form"
   ) {
     return value;
   }
@@ -627,6 +628,8 @@ export function databaseCurrentViewSnapshot(
       openPagesInValue(nav.databaseOpenPagesIn) ??
       activeView?.openPagesIn ??
       "preview",
+    formQuestions:
+      arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ?? response.items.length,
     totalItemCount:

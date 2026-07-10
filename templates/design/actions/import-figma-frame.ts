@@ -49,7 +49,7 @@ const schemaInput = z
 
 export default defineAction({
   description:
-    "Import a Figma frame/component by URL or file key + node id, mapping it to pixel-accurate HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Unsupported node types (vector networks, boolean ops) render as exact PNG fallbacks instead of approximated shapes. Returns a fidelity report of which properties were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
+    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
@@ -89,7 +89,7 @@ export default defineAction({
       figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
       fidelityReport: summarizeFidelity(fidelityEntries),
       guidance:
-        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (vector networks, boolean ops, unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side strokes, radial/angular/diamond gradients, blur radius scale).",
+        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
     };
   },
 });

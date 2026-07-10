@@ -141,7 +141,9 @@ describe("FigmaLinkComposerBubble", () => {
     });
 
     expect(input.value).toBe("");
-    expect(container!.textContent).toContain("Figma rejected this token (401).");
+    expect(container!.textContent).toContain(
+      "Figma rejected this token (401).",
+    );
   });
 
   it("prefills an explicit import request without exposing internal context markup", async () => {

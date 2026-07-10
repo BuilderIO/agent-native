@@ -37,7 +37,14 @@ export const designTemplates = table("design_templates", {
   title: text("title").notNull(),
   description: text("description"),
   category: text("category", {
-    enum: ["ad", "one-pager", "landing-page", "social", "presentation", "other"],
+    enum: [
+      "ad",
+      "one-pager",
+      "landing-page",
+      "social",
+      "presentation",
+      "other",
+    ],
   })
     .notNull()
     .default("other"),
@@ -52,9 +59,7 @@ export const designTemplates = table("design_templates", {
   ...ownableColumns(),
 });
 
-export const designTemplateShares = createSharesTable(
-  "design_template_shares",
-);
+export const designTemplateShares = createSharesTable("design_template_shares");
 
 export const designTemplateFiles = table("design_template_files", {
   id: text("id").primaryKey(),

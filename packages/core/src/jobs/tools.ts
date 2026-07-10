@@ -10,6 +10,7 @@ import {
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getIntegrationRequestContext,
 } from "../server/request-context.js";
 import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
 import {
@@ -84,7 +85,7 @@ async function authorizeJobMutation(
 }
 
 async function runCreate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, scope, runAs } = args;
+  const { name, schedule, instructions, scope, runAs, model } = args;
 
   if (!name || !schedule || !instructions) {
     return JSON.stringify({
@@ -102,6 +103,9 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   const path = `jobs/${name}.md`;
   const now = new Date();
   const next = nextOccurrence(schedule, now);
+  const integration = getIntegrationRequestContext();
+  const channelId = integration?.incoming.platformContext.channelId;
+  const threadRef = integration?.incoming.threadRef;
 
   const meta: JobFrontmatter = {
     schedule,
@@ -110,6 +114,20 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     orgId: getRequestOrgId() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
+    ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
+    ...(integration?.incoming.platform
+      ? { deliveryPlatform: integration.incoming.platform }
+      : {}),
+    ...(typeof channelId === "string"
+      ? { deliveryDestination: channelId }
+      : {}),
+    ...(typeof threadRef === "string" ? { deliveryThreadRef: threadRef } : {}),
+    ...(integration?.incoming.tenantId
+      ? { deliveryTenantId: integration.incoming.tenantId }
+      : {}),
+    ...(typeof model === "string" && model.trim()
+      ? { model: model.trim() }
+      : {}),
   };
 
   const content = buildJobContent(meta, instructions);
@@ -154,6 +172,10 @@ async function runList(args: Record<string, any>): Promise<string> {
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
         nextRun: meta.nextRun || null,
+        originScopeId: meta.originScopeId || null,
+        deliveryPlatform: meta.deliveryPlatform || null,
+        deliveryDestination: meta.deliveryDestination || null,
+        model: meta.model || null,
       };
     }),
   );
@@ -166,7 +188,7 @@ async function runList(args: Record<string, any>): Promise<string> {
 }
 
 async function runUpdate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, enabled, scope, runAs } = args;
+  const { name, schedule, instructions, enabled, scope, runAs, model } = args;
   const path = `jobs/${name}.md`;
 
   // Try to find the resource
@@ -211,6 +233,7 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   if (runAs === "creator" || runAs === "shared") {
     meta.runAs = runAs;
   }
+  if (typeof model === "string" && model.trim()) meta.model = model.trim();
 
   const newBody = instructions || body;
   const content = buildJobContent(meta, newBody);
@@ -305,6 +328,11 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
               description:
                 "Who shared jobs execute as: creator or shared. Default: creator. Used with create and update.",
               enum: ["creator", "shared"],
+            },
+            model: {
+              type: "string",
+              description:
+                "Optional model id for this routine. The channel/app/engine default is used when omitted.",
             },
           },
           required: ["action"],

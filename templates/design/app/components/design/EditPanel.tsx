@@ -384,6 +384,14 @@ export { ComponentSection };
 export { extractDocumentColorPalette, type DocumentColorSourceFile };
 export type { StyleChangeHandler, StyleChangeMeta, StylesChangeHandler };
 
+export function mergeOptimisticInteractionStateStyles(
+  persisted: Record<string, string> | undefined,
+  pending: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!persisted && !pending) return undefined;
+  return { ...(persisted ?? {}), ...(pending ?? {}) };
+}
+
 export type InspectorTab = "design" | "tweaks";
 
 interface EditPanelProps {
@@ -408,6 +416,10 @@ interface EditPanelProps {
   fileId?: string;
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
+  /** Optimistic localhost state styles that are not persisted into activeContent. */
+  pendingInteractionStateStyles?: Partial<
+    Record<InteractionState, Record<string, string>>
+  >;
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
   /**
@@ -1348,6 +1360,7 @@ export const EditPanel = memo(function EditPanel({
   exporting = false,
   fileId,
   activeContent,
+  pendingInteractionStateStyles,
   activeFileUpdatedAt,
   files,
   designId,
@@ -1545,8 +1558,17 @@ export const EditPanel = memo(function EditPanel({
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const states = listInteractionStates(activeContent, nodeId);
-    return states.length > 0 ? new Set(states) : undefined;
-  }, [activeContent, selectedCount, inspectorElement?.sourceId]);
+    const pendingStates = Object.entries(pendingInteractionStateStyles ?? {})
+      .filter(([, styles]) => styles && Object.keys(styles).length > 0)
+      .map(([state]) => state as InteractionState);
+    const combined = [...states, ...pendingStates];
+    return combined.length > 0 ? new Set(combined) : undefined;
+  }, [
+    activeContent,
+    pendingInteractionStateStyles,
+    selectedCount,
+    inspectorElement?.sourceId,
+  ]);
 
   // The active state's declared property/value overrides for the selected
   // element, used below to resolve each style-section field's displayed
@@ -1560,11 +1582,14 @@ export const EditPanel = memo(function EditPanel({
     }
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
-    return readResolvedStateStyles(
-      activeContent,
-      nodeId,
-      interactionState,
-      breakpointContext?.activeWidthPx,
+    return mergeOptimisticInteractionStateStyles(
+      readResolvedStateStyles(
+        activeContent,
+        nodeId,
+        interactionState,
+        breakpointContext?.activeWidthPx,
+      ),
+      pendingInteractionStateStyles?.[interactionState],
     );
   }, [
     activeContent,
@@ -1572,6 +1597,7 @@ export const EditPanel = memo(function EditPanel({
     selectedCount,
     inspectorElement?.sourceId,
     breakpointContext?.activeWidthPx,
+    pendingInteractionStateStyles,
   ]);
 
   const stateResolvedInspectorElement = useMemo(
@@ -1927,7 +1953,15 @@ export const EditPanel = memo(function EditPanel({
                 <ExportSettingsPanel
                   key={selectedElementKey}
                   value={exportSettings}
-                  formats={["png", "svg"]}
+                  // "pdf" was previously missing here even though the format
+                  // dropdown's type, the default format list, and
+                  // handleDownloadPdf/createSinglePageRasterPdf were already
+                  // fully implemented — Download PDF was unreachable from any
+                  // UI surface (this panel and the "More" export menu are the
+                  // only two, and the menu has no PDF item either). Users had
+                  // no way to trigger it at all, let alone hit a pagination
+                  // or clipping bug in it.
+                  formats={["png", "svg", "pdf"]}
                   exporting={exporting}
                   onChange={(patch) =>
                     setExportSettings((current) => ({ ...current, ...patch }))

@@ -4,15 +4,19 @@ import { dispatchIntegrationRoutingHint } from "./dispatch-routing.js";
 
 describe("dispatchIntegrationRoutingHint", () => {
   it.each([
-    "File a design ask for Apoorva",
-    "Add this request to the Design Asks board",
-    "Create a request form with priority, urgency, and deadline",
-    "What is currently in the design requests queue?",
-  ])("routes structured intake to Content: %s", (text) => {
-    expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
-      targetAgent: "content",
-    });
-  });
+    "File a security review request for the platform team",
+    "Add this hiring ask to the intake board",
+    "Create a vendor request form with the required fields",
+    "What is currently in the editorial requests queue?",
+  ])(
+    "resolves structured intake through workspace capabilities: %s",
+    (text) => {
+      const hint = dispatchIntegrationRoutingHint(text);
+      expect(hint?.targetAgent).toBeUndefined();
+      expect(hint?.instruction).toContain("workspace instructions/resources");
+      expect(hint?.instruction).toContain("do not assume a particular app");
+    },
+  );
 
   it.each([
     "Design a homepage for the launch",
@@ -30,5 +34,9 @@ describe("dispatchIntegrationRoutingHint", () => {
         "What were the reasons for closed-lost deals this quarter?",
       ),
     ).toBeUndefined();
+  });
+
+  it("leaves organization-specific shorthand to learned workspace instructions", () => {
+    expect(dispatchIntegrationRoutingHint("Apoorva queue")).toBeUndefined();
   });
 });
