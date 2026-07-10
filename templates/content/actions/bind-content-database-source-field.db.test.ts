@@ -215,7 +215,7 @@ async function tagValue(documentId: string, propertyId: string) {
   return row ? (JSON.parse(row.valueJson) as unknown) : undefined;
 }
 
-async function seedStaleBuilderTopicsSnapshot() {
+async function seedStaleBuilderTopicsSnapshot(rowCount = 2) {
   const db = getDb();
   const now = new Date().toISOString();
   const suffix = `${++counter}_${Math.random().toString(36).slice(2, 7)}`;
@@ -223,20 +223,12 @@ async function seedStaleBuilderTopicsSnapshot() {
   const databaseDocId = `doc_${databaseId}`;
   const sourceId = `src_stale_topics_${suffix}`;
   const fieldId = `field_stale_topics_${suffix}`;
-  const rows = [
-    {
-      entryId: `entry_a_${suffix}`,
-      itemId: `item_a_${suffix}`,
-      documentId: `doc_a_${suffix}`,
-      title: "First article",
-    },
-    {
-      entryId: `entry_b_${suffix}`,
-      itemId: `item_b_${suffix}`,
-      documentId: `doc_b_${suffix}`,
-      title: "Second article",
-    },
-  ];
+  const rows = Array.from({ length: rowCount }, (_, index) => ({
+    entryId: `entry_${index + 1}_${suffix}`,
+    itemId: `item_${index + 1}_${suffix}`,
+    documentId: `doc_${index + 1}_${suffix}`,
+    title: `Article ${index + 1}`,
+  }));
 
   await db.insert(schema.documents).values([
     {
@@ -583,6 +575,135 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(properties).toHaveLength(1);
     expect(mappedFields).toHaveLength(1);
     expect(propertyValues).toHaveLength(2);
+  });
+
+  it("hydrates only the selected field across all 597 stored rows without restarting or pruning", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot(597);
+    const db = getDb();
+    const storedRows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    const rowIndexByEntryId = new Map(
+      f.rows.map((row, index) => [row.entryId, index]),
+    );
+    await Promise.all(
+      storedRows.map((row) => {
+        const index = rowIndexByEntryId.get(row.sourceRowId);
+        if (index === undefined) throw new Error("Unknown seeded source row.");
+        return db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              "data.title": f.rows[index].title,
+              "data.tags": [`stored-tag-${index + 1}`],
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+      }),
+    );
+
+    const remoteEntries = f.rows.map((row, index) => ({
+      id: row.entryId,
+      data: {
+        title: `Remote ${row.title}`,
+        tags: [`remote-tag-${index + 1}`],
+        topics: [index % 2 === 0 ? "Agent Native" : "Developer Experience"],
+      },
+    }));
+    const requests: Array<{ limit: number; offset: number }> = [];
+    const previousPublicKey = process.env.BUILDER_PUBLIC_KEY;
+    const previousPrivateKey = process.env.BUILDER_PRIVATE_KEY;
+    const previousCmsPrivateKey = process.env.BUILDER_CMS_PRIVATE_KEY;
+    const previousContentApiHost = process.env.BUILDER_CONTENT_API_HOST;
+    process.env.BUILDER_PUBLIC_KEY = "test-public-key";
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_CMS_PRIVATE_KEY;
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = input instanceof URL ? input : new URL(String(input));
+      const limit = Number(url.searchParams.get("limit"));
+      const offset = Number(url.searchParams.get("offset"));
+      requests.push({ limit, offset });
+      return new Response(
+        JSON.stringify({
+          results: remoteEntries.slice(offset, offset + limit),
+        }),
+        { status: 200 },
+      );
+    });
+
+    try {
+      const result = await asOwner(() =>
+        addSourceFieldPropertyAction.run({
+          documentId: f.databaseDocId,
+          sourceFieldId: f.fieldId,
+        }),
+      );
+
+      expect(requests).toEqual([
+        { limit: 100, offset: 0 },
+        { limit: 100, offset: 100 },
+        { limit: 100, offset: 200 },
+        { limit: 100, offset: 300 },
+        { limit: 100, offset: 400 },
+        { limit: 97, offset: 500 },
+      ]);
+      expect(requests.filter((request) => request.offset === 0)).toHaveLength(
+        1,
+      );
+      expect(result.itemValues).toHaveLength(597);
+
+      const sourceRowsAfter = await db
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+      expect(sourceRowsAfter).toHaveLength(597);
+      const valuesBySourceRowId = new Map(
+        sourceRowsAfter.map((row) => [
+          row.sourceRowId,
+          JSON.parse(row.sourceValuesJson) as Record<string, unknown>,
+        ]),
+      );
+      for (const [index, row] of f.rows.entries()) {
+        expect(valuesBySourceRowId.get(row.entryId)).toEqual({
+          "data.title": row.title,
+          "data.tags": [`stored-tag-${index + 1}`],
+          "data.topics": [
+            index % 2 === 0 ? "Agent Native" : "Developer Experience",
+          ],
+        });
+      }
+
+      const items = await db
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, f.databaseId));
+      const propertyValues = await db
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(
+          eq(
+            schema.documentPropertyValues.propertyId,
+            result.property.definition.id,
+          ),
+        );
+      expect(items).toHaveLength(597);
+      expect(propertyValues).toHaveLength(597);
+    } finally {
+      if (previousPublicKey === undefined)
+        delete process.env.BUILDER_PUBLIC_KEY;
+      else process.env.BUILDER_PUBLIC_KEY = previousPublicKey;
+      if (previousPrivateKey === undefined)
+        delete process.env.BUILDER_PRIVATE_KEY;
+      else process.env.BUILDER_PRIVATE_KEY = previousPrivateKey;
+      if (previousCmsPrivateKey === undefined)
+        delete process.env.BUILDER_CMS_PRIVATE_KEY;
+      else process.env.BUILDER_CMS_PRIVATE_KEY = previousCmsPrivateKey;
+      if (previousContentApiHost === undefined)
+        delete process.env.BUILDER_CONTENT_API_HOST;
+      else process.env.BUILDER_CONTENT_API_HOST = previousContentApiHost;
+    }
   });
 
   it("preserves a concurrent source field update while refreshing Topics", async () => {
