@@ -2349,8 +2349,7 @@ export async function executeAgentToolCall(
       status: "approval_required",
       approvalKey: approval.approvalKey,
       output:
-        completed?.result ??
-        `Awaiting human approval to run ${options.name}.`,
+        completed?.result ?? `Awaiting human approval to run ${options.name}.`,
     };
   }
   if (!completed) {

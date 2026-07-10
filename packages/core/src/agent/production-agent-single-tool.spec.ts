@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  executeAgentToolCall,
-  type ActionEntry,
-} from "./production-agent.js";
+import { executeAgentToolCall, type ActionEntry } from "./production-agent.js";
 
 function action(
   run: ActionEntry["run"],

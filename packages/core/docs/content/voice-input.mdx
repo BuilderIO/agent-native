@@ -9,6 +9,12 @@ Every agent-native app has a microphone in the chat composer. Click it, talk, an
 
 The framework handles all of this automatically. Builder-connected users get Builder-hosted Gemini Flash-Lite by default; otherwise users can bring their own provider key or fall back to browser speech recognition.
 
+## Realtime speech mode {#realtime-speech-mode}
+
+When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech requires a user-scoped `OPENAI_API_KEY` and connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation.
+
+The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Audio is never stored in SQL; Agent Native keeps only compact session and transcript state. A realtime session lasts at most 60 minutes.
+
 ## How it works {#how-it-works}
 
 The composer's voice button records audio in the browser, then picks a provider:

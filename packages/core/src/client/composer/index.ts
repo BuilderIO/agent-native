@@ -32,6 +32,19 @@ export {
   type RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
 export {
+  createRealtimeVoiceSession,
+  executeRealtimeVoiceTool,
+  extractRealtimeVoiceFunctionCalls,
+  readRealtimeVoiceContext,
+  RealtimeVoiceModeProvider,
+  useRealtimeVoiceMode,
+  useRealtimeVoiceModeCopy,
+  useRealtimeVoiceModeOptional,
+  type RealtimeVoiceModeApi,
+  type RealtimeVoiceModeProviderProps,
+  type RealtimeVoiceToolResult,
+} from "./useRealtimeVoiceMode.js";
+export {
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
   AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
   escapePromptAttachmentAttribute,

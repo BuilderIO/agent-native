@@ -42,6 +42,14 @@ export interface RealtimeVoiceModeCopy {
   hideChat: string;
   endVoiceMode: string;
   status: Record<RealtimeVoiceModeState, string>;
+  errors: {
+    unsupported: string;
+    responseFailed: string;
+    sessionFailed: string;
+    channelDisconnected: string;
+    connectionFailed: string;
+    offerFailed: string;
+  };
 }
 
 export interface RealtimeVoiceModeEntryProps {

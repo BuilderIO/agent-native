@@ -100,6 +100,7 @@ import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import { RealtimeVoiceModeProvider } from "./composer/useRealtimeVoiceMode.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
@@ -3159,49 +3160,51 @@ export function AgentSidebar({
   ) : null;
 
   return (
-    <div
-      className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-      data-agent-sidebar-position={position}
-    >
-      <AgentNativeRouteWarmup />
-      {/* Mobile backdrop — tapping it closes the sidebar */}
-      {isMobile &&
-        !presentationMode &&
-        (mobileAnimationEnabled ? shouldRenderPanel : open) && (
-          <div
-            className={cn(
-              "agent-sidebar-backdrop fixed inset-0 bg-black/40",
-              mobileAnimationEnabled && !panelOpen && "pointer-events-none",
-            )}
-            data-agent-sidebar-animation={
-              mobileAnimationEnabled ? "mobile" : undefined
-            }
-            data-agent-sidebar-state={panelOpen ? "open" : "closed"}
-            style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
-            onClick={() => setOpenPersisted(false)}
-          />
-        )}
-      {/* URLSync writes the current URL to application-state so the agent
+    <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+      <div
+        className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
+        data-agent-sidebar-position={position}
+      >
+        <AgentNativeRouteWarmup />
+        {/* Mobile backdrop — tapping it closes the sidebar */}
+        {isMobile &&
+          !presentationMode &&
+          (mobileAnimationEnabled ? shouldRenderPanel : open) && (
+            <div
+              className={cn(
+                "agent-sidebar-backdrop fixed inset-0 bg-black/40",
+                mobileAnimationEnabled && !panelOpen && "pointer-events-none",
+              )}
+              data-agent-sidebar-animation={
+                mobileAnimationEnabled ? "mobile" : undefined
+              }
+              data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+              style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
+              onClick={() => setOpenPersisted(false)}
+            />
+          )}
+        {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-      {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
-      {isLeft && !presentationMode ? sidebar : null}
-      <div
-        className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
-        data-agent-sidebar-main-position={position}
-        data-agent-sidebar-main-state={
-          !isMobile && !effectiveFullscreen && !presentationMode && panelOpen
-            ? "open"
-            : "closed"
-        }
-      >
-        {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+        {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+        {isLeft && !presentationMode ? sidebar : null}
+        <div
+          className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
+          data-agent-sidebar-main-position={position}
+          data-agent-sidebar-main-state={
+            !isMobile && !effectiveFullscreen && !presentationMode && panelOpen
+              ? "open"
+              : "closed"
+          }
+        >
+          {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-        <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+        </div>
+        {!isLeft && !presentationMode ? sidebar : null}
       </div>
-      {!isLeft && !presentationMode ? sidebar : null}
-    </div>
+    </RealtimeVoiceModeProvider>
   );
 }
 

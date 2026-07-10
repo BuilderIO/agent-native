@@ -29,6 +29,14 @@ const copy: RealtimeVoiceModeCopy = {
     error: "Voice mode needs attention",
     ending: "Ending voice mode",
   },
+  errors: {
+    unsupported: "Unsupported",
+    responseFailed: "Response failed",
+    sessionFailed: "Session failed",
+    channelDisconnected: "Channel disconnected",
+    connectionFailed: "Connection failed",
+    offerFailed: "Offer failed",
+  },
 };
 
 describe("RealtimeVoiceMode", () => {
