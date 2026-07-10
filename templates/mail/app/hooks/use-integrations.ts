@@ -136,6 +136,7 @@ export function useHubSpotContact(email: string | undefined) {
       ),
     enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
@@ -149,6 +150,7 @@ export function usePylonContact(email: string | undefined) {
       ),
     enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
@@ -160,6 +162,7 @@ export function useGongCalls(email: string | undefined) {
       integrationFetch(`/api/gong/calls?email=${encodeURIComponent(email!)}`),
     enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }

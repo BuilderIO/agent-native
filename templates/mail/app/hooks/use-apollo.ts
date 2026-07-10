@@ -20,6 +20,7 @@ export function useApolloPerson(email: string | undefined) {
     enabled: !!email,
     staleTime: 10 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }

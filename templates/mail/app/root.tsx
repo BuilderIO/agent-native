@@ -38,6 +38,7 @@ import {
   mailIntegrationProviderFromAppStateKey,
 } from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { i18nCatalog } from "./i18n";
@@ -79,12 +80,6 @@ function getHydrationStableLocaleInitScript() {
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
-
-function skipBroadActionInvalidation() {
-  // Mail's Gmail-backed reads are expensive and already refresh through the
-  // explicit app-state refresh-signal that mutating mail actions write.
-  return false;
-}
 
 const MAIL_ERROR_COPY: Record<
   LocaleCode,
@@ -335,7 +330,9 @@ function DbSyncSetup() {
   useDbSync({
     queryClient: qc,
     queryKeys: [],
-    actionInvalidatePredicate: skipBroadActionInvalidation,
+    // Action events refresh action-backed reads (such as queued drafts) while
+    // expensive Gmail/provider queries stay on their targeted sync paths.
+    actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
     onEvent: (data: {
@@ -412,8 +409,6 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["labels"] });
           invalidateSettingsSurfaces();
         }
-      } else if (!isOwnEvent) {
-        qc.invalidateQueries({ queryKey: ["action"] });
       }
     },
   });
