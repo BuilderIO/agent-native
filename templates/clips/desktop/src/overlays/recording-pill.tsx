@@ -15,6 +15,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor } from "../lib/transcription-engine";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -83,6 +84,7 @@ export function RecordingPill() {
   const sysCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -460,11 +462,19 @@ export function RecordingPill() {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-no-drag]")) return;
+    dragStartScreenPointRef.current = { x: e.screenX, y: e.screenY };
     getCurrentWindow()
       .startDragging()
       .catch((err) => {
         console.warn("[clips-pill] startDragging failed", err);
       });
+  };
+
+  const handlePillMediaClick = (e: React.MouseEvent) => {
+    const start = dragStartScreenPointRef.current;
+    dragStartScreenPointRef.current = null;
+    if (!isDirectPillClick(start, { x: e.screenX, y: e.screenY })) return;
+    void toggleExpanded();
   };
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
@@ -491,9 +501,7 @@ export function RecordingPill() {
         >
           <div
             className="pill-media"
-            onClick={
-              !expanded && !detached ? () => void toggleExpanded() : undefined
-            }
+            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
           >
             <PillLogo className="pill-logo" />
             {hasSystemAudio ? (

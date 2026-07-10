@@ -22,6 +22,7 @@ const copy: RealtimeVoiceModeCopy = {
   hideChat: "Hide chat",
   endVoiceMode: "End voice mode",
   status: {
+    connecting: "Connecting",
     listening: "Listening",
     speaking: "Speaking",
     working: "Working",

@@ -21,6 +21,7 @@ import {
 import { cn } from "../utils.js";
 
 export type RealtimeVoiceModeState =
+  | "connecting"
   | "listening"
   | "speaking"
   | "working"
@@ -162,6 +163,8 @@ export interface RealtimeVoiceModeDockProps {
 }
 
 const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
+  connecting:
+    "bg-secondary text-secondary-foreground ring-4 ring-secondary/40 hover:bg-secondary/80",
   listening:
     "bg-primary text-primary-foreground ring-4 ring-primary/15 hover:bg-primary/90",
   speaking:
@@ -175,6 +178,10 @@ const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
 
 function VoiceStateIcon({ state }: { state: RealtimeVoiceModeState }) {
   switch (state) {
+    case "connecting":
+      return (
+        <IconLoader2 className="animate-spin motion-reduce:animate-none" />
+      );
     case "listening":
       return <IconMicrophone />;
     case "speaking":
