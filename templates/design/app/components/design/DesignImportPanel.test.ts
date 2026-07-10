@@ -37,6 +37,34 @@ describe("DesignImportPanel", () => {
     expect(source).toContain("figUploadProgress === 100");
   });
 
+  it("imports a Figma frame URL through the shared action surface", () => {
+    const urlIndex = source.indexOf('id="figma-url-import"');
+    const pasteIndex = source.indexOf('id="figma-paste-import"');
+
+    expect(urlIndex).toBeGreaterThanOrEqual(0);
+    expect(urlIndex).toBeLessThan(pasteIndex);
+    expect(source).toContain(
+      'const importFigmaFrame = useActionMutation("import-figma-frame")',
+    );
+    expect(source).toContain("parseFigmaFileKey(normalizedUrl)");
+    expect(source).toContain("figmaUrl: normalizedUrl");
+    expect(source).toContain("designId: context.designId");
+    expect(source).toContain("asNewScreen: true");
+    expect(source).not.toContain('fetch("/_agent-native/actions/');
+  });
+
+  it("checks the saved Figma connection and securely gates URL import", () => {
+    expect(source).toContain("getFigmaConnectionStatus()");
+    expect(source).toContain("saveFigmaAccessToken(figmaAccessToken)");
+    expect(source).toContain('type="password"');
+    expect(source).toContain('autoComplete="new-password"');
+    expect(source).toContain('setFigmaAccessToken("")');
+    expect(source).toContain(
+      "figmaConnectionChecked && !figmaConnected && !figmaConnectionError",
+    );
+    expect(source).not.toContain("FIGMA_ACCESS_TOKEN:");
+  });
+
   it("shows one result toast and leaves generic .fig caveats to the upload UI", () => {
     expect(source).toContain("importResultNotification(result, fallback)");
     expect(source).toContain('notification.variant === "warning"');

@@ -1,4 +1,5 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
+import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconBrandFigma,
   IconBrandGithub,
@@ -35,7 +36,6 @@ import {
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
 import { cn } from "@/lib/utils";
-import { parseFigmaFileKey } from "@shared/figma-url";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
 
