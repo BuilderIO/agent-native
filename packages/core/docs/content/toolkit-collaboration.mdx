@@ -70,5 +70,60 @@ const undo = useCollabUndo(collab.ydoc, { trackedOrigins: [user.email] });
 - Keep undo local and predictable: CRDT undo for document operations, local-op
   undo for app-specific commands.
 
-Related docs: [Realtime Collaboration](/docs/real-time-collaboration),
-[Component API](/docs/components#collab-presence).
+## UI components {#ui-components}
+
+`@agent-native/toolkit/collab-ui` contains the presentational collaboration
+pieces that do not own transport or storage:
+
+<WireframeBlock id="doc-block-toolkit-collaboration-ui">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:26px;display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='position:relative;display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:8px'><h2 style='margin:0'>Editor canvas</h2><div style='flex:1'></div><div style='display:flex;align-items:center'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><span class='wf-pill accent'>Agent editing</span></div><div style='position:relative;border:1.6px solid var(--wf-accent);border-radius:var(--wf-radius);padding:14px;display:flex;flex-direction:column;gap:8px;margin-top:6px'><span class='wf-pill accent' style='position:absolute;left:12px;top:-12px'>Ava</span><div style='height:11px;width:80%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><div style='background:var(--wf-accent-soft);border-radius:var(--wf-radius);padding:14px;display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Sam edited moments ago</small><div style='height:11px;width:90%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:70%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill' style='position:absolute;right:70px;top:210px'>Sam</span></div></div>"
+    }
+  />
+</WireframeBlock>
+
+The full set of presentational exports:
+
+```tsx
+import {
+  AgentPresenceChip,
+  LiveCursorOverlay,
+  PresenceBar,
+  RecentEditHighlights,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
+```
+
+Existing imports from `@agent-native/core/client` still work because core
+re-exports these Toolkit components as compatibility shims, but new code
+should import `@agent-native/toolkit/collab-ui` directly.
+
+### Toolkit vs Core {#toolkit-vs-core}
+
+Toolkit owns:
+
+- Presence avatars and agent editing chips.
+- Live cursor overlays.
+- Remote selection rings.
+- Recent edit highlight overlays.
+- Display helpers such as collaborator color and display-name derivation.
+
+Core owns:
+
+- Yjs document creation and sync.
+- Awareness polling and SSE fast-path transport.
+- Collaboration server plugins and actions.
+- Recent edit publication and collection from awareness.
+
+## What's next
+
+- [**Realtime Collaboration**](/docs/real-time-collaboration) — the CRDT
+  transport and sync model these components render.
+- [**Component API**](/docs/components#collab-presence) — the generated
+  reference for collaboration component props.
+- [**Sharing Kit**](/docs/toolkit-sharing) — the same Toolkit/Core split
+  applied to sharing and access control.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — the hub page linking
+  every kit and foundation piece.
