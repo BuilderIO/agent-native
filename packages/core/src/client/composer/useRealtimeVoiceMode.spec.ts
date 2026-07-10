@@ -7,6 +7,7 @@ import {
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
+  shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
 
 afterEach(() => {
@@ -155,5 +156,31 @@ describe("extractCompletedRealtimeVoiceTranscript", () => {
         transcript: "   ",
       }),
     ).toBeNull();
+  });
+});
+
+describe("shouldRestoreRealtimeVoiceTranscriptThread", () => {
+  it("restores the captured transcript when it remains active or chat has no active thread", () => {
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        "voice-thread",
+        "voice-thread",
+      ),
+    ).toBe(true);
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread("voice-thread", undefined),
+    ).toBe(true);
+  });
+
+  it("does not restore over a thread selected while voice mode was active", () => {
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        "voice-thread",
+        "other-thread",
+      ),
+    ).toBe(false);
+    expect(
+      shouldRestoreRealtimeVoiceTranscriptThread(undefined, "other-thread"),
+    ).toBe(false);
   });
 });

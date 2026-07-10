@@ -468,7 +468,7 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
         let _ = existing.close();
     }
-    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
     let content_w: u32 = (336.0 * scale).round() as u32;
     let content_h: u32 = (86.0 * scale).round() as u32;

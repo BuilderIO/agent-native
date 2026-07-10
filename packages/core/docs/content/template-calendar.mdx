@@ -1,11 +1,11 @@
 ---
 title: "Calendar"
-description: "An agent-powered calendar with Google Calendar sync and shareable booking pages. Schedule, find slots, and manage availability through plain English."
+description: "An agent-powered calendar with Google Calendar sync and Calendly-style booking links. Schedule, find slots, and manage availability through plain English."
 ---
 
 # Calendar
 
-An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage shareable booking links — all in plain English. It brings your calendar and public booking pages into one app you own.
+An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
 
 <WireframeBlock id="doc-block-6wsrao">
   <Screen
@@ -167,7 +167,7 @@ Under the hood the agent calls actions like `list-events`, `check-availability`,
 Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stored locally:
 
 - `bookings` — confirmed appointments from public booking pages. Stores name, email, start, end, slug, optional notes, custom field responses, meeting link, a `cancelToken` for the public manage URL, and a `confirmed` or `cancelled` status.
-- `booking_links` — the booking-page link definitions. Slug, title, description, primary `duration`, optional `durations` list, `customFields`, `conferencing`, `color`, and an `isActive` flag. Uses the framework's `ownableColumns` so the sharing system applies.
+- `booking_links` — the Calendly-style link definitions. Slug, title, description, primary `duration`, optional `durations` list, `customFields`, `conferencing`, `color`, and an `isActive` flag. Uses the framework's `ownableColumns` so the sharing system applies.
 - `booking_slug_redirects` — remembers old slugs when a link is renamed so existing public URLs keep working.
 - `booking_link_shares` — share grants for booking links.
 
@@ -181,7 +181,7 @@ Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stor
     {
       id: "booking_links",
       name: "booking_links",
-      note: "Booking-page link definitions (ownable)",
+      note: "Calendly-style link definitions (ownable)",
       fields: [
         {
           name: "id",

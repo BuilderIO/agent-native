@@ -30,6 +30,35 @@ type NativeUploadFinished = {
   localFilePath?: string | null;
 };
 
+const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
+
+function takePersistedFinalizingResult(): NativeUploadFinished | null {
+  try {
+    const raw = window.localStorage.getItem(FINALIZING_RESULT_STORAGE_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(FINALIZING_RESULT_STORAGE_KEY);
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const payload = parsed as Record<string, unknown>;
+    if (
+      typeof payload.recordingId !== "string" ||
+      typeof payload.viewUrl !== "string" ||
+      typeof payload.ok !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      recordingId: payload.recordingId,
+      viewUrl: payload.viewUrl,
+      ok: payload.ok,
+      error: typeof payload.error === "string" ? payload.error : null,
+      localFilePath: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Compact bottom-left feedback window. Rendered the moment the user clicks
  * Stop and kept visible while the desktop finishes its durable backup and
@@ -48,6 +77,9 @@ export function Finalizing() {
     let unlistenFinished: (() => void) | null = null;
     let completionTimer: ReturnType<typeof window.setTimeout> | null = null;
     let openingWatchdog: ReturnType<typeof window.setTimeout> | null = null;
+    const hardWatchdog = window.setTimeout(() => {
+      void invoke("hide_finalizing").catch(() => {});
+    }, 120_000);
     let finishedHandled = false;
     const clearCompletionTimer = () => {
       if (completionTimer) {
@@ -103,6 +135,11 @@ export function Finalizing() {
     const handleFinished = (payload: NativeUploadFinished) => {
       if (disposed || finishedHandled) return;
       finishedHandled = true;
+      try {
+        window.localStorage.removeItem(FINALIZING_RESULT_STORAGE_KEY);
+      } catch {
+        // Storage is a best-effort event-race fallback only.
+      }
       clearCompletionTimer();
       clearOpeningWatchdog();
       if (payload.ok && payload.viewUrl) {
@@ -143,6 +180,11 @@ export function Finalizing() {
           return;
         }
         unlistenFinished = u;
+        const persisted = takePersistedFinalizingResult();
+        if (persisted) {
+          handleFinished(persisted);
+          return;
+        }
         void invoke<NativeUploadFinished | null>(
           "native_fullscreen_take_upload_finished",
         )
@@ -156,6 +198,7 @@ export function Finalizing() {
       disposed = true;
       clearCompletionTimer();
       clearOpeningWatchdog();
+      window.clearTimeout(hardWatchdog);
       unlisten?.();
       unlistenFinished?.();
     };
@@ -175,8 +218,7 @@ export function Finalizing() {
             progress.stage === "opening"
           ? "Uploading clip..."
           : "Optimizing clip...";
-  const finished =
-    progress.stage === "uploaded" || progress.stage === "failed";
+  const finished = progress.stage === "uploaded" || progress.stage === "failed";
 
   const dismiss = () => {
     void invoke("hide_finalizing").catch(() => {});

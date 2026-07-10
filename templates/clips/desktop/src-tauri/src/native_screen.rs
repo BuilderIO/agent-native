@@ -2088,27 +2088,45 @@ pub async fn native_fullscreen_recording_retry_upload(
     saved.last_error = None;
     write_saved_recording_metadata(&app, &saved)?;
 
-    let upload_mode = reset_upload_chunks(
-        &saved.server_url,
-        &saved.recording_id,
-        &saved.mime_type,
-        auth_token.as_deref().unwrap_or(""),
-        cookie.as_deref().unwrap_or(""),
-    )
-    .await
-    .map_err(|err| {
-        persist_saved_recording_error(&app, &mut saved, &err);
-        err
-    })?;
+    // Preparation can normalize or transcode the saved recording. The
+    // resumable session must be created with the MIME type we will actually
+    // upload, not the source file's potentially stale MIME type.
+    let result = async {
+        let (prepared, retry_combined_path) = prepare_saved_recording_file(&app, &saved)?;
+        let upload_mode = match reset_upload_chunks(
+            &saved.server_url,
+            &saved.recording_id,
+            &prepared.mime_type,
+            auth_token.as_deref().unwrap_or(""),
+            cookie.as_deref().unwrap_or(""),
+        )
+        .await
+        {
+            Ok(upload_mode) => upload_mode,
+            Err(err) => {
+                cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+                return Err(err);
+            }
+        };
 
-    let result = upload_saved_recording_file(
-        &app,
-        &saved,
-        saved.server_url.clone(),
-        auth_token.unwrap_or_default(),
-        cookie.unwrap_or_default(),
-        upload_mode,
-    )
+        let upload_result = upload_prepared_recording_file(
+            &app,
+            &prepared,
+            saved.server_url.clone(),
+            saved.recording_id.clone(),
+            auth_token.unwrap_or_default(),
+            cookie.unwrap_or_default(),
+            upload_mode,
+            saved.duration_ms,
+            saved.width,
+            saved.height,
+            saved.has_audio,
+            saved.has_camera,
+        )
+        .await;
+        cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+        upload_result
+    }
     .await;
 
     match result {
@@ -3265,30 +3283,10 @@ async fn upload_recording_file(
     upload_result
 }
 
-async fn upload_saved_recording_file(
-    app: &AppHandle,
-    saved: &SavedNativeRecording,
-    server_url: String,
-    auth_token: String,
-    cookie: String,
-    upload_mode: NativeUploadMode,
-) -> Result<NativeFullscreenUploadResult, String> {
-    let (prepared, retry_combined_path) = prepare_saved_recording_file(app, saved)?;
-    let upload_result = upload_prepared_recording_file(
-        app,
-        &prepared,
-        server_url,
-        saved.recording_id.clone(),
-        auth_token,
-        cookie,
-        upload_mode,
-        saved.duration_ms,
-        saved.width,
-        saved.height,
-        saved.has_audio,
-        saved.has_camera,
-    )
-    .await;
+fn cleanup_prepared_saved_recording_files(
+    prepared: &PreparedRecordingFile,
+    retry_combined_path: Option<PathBuf>,
+) {
     if prepared.temporary {
         let _ = std::fs::remove_file(&prepared.path);
     }
@@ -3297,7 +3295,6 @@ async fn upload_saved_recording_file(
             let _ = std::fs::remove_file(path);
         }
     }
-    upload_result
 }
 
 fn prepare_saved_recording_file(

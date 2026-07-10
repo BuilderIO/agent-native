@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { requestAgentChatThreadOpen } from "../agent-chat.js";
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
@@ -60,6 +61,21 @@ export interface CompletedRealtimeVoiceTranscript {
   role: "user" | "assistant";
   text: string;
   providerId?: string;
+}
+
+/**
+ * Voice mode owns the chat only temporarily. Restore the captured transcript
+ * when it is still the user's active thread (or the chat has no active thread)
+ * but never pull them back after they deliberately selected another thread.
+ */
+export function shouldRestoreRealtimeVoiceTranscriptThread(
+  transcriptThreadId: string | undefined,
+  activeThreadId: string | undefined,
+): transcriptThreadId is string {
+  return Boolean(
+    transcriptThreadId &&
+    (!activeThreadId || activeThreadId === transcriptThreadId),
+  );
 }
 
 export function extractCompletedRealtimeVoiceTranscript(
@@ -682,6 +698,8 @@ function useRealtimeVoiceModeController(
 
   const end = useCallback(() => {
     if (stateRef.current === "idle" || stateRef.current === "ending") return;
+    const transcriptThreadId = transcriptThreadIdRef.current;
+    const activeThreadId = realtimeVoiceTranscriptRegistry.activeThreadId();
     transition("ending");
     cleanupTransport();
     setError(null);
@@ -689,7 +707,22 @@ function useRealtimeVoiceModeController(
     startedAtRef.current = undefined;
     transcriptThreadIdRef.current = undefined;
     setChatVisible(true);
-    window.dispatchEvent(new Event("agent-panel:open"));
+    if (
+      shouldRestoreRealtimeVoiceTranscriptThread(
+        transcriptThreadId,
+        activeThreadId,
+      )
+    ) {
+      requestAgentChatThreadOpen({
+        threadId: transcriptThreadId,
+        // The request is delivered asynchronously. Re-checking this at the
+        // receiver prevents a navigation that happened during that gap from
+        // being overwritten.
+        onlyIfActiveThreadId: transcriptThreadId,
+      });
+    } else {
+      window.dispatchEvent(new Event("agent-panel:open"));
+    }
     transition("idle");
   }, [cleanupTransport, transition]);
 
