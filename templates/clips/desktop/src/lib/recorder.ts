@@ -71,6 +71,10 @@ import {
   getCameraStreamWithFallback,
 } from "./media-capture-constraints";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
+import {
+  createPauseTransitionQueue,
+  type PauseTransitionQueue,
+} from "./pause-transition";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import {
   startTranscriptionCapture,
@@ -2043,7 +2047,9 @@ async function startNativeFullscreenRecording(
   // segments via AVFoundation. We keep the JS-side timer in sync so the
   // toolbar / pill show the right paused state and elapsed time.
   let pausedAt: number | null = null;
+  let pauseRequestedAt: number | null = null;
   let accumulatedPauseMs = 0;
+  let pauseQueue: PauseTransitionQueue | null = null;
 
   function clearSegmentRotator() {
     if (segmentRotateHandle) {
@@ -2055,7 +2061,14 @@ async function startNativeFullscreenRecording(
   function startSegmentRotator() {
     clearSegmentRotator();
     segmentRotateHandle = setInterval(() => {
-      if (stopped || pausedAt != null || segmentRotateInFlight) return;
+      if (
+        stopped ||
+        pauseQueue?.getDesiredPaused() ||
+        pausedAt !== null ||
+        segmentRotateInFlight
+      ) {
+        return;
+      }
       segmentRotateInFlight = true;
       invoke("native_fullscreen_recording_rotate_segment")
         .catch((err) => {
@@ -2063,10 +2076,11 @@ async function startNativeFullscreenRecording(
           console.warn("[clips-recorder] native segment rotation failed:", err);
           if (
             !stopped &&
-            pausedAt == null &&
+            pausedAt === null &&
             message.includes("paused recording")
           ) {
             pausedAt = Date.now();
+            pauseQueue?.synchronize(true);
             emitState();
           }
         })
@@ -2076,15 +2090,22 @@ async function startNativeFullscreenRecording(
     }, NATIVE_FULLSCREEN_SEGMENT_MS);
   }
 
-  function emitState() {
+  function emitState(
+    paused = pauseQueue?.getDesiredPaused() ?? pausedAt !== null,
+  ) {
     const now = Date.now();
-    const pausedNowMs = pausedAt != null ? now - pausedAt : 0;
+    const displayedPauseStartedAt =
+      pausedAt ?? (paused ? pauseRequestedAt : null);
+    const pausedNowMs =
+      paused && displayedPauseStartedAt !== null
+        ? now - displayedPauseStartedAt
+        : 0;
     const elapsedMs = Math.max(
       0,
       now - startedAt - accumulatedPauseMs - pausedNowMs,
     );
     emit("clips:recorder-state", {
-      paused: pausedAt != null,
+      paused,
       elapsedMs,
     }).catch(() => {});
   }
@@ -2117,6 +2138,7 @@ async function startNativeFullscreenRecording(
           );
         }
         clearSegmentRotator();
+        pauseQueue?.dispose();
         if (tickHandle) {
           clearInterval(tickHandle);
           tickHandle = null;
@@ -2314,6 +2336,7 @@ async function startNativeFullscreenRecording(
       cancelPromise = (async () => {
         stopped = true;
         clearSegmentRotator();
+        pauseQueue?.dispose();
         if (tickHandle) {
           clearInterval(tickHandle);
           tickHandle = null;
@@ -2359,38 +2382,57 @@ async function startNativeFullscreenRecording(
     },
   };
 
+  pauseQueue = createPauseTransitionQueue({
+    apply: (paused) =>
+      invoke(
+        paused
+          ? "native_fullscreen_recording_pause"
+          : "native_fullscreen_recording_resume",
+      ),
+    onRequested(paused) {
+      if (paused && pausedAt === null && pauseRequestedAt === null) {
+        pauseRequestedAt = Date.now();
+      }
+      // Broadcast the desired state immediately. Native ScreenCaptureKit pause
+      // can spend seconds finalizing its current segment, but one click should
+      // still freeze the clock and flip every control right away.
+      emitState(paused);
+    },
+    onApplied(paused) {
+      if (paused) {
+        pausedAt = pauseRequestedAt ?? Date.now();
+        pauseRequestedAt = null;
+        console.log("[clips-recorder] native pause: pausing transcription");
+        void transcriptionCapture?.pause().catch(() => {});
+      } else {
+        if (pausedAt !== null) {
+          accumulatedPauseMs += Date.now() - pausedAt;
+        }
+        pausedAt = null;
+        pauseRequestedAt = null;
+        console.log("[clips-recorder] native resume: resuming transcription");
+        void transcriptionCapture?.resume().catch(() => {});
+      }
+      // If the desired state changed while IPC was in flight, keep rendering
+      // that latest intent while the queue applies the follow-up transition.
+      emitState(pauseQueue?.getDesiredPaused() ?? paused);
+    },
+    onError(err, attemptedPaused) {
+      pauseRequestedAt = null;
+      emitState(pauseQueue?.getAppliedPaused() ?? pausedAt !== null);
+      console.warn(
+        `[clips-recorder] native ${attemptedPaused ? "pause" : "resume"} failed:`,
+        err,
+      );
+    },
+  });
+
   const toolbarUnlistens = await Promise.all([
     listen("clips:recorder-pause", () => {
-      if (pausedAt != null) return;
-      const at = Date.now();
-      invoke("native_fullscreen_recording_pause")
-        .then(() => {
-          pausedAt = at;
-          emitState();
-          console.log("[clips-recorder] native pause: pausing transcription");
-          void transcriptionCapture?.pause().catch(() => {});
-        })
-        .catch((err) => {
-          console.warn("[clips-recorder] native pause failed:", err);
-        });
+      pauseQueue?.request(true);
     }),
     listen("clips:recorder-resume", () => {
-      if (pausedAt == null) return;
-      // Only resume transcription once the recorder actually resumed, so a
-      // rejected IPC can't leave transcription running over a paused recording.
-      invoke("native_fullscreen_recording_resume")
-        .then(() => {
-          if (pausedAt != null) {
-            accumulatedPauseMs += Date.now() - pausedAt;
-            pausedAt = null;
-          }
-          emitState();
-          console.log("[clips-recorder] native resume: resuming transcription");
-          void transcriptionCapture?.resume().catch(() => {});
-        })
-        .catch((err) => {
-          console.warn("[clips-recorder] native resume failed:", err);
-        });
+      pauseQueue?.request(false);
     }),
     listen("clips:recorder-stop", () => {
       console.log("[clips-recorder] native stop event received");

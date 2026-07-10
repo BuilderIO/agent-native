@@ -113,6 +113,7 @@ export function RecordingPill() {
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+        setPaused(false);
         // The Rust side reuses the pill window across recordings, so the
         // component never unmounts. Reset stop state explicitly when a
         // new recording session begins, otherwise the Stop button stays
@@ -139,6 +140,21 @@ export function RecordingPill() {
           stopFallbackRef.current = null;
         }
       }),
+    );
+    trackListen(
+      listen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (ev) => {
+          // Meeting capture has its own optimistic pause state. Ordinary clips
+          // follow the recorder's authoritative broadcast so this reused pill
+          // cannot drift or emit an inverted command.
+          if (ctxRef.current.mode !== "clip") return;
+          setPaused(!!ev.payload.paused);
+          setElapsed(
+            Math.max(0, Math.floor((ev.payload.elapsedMs ?? 0) / 1000)),
+          );
+        },
+      ),
     );
     trackListen(
       listen<{ meetingId: string; initialNotes: string }>(
@@ -242,7 +258,9 @@ export function RecordingPill() {
 
   // Elapsed timer.
   useEffect(() => {
-    if (paused) return;
+    // Clip recordings already broadcast their pause-aware elapsed time every
+    // 500ms. Keep the local wall clock only for meeting mode.
+    if (paused || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 500);
@@ -250,7 +268,7 @@ export function RecordingPill() {
       if (tickRef.current) clearInterval(tickRef.current);
       tickRef.current = null;
     };
-  }, [paused]);
+  }, [ctx.mode, paused]);
 
   // Dual-stream "dancing bars" meter — one discrete vertical-bar group per
   // source (Granola/Wispr-style VU meter, not a continuous waveform line).
@@ -391,7 +409,7 @@ export function RecordingPill() {
 
   async function onPauseClick() {
     const nextPaused = !paused;
-    setPaused(nextPaused);
+    if (ctxRef.current.mode === "meeting") setPaused(nextPaused);
     emit(nextPaused ? "clips:recorder-pause" : "clips:recorder-resume").catch(
       () => {},
     );

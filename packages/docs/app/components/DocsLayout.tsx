@@ -70,7 +70,8 @@ export default function DocsLayout({
               className="docs-edit-page-link"
             >
               <IconBrandGithub className="size-4" />
-              Edit this page on GitHub
+              {/* i18n-ignore -- GitHub's canonical edit action label. */} Edit
+              this page on GitHub
             </a>
           ) : null}
         </div>

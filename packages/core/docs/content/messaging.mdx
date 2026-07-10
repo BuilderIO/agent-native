@@ -200,7 +200,7 @@ take precedence.
 ### Optional: app unfurls
 
 Slack app unfurls let an app replace Slack's normal link preview with a richer
-preview. Clips uses this for Loom-style playable video previews.
+preview. Clips uses this for playable async screen-recording previews.
 
 Add these extra bot scopes when your app needs unfurls:
 
@@ -588,12 +588,14 @@ POST /_agent-native/integrations/telegram/setup
 
 | Platform        | Required                                                                                            | Optional                                              |
 | --------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack           | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                           | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Slack           | `SLACK_SIGNING_SECRET`, plus either `SLACK_CLIENT_ID`+`SLACK_CLIENT_SECRET` ([managed OAuth](#slack), recommended) or `SLACK_BOT_TOKEN` ([legacy single-workspace](#slack)) | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
 | Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`      | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
 | Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                      | —                                                     |
 | Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                     | —                                                     |
 | Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                           | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` | —                                                     |
+
+For Slack, `SLACK_BOT_TOKEN`, `SLACK_CLIENT_ID`, and `SLACK_CLIENT_SECRET` are each individually optional at the adapter level — only `SLACK_SIGNING_SECRET` is unconditionally required — because either credential set satisfies setup. Use managed OAuth (`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`) for Dispatch and multi-workspace apps; `SLACK_BOT_TOKEN` is the compatibility path for a single-workspace deployment installed by hand. See [Set up Slack](#slack) above for both flows.
 
 Integration credentials resolve from the integration owner's scoped secrets first (user, org, then workspace), with deployment env vars available as a local or deliberate single-tenant fallback. The setup UI saves scoped secrets; use deployment configuration only when you intentionally want one shared integration identity. Values are never returned to the browser or stored in source code.
 
