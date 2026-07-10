@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  reconcileEventAccountEmail,
   resolveEventAccountEmail,
   shouldShowEventAccountSelector,
 } from "./event-account-selection";
+import { buildEventFormInitializationKey } from "./event-form-initialization";
 
 const accounts = [
   { email: "primary@example.com" },
@@ -25,6 +27,45 @@ describe("event account selection", () => {
     expect(resolveEventAccountEmail(accounts, "missing@example.com")).toBe(
       "primary@example.com",
     );
+  });
+
+  it("updates only the account when connected accounts resolve after form initialization", () => {
+    const initialization = {
+      draftTimezone: "America/Indiana/Indianapolis",
+      date: "2026-07-10",
+      startTime: "09:00",
+      endTime: "09:30",
+      defaultTimezone: "America/Indiana/Indianapolis",
+    };
+    const initializationKey = buildEventFormInitializationKey(initialization);
+
+    expect(reconcileEventAccountEmail([], undefined)).toBeUndefined();
+    expect(reconcileEventAccountEmail(accounts, undefined)).toBe(
+      "primary@example.com",
+    );
+    expect(buildEventFormInitializationKey(initialization)).toBe(
+      initializationKey,
+    );
+  });
+
+  it("keeps a valid draft or user-selected account as accounts change", () => {
+    expect(
+      reconcileEventAccountEmail(
+        accounts,
+        "primary@example.com",
+        "secondary@example.com",
+      ),
+    ).toBe("secondary@example.com");
+    expect(reconcileEventAccountEmail(accounts, "secondary@example.com")).toBe(
+      "secondary@example.com",
+    );
+    expect(
+      reconcileEventAccountEmail(
+        accounts,
+        "missing@example.com",
+        "also-missing@example.com",
+      ),
+    ).toBe("primary@example.com");
   });
 
   it("only adds selector chrome for multiple connected accounts", () => {

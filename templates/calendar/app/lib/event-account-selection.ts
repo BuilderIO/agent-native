@@ -15,6 +15,17 @@ export function resolveEventAccountEmail(
   return accounts[0]?.email;
 }
 
+export function reconcileEventAccountEmail(
+  accounts: ConnectedCalendarAccount[],
+  currentAccountEmail?: string,
+  draftAccountEmail?: string,
+): string | undefined {
+  return resolveEventAccountEmail(
+    accounts,
+    draftAccountEmail ?? currentAccountEmail,
+  );
+}
+
 export function shouldShowEventAccountSelector(
   accounts: ConnectedCalendarAccount[],
 ): boolean {

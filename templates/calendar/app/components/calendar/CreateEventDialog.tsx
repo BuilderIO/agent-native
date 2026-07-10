@@ -66,10 +66,11 @@ import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
 import {
-  resolveEventAccountEmail,
+  reconcileEventAccountEmail,
   shouldShowEventAccountSelector,
 } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
   buildReminderPayload,
@@ -91,6 +92,8 @@ type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
 type Availability = "opaque" | "transparent";
 type Visibility = "default" | "public" | "private" | "confidential";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
+
+const EMPTY_CONNECTED_ACCOUNTS: Array<{ email: string }> = [];
 
 function addDaysToDateString(date: string, days: number) {
   const next = new Date(`${date}T00:00:00`);
@@ -269,12 +272,12 @@ export function CreateEventPopover({
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
   const googleStatus = useGoogleAuthStatus();
-  const connectedAccounts = googleStatus.data?.accounts ?? [];
+  const connectedAccounts =
+    googleStatus.data?.accounts ?? EMPTY_CONNECTED_ACCOUNTS;
   const connectedAccountEmails = useMemo(
     () => connectedAccounts.map((account) => account.email),
     [connectedAccounts],
   );
-  const defaultAccountEmail = connectedAccountEmails[0];
   const { prefs: viewPrefs } = useViewPreferences();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
@@ -291,13 +294,14 @@ export function CreateEventPopover({
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
     const draftTimezone =
       draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
-    const selectedDraftAccount = resolveEventAccountEmail(
-      connectedAccounts,
-      draft?.accountEmail,
-    );
-    const initKey = draft?.id
-      ? `draft:${draft.id}:${draftTimezone}:${selectedDraftAccount ?? ""}`
-      : `new:${nextDate}:${defaultStart || fallbackStart}:${defaultEnd || fallbackEnd}:${defaultTimezone}:${defaultAccountEmail ?? ""}`;
+    const initKey = buildEventFormInitializationKey({
+      draftId: draft?.id,
+      draftTimezone,
+      date: nextDate,
+      startTime: defaultStart || fallbackStart,
+      endTime: defaultEnd || fallbackEnd,
+      defaultTimezone,
+    });
     if (initializedKeyRef.current === initKey) return;
     initializedKeyRef.current = initKey;
 
@@ -350,7 +354,6 @@ export function CreateEventPopover({
           })),
         ),
       );
-      setAccountEmail(selectedDraftAccount);
       return;
     }
 
@@ -374,7 +377,6 @@ export function CreateEventPopover({
     setVideoProvider("none");
     setVideoProviderTouched(false);
     setAttendees([]);
-    setAccountEmail(defaultAccountEmail);
   }, [
     open,
     draft,
@@ -384,9 +386,22 @@ export function CreateEventPopover({
     fallbackStart,
     fallbackEnd,
     defaultTimezone,
-    connectedAccountEmails,
-    defaultAccountEmail,
   ]);
+
+  useEffect(() => {
+    if (!open) {
+      setAccountEmail(undefined);
+      return;
+    }
+
+    setAccountEmail((currentAccountEmail) =>
+      reconcileEventAccountEmail(
+        connectedAccounts,
+        currentAccountEmail,
+        draft?.accountEmail,
+      ),
+    );
+  }, [open, connectedAccounts, draft?.accountEmail]);
 
   useEffect(() => {
     if (!open) setFindTimeOpen(false);
