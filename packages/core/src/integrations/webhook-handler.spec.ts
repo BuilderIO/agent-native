@@ -163,6 +163,34 @@ describe("integration webhook handler", () => {
     expect(result).toEqual({ status: 200, body: { type: 5 } });
   });
 
+  it("uses provider event references for retry-stable queue idempotency", async () => {
+    const incoming = {
+      ...createIncoming(Date.now()),
+      platform: "discord",
+      externalThreadId: "app:example:guild:example:channel:example",
+      replyRef: "fallback-reference-example",
+      platformContext: {
+        interactionId: "interaction-id-example",
+      },
+    };
+
+    await handleWebhook(createEvent(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    });
+
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalEventKey:
+          "discord:app:example:guild:example:channel:example:interaction-id-example",
+      }),
+    );
+  });
+
   it("bounds dispatch settling for providers with a 3-second acknowledgement deadline", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));

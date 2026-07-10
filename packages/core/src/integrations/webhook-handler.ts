@@ -77,7 +77,13 @@ function buildEventDedupKey(incoming: IncomingMessage): string {
   // the same id on retry, so true duplicate deliveries are still deduped.
   const ctx = incoming.platformContext as Record<string, unknown> | undefined;
   const messageId =
-    ctx?.messageId ?? ctx?.eventId ?? ctx?.messageTs ?? incoming.timestamp;
+    ctx?.messageId ??
+    ctx?.eventId ??
+    ctx?.messageTs ??
+    ctx?.interactionId ??
+    ctx?.activityId ??
+    incoming.replyRef ??
+    incoming.timestamp;
   return `${incoming.platform}:${incoming.externalThreadId}:${String(messageId)}`;
 }
 
