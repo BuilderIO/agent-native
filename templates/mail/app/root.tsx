@@ -33,6 +33,10 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import {
+  MAIL_INTEGRATION_STATUS_QUERY_KEY,
+  mailIntegrationProviderFromAppStateKey,
+} from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -347,9 +351,6 @@ function DbSyncSetup() {
         qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
         qc.invalidateQueries({ queryKey: ["automations"] });
         qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        qc.invalidateQueries({ queryKey: ["apollo-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-data"] });
         qc.invalidateQueries({ queryKey: ["google-status"] });
         qc.invalidateQueries({ queryKey: ["automation-settings"] });
         qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
@@ -357,6 +358,20 @@ function DbSyncSetup() {
       };
 
       if (data.source === "app-state") {
+        const integrationProvider = mailIntegrationProviderFromAppStateKey(
+          data.key,
+        );
+        if (integrationProvider && !isOwnEvent) {
+          qc.invalidateQueries({
+            queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+          });
+          qc.invalidateQueries({
+            queryKey:
+              integrationProvider === "*"
+                ? ["integration-data"]
+                : ["integration-data", integrationProvider],
+          });
+        }
         if (
           (data.key?.startsWith("compose-") || data.key === "*") &&
           !isOwnEvent
