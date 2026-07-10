@@ -157,6 +157,25 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           };
         }
+        if (model === "collection-suspicious-empty-continuation") {
+          const startOffset = offset ?? 1;
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset,
+              nextOffset: startOffset,
+              fetchedEntryCount: startOffset,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-mapped-fields") {
           const entries = [
             {
@@ -569,6 +588,181 @@ it("preserves an established source snapshot when Builder unexpectedly returns z
     [BUILDER_CMS_BODY_CONTENT_KEY]: "A large hydrated body stays stored.",
     [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
   });
+});
+
+it("preserves unvisited rows when an empty continuation page would prune them", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const refreshAt = "2026-02-01T00:10:00.000Z";
+  await db.insert(schema.documents).values([
+    {
+      id: "doc-continuation-empty-db",
+      ownerEmail: OWNER,
+      title: "Continuation empty DB",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-continuation-seen",
+      ownerEmail: OWNER,
+      parentId: "doc-continuation-empty-db",
+      title: "Seen on the first page",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-continuation-unvisited",
+      ownerEmail: OWNER,
+      parentId: "doc-continuation-empty-db",
+      title: "Not yet revisited",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: "db-continuation-empty",
+    ownerEmail: OWNER,
+    documentId: "doc-continuation-empty-db",
+    title: "Continuation empty DB",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values([
+    {
+      id: "item-continuation-seen",
+      ownerEmail: OWNER,
+      databaseId: "db-continuation-empty",
+      documentId: "doc-continuation-seen",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "item-continuation-unvisited",
+      ownerEmail: OWNER,
+      databaseId: "db-continuation-empty",
+      documentId: "doc-continuation-unvisited",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-continuation-empty",
+    ownerEmail: OWNER,
+    databaseId: "db-continuation-empty",
+    sourceType: "builder-cms",
+    sourceName: "Continuation Builder source",
+    sourceTable: "collection-suspicious-empty-continuation",
+    syncState: "refreshing",
+    freshness: "stale",
+    lastSourceUpdatedAt: createdAt,
+    metadataJson: JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 1,
+      activeReadSourceRowIds: ["entry-seen"],
+    }),
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values([
+    {
+      id: "source-row-continuation-seen",
+      ownerEmail: OWNER,
+      sourceId: "source-continuation-empty",
+      databaseItemId: "item-continuation-seen",
+      documentId: "doc-continuation-seen",
+      sourceRowId: "entry-seen",
+      sourceQualifiedId:
+        "builder-cms://collection-suspicious-empty-continuation/entry-seen",
+      sourceDisplayKey: "Seen on the first page",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Seen on the first page",
+      }),
+      provenance: "Builder CMS read adapter",
+      freshness: "fresh",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "source-row-continuation-unvisited",
+      ownerEmail: OWNER,
+      sourceId: "source-continuation-empty",
+      databaseItemId: "item-continuation-unvisited",
+      documentId: "doc-continuation-unvisited",
+      sourceRowId: "entry-unvisited",
+      sourceQualifiedId:
+        "builder-cms://collection-suspicious-empty-continuation/entry-unvisited",
+      sourceDisplayKey: "Not yet revisited",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Not yet revisited",
+      }),
+      provenance: "Builder CMS read adapter",
+      freshness: "fresh",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-continuation-empty"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-empty"));
+  await resync({ database, source, now: refreshAt });
+
+  const rows = await db
+    .select({
+      id: schema.contentDatabaseSourceRows.id,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      updatedAt: schema.contentDatabaseSourceRows.updatedAt,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      eq(
+        schema.contentDatabaseSourceRows.sourceId,
+        "source-continuation-empty",
+      ),
+    );
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      {
+        id: "source-row-continuation-seen",
+        sourceRowId: "entry-seen",
+        updatedAt: createdAt,
+      },
+      {
+        id: "source-row-continuation-unvisited",
+        sourceRowId: "entry-unvisited",
+        updatedAt: createdAt,
+      },
+    ]),
+  );
+  expect(rows).toHaveLength(2);
+  const [updatedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-empty"));
+  expect(updatedSource).toMatchObject({
+    freshness: "stale",
+    syncState: "error",
+    lastSourceUpdatedAt: createdAt,
+  });
+  expect(updatedSource.lastError).toContain("previous snapshot was preserved");
+  expect(JSON.parse(updatedSource.metadataJson)).toMatchObject({
+    lastReadSuspiciousEmpty: true,
+    sourceFetchState: "error",
+    activeReadSourceRowIds: [],
+  });
+  expect(
+    builderReadMock.calls.find(
+      (call) => call.model === "collection-suspicious-empty-continuation",
+    )?.offset,
+  ).toBe(1);
 });
 
 it("accepts a zero-entry read for a source that has never had rows", async () => {

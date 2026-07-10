@@ -4259,11 +4259,16 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const readStartOffset = builderRead.progress?.startOffset ?? 0;
+  const activeReadSourceRowIdSet = new Set(activeReadSourceRowIds);
   const suspiciousEmptyRead =
     builderRead.state === "live" &&
     builderRead.entries.length === 0 &&
-    (builderRead.progress?.startOffset ?? 0) === 0 &&
-    existingRows.length > 0;
+    existingRows.length > 0 &&
+    (readStartOffset === 0 ||
+      existingRows.some(
+        (row) => !activeReadSourceRowIdSet.has(row.sourceRowId),
+      ));
   if (suspiciousEmptyRead) {
     const message =
       "Builder CMS returned no entries for a source with existing rows. The previous snapshot was preserved; retry the refresh before treating the source as empty.";
