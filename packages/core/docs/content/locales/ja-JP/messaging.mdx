@@ -1,11 +1,13 @@
 ---
 title: "メッセージ"
-description: "Slack、電子メール、テレグラム、または WhatsApp からエージェントと会話します。同じエージェント、同じメモリ、同じツールを使用します。"
+description: "Slack、Microsoft Teams、Discord インタラクション、メール、Telegram、WhatsApp からエージェントと会話します。"
 ---
 
 # メッセージング
 
-エージェントを Slack、電子メール、テレグラム、または WhatsApp に接続すると、すでに使用しているアプリからエージェントとチャットできるようになります。同じエージェント、同じメモリ、同じツール、同じスレッドであり、より多くの場所からアクセスできるだけです。
+エージェントを Slack、Microsoft Teams、Discord インタラクション、メール、Telegram、WhatsApp に接続できます。メモリ、ツール、会話履歴は同じです。
+
+> **正確なサポート範囲:** Teams は公式 Bot Framework JWT を検証し、元の会話へ返信します。Discord は Ed25519 署名付き HTTP インタラクションによるスラッシュコマンドと遅延応答をサポートします。通常のサーバーメッセージや DM には Gateway ランタイムが必要です。Telegram は `message_thread_id` を保持し、WhatsApp は受信した `wamid` をコンテキスト返信に使用します。
 
 > **ディスパッチ テンプレートを使用しますか?** これらすべては **[設定] → [メッセージング]** で設定されます。クリックして各プラットフォームに接続します。独自のテンプレートをカスタマイズまたは構築する場合を除き、このページの残りの部分を読む必要はありません。 [Dispatch](/docs/dispatch) または [Dispatch template reference](/docs/template-dispatch) を参照してください。
 

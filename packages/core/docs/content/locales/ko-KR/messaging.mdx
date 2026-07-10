@@ -1,11 +1,13 @@
 ---
 title: "메시지"
-description: "Slack, 이메일, Telegram 또는 WhatsApp에서 에이전트와 대화하세요. 동일한 에이전트, 동일한 메모리, 동일한 도구입니다."
+description: "Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 또는 WhatsApp에서 에이전트와 대화하세요."
 ---
 
 # 메시지
 
-에이전트를 Slack, 이메일, Telegram 또는 WhatsApp에 연결하면 이미 사용하고 있는 앱에서 에이전트와 채팅할 수 있습니다. 동일한 에이전트, 동일한 메모리, 동일한 도구, 동일한 스레드이므로 더 많은 곳에서 연결할 수 있습니다.
+에이전트를 Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 또는 WhatsApp에 연결할 수 있습니다. 메모리, 도구, 대화 기록은 그대로 유지됩니다.
+
+> **정확한 지원 범위:** Teams는 공식 Bot Framework JWT를 검증하고 원래 대화에 답합니다. Discord는 Ed25519 서명 HTTP 인터랙션을 통한 슬래시 명령과 지연 응답을 지원합니다. 일반 서버 메시지와 DM에는 Gateway 런타임이 필요합니다. Telegram은 `message_thread_id`를 유지하고 WhatsApp은 수신 `wamid`를 문맥 답장에 사용합니다.
 
 > **디스패치 템플릿을 사용하십니까?** 이 모든 것이 **설정 → 메시지**에 연결되어 있습니다. 각 플랫폼을 연결하려면 클릭하세요. 자신만의 템플릿을 사용자 정의하거나 구축하지 않는 한 이 페이지의 나머지 부분을 읽을 필요가 없습니다. [Dispatch](/docs/dispatch) 또는 [Dispatch template reference](/docs/template-dispatch)를 참조하세요.
 

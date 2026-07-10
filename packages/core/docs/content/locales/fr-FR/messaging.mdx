@@ -1,11 +1,13 @@
 ---
 title: "Messagerie"
-description: "Parlez à votre agent depuis Slack, par e-mail, Telegram ou WhatsApp : même agent, même mémoire, mêmes outils."
+description: "Parlez à votre agent depuis Slack, Microsoft Teams, les interactions Discord, l’e-mail, Telegram ou WhatsApp."
 ---
 
 # Messagerie
 
-Connectez votre agent à Slack, à la messagerie électronique, à Telegram ou à WhatsApp afin de pouvoir discuter avec lui à partir des applications que vous utilisez déjà. Il s'agit du même agent : même mémoire, mêmes outils, mêmes threads, accessible depuis plusieurs endroits.
+Connectez votre agent à Slack, Microsoft Teams, aux interactions Discord, à l’e-mail, Telegram ou WhatsApp. Il s’agit du même agent, avec la même mémoire, les mêmes outils et le même historique.
+
+> **Périmètre exact :** Teams valide les JWT officiels de Bot Framework et répond dans la conversation d’origine. Discord prend en charge les commandes slash via des interactions HTTP signées Ed25519 avec accusé différé ; les messages serveur ordinaires et les DM nécessitent toujours un runtime Gateway. Telegram conserve `message_thread_id` et WhatsApp utilise le `wamid` entrant pour les réponses contextuelles.
 
 > **Vous utilisez le modèle Dispatch ?** Tout cela est configuré pour vous dans **Paramètres → Messagerie**. Cliquez pour connecter chaque plateforme. Vous n'avez pas besoin de lire le reste de cette page, sauf si vous personnalisez ou créez votre propre modèle. Voir [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
 
