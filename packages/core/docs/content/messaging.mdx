@@ -7,7 +7,11 @@ description: "Talk to your agent from Slack, Microsoft Teams, Discord interactio
 
 Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Telegram, or WhatsApp. It's the same agent — same memory, same tools, same threads — just reachable from more places.
 
-> **Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
+<Callout tone="info">
+
+**Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
+
+</Callout>
 
 ## What you can do {#what-you-can-do}
 
@@ -586,14 +590,14 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Environment variables {#env-vars}
 
-| Platform        | Required                                                                                            | Optional                                              |
-| --------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Platform        | Required                                                                                                                                                                    | Optional                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | Slack           | `SLACK_SIGNING_SECRET`, plus either `SLACK_CLIENT_ID`+`SLACK_CLIENT_SECRET` ([managed OAuth](#slack), recommended) or `SLACK_BOT_TOKEN` ([legacy single-workspace](#slack)) | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`      | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
-| Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                      | —                                                     |
-| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                     | —                                                     |
-| Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                           | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` | —                                                     |
+| Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`                                                                              | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
+| Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                                                                                              | —                                                     |
+| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                                                                                             | —                                                     |
+| Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                                                                                                   | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`                                                                         | —                                                     |
 
 For Slack, `SLACK_BOT_TOKEN`, `SLACK_CLIENT_ID`, and `SLACK_CLIENT_SECRET` are each individually optional at the adapter level — only `SLACK_SIGNING_SECRET` is unconditionally required — because either credential set satisfies setup. Use managed OAuth (`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`) for Dispatch and multi-workspace apps; `SLACK_BOT_TOKEN` is the compatibility path for a single-workspace deployment installed by hand. See [Set up Slack](#slack) above for both flows.
 
@@ -756,9 +760,11 @@ This means a multi-app workspace fronted by Dispatch is more resilient than a si
 - **Don't rely on dedup memory across cold starts.** The dedup key lives in the SQL `(platform, external_event_key)` unique index, not an in-process Map. If you replace the queue, keep the SQL-level dedup or duplicate Slack retries will trigger duplicate agent runs.
 - **Keep the self-webhook URL reachable.** The processor URL is built from `APP_URL` / `URL` / `DEPLOY_URL` / `BETTER_AUTH_URL`, falling back to the inbound request headers. On preview deploys with rewritten hostnames, set one of these explicitly or the dispatch will hit a 404.
 
-### See also {#see-also}
+## What's next {#whats-next}
 
 - [Dispatch](/docs/dispatch) — concept overview for using a central inbox across apps
 - [Dispatch template reference](/docs/template-dispatch) — recommended central inbox for multi-app workspaces
 - [A2A Protocol](/docs/a2a-protocol) — how Dispatch delegates work to other agents, including continuation recovery
+- [Workflow Connectors](/docs/automation-connectors) — pre-configured n8n/Zapier-style workflow invocation, distinct from a chat platform integration
+- [Security](/docs/security) — credential scoping and the webhook signature-verification model
 - [Agent Mentions](/docs/agent-mentions) — `@`-mentioning agents inside the web chat

@@ -59,9 +59,7 @@ An action is one typed operation your agent and UI can both call. Replace the
 starter `hello` action with the first real operation in your domain. This example
 analyzes form responses and returns a validated shape for a custom chat chart:
 
-<!-- prettier-ignore -->
-```ts
-// actions/analyze-responses.ts
+```ts filename="actions/analyze-responses.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -108,7 +106,6 @@ The action above declares `outputSchema` and a product-specific
 into prose. Register a React component for that exact renderer id, for example
 by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
 
-<!-- prettier-ignore -->
 ```tsx
 import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
 
@@ -174,8 +171,7 @@ Inline chat is great for the first result. A real app needs durable data the
 agent can add, update, and revisit. Add a response-insights table in your schema
 and keep reads/writes behind actions:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
 export const responseInsights = table("response_insights", {
@@ -209,9 +205,7 @@ separate REST route just for the browser if an action is the operation.
 
 Now add a durable page for the data behind the chat result:
 
-<!-- prettier-ignore -->
-```tsx
-// app/routes/response-insights.tsx
+```tsx filename="app/routes/response-insights.tsx"
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 
 export default function ResponseInsightsRoute() {
@@ -286,7 +280,7 @@ framework pieces. If you are building a real analytics product, start from
 connect your providers, use the existing dashboards and agent actions, then
 customize the app from there.
 
-## Where to go next {#next}
+## What's next {#next}
 
 - **[Actions](/docs/actions)** — schemas, auth, approvals, hooks, and transport.
 - **[Native Chat UI](/docs/native-chat-ui)** — render action results as tables,
