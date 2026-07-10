@@ -386,6 +386,7 @@ export async function executeCodeAgentRun(
         }),
     );
     loopUsage = usageResult ?? null;
+    writeCodeAgentUsageSnapshot(cwd, loopUsage);
     // Persist cumulative token totals from this turn into the run record so
     // the UI can display per-run usage statistics.
     if (loopUsage) {
@@ -1847,6 +1848,27 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
         ? candidate.permissionMode
         : "full-auto",
   };
+}
+
+export function writeCodeAgentUsageSnapshot(
+  cwd: string,
+  usage: AgentLoopUsage | null,
+): void {
+  const configuredPath = process.env.AGENT_NATIVE_CODE_USAGE_FILE?.trim();
+  if (!configuredPath || !usage) return;
+
+  const outputPath = path.isAbsolute(configuredPath)
+    ? configuredPath
+    : path.resolve(cwd, configuredPath);
+  try {
+    fs.writeFileSync(outputPath, `${JSON.stringify(usage)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  } catch {
+    // Usage reporting is best-effort and must not turn a completed agent run
+    // into a failed recap when the optional sidecar cannot be written.
+  }
 }
 
 // --------------- Token usage accumulator ---------------

@@ -631,9 +631,10 @@ jobs:
           OPENAI_BASE_URL: ${{ vars.VISUAL_RECAP_BASE_URL }}
           AGENT_ENGINE: ai-sdk:openai
           AGENT_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          AGENT_NATIVE_CODE_USAGE_FILE: openai-compatible-usage.json
         run: |
           set -uo pipefail
-          rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-stderr.log
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
             $RECAP_CLI code exec --full-auto "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
@@ -786,7 +787,8 @@ jobs:
           set -uo pipefail
           RESULT=claude-result.json
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
-          if [ "$RECAP_AGENT" != "openai-compatible" ] && [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
+          if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
+          if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       - name: Cache Playwright browsers
         if: steps.url.outputs.ok == 'true'
@@ -876,6 +878,7 @@ jobs:
             codex-events.jsonl
             codex-stderr.log
             openai-compatible-result.txt
+            openai-compatible-usage.json
             openai-compatible-stderr.log
           if-no-files-found: ignore
           retention-days: 14

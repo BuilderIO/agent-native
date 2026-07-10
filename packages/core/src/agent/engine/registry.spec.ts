@@ -438,6 +438,23 @@ describe("AgentEngine registry", () => {
         "custom/provider-model",
       );
     });
+
+    it("keeps provider model ids for endpoint-backed OpenAI engines", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.5",
+        supportedModels: ["gpt-5.5"],
+        preserveCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "deepseek-chat")).toBe(
+        "deepseek-chat",
+      );
+      expect(normalizeModelForEngine(engine, "moonshot-v1-8k")).toBe(
+        "moonshot-v1-8k",
+      );
+    });
   });
 
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {

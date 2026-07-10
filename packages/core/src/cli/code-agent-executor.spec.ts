@@ -15,6 +15,7 @@ import {
   codeAgentSystemPrompt,
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
+  writeCodeAgentUsageSnapshot,
 } from "./code-agent-executor.js";
 import {
   createCodeAgentRunRecord,
@@ -46,6 +47,7 @@ const originalAgentEngine = process.env.AGENT_ENGINE;
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
+  delete process.env.AGENT_NATIVE_CODE_USAGE_FILE;
   process.env.PATH = originalPath;
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
@@ -60,6 +62,25 @@ afterEach(() => {
 });
 
 describe("executeCodeAgentRun", () => {
+  it("writes the structured usage snapshot requested by CI", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-usage-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_USAGE_FILE = path.join(root, "usage.json");
+    const usage = {
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "deepseek-chat",
+    };
+
+    writeCodeAgentUsageSnapshot(root, usage);
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, "usage.json"), "utf8")),
+    ).toEqual(usage);
+  });
+
   it("runs a file-backed Agent-Native Code session with a fake engine", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE =

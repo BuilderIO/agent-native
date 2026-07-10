@@ -180,11 +180,16 @@ function findLatestSupportedVersionMatch(
 }
 
 export function normalizeModelForEngine(
-  engine: Pick<AgentEngine, "name" | "defaultModel" | "supportedModels">,
+  engine: Pick<
+    AgentEngine,
+    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  >,
   model: string | null | undefined,
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
+
+  if (engine.preserveCustomModels) return candidate;
 
   if (engine.supportedModels.length === 0) return candidate;
 

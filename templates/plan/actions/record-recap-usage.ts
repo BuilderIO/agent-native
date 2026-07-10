@@ -9,7 +9,7 @@ import { assertPlanEditor, nowIso } from "../server/plans.js";
 /**
  * Attach token usage + a derived cost estimate to an existing recap, keyed by
  * plan id. The PR Visual Recap workflow calls this AFTER the coding agent
- * (Claude Code / Codex) exits — the recap is created mid-run, before the run's
+ * (Claude Code / Codex / OpenAI-compatible Agent-Native Code) exits — the recap is created mid-run, before the run's
  * own token total exists, so usage can't ride along with create-visual-recap.
  *
  * Internal by design: no `publicAgent`, so it is NOT advertised as an MCP tool
@@ -28,7 +28,7 @@ export default defineAction({
   agentTool: false,
   schema: z.object({
     planId: z.string().min(1),
-    agent: z.enum(["claude", "codex"]).optional(),
+    agent: z.enum(["claude", "codex", "openai-compatible"]).optional(),
     model: z.string().min(1),
     // Token counts must already be normalized to the cache-exclusive shape
     // calculateCost expects (the recap CLI strips Codex's cached_input_tokens

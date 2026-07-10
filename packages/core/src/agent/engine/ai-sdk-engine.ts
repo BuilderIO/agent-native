@@ -204,6 +204,7 @@ class AISDKEngine implements AgentEngine {
   readonly label: string;
   readonly defaultModel: string;
   readonly supportedModels: readonly string[];
+  readonly preserveCustomModels: boolean;
   readonly capabilities: EngineCapabilities;
 
   private readonly provider: AISDKProvider;
@@ -218,6 +219,8 @@ class AISDKEngine implements AgentEngine {
     this.label = `${capitalize(provider)} (AI SDK)`;
     this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
+    this.preserveCustomModels =
+      provider === "openai" && Boolean(config.baseUrl);
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??

@@ -4185,6 +4185,49 @@ export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   };
 }
 
+/** Parse the usage sidecar emitted by an Agent-Native Code run. */
+export function parseOpenAiCompatibleUsage(json: string): ParsedUsage | null {
+  const obj = parseLastJsonObject(json);
+  const usage = obj?.usage ?? obj;
+  if (!usage || typeof usage !== "object") return null;
+
+  const input =
+    usage.inputTokens ?? usage.input_tokens ?? usage.prompt_tokens ?? undefined;
+  const output =
+    usage.outputTokens ??
+    usage.output_tokens ??
+    usage.completion_tokens ??
+    undefined;
+  if (input == null && output == null) return null;
+
+  const asCount = (value: unknown): number => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  };
+  const inputDetails = usage.inputTokenDetails;
+  return {
+    inputTokens: asCount(input),
+    outputTokens: asCount(output),
+    cacheReadTokens: asCount(
+      usage.cacheReadTokens ??
+        usage.cachedInputTokens ??
+        usage.cache_read_input_tokens ??
+        inputDetails?.cacheReadTokens,
+    ),
+    cacheWriteTokens: asCount(
+      usage.cacheWriteTokens ??
+        usage.cache_write_tokens ??
+        inputDetails?.cacheWriteTokens,
+    ),
+    model:
+      typeof obj?.model === "string"
+        ? obj.model
+        : typeof usage.model === "string"
+          ? usage.model
+          : undefined,
+  };
+}
+
 /**
  * `recap usage` — parse the agent's run output for token usage and POST it to
  * the plan app's record-recap-usage action so the recap row carries cost. The
@@ -4216,7 +4259,12 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
       path.resolve(stringArg(args, "result-file")),
       "utf8",
     );
-    parsed = agent === "codex" ? parseCodexUsage(raw) : parseClaudeUsage(raw);
+    parsed =
+      agent === "codex"
+        ? parseCodexUsage(raw)
+        : agent === "openai-compatible"
+          ? parseOpenAiCompatibleUsage(raw)
+          : parseClaudeUsage(raw);
   } catch (err) {
     done({ ok: false, reason: `could not read/parse usage: ${String(err)}` });
     return;
@@ -4231,10 +4279,18 @@ async function runUsage(args: Record<string, string | boolean>): Promise<void> {
   const model =
     parsed.model ??
     optionalArg(args, "model") ??
-    (agent === "codex" ? "gpt-5.6-sol" : "claude");
+    (agent === "codex"
+      ? "gpt-5.6-sol"
+      : agent === "openai-compatible"
+        ? "openai-compatible"
+        : "claude");
+  const usageAgent =
+    agent === "claude" || agent === "codex" || agent === "openai-compatible"
+      ? agent
+      : undefined;
   const body: Record<string, unknown> = {
     planId,
-    ...(agent === "codex" || agent === "claude" ? { agent } : {}),
+    ...(usageAgent ? { agent: usageAgent } : {}),
     model,
     inputTokens: parsed.inputTokens,
     outputTokens: parsed.outputTokens,

@@ -31,6 +31,7 @@ import {
   normalizeRecapSecretScanMode,
   parseClaudeUsage,
   parseCodexUsage,
+  parseOpenAiCompatibleUsage,
   parseRecapScanAllowlist,
   publishRecapSource,
   recapCheckOutcome,
@@ -1706,9 +1707,30 @@ describe("recap usage parsing", () => {
     });
   });
 
+  it("reads Agent-Native Code usage for OpenAI-compatible providers", () => {
+    expect(
+      parseOpenAiCompatibleUsage(
+        JSON.stringify({
+          inputTokens: 800,
+          outputTokens: 120,
+          cacheReadTokens: 60,
+          cacheWriteTokens: 4,
+          model: "deepseek-chat",
+        }),
+      ),
+    ).toEqual({
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "deepseek-chat",
+    });
+  });
+
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
+    expect(parseOpenAiCompatibleUsage('{"message":"done"}')).toBeNull();
   });
 });
 
