@@ -185,7 +185,7 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     });
 
   await page.getByTestId("design-code-monaco-editor").click();
-  await page.keyboard.press("Meta+s");
+  await page.keyboard.press("ControlOrMeta+s");
   const consent = page.getByRole("dialog", { name: "Allow file writes" });
   await expect(consent).toBeVisible();
   await expect(consent).toContainText(rootPath);

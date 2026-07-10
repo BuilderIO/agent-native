@@ -140,6 +140,32 @@ describe("integration webhook handler", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
+  it("never returns a verification challenge before authenticating it", async () => {
+    const adapter = {
+      ...createAdapter(),
+      handleVerification: vi.fn(async () => ({
+        handled: true as const,
+        response: { type: 1 },
+      })),
+      verifyWebhook: vi.fn(async () => false),
+    };
+
+    const result = await handleWebhook(createEvent(), {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+    });
+
+    expect(adapter.handleVerification).toHaveBeenCalledOnce();
+    expect(adapter.verifyWebhook).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      status: 401,
+      body: { error: "Invalid webhook signature" },
+    });
+  });
+
   it("returns a provider-specific deferred acknowledgement after enqueue", async () => {
     const incoming = createIncoming(1003);
     const adapter = {
