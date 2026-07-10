@@ -71,6 +71,12 @@ describe("sync-builder-starter-manifest", () => {
             "utf-8",
           ),
         ).toContain('appId: "builder-agent-native-starter"');
+        expect(fs.existsSync(path.join(snapshot.dir, ".react-router"))).toBe(
+          false,
+        );
+        expect(fs.existsSync(path.join(snapshot.dir, "node_modules"))).toBe(
+          false,
+        );
         expect(files.get("netlify.toml")).toContain('publish = "dist"');
         expect(files.get("netlify.toml")).not.toContain("templates/chat");
         expect(files.get("netlify.toml")).toContain(
@@ -126,6 +132,39 @@ describe("sync-builder-starter-manifest", () => {
       expect((merged.dependencies as Record<string, string>).postgres).toBe(
         "^3.4.9",
       );
+    },
+    STARTER_MANIFEST_TIMEOUT_MS,
+  );
+
+  it(
+    "preserves starter-pinned toolkit instead of canonical latest",
+    () => {
+      const { packageJson: canonical } =
+        generateStandaloneChatManifest(repoRoot);
+      expect(
+        (canonical.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("latest");
+
+      const merged = mergeStarterManifest(
+        {
+          dependencies: {
+            "@agent-native/core": "0.92.5",
+            "@agent-native/toolkit": "0.4.4",
+          },
+        },
+        canonical,
+      );
+
+      expect(
+        (merged.dependencies as Record<string, string>)["@agent-native/core"],
+      ).toBe("0.92.5");
+      expect(
+        (merged.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("0.4.4");
     },
     STARTER_MANIFEST_TIMEOUT_MS,
   );

@@ -12,11 +12,12 @@
  *                    HTML attribute on the component root.
  * - `classReplace` — replaces one Tailwind class with another on the root node.
  *
- * **Tier B (real-app, localhost / fusion):**  prop writes require the
- * `applyEdit` source capability.  Localhost sources have it (design bridge +
- * user write consent); fusion sources gain it after bridge hardening.  For
- * sources without it the action returns a `ctaRequired: true` response and
- * does not modify any source.
+ * **Real-app sources (localhost / fusion):** deliberately fail closed. This
+ * action's patcher operates on SQL-backed HTML design files; it must never be
+ * reused for compiled JSX/TSX source. Real-app prop persistence needs a
+ * dedicated consented, version-guarded bridge transform. Until that exists,
+ * callers may preview but this action returns `ctaRequired: true` without
+ * reading or modifying a design file.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
  */
@@ -38,10 +39,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
+  prepareInlineSourceEdit,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -56,9 +58,7 @@ import {
   componentNameFor,
   componentNodeIdMatches,
 } from "../shared/component-model.js";
-import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,8 +174,8 @@ export default defineAction({
     "For inline/Alpine designs, edits the data-agent-native-prop-* attributes, " +
     "x-data expression, or class list of the component root via the deterministic " +
     "HTML-patch path (same seam as apply-visual-edit). " +
-    "For real-app sources, the applyEdit capability must be available; if not, " +
-    "returns ctaRequired=true without modifying any file.",
+    "For real-app sources, returns ctaRequired=true without modifying any file; " +
+    "compiled source requires a dedicated consented bridge transform.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
     nodeId: z
@@ -234,35 +234,21 @@ export default defineAction({
       .optional(),
   }),
   run: async ({ designId, nodeId, fileId, edit, source }) => {
-    const db = getDb();
-
     // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type + capability gate ────────────────────────────────────────
-    let rawSourceType: unknown = "inline";
+    // ── Source type gate ────────────────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Default to inline.
-      }
-    }
+    const sourceType = designSourceTypeFromData(rawData);
 
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
-    const caps = resolveSourceCapabilities(sourceType);
-
-    // Real-app sources gate on `applyEdit` (bridge write hardening).
-    if (sourceType !== "inline" && !hasCapability(caps, "applyEdit")) {
+    // Fail closed for every real-app tier even if its generic capability map
+    // advertises applyEdit. This action only knows how to patch SQL-backed HTML;
+    // allowing localhost through here could report success for the mirror while
+    // leaving the real JSX/TSX file untouched. A future compiled-source action
+    // must perform consent, canonical path resolution, AST anchoring, and an
+    // expected-version bridge write as one dedicated transaction.
+    if (sourceType !== "inline") {
       return {
         designId,
         nodeId,
@@ -270,13 +256,14 @@ export default defineAction({
         persisted: false,
         ctaRequired: true,
         ctaMessage:
-          "Prop write-back to real app sources requires the bridge applyEdit " +
-          "capability, which lands with bridge write hardening. " +
+          "Prop write-back to real app sources requires a dedicated consented, " +
+          "version-guarded compiled-source transform. " +
           "Use preview-component-prop-edit to preview without persisting.",
       };
     }
 
     await assertAccess("design", designId, "editor");
+    const db = getDb();
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
@@ -305,12 +292,24 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    if (
-      source?.currentContent &&
-      source.revision &&
-      file.updatedAt &&
-      source.revision !== file.updatedAt
-    ) {
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: file.updatedAt,
+    };
+    let prepared: Awaited<ReturnType<typeof prepareInlineSourceEdit>>;
+    try {
+      prepared = await prepareInlineSourceEdit({
+        file: workspaceFile,
+        currentContent: source?.currentContent,
+        revision: source?.revision,
+      });
+    } catch (error) {
+      if (!(error instanceof SourceWorkspaceEditConflictError)) throw error;
       return {
         designId,
         nodeId,
@@ -323,18 +322,12 @@ export default defineAction({
       };
     }
 
-    // Prefer explicit editor content after the caller's revision check, and use
-    // the saved SQL content as the fallback. Collab/Yjs reads can be stale
-    // across local dev worker processes and make prop controls lag behind.
-    const html =
-      typeof source?.currentContent === "string"
-        ? source.currentContent
-        : (file.content ?? "");
-    // Capture the hash of this EXACT base — the same string the transform
-    // below reads from — so persistEdit can pass it through as
-    // expectedVersionHash. A re-read at persist time would hash whatever is
-    // live "then" instead of proving this base is still current.
-    const baseVersionHash = sourceContentHash(html);
+    // The transform runs against the caller's working copy (when supplied),
+    // while the persist CAS uses the live hash that working copy is allowed to
+    // replace. Keeping those identities separate preserves rapid unsaved prop
+    // edits without weakening concurrent-writer rejection.
+    const html = prepared.content;
+    const baseVersionHash = prepared.expectedVersionHash;
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {

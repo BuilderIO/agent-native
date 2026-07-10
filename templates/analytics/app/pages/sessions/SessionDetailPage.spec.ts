@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildReplayMarkers,
+  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
+  filterReplayMarkers,
   replayPayloadEvents,
   replayViewportDimensions,
   sanitizeReplayEvents,
@@ -73,6 +75,21 @@ describe("session replay sanitization", () => {
       tagName: "noscript",
       attributes: {},
       childNodes: [],
+    });
+  });
+
+  it("clamps replay viewport dimensions only for display sizing", () => {
+    expect(clampReplayDisplayDimensions({ width: 4800, height: 900 })).toEqual({
+      width: 2700,
+      height: 900,
+    });
+    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
+      width: 300,
+      height: 667,
+    });
+    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
+      width: 1440,
+      height: 900,
     });
   });
 
@@ -291,7 +308,7 @@ describe("session replay sanitization", () => {
     expect(event?.data.texts[1].value).toBe("Normal page copy");
   });
 
-  it("derives viewport dimensions from the first replay meta event", () => {
+  it("derives viewport dimensions from the latest meta or resize event", () => {
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 1280.4, height: 720.2 } },
@@ -302,6 +319,38 @@ describe("session replay sanitization", () => {
         { type: 4, timestamp: 1000, data: { width: 0, height: 720 } },
       ]),
     ).toBeNull();
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
+        { type: 4, timestamp: 1500, data: { width: 1440, height: 900 } },
+      ]),
+    ).toEqual({ width: 1440, height: 900 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 1440, height: 900 } },
+        {
+          type: 3,
+          timestamp: 1600,
+          data: { source: 4, width: 1280, height: 800 },
+        },
+      ]),
+    ).toEqual({ width: 1280, height: 800 });
+    // Raw Meta dimensions are kept as-is for CSS fit-to-stage only.
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
+      ]),
+    ).toEqual({ width: 4800, height: 900 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 2560, height: 1080 } },
+      ]),
+    ).toEqual({ width: 2560, height: 1080 });
+    expect(
+      replayViewportDimensions([
+        { type: 4, timestamp: 1000, data: { width: 3840, height: 1080 } },
+      ]),
+    ).toEqual({ width: 3840, height: 1080 });
   });
 
   it("normalizes scoped chunk route payloads into replay event arrays", () => {
@@ -378,6 +427,28 @@ describe("session replay timeline markers", () => {
       severity: "error",
       detail: "boom",
     });
+  });
+
+  it("filters timeline markers by label and detail text", () => {
+    const markers = buildReplayMarkers([
+      {
+        type: 4,
+        timestamp: 1_000,
+        data: { width: 1280, height: 720, href: "https://app.example.test/" },
+      },
+      {
+        type: 3,
+        timestamp: 2_000,
+        data: { source: 2, type: 2, id: 7, x: 24, y: 32 },
+      },
+    ]);
+    expect(filterReplayMarkers(markers, "navigate").map((m) => m.kind)).toEqual(
+      ["navigation"],
+    );
+    expect(filterReplayMarkers(markers, "x 24").map((m) => m.kind)).toEqual([
+      "click",
+    ]);
+    expect(filterReplayMarkers(markers, "missing")).toEqual([]);
   });
 });
 

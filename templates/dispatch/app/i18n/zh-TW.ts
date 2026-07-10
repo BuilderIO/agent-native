@@ -22,9 +22,15 @@ const messages = {
     workspaceDescription: "管理 Dispatch 的團隊存取權限和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
+    automationsTitle: "自動化",
+    automationsDescription: "檢視、暫停並建立排程或事件觸發的工作。",
+    openAutomations: "開啟自動化",
+    deliveryTitle: "投遞",
+    deliveryDescription: "管理訊息目的地並查看出站投遞佇列。",
+    openDelivery: "開啟投遞",
     agentTitle: "代理設定",
     agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
+      "開啟代理側邊欄設定，管理模型、API 金鑰、語音和其他代理控制項。排程與事件觸發的工作請使用自動化頁面。",
     openAgentSettings: "開啟代理設定",
   },
   integrations: {
@@ -190,6 +196,33 @@ const messages = {
     onboardingTitle: "連線一次，授權給應用",
     onboardingDescription:
       "Dispatch 管理共用提供者帳戶。每個應用管理自己如何使用該帳戶。",
+  },
+  dispatch: {
+    nav: {
+      automations: "自動化",
+      approvals: "核准",
+      delivery: "投遞",
+      agents: "代理",
+      vault: "保管庫",
+      audit: "稽核",
+    },
+    pages: {
+      also: "還有",
+      workspaceShortcutsAria: "工作區快捷入口",
+      deliveryQueue: "投遞佇列",
+      failedLastHour: "過去一小時失敗 {{count}} 次",
+      processingCount: "{{count}} 個處理中",
+      queued: "排隊中",
+      active: "進行中",
+      done1h: "完成 1 小時",
+      failed1h: "失敗 1 小時",
+      oldestQueued: "最早排隊：{{age}}",
+      queueAgeNone: "無",
+      queueFailureHint: "請檢查憑證、目的地和最近的佇列錯誤。",
+      unknownPlatform: "未知",
+      attemptsCount: "{{count}} 次嘗試",
+      noErrorMessage: "（無錯誤訊息）",
+    },
   },
 };
 

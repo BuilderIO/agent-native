@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { textStrokeAddPatch } from "./edit-panel/position-helpers";
 import {
   authoredStyleValue,
   deriveLockedAspectSize,
@@ -263,6 +264,36 @@ describe("resolveTextStrokeColor", () => {
   });
 });
 
+describe("textStrokeAddPatch", () => {
+  it("emits exactly the two kebab-case -webkit-text-stroke longhands", () => {
+    // Regression guard: the "Add layer" handler once committed camelCase
+    // webkitTextStrokeWidth/-Color, which normalizeStyleProperty in
+    // code-layer.ts kebab-izes WITHOUT the required leading dash — failing
+    // the style allow-list and silently persisting nothing. The patch keys
+    // must be the dashed vendor-prefixed longhands, exactly.
+    expect(Object.keys(textStrokeAddPatch("rgb(37, 99, 235)"))).toEqual([
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color",
+    ]);
+  });
+
+  it("seeds a 1px stroke in the resolved color", () => {
+    expect(textStrokeAddPatch("rgb(37, 99, 235)")).toEqual({
+      "-webkit-text-stroke-width": "1px",
+      "-webkit-text-stroke-color": "rgb(37, 99, 235)",
+    });
+  });
+
+  it("falls back to opaque black when no usable stroke color exists yet", () => {
+    expect(textStrokeAddPatch(undefined)["-webkit-text-stroke-color"]).toBe(
+      "#000000",
+    );
+    expect(textStrokeAddPatch("transparent")["-webkit-text-stroke-color"]).toBe(
+      "#000000",
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // readTextStrokeStyle — R94: a text stroke must read back correctly from
 // BOTH computedStyles shapes EditPanel ever receives:
@@ -452,6 +483,57 @@ describe("mixedElementFromSelection", () => {
     const b = makeElement({ tagName: "div", primitiveKind: "text" });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.primitiveKind).toBe("text");
+  });
+
+  // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
+  // read parentDisplay/parentAutoLayout/parentLayout to decide whether
+  // LayoutContextProperties renders FlexChildControls/GridChildControls at
+  // all. Left to leak through the `...base` spread unchecked, these would
+  // report whichever element was selected LAST, misrendering (and
+  // misapplying align-self/flex-grow edits) for a selection spanning two
+  // different parents.
+  it("clears parentDisplay/parentAutoLayout/parentLayout when the selection's parents disagree", () => {
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout: {
+        display: "flex",
+        sourceId: "parent-a",
+        boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+      },
+      parentLayout: { display: "flex", flexDirection: "row" },
+    });
+    const b = makeElement({
+      parentDisplay: "block",
+      parentAutoLayout: undefined,
+      parentLayout: undefined,
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBeUndefined();
+    expect(merged?.parentAutoLayout).toBeUndefined();
+    expect(merged?.parentLayout).toBeUndefined();
+  });
+
+  it("keeps parentDisplay/parentAutoLayout/parentLayout when every selected element shares the same parent", () => {
+    const parentAutoLayout = {
+      display: "flex",
+      sourceId: "parent-shared",
+      boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+    };
+    const parentLayout = { display: "flex", flexDirection: "column" };
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout,
+      parentLayout,
+    });
+    const b = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout: { ...parentAutoLayout },
+      parentLayout: { ...parentLayout },
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBe("flex");
+    expect(merged?.parentAutoLayout).toEqual(parentAutoLayout);
+    expect(merged?.parentLayout).toEqual(parentLayout);
   });
 });
 

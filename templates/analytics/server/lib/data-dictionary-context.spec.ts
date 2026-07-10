@@ -92,4 +92,22 @@ describe("renderDataDictionary", () => {
       "gotchas: Merged companies can duplicate deal rows.",
     );
   });
+
+  it("caps injected entries and points the agent to focused dictionary lookup", () => {
+    const entries = Array.from({ length: 45 }, (_, index) => ({
+      metric: `Metric ${String(index + 1).padStart(2, "0")}`,
+      definition: `Definition ${index + 1}`,
+      approved: true,
+    }));
+
+    const context = renderDataDictionary(entries);
+
+    expect(context).toContain("Metric 40** (approved/canonical)");
+    expect(context).not.toContain("Metric 41** (approved/canonical)");
+    expect(context).toContain(
+      "5 additional data-dictionary entries were omitted",
+    );
+    expect(context).toContain("list-data-dictionary");
+    expect(context).toContain("search");
+  });
 });

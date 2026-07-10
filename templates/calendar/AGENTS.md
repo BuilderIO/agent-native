@@ -9,6 +9,10 @@ Detailed event, availability, booking, storage, and UI rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
@@ -43,6 +47,16 @@ Detailed event, availability, booking, storage, and UI rules live in
   co-hosts to the created Google Calendar event.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
+- Event detail (panel and popover) exposes `calendar.event-detail.bottom` as an
+  `ExtensionSlot`. Extensions render as widgets there with `slotContext`
+  (eventId, title, start/end, timezones, location, attendees, accountEmail).
+  For inline adornments next to each guest email (e.g. local times), prefer the
+  first-party attendee timezone UI / `set-attendee-timezone` settings, or a
+  source edit — do not claim the slot can inject per-row UI.
+- Use `get-attendee-timezones` / `set-attendee-timezone` to read or save
+  per-guest IANA timezone overrides (`attendee-timezones` user setting). The UI
+  shows each guest's local event-start time when a timezone is known (self from
+  the event/browser zone; others from `attendee.timeZone` or the override map).
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
   visible RSVP comment on a declined or tentative response; pass an empty note to
   clear an existing RSVP comment.

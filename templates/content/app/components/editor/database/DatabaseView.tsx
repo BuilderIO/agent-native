@@ -4,6 +4,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
+  useSession,
 } from "@agent-native/core/client";
 import {
   AlertDialog,
@@ -56,6 +57,7 @@ import {
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
   type SourceJoinSuggestion,
+  type ContentDatabasePersonalViewOverrides,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
   type ContentDatabaseColumnCalculation,
@@ -145,6 +147,7 @@ import {
   useBuilderCmsModels,
   useChangeContentDatabaseSourceRole,
   useContentDatabase,
+  useContentDatabasePersonalView,
   useContentDatabases,
   contentDatabaseQueryKey,
   useDeleteDatabaseItems,
@@ -158,6 +161,7 @@ import {
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
   useSuggestSourceJoinKey,
+  useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
 } from "@/hooks/use-content-database";
 import {
@@ -207,6 +211,9 @@ import {
   filesMediaItems,
   displayValue,
   nextPropertyOption,
+  personItems,
+  personLabel,
+  PersonPill,
   removePropertyOption,
   renamePropertyOption,
   updatePropertyOptionColor,
@@ -265,8 +272,13 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
+const DATABASE_ADVANCED_FILTER_GROUP_ID = "advanced";
+export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION = 1;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
 export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
+
+export type PersonalDatabaseViewOverrides =
+  ContentDatabasePersonalViewOverrides;
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
@@ -526,6 +538,8 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const personalView = useContentDatabasePersonalView(databaseId);
+  const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
   const sources = data?.sources ?? (source ? [source] : []);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
@@ -540,6 +554,18 @@ function DatabaseTable({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
+    useState(false);
+  const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
+  const [toolbarFilterOpen, setToolbarFilterOpen] = useState(false);
+  const [inlineFilterOpenIndex, setInlineFilterOpenIndex] = useState<
+    number | null
+  >(null);
+  const [inlineAdvancedFilterOpen, setInlineAdvancedFilterOpen] =
+    useState(false);
+  const [inlineSortOpenIndex, setInlineSortOpenIndex] = useState<number | null>(
+    null,
+  );
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
   const [builderReviewResult, setBuilderReviewResult] =
     useState<ContentDatabaseSourceReviewPayload | null>(null);
@@ -551,6 +577,9 @@ function DatabaseTable({
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
     defaultDatabaseViewConfig(),
   );
+  const [savedViewConfig, setSavedViewConfig] =
+    useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
+  const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
@@ -584,6 +613,9 @@ function DatabaseTable({
   );
   const hydratedViewRef = useRef("");
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const autoContinueBuilderSourceRef = useRef<string | null>(null);
   const builderContinuationWatchdogRef = useRef<{
     key: string | null;
@@ -1122,15 +1154,111 @@ function DatabaseTable({
   }
 
   function setActiveSorts(nextSorts: DatabaseSort[]) {
-    updateActiveView((view) => ({ ...view, sorts: nextSorts }));
+    updatePersonalQueryView((view) => ({ ...view, sorts: nextSorts }));
   }
 
   function setActiveFilters(nextFilters: DatabaseFilter[]) {
-    updateActiveView((view) => ({ ...view, filters: nextFilters }));
+    updatePersonalQueryView((view) => ({ ...view, filters: nextFilters }));
   }
 
   function setFilterMode(filterMode: DatabaseFilterMode) {
-    updateActiveView((view) => ({ ...view, filterMode }));
+    updatePersonalQueryView((view) => ({ ...view, filterMode }));
+  }
+
+  function updatePersonalQueryView(
+    update: (view: ContentDatabaseView) => ContentDatabaseView,
+  ) {
+    setViewConfig((current) => {
+      const next = updateActiveDatabaseView(current, update);
+      if (databaseId) {
+        schedulePersonalDatabaseViewOverrideWrite(databaseId, next);
+      }
+      setPersonalQueryDirty(
+        databaseViewHasPersonalQueryChanges(next, savedViewConfig),
+      );
+      return next;
+    });
+  }
+
+  async function savePersonalQueryForEveryone() {
+    if (!databaseId) return;
+
+    try {
+      const response = await updateView.mutateAsync({
+        databaseId,
+        viewConfig,
+      });
+      const nextViewConfig = normalizeClientDatabaseViewConfig(
+        response.database.viewConfig,
+      );
+      if (personalViewSaveTimerRef.current) {
+        clearTimeout(personalViewSaveTimerRef.current);
+        personalViewSaveTimerRef.current = null;
+      }
+      updatePersonalView.mutate({ databaseId, overrides: null });
+      setSavedViewConfig(nextViewConfig);
+      setViewConfig(nextViewConfig);
+      setPersonalQueryDirty(false);
+      hydratedViewRef.current = databaseViewStateKey(
+        databaseId,
+        nextViewConfig,
+      );
+    } catch (err) {
+      toast.error(dbText("failedToSaveView"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+    }
+  }
+
+  function resetPersonalQueryChanges() {
+    if (!databaseId) return;
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+      personalViewSaveTimerRef.current = null;
+    }
+    setViewConfig((current) => {
+      const nextViewConfig = databaseViewConfigWithSavedQueryState(
+        current,
+        savedViewConfig,
+      );
+      updatePersonalView.mutate({
+        databaseId,
+        overrides: null,
+      });
+      setPersonalQueryDirty(false);
+      hydratedViewRef.current = databaseViewStateKey(
+        databaseId,
+        nextViewConfig,
+      );
+      return nextViewConfig;
+    });
+  }
+
+  function schedulePersonalDatabaseViewOverrideWrite(
+    databaseId: string,
+    viewConfig: ContentDatabaseViewConfig,
+  ) {
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+    }
+    const overrides = personalDatabaseViewOverridesFromConfig(viewConfig);
+    personalViewSaveTimerRef.current = setTimeout(() => {
+      personalViewSaveTimerRef.current = null;
+      updatePersonalView.mutate(
+        { databaseId, overrides },
+        {
+          onError: (err) => {
+            toast.error(dbText("failedToSaveView"), {
+              description:
+                err instanceof Error
+                  ? err.message
+                  : dbText("somethingWentWrong"),
+            });
+          },
+        },
+      );
+    }, 300);
   }
 
   function clearSearchAndFilters() {
@@ -1223,9 +1351,15 @@ function DatabaseTable({
   ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
+    const scopedChangeSetIds =
+      activeBuilderReview && activeBuilderReview.rows.length > 0
+        ? activeBuilderReview.rows.map((row) => row.changeSetId)
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
+        sourceId: source?.id,
+        changeSetIds: scopedChangeSetIds,
         pushModeConfirmation: "autosave",
       });
       let nextReview = prepared.review;
@@ -1303,38 +1437,71 @@ function DatabaseTable({
 
   useEffect(() => {
     if (!data?.database.id) return;
-    const nextViewConfig = normalizeClientDatabaseViewConfig(
+    if (personalView.isLoading) return;
+    const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
+    );
+    const nextViewConfig = applyPersonalDatabaseViewOverrides(
+      nextSavedViewConfig,
+      normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
     );
     const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
     if (hydratedViewRef.current === nextKey) return;
     hydratedViewRef.current = nextKey;
+    setSavedViewConfig(nextSavedViewConfig);
+    setPersonalQueryDirty(
+      databaseViewHasPersonalQueryChanges(nextViewConfig, nextSavedViewConfig),
+    );
     setViewConfig((current) =>
       databaseViewStateKey(data.database.id, current) === nextKey
         ? current
         : nextViewConfig,
     );
-  }, [data?.database.id, data?.database.viewConfig]);
+  }, [
+    data?.database.id,
+    data?.database.viewConfig,
+    personalView.data?.overrides,
+    personalView.isLoading,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (personalViewSaveTimerRef.current) {
+        clearTimeout(personalViewSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!databaseId) return;
-    const nextKey = databaseViewStateKey(databaseId, viewConfig);
-    if (hydratedViewRef.current === nextKey) return;
+    const sharedViewConfig = personalQueryDirty
+      ? databaseViewConfigWithSavedQueryState(viewConfig, savedViewConfig)
+      : viewConfig;
+    const nextKey = databaseViewStateKey(databaseId, sharedViewConfig);
+    if (databaseViewStateKey(databaseId, savedViewConfig) === nextKey) return;
     if (!canEdit) return;
     if (saveViewTimerRef.current) {
       clearTimeout(saveViewTimerRef.current);
     }
     saveViewTimerRef.current = setTimeout(() => {
       updateView.mutate(
-        { databaseId, viewConfig },
+        { databaseId, viewConfig: sharedViewConfig },
         {
           onSuccess: (response) => {
             const nextViewConfig = normalizeClientDatabaseViewConfig(
               response.database.viewConfig,
             );
+            setSavedViewConfig(nextViewConfig);
             hydratedViewRef.current = databaseViewStateKey(
               response.database.id,
-              nextViewConfig,
+              personalQueryDirty
+                ? applyPersonalDatabaseViewOverrides(
+                    nextViewConfig,
+                    normalizePersonalDatabaseViewOverrides(
+                      personalView.data?.overrides,
+                    ),
+                  )
+                : nextViewConfig,
             );
           },
         },
@@ -1345,7 +1512,15 @@ function DatabaseTable({
         clearTimeout(saveViewTimerRef.current);
       }
     };
-  }, [canEdit, databaseId, updateView, viewConfig]);
+  }, [
+    canEdit,
+    databaseId,
+    personalQueryDirty,
+    personalView.data?.overrides,
+    savedViewConfig,
+    updateView,
+    viewConfig,
+  ]);
 
   function resizeColumn(
     key: ColumnKey,
@@ -1438,12 +1613,36 @@ function DatabaseTable({
             onSortsChange={setActiveSorts}
           />
           <FilterMenu
-            documentId={document.id}
-            properties={orderedProperties}
             filters={filters}
-            filterMode={filterMode}
-            onFiltersChange={setActiveFilters}
-            onFilterModeChange={setFilterMode}
+            properties={orderedProperties}
+            inlineOpen={inlineFilterControlsOpen}
+            open={toolbarFilterOpen}
+            onOpenChange={setToolbarFilterOpen}
+            onAddFilter={(key, label) => {
+              setActiveFilters([
+                ...filters,
+                createDatabaseFilterForField(key, label, orderedProperties),
+              ]);
+              setInlineFilterControlsOpen(true);
+              setInlineAddFilterOpen(false);
+              setInlineFilterOpenIndex(filters.length);
+              setToolbarFilterOpen(false);
+            }}
+            onAddAdvancedFilter={(key, label) => {
+              setActiveFilters([
+                ...filters,
+                createDatabaseFilterForField(
+                  key,
+                  label,
+                  orderedProperties,
+                  true,
+                ),
+              ]);
+              setInlineFilterControlsOpen(true);
+              setInlineAddFilterOpen(false);
+              setInlineAdvancedFilterOpen(true);
+              setToolbarFilterOpen(false);
+            }}
           />
           {renderMode === "inline" ? (
             <Tooltip>
@@ -1516,29 +1715,58 @@ function DatabaseTable({
       </div>
 
       <DatabaseActiveConstraintsBar
+        documentId={document.id}
+        items={items}
         searchQuery={searchQuery}
         sorts={sorts}
         filters={filters}
+        filterMode={filterMode}
         properties={properties}
         constraintCount={activeConstraintCount}
+        forceShow={inlineFilterControlsOpen}
+        addFilterOpen={inlineAddFilterOpen}
+        openSortIndex={inlineSortOpenIndex}
+        openFilterIndex={inlineFilterOpenIndex}
+        advancedFilterOpen={inlineAdvancedFilterOpen}
+        hasPersonalQueryChanges={personalQueryDirty}
+        savePending={updateView.isPending}
+        onAddFilterOpenChange={(open) => {
+          setInlineAddFilterOpen(open);
+          if (open) setInlineFilterControlsOpen(true);
+        }}
+        onSortOpenIndexChange={setInlineSortOpenIndex}
+        onFilterOpenIndexChange={setInlineFilterOpenIndex}
+        onAdvancedFilterOpenChange={setInlineAdvancedFilterOpen}
         onClearSearch={() => {
           setSearchQuery("");
           setSearchOpen(false);
         }}
-        onRemoveSort={(index) =>
-          setActiveSorts(sorts.filter((_, sortIndex) => sortIndex !== index))
-        }
-        onRemoveFilter={(index) =>
+        onRemoveSort={(index) => {
+          setActiveSorts(sorts.filter((_, sortIndex) => sortIndex !== index));
+          setInlineSortOpenIndex(null);
+        }}
+        onRemoveFilter={(index) => {
           setActiveFilters(
             filters.filter((_, filterIndex) => filterIndex !== index),
-          )
-        }
+          );
+          setInlineFilterOpenIndex(null);
+        }}
+        onFiltersChange={setActiveFilters}
+        onSortsChange={setActiveSorts}
+        onFilterModeChange={setFilterMode}
         onClearAll={() => {
           setSearchQuery("");
           setSearchOpen(false);
           setActiveSorts([]);
           setActiveFilters([]);
+          setInlineFilterControlsOpen(false);
+          setInlineAddFilterOpen(false);
+          setInlineFilterOpenIndex(null);
+          setInlineAdvancedFilterOpen(false);
+          setInlineSortOpenIndex(null);
         }}
+        onResetPersonalChanges={resetPersonalQueryChanges}
+        onSaveForEveryone={() => void savePersonalQueryForEveryone()}
       />
 
       <BuilderSourceContinuationBar
@@ -2240,6 +2468,25 @@ export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
       property.editable && !isComputedPropertyType(property.definition.type),
+  );
+}
+
+export function databaseBuilderBulkUpdateSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  selectedItems: ContentDatabaseItem[],
+) {
+  if (selectedItems.length === 0) return null;
+  const candidates =
+    sources.length > 0 ? sources : primarySource ? [primarySource] : [];
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.sourceType === "builder-cms" &&
+        selectedItems.every((item) =>
+          candidate.rows.some((row) => row.documentId === item.document.id),
+        ),
+    ) ?? null
   );
 }
 
@@ -3500,7 +3747,7 @@ function DatabaseTableView({
 
   async function setSelectedPropertyValue(
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) {
     if (selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
@@ -3512,7 +3759,7 @@ function DatabaseTableView({
         await setProperty.mutateAsync({
           documentId: item.document.id,
           propertyId: property.definition.id,
-          value,
+          value: databaseBulkPropertyValueForItem(item, property, operation),
         });
         updatedCount += 1;
       } catch {
@@ -3550,6 +3797,7 @@ function DatabaseTableView({
             selectedCount={selectedCount}
             canEdit={canEdit}
             properties={bulkEditableProperties}
+            selectedItems={selectedItems}
             duplicateDisabled={
               isDuplicatingSelected ||
               duplicateItems.isPending ||
@@ -3787,36 +4035,165 @@ function DatabaseTableView({
 }
 
 function DatabaseActiveConstraintsBar({
+  documentId,
+  items,
   searchQuery,
   sorts,
   filters,
+  filterMode,
   properties,
   constraintCount,
+  forceShow,
+  addFilterOpen,
+  openSortIndex,
+  openFilterIndex,
+  advancedFilterOpen,
+  hasPersonalQueryChanges,
+  savePending,
+  onAddFilterOpenChange,
+  onSortOpenIndexChange,
+  onFilterOpenIndexChange,
+  onAdvancedFilterOpenChange,
   onClearSearch,
   onRemoveSort,
   onRemoveFilter,
+  onSortsChange,
+  onFiltersChange,
+  onFilterModeChange,
   onClearAll,
+  onResetPersonalChanges,
+  onSaveForEveryone,
 }: {
+  documentId: string;
+  items: ContentDatabaseItem[];
   searchQuery: string;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  filterMode: DatabaseFilterMode;
   properties: DocumentProperty[];
   constraintCount: number;
+  forceShow: boolean;
+  addFilterOpen: boolean;
+  openSortIndex: number | null;
+  openFilterIndex: number | null;
+  advancedFilterOpen: boolean;
+  hasPersonalQueryChanges: boolean;
+  savePending: boolean;
+  onAddFilterOpenChange: (open: boolean) => void;
+  onSortOpenIndexChange: (index: number | null) => void;
+  onFilterOpenIndexChange: (index: number | null) => void;
+  onAdvancedFilterOpenChange: (open: boolean) => void;
   onClearSearch: () => void;
   onRemoveSort: (index: number) => void;
   onRemoveFilter: (index: number) => void;
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
   onClearAll: () => void;
+  onResetPersonalChanges: () => void;
+  onSaveForEveryone: () => void;
 }) {
-  if (constraintCount === 0) return null;
-  const activeFilterEntries = filters
-    .map((filter, index) => ({ filter, index }))
-    .filter((entry) => isActiveFilter(entry.filter));
+  if (
+    !forceShow &&
+    constraintCount === 0 &&
+    filters.length === 0 &&
+    !hasPersonalQueryChanges
+  )
+    return null;
+  const hasSearchOrSortConstraints =
+    searchQuery.trim().length > 0 || sorts.length > 0;
+  const showViewActionControls =
+    hasPersonalQueryChanges ||
+    constraintCount > 0 ||
+    filters.length > 0 ||
+    hasSearchOrSortConstraints;
+  const filterEntries = filters.map((filter, index) => ({ filter, index }));
+  const advancedFilterEntries = filterEntries.filter(({ filter }) =>
+    isAdvancedDatabaseFilter(filter),
+  );
+  const regularFilterEntries = filterEntries.filter(
+    ({ filter }) => !isAdvancedDatabaseFilter(filter),
+  );
+  const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
 
   return (
     <div className="mb-2 flex min-h-8 flex-wrap items-center gap-1 border-b border-border pb-2 text-xs text-muted-foreground">
-      <span className="px-1.5">
-        Showing {constraintCount} condition{constraintCount === 1 ? "" : "s"}
-      </span>
+      {sorts.map((sort, index) => (
+        <DatabaseInlineSortControl
+          key={`${sort.key}-${index}`}
+          sort={sort}
+          sortIndex={index}
+          sorts={sorts}
+          properties={properties}
+          open={openSortIndex === index}
+          showUnsavedIndicator={hasPersonalQueryChanges}
+          onOpenChange={(open) => onSortOpenIndexChange(open ? index : null)}
+          onSortsChange={onSortsChange}
+          onRemove={() => onRemoveSort(index)}
+        />
+      ))}
+      {hasSortFilterDivider ? (
+        <div aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
+      ) : null}
+      {advancedFilterEntries.length === 0 && regularFilterEntries.length > 1 ? (
+        <DatabaseFilterModeButton
+          filterMode={filterMode}
+          onFilterModeChange={onFilterModeChange}
+        />
+      ) : null}
+      {advancedFilterEntries.length > 0 ? (
+        <DatabaseAdvancedFilterGroupControl
+          documentId={documentId}
+          items={items}
+          filters={filters}
+          filterEntries={advancedFilterEntries}
+          filterMode={filterMode}
+          properties={properties}
+          open={advancedFilterOpen}
+          showUnsavedIndicator={hasPersonalQueryChanges}
+          onOpenChange={onAdvancedFilterOpenChange}
+          onFiltersChange={onFiltersChange}
+          onFilterModeChange={onFilterModeChange}
+        />
+      ) : null}
+      {regularFilterEntries.map(({ filter, index }) => (
+        <DatabaseInlineFilterControl
+          key={`${filter.key}-${index}`}
+          documentId={documentId}
+          filter={filter}
+          filterIndex={index}
+          filters={filters}
+          items={items}
+          properties={properties}
+          open={openFilterIndex === index}
+          showUnsavedIndicator={hasPersonalQueryChanges}
+          onOpenChange={(open) => onFilterOpenIndexChange(open ? index : null)}
+          onFiltersChange={onFiltersChange}
+          onRemove={() => onRemoveFilter(index)}
+        />
+      ))}
+      <DatabaseAddFilterButton
+        open={addFilterOpen}
+        filters={filters}
+        properties={properties}
+        onOpenChange={onAddFilterOpenChange}
+        onAddFilter={(key, label) => {
+          onFiltersChange([
+            ...filters,
+            createDatabaseFilterForField(key, label, properties),
+          ]);
+          onAddFilterOpenChange(false);
+          onFilterOpenIndexChange(filters.length);
+        }}
+        onAddAdvancedFilter={(key, label) => {
+          onFiltersChange([
+            ...filters,
+            createDatabaseFilterForField(key, label, properties, true),
+          ]);
+          onAddFilterOpenChange(false);
+          onAdvancedFilterOpenChange(true);
+        }}
+      />
       {searchQuery.trim() ? (
         <DatabaseConstraintChip
           icon={<IconSearch className="size-3.5" />}
@@ -3824,32 +4201,1133 @@ function DatabaseActiveConstraintsBar({
           onRemove={onClearSearch}
         />
       ) : null}
-      {sorts.map((sort, index) => (
-        <DatabaseConstraintChip
-          key={`${sort.key}-${index}`}
-          icon={<IconArrowsSort className="size-3.5" />}
-          label={`${sort.label} ${sort.direction === "asc" ? "ascending" : "descending"}`}
-          onRemove={() => onRemoveSort(index)}
-        />
-      ))}
-      {activeFilterEntries.map(({ filter, index }) => (
-        <DatabaseConstraintChip
-          key={`${filter.key}-${index}`}
-          icon={<IconFilter className="size-3.5" />}
-          label={databaseFilterChipLabel(filter, properties)}
-          onRemove={() => onRemoveFilter(index)}
-        />
-      ))}
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        className="ml-auto h-7 px-2 text-xs"
-        onClick={onClearAll}
-      >
-        {dbText("clearAll")}
-      </Button>
+      <div className="ml-auto flex items-center gap-1 pl-2">
+        {hasSearchOrSortConstraints ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={onClearAll}
+          >
+            {dbText("clearAll")}
+          </Button>
+        ) : null}
+        {showViewActionControls ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              disabled={savePending}
+              onClick={onResetPersonalChanges}
+            >
+              {dbText("reset")}
+            </Button>
+            <div className="flex h-7 overflow-hidden rounded">
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-none bg-amber-100 px-2 text-xs font-medium text-amber-900 shadow-none hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
+                disabled={savePending}
+                onClick={onSaveForEveryone}
+              >
+                {savePending ? <Spinner className="mr-1 size-3" /> : null}
+                {dbText("saveForEveryone")}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 w-7 rounded-none border-l border-amber-200 bg-amber-100 p-0 text-amber-900 shadow-none hover:bg-amber-200 dark:border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-100 dark:hover:bg-amber-500/30"
+                    disabled={savePending}
+                    aria-label={dbText("saveForEveryone")}
+                  >
+                    <IconChevronDown className="size-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      onSaveForEveryone();
+                    }}
+                  >
+                    <IconCheck className="mr-2 size-4 text-muted-foreground" />
+                    {dbText("saveForEveryone")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+function DatabaseInlineSortControl({
+  sort,
+  sortIndex,
+  sorts,
+  properties,
+  open,
+  showUnsavedIndicator,
+  onOpenChange,
+  onSortsChange,
+  onRemove,
+}: {
+  sort: DatabaseSort;
+  sortIndex: number;
+  sorts: DatabaseSort[];
+  properties: DocumentProperty[];
+  open: boolean;
+  showUnsavedIndicator: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onRemove: () => void;
+}) {
+  function updateSort(next: Partial<DatabaseSort>) {
+    const nextSorts = [...sorts];
+    nextSorts[sortIndex] = {
+      ...(nextSorts[sortIndex] ?? defaultDatabaseSort()),
+      ...next,
+    };
+    onSortsChange(nextSorts);
+  }
+
+  const existingSortKeys = useMemo(
+    () => new Set(sorts.map((candidate) => candidate.key)),
+    [sorts],
+  );
+
+  function addSortForField(key: "name" | string, label: string) {
+    onSortsChange([...sorts, { key, label, direction: "asc" }]);
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={cn(
+            "relative h-7 max-w-[16rem] rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+          )}
+        >
+          {sort.direction === "asc" ? (
+            <IconArrowUp className="size-3.5 shrink-0" />
+          ) : (
+            <IconArrowDown className="size-3.5 shrink-0" />
+          )}
+          <span className="min-w-0 truncate">{sort.label}</span>
+          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+          {showUnsavedIndicator ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-background bg-amber-500"
+            />
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[260px] p-0">
+        <div
+          className="grid gap-1 p-1"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center gap-0.5">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+                <SortFieldIcon sort={sort} properties={properties} />
+                <span className="min-w-0 flex-1 truncate">{sort.label}</span>
+                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+              </DropdownMenuSubTrigger>
+              <DatabasePropertyPickerSubContent
+                properties={properties}
+                selectedKey={sort.key}
+                includeName
+                onSelect={(key, label) => updateSort({ key, label })}
+              />
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+                <span className="min-w-0 flex-1 truncate">
+                  {databaseSortDirectionLabel(sort.direction)}
+                </span>
+                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-40">
+                {(["asc", "desc"] as const).map((direction) => (
+                  <DropdownMenuItem
+                    key={direction}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      updateSort({ direction });
+                    }}
+                  >
+                    <span className="flex-1">
+                      {databaseSortDirectionLabel(direction)}
+                    </span>
+                    {sort.direction === direction ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <button
+              type="button"
+              aria-label={`Remove ${sort.label} sort`}
+              className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={onRemove}
+            >
+              <IconX className="size-4" />
+            </button>
+          </div>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="[&>svg:last-child]:hidden">
+              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1">{dbText("addSort")}</span>
+            </DropdownMenuSubTrigger>
+            <DatabasePropertyPickerSubContent
+              properties={properties}
+              includeName
+              excludeKeys={existingSortKeys}
+              placeholder={dbText("searchForAProperty")}
+              onSelect={addSortForField}
+            />
+          </DropdownMenuSub>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onRemove();
+            }}
+          >
+            <IconTrash className="mr-2 size-4 text-muted-foreground" />
+            {dbText("deleteSort")}
+          </DropdownMenuItem>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DatabaseAddFilterButton({
+  open,
+  filters,
+  properties,
+  onOpenChange,
+  onAddFilter,
+  onAddAdvancedFilter,
+}: {
+  open: boolean;
+  filters: DatabaseFilter[];
+  properties: DocumentProperty[];
+  onOpenChange: (open: boolean) => void;
+  onAddFilter: (key: "name" | string, label: string) => void;
+  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
+}) {
+  const excludedFilterKeys = useMemo(
+    () => new Set(filters.filter(isActiveFilter).map((filter) => filter.key)),
+    [filters],
+  );
+  const advancedFilterCandidate =
+    databasePropertyPickerItems(properties, "", {
+      includeName: false,
+      excludeKeys: excludedFilterKeys,
+    })[0] ??
+    databasePropertyPickerItems(properties, "", {
+      includeName: true,
+      excludeKeys: excludedFilterKeys,
+    })[0];
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <IconPlus className="mr-1 size-3.5" />
+          {dbText("filter")}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <div onKeyDown={(event) => event.stopPropagation()}>
+          <DatabasePropertyPickerMenuItems
+            properties={properties}
+            includeName
+            excludeKeys={excludedFilterKeys}
+            placeholder={dbText("filterBy")}
+            closeOnSelect
+            onSelect={onAddFilter}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!advancedFilterCandidate}
+            onSelect={(event) => {
+              event.preventDefault();
+              if (!advancedFilterCandidate) return;
+              onAddAdvancedFilter(
+                advancedFilterCandidate.key,
+                advancedFilterCandidate.label,
+              );
+            }}
+          >
+            <IconPlus className="mr-2 size-4 text-muted-foreground" />
+            {dbText("addAdvancedFilter")}
+          </DropdownMenuItem>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DatabaseFilterModeButton({
+  filterMode,
+  onFilterModeChange,
+}: {
+  filterMode: DatabaseFilterMode;
+  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 rounded border border-border/70 bg-background px-2 text-xs font-normal text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
+        >
+          {databaseFilterModeLabel(filterMode)}
+          <IconChevronDown className="ml-1 size-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        {DATABASE_FILTER_MODES.map((mode) => (
+          <DropdownMenuItem
+            key={mode}
+            onSelect={(event) => {
+              event.preventDefault();
+              onFilterModeChange(mode);
+            }}
+          >
+            <span className="flex-1">{databaseFilterModeLabel(mode)}</span>
+            {filterMode === mode ? (
+              <IconCheck className="size-4 text-muted-foreground" />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+type DatabaseFilterEntry = {
+  filter: DatabaseFilter;
+  index: number;
+};
+
+type DatabaseNestedFilterGroupEntry = {
+  id: string;
+  entries: DatabaseFilterEntry[];
+};
+
+function DatabaseAdvancedFilterGroupControl({
+  documentId,
+  items,
+  filters,
+  filterEntries,
+  filterMode,
+  properties,
+  open,
+  showUnsavedIndicator,
+  onOpenChange,
+  onFiltersChange,
+  onFilterModeChange,
+}: {
+  documentId: string;
+  items: ContentDatabaseItem[];
+  filters: DatabaseFilter[];
+  filterEntries: DatabaseFilterEntry[];
+  filterMode: DatabaseFilterMode;
+  properties: DocumentProperty[];
+  open: boolean;
+  showUnsavedIndicator: boolean;
+  onOpenChange: (open: boolean) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+}) {
+  const advancedFilters = filterEntries.map((entry) => entry.filter);
+  const rootFilterEntries = filterEntries.filter(
+    ({ filter }) => !filter.parentFilterGroupId,
+  );
+  const nestedGroupEntries = advancedNestedFilterGroups(filterEntries);
+  const advancedKeys = useMemo(
+    () => new Set(advancedFilters.map((filter) => filter.key)),
+    [advancedFilters],
+  );
+  const addRuleCandidate =
+    databasePropertyPickerItems(properties, "", {
+      includeName: false,
+      excludeKeys: advancedKeys,
+    })[0] ??
+    databasePropertyPickerItems(properties, "", {
+      includeName: true,
+      excludeKeys: advancedKeys,
+    })[0];
+
+  function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
+    const nextFilters = [...filters];
+    const currentFilter = nextFilters[index] ?? defaultDatabaseFilter();
+    const nextOperator = next.operator ?? currentFilter.operator;
+    nextFilters[index] = {
+      ...currentFilter,
+      ...next,
+      filterGroupId: next.filterGroupId ?? currentFilter.filterGroupId,
+      parentFilterGroupId:
+        next.parentFilterGroupId ?? currentFilter.parentFilterGroupId,
+      value: filterOperatorNeedsValue(nextOperator)
+        ? (next.value ?? currentFilter.value)
+        : "",
+    };
+    onFiltersChange(nextFilters);
+  }
+
+  function addAdvancedRule(key: "name" | string, label: string) {
+    onFiltersChange([
+      ...filters,
+      createDatabaseFilterForField(key, label, properties, true),
+    ]);
+  }
+
+  function addNestedFilterGroup(key: "name" | string, label: string) {
+    onFiltersChange([
+      ...filters,
+      createDatabaseFilterForField(key, label, properties, {
+        filterGroupId: createAdvancedNestedFilterGroupId(),
+        parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
+      }),
+    ]);
+  }
+
+  function addNestedFilterRule(
+    groupId: string,
+    key: "name" | string,
+    label: string,
+  ) {
+    onFiltersChange([
+      ...filters,
+      createDatabaseFilterForField(key, label, properties, {
+        filterGroupId: groupId,
+        parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
+      }),
+    ]);
+  }
+
+  function removeFilterAt(index: number) {
+    onFiltersChange(filters.filter((_, filterIndex) => filterIndex !== index));
+    if (filterEntries.length <= 1) onOpenChange(false);
+  }
+
+  function removeNestedFilterGroup(groupId: string) {
+    onFiltersChange(
+      filters.filter((filter) => filter.filterGroupId !== groupId),
+    );
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={cn(
+            "relative h-7 rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+          )}
+        >
+          <IconFilter className="size-3.5 shrink-0" />
+          <span>{advancedFilterGroupLabel(filterEntries.length)}</span>
+          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+          {showUnsavedIndicator ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-background bg-amber-500"
+            />
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-[640px] max-w-[calc(100vw-2rem)] p-0"
+      >
+        <div
+          className="grid gap-1 rounded-lg bg-background p-1.5"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {rootFilterEntries.map(({ filter, index }, ruleIndex) => (
+            <DatabaseAdvancedFilterRuleRow
+              key={`${filter.key}-${index}`}
+              documentId={documentId}
+              filter={filter}
+              filters={filters}
+              filterIndex={index}
+              ruleIndex={ruleIndex}
+              filterMode={filterMode}
+              items={items}
+              properties={properties}
+              onFilterModeChange={onFilterModeChange}
+              onUpdateFilter={(next) => updateFilterAt(index, next)}
+              onRemove={() => removeFilterAt(index)}
+            />
+          ))}
+          {nestedGroupEntries.map((group, groupIndex) => (
+            <DatabaseAdvancedNestedFilterGroup
+              key={group.id}
+              documentId={documentId}
+              items={items}
+              filters={filters}
+              group={group}
+              ruleIndex={rootFilterEntries.length + groupIndex}
+              filterMode={filterMode}
+              properties={properties}
+              onFilterModeChange={onFilterModeChange}
+              onUpdateFilter={updateFilterAt}
+              onAddNestedFilterRule={addNestedFilterRule}
+              onRemoveFilter={removeFilterAt}
+              onRemoveGroup={() => removeNestedFilterGroup(group.id)}
+            />
+          ))}
+
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="h-9 rounded px-2 text-xs text-muted-foreground [&>svg:last-child]:hidden">
+              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1">{dbText("addFilterRule")}</span>
+              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              <DropdownMenuItem
+                disabled={!addRuleCandidate}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  if (!addRuleCandidate) return;
+                  addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
+                }}
+              >
+                <IconPlus className="mr-2 size-4 text-muted-foreground" />
+                {dbText("addFilterRule")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!addRuleCandidate}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  if (!addRuleCandidate) return;
+                  addNestedFilterGroup(
+                    addRuleCandidate.key,
+                    addRuleCandidate.label,
+                  );
+                }}
+              >
+                <IconPlus className="mr-2 size-4 text-muted-foreground" />
+                {dbText("addFilterGroup")}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem
+            className="h-9 rounded px-2 text-xs text-muted-foreground"
+            onSelect={(event) => {
+              event.preventDefault();
+              onFiltersChange(
+                filters.filter((filter) => !isAdvancedDatabaseFilter(filter)),
+              );
+              onOpenChange(false);
+            }}
+          >
+            <IconTrash className="mr-2 size-4 text-muted-foreground" />
+            {dbText("deleteFilter")}
+          </DropdownMenuItem>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DatabaseAdvancedFilterRuleRow({
+  documentId,
+  filter,
+  filters,
+  filterIndex,
+  ruleIndex,
+  filterMode,
+  items,
+  properties,
+  onFilterModeChange,
+  onUpdateFilter,
+  onRemove,
+}: {
+  documentId: string;
+  filter: DatabaseFilter;
+  filters: DatabaseFilter[];
+  filterIndex: number;
+  ruleIndex: number;
+  filterMode: DatabaseFilterMode;
+  items: ContentDatabaseItem[];
+  properties: DocumentProperty[];
+  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  onUpdateFilter: (next: Partial<DatabaseFilter>) => void;
+  onRemove: () => void;
+}) {
+  function selectField(key: "name" | string, label: string) {
+    onUpdateFilter({
+      key,
+      label,
+      operator: defaultFilterOperatorForKey(key, properties),
+      value: "",
+    });
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      {ruleIndex === 0 ? (
+        <div className="flex h-9 w-16 shrink-0 items-center px-2 text-xs text-foreground">
+          {dbText("where")}
+        </div>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted"
+            >
+              <span className="flex-1 text-left">
+                {databaseFilterModeConjunctionLabel(filterMode)}
+              </span>
+              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-32">
+            {DATABASE_FILTER_MODES.map((mode) => (
+              <DropdownMenuItem
+                key={mode}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onFilterModeChange(mode);
+                }}
+              >
+                <span className="flex-1">
+                  {databaseFilterModeConjunctionLabel(mode)}
+                </span>
+                {filterMode === mode ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
+      <div className="grid min-w-0 flex-1 gap-1">
+        <div className="flex items-center gap-0.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-9 min-w-0 flex-1 items-center rounded border border-border bg-background px-2 text-left text-xs font-normal shadow-none hover:bg-muted/50 focus:bg-muted/50 data-[state=open]:bg-muted/50"
+              >
+                <FilterFieldIcon filter={filter} properties={properties} />
+                <span className="min-w-0 flex-1 truncate">{filter.label}</span>
+                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="max-h-80 w-64 overflow-auto"
+            >
+              <DatabasePropertyPickerMenuItems
+                properties={properties}
+                selectedKey={filter.key}
+                includeName
+                closeOnSelect
+                onSelect={selectField}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-9 min-w-0 flex-1 items-center rounded border border-border bg-background px-2 text-left text-xs font-normal shadow-none hover:bg-muted/50 focus:bg-muted/50 data-[state=open]:bg-muted/50"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {databaseFilterOperatorInlineLabel(
+                    filter.operator,
+                    filter.key,
+                    properties,
+                  )}
+                </span>
+                <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44">
+              {filterOperatorsForKey(filter.key, properties).map((operator) => (
+                <DropdownMenuItem
+                  key={operator}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onUpdateFilter({ operator });
+                  }}
+                >
+                  <span className="flex-1">
+                    {databaseFilterOperatorLabel(
+                      operator,
+                      filter.key,
+                      properties,
+                    )}
+                  </span>
+                  {filter.operator === operator ? (
+                    <IconCheck className="size-4 text-muted-foreground" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {filterOperatorNeedsValue(filter.operator) ? (
+            <div className="min-w-0 flex-[1.35] [&>div>div:first-child]:px-0 [&>input]:h-9 [&>input]:text-xs">
+              <DatabaseFilterValueControl
+                documentId={documentId}
+                filter={filter}
+                items={items}
+                properties={properties}
+                hideOptionsUntilQuery
+                onValueChange={(value) => onUpdateFilter({ value })}
+              />
+            </div>
+          ) : null}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted/50 data-[state=open]:bg-muted/50"
+              >
+                <IconDots className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onRemove();
+                }}
+              >
+                <IconX className="mr-2 size-4 text-muted-foreground" />
+                Remove
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DatabaseAdvancedNestedFilterGroup({
+  documentId,
+  items,
+  filters,
+  group,
+  ruleIndex,
+  filterMode,
+  properties,
+  onFilterModeChange,
+  onUpdateFilter,
+  onAddNestedFilterRule,
+  onRemoveFilter,
+  onRemoveGroup,
+}: {
+  documentId: string;
+  items: ContentDatabaseItem[];
+  filters: DatabaseFilter[];
+  group: DatabaseNestedFilterGroupEntry;
+  ruleIndex: number;
+  filterMode: DatabaseFilterMode;
+  properties: DocumentProperty[];
+  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  onUpdateFilter: (index: number, next: Partial<DatabaseFilter>) => void;
+  onAddNestedFilterRule: (
+    groupId: string,
+    key: "name" | string,
+    label: string,
+  ) => void;
+  onRemoveFilter: (index: number) => void;
+  onRemoveGroup: () => void;
+}) {
+  const nestedKeys = useMemo(
+    () => new Set(group.entries.map(({ filter }) => filter.key)),
+    [group.entries],
+  );
+  const addRuleCandidate =
+    databasePropertyPickerItems(properties, "", {
+      includeName: false,
+      excludeKeys: nestedKeys,
+    })[0] ??
+    databasePropertyPickerItems(properties, "", {
+      includeName: true,
+      excludeKeys: nestedKeys,
+    })[0];
+
+  return (
+    <div className="flex items-start gap-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-9 w-16 items-center rounded px-2 text-xs hover:bg-muted data-[state=open]:bg-muted"
+          >
+            <span className="flex-1 text-left">
+              {databaseFilterModeConjunctionLabel(filterMode)}
+            </span>
+            <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-32">
+          {DATABASE_FILTER_MODES.map((mode) => (
+            <DropdownMenuItem
+              key={mode}
+              onSelect={(event) => {
+                event.preventDefault();
+                onFilterModeChange(mode);
+              }}
+            >
+              <span className="flex-1">
+                {databaseFilterModeConjunctionLabel(mode)}
+              </span>
+              {filterMode === mode ? (
+                <IconCheck className="size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="grid min-w-0 flex-1 gap-1 rounded border border-border/70 bg-muted/30 p-1.5">
+        {group.entries.map(({ filter, index }, nestedRuleIndex) => (
+          <DatabaseAdvancedFilterRuleRow
+            key={`${filter.key}-${index}`}
+            documentId={documentId}
+            filter={filter}
+            filters={filters}
+            filterIndex={index}
+            ruleIndex={nestedRuleIndex}
+            filterMode={filterMode}
+            items={items}
+            properties={properties}
+            onFilterModeChange={onFilterModeChange}
+            onUpdateFilter={(next) =>
+              onUpdateFilter(index, {
+                ...next,
+                filterGroupId: group.id,
+                parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
+              })
+            }
+            onRemove={() => {
+              if (group.entries.length <= 1) {
+                onRemoveGroup();
+              } else {
+                onRemoveFilter(index);
+              }
+            }}
+          />
+        ))}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-9 items-center rounded px-2 text-left text-xs text-muted-foreground hover:bg-muted data-[state=open]:bg-muted"
+            >
+              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1">{dbText("addFilterRule")}</span>
+              <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuItem
+              disabled={!addRuleCandidate}
+              onSelect={(event) => {
+                event.preventDefault();
+                if (!addRuleCandidate) return;
+                onAddNestedFilterRule(
+                  group.id,
+                  addRuleCandidate.key,
+                  addRuleCandidate.label,
+                );
+              }}
+            >
+              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+              {dbText("addFilterRule")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted/50 data-[state=open]:bg-muted/50"
+          >
+            <IconDots className="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              onRemoveGroup();
+            }}
+          >
+            <IconX className="mr-2 size-4 text-muted-foreground" />
+            Remove
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function DatabaseInlineFilterControl({
+  documentId,
+  filter,
+  filterIndex,
+  filters,
+  items,
+  properties,
+  open,
+  showUnsavedIndicator,
+  onOpenChange,
+  onFiltersChange,
+  onRemove,
+}: {
+  documentId: string;
+  filter: DatabaseFilter;
+  filterIndex: number;
+  filters: DatabaseFilter[];
+  items: ContentDatabaseItem[];
+  properties: DocumentProperty[];
+  open: boolean;
+  showUnsavedIndicator: boolean;
+  onOpenChange: (open: boolean) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onRemove: () => void;
+}) {
+  function updateFilter(next: Partial<DatabaseFilter>) {
+    const nextFilters = [...filters];
+    const currentFilter = nextFilters[filterIndex] ?? defaultDatabaseFilter();
+    const nextOperator = next.operator ?? currentFilter.operator;
+    nextFilters[filterIndex] = {
+      ...currentFilter,
+      ...next,
+      value: filterOperatorNeedsValue(nextOperator)
+        ? (next.value ?? currentFilter.value)
+        : "",
+    };
+    onFiltersChange(nextFilters);
+  }
+
+  function selectField(key: "name" | string, label: string) {
+    updateFilter({
+      key,
+      label,
+      operator: defaultFilterOperatorForKey(key, properties),
+      value: "",
+    });
+  }
+
+  const filterIsComplete =
+    !filterOperatorNeedsValue(filter.operator) ||
+    filter.value.trim().length > 0;
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={cn(
+            "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            filterIsComplete &&
+              "border-[#2383e2]/30 bg-[#2383e2]/10 text-[#0f5ea8] hover:bg-[#2383e2]/15",
+            open && "border-[#2383e2]/40 bg-[#2383e2]/15",
+            !filterIsComplete && "text-muted-foreground",
+          )}
+        >
+          <FilterFieldIcon filter={filter} properties={properties} />
+          <span className="min-w-0 truncate">
+            {databaseInlineFilterLabel(filter, properties)}
+          </span>
+          <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+          {showUnsavedIndicator ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-background bg-amber-500"
+            />
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[260px] p-0">
+        <div
+          className="grid gap-1 p-1"
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center gap-0.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 min-w-0 flex-1 items-center rounded px-1.5 text-left text-xs hover:bg-muted data-[state=open]:bg-muted"
+                >
+                  <FilterFieldIcon filter={filter} properties={properties} />
+                  <span className="min-w-0 flex-1 truncate">
+                    {filter.label}
+                  </span>
+                  <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-80 w-64 overflow-auto"
+              >
+                <DatabasePropertyPickerMenuItems
+                  properties={properties}
+                  selectedKey={filter.key}
+                  includeName
+                  closeOnSelect
+                  onSelect={selectField}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 min-w-0 flex-1 items-center rounded px-1.5 text-left text-xs hover:bg-muted data-[state=open]:bg-muted"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {databaseFilterOperatorInlineLabel(
+                      filter.operator,
+                      filter.key,
+                      properties,
+                    )}
+                  </span>
+                  <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                {filterOperatorsForKey(filter.key, properties).map(
+                  (operator) => (
+                    <DropdownMenuItem
+                      key={operator}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        updateFilter({ operator });
+                      }}
+                    >
+                      <span className="flex-1">
+                        {databaseFilterOperatorLabel(
+                          operator,
+                          filter.key,
+                          properties,
+                        )}
+                      </span>
+                      {filter.operator === operator ? (
+                        <IconCheck className="size-4 text-muted-foreground" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ),
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 items-center justify-center rounded p-0 text-muted-foreground hover:bg-muted data-[state=open]:bg-muted"
+                >
+                  <IconDots className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem
+                  disabled={filters.length <= 1 || filterIndex === 0}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onFiltersChange(
+                      moveDatabaseFilter(filters, filterIndex, "up"),
+                    );
+                  }}
+                >
+                  <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
+                  {dbText("moveFilterUp")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={
+                    filters.length <= 1 || filterIndex >= filters.length - 1
+                  }
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onFiltersChange(
+                      moveDatabaseFilter(filters, filterIndex, "down"),
+                    );
+                  }}
+                >
+                  <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
+                  {dbText("moveFilterDown")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onRemove();
+                  }}
+                >
+                  <IconX className="mr-2 size-4 text-muted-foreground" />
+                  Remove
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {filterOperatorNeedsValue(filter.operator) ? (
+            <DatabaseFilterValueControl
+              autoFocus={!filter.value}
+              documentId={documentId}
+              filter={filter}
+              items={items}
+              properties={properties}
+              onValueChange={(value) => updateFilter({ value })}
+            />
+          ) : null}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -5681,6 +7159,11 @@ function BuilderSourceContinuationBar({
         )
       : rawFetchedCount;
   const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
+  const fetchedCountDetail = builderSourceContinuationFetchedCountDetail(
+    source,
+    fetchedCount,
+    rowsComplete,
+  );
   const bodyHydrationActive =
     !hasMore &&
     !!bodyHydration &&
@@ -5734,7 +7217,9 @@ function BuilderSourceContinuationBar({
               failed: bodyHydration.error,
             },
           )
-        : dbText("builderRowsFetchedSoFar", { count: fetchedCount });
+        : dbText("builderRowsFetchedSoFar", {
+            count: fetchedCountDetail ?? fetchedCount,
+          });
 
   return (
     <div
@@ -5898,6 +7383,25 @@ function shouldPreselectDetailField(
   return DETAIL_FIELD_NAME_HINTS.some((hint) => key.includes(hint));
 }
 
+function sourceFieldIconType(
+  sourceFieldType: string,
+): DocumentPropertyType | "name" {
+  const normalized = sourceFieldType.trim().toLowerCase();
+  if (normalized === "number") return "number";
+  if (normalized === "datetime" || normalized === "date") return "date";
+  if (normalized === "url") return "url";
+  if (normalized === "boolean" || normalized === "checkbox") return "checkbox";
+  if (
+    normalized === "list" ||
+    normalized === "array" ||
+    normalized === "tags" ||
+    normalized === "multi_select"
+  ) {
+    return "multi_select";
+  }
+  return "text";
+}
+
 function SourceDetailsFieldPicker({
   documentId,
   source,
@@ -5999,31 +7503,37 @@ function SourceDetailsFieldPicker({
         </div>
       ) : (
         <div className="grid min-w-0 gap-1">
-          {fields.map((field) => (
-            <button
-              key={field.id}
-              type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => toggleField(field.id)}
-            >
-              <span
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded border",
-                  selected.has(field.id)
-                    ? "border-[#2383e2] bg-[#2383e2] text-white"
-                    : "border-muted-foreground/40 text-transparent",
-                )}
+          {fields.map((field) => {
+            const iconType = sourceFieldIconType(field.sourceFieldType);
+            const Icon =
+              iconType === "name" ? IconFileText : TYPE_ICONS[iconType];
+            return (
+              <button
+                key={field.id}
+                type="button"
+                className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => toggleField(field.id)}
               >
-                <IconCheck className="size-3" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">
-                {field.sourceFieldLabel}
-              </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {field.sourceFieldType}
-              </span>
-            </button>
-          ))}
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    selected.has(field.id)
+                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      : "border-muted-foreground/40 text-transparent",
+                  )}
+                >
+                  <IconCheck className="size-3" />
+                </span>
+                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">
+                  {field.sourceFieldLabel}
+                </span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {field.sourceFieldType}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="flex justify-end gap-2">
@@ -6068,6 +7578,30 @@ function BuilderSpaceModelsView({
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
+    if (attachedModelName) {
+      return (
+        <div className="grid min-w-0 gap-2">
+          <div className="grid min-w-0 gap-1.5">
+            <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {dbText("alreadyAttached")}
+            </div>
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{attachedModelName}</span>
+              </span>
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                attached
+              </span>
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Spinner className="size-3.5" />
+            {dbText("loadingBuilderModels")}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <Spinner className="size-3.5" />
@@ -6501,6 +8035,24 @@ export function builderSourceContinuationProgressPercent(
   return source.metadata.lastReadHasMore === true
     ? Math.min(95, rawPercent)
     : rawPercent;
+}
+
+export function builderSourceContinuationFetchedCountDetail(
+  source: Pick<ContentDatabaseSource, "metadata">,
+  fetchedCount: number | null,
+  rowsComplete = false,
+) {
+  const knownFetchTotal =
+    !rowsComplete &&
+    source.metadata.lastReadHasMore === true &&
+    typeof source.metadata.lastReadLimit === "number"
+      ? source.metadata.lastReadLimit
+      : null;
+  return fetchedCount !== null &&
+    knownFetchTotal !== null &&
+    knownFetchTotal > fetchedCount
+    ? `${fetchedCount} of ${knownFetchTotal}`
+    : fetchedCount;
 }
 
 export function builderSourceContinuationWatchdogDecision(refires: number) {
@@ -7006,7 +8558,10 @@ type DatabasePropertyPickerOption = {
 export function databasePropertyPickerItems(
   properties: DocumentProperty[],
   query: string,
-  { includeName = true }: { includeName?: boolean } = {},
+  {
+    includeName = true,
+    excludeKeys,
+  }: { includeName?: boolean; excludeKeys?: ReadonlySet<string> } = {},
 ): DatabasePropertyPickerOption[] {
   const normalizedQuery = query.trim().toLowerCase();
   const items: DatabasePropertyPickerOption[] = [
@@ -7018,7 +8573,7 @@ export function databasePropertyPickerItems(
       label: property.definition.name,
       type: property.definition.type,
     })),
-  ];
+  ].filter((item) => !excludeKeys?.has(item.key));
 
   if (!normalizedQuery) return items;
   return items.filter((item) =>
@@ -7031,9 +8586,11 @@ export function databasePropertyPickerItems(
 function DatabasePropertyPickerSearch({
   value,
   onChange,
+  placeholder = dbText("searchProperties"),
 }: {
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <div className="border-b border-border/70 p-1">
@@ -7043,8 +8600,8 @@ function DatabasePropertyPickerSearch({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => event.stopPropagation()}
-          placeholder={dbText("searchProperties")}
-          aria-label={dbText("searchProperties")}
+          placeholder={placeholder}
+          aria-label={placeholder}
           className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
         />
       </div>
@@ -7056,16 +8613,18 @@ function DatabasePropertyPickerItem({
   item,
   selected,
   onSelect,
+  closeOnSelect = false,
 }: {
   item: DatabasePropertyPickerOption;
   selected: boolean;
   onSelect: (key: string, label: string) => void;
+  closeOnSelect?: boolean;
 }) {
   const Icon = item.type === "name" ? IconFileText : TYPE_ICONS[item.type];
   return (
     <DropdownMenuItem
       onSelect={(event) => {
-        event.preventDefault();
+        if (!closeOnSelect) event.preventDefault();
         onSelect(item.key, item.label);
       }}
     >
@@ -7076,23 +8635,84 @@ function DatabasePropertyPickerItem({
   );
 }
 
+function DatabasePropertyPickerMenuItems({
+  properties,
+  selectedKey,
+  includeName,
+  excludeKeys,
+  placeholder,
+  closeOnSelect,
+  onSelect,
+}: {
+  properties: DocumentProperty[];
+  selectedKey?: string;
+  includeName?: boolean;
+  excludeKeys?: ReadonlySet<string>;
+  placeholder?: string;
+  closeOnSelect?: boolean;
+  onSelect: (key: string, label: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const items = databasePropertyPickerItems(properties, query, {
+    includeName,
+    excludeKeys,
+  });
+
+  return (
+    <>
+      <DatabasePropertyPickerSearch
+        value={query}
+        onChange={setQuery}
+        placeholder={placeholder}
+      />
+      <div className="max-h-72 overflow-auto p-1">
+        {items.map((item) => (
+          <DatabasePropertyPickerItem
+            key={item.key}
+            item={item}
+            selected={selectedKey === item.key}
+            closeOnSelect={closeOnSelect}
+            onSelect={onSelect}
+          />
+        ))}
+        {items.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            {dbText("noPropertiesFound")}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 function DatabasePropertyPickerSubContent({
   properties,
   selectedKey,
   includeName,
+  excludeKeys,
+  placeholder,
   onSelect,
 }: {
   properties: DocumentProperty[];
-  selectedKey: string;
+  selectedKey?: string;
   includeName?: boolean;
+  excludeKeys?: ReadonlySet<string>;
+  placeholder?: string;
   onSelect: (key: string, label: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const items = databasePropertyPickerItems(properties, query, { includeName });
+  const items = databasePropertyPickerItems(properties, query, {
+    includeName,
+    excludeKeys,
+  });
 
   return (
     <DropdownMenuSubContent className="max-h-80 w-64 overflow-auto">
-      <DatabasePropertyPickerSearch value={query} onChange={setQuery} />
+      <DatabasePropertyPickerSearch
+        value={query}
+        onChange={setQuery}
+        placeholder={placeholder}
+      />
       {items.map((item) => (
         <DatabasePropertyPickerItem
           key={item.key}
@@ -7257,8 +8877,8 @@ function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {
   return filterMode === "or" ? "Any" : "All";
 }
 
-function databaseFilterModePhrase(filterMode: DatabaseFilterMode) {
-  return filterMode === "or" ? "any filter" : "all filters";
+function databaseFilterModeConjunctionLabel(filterMode: DatabaseFilterMode) {
+  return filterMode === "or" ? "Or" : "And";
 }
 
 function DatabaseResultCountFooter({
@@ -10678,6 +12298,143 @@ function databaseViewStateKey(
   return JSON.stringify({ databaseId, viewConfig });
 }
 
+function normalizePersonalDatabaseViewOverrides(
+  value: ContentDatabasePersonalViewOverrides | null | undefined,
+): PersonalDatabaseViewOverrides | null {
+  try {
+    if (!value) return null;
+    const parsed = value as Partial<PersonalDatabaseViewOverrides>;
+    if (
+      parsed.version !== PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION ||
+      !Array.isArray(parsed.views)
+    ) {
+      return null;
+    }
+
+    return {
+      version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+      activeViewId:
+        typeof parsed.activeViewId === "string"
+          ? parsed.activeViewId
+          : undefined,
+      views: parsed.views
+        .filter((view) => typeof view?.id === "string")
+        .map((view) => ({
+          id: view.id,
+          sorts: Array.isArray(view.sorts)
+            ? view.sorts.filter(isDatabaseSort)
+            : [],
+          filters: Array.isArray(view.filters)
+            ? view.filters.filter(isDatabaseFilter)
+            : [],
+          filterMode: normalizeClientDatabaseFilterMode(view.filterMode),
+        })),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function personalDatabaseViewOverridesFromConfig(
+  viewConfig: ContentDatabaseViewConfig,
+): PersonalDatabaseViewOverrides {
+  const normalized = normalizeClientDatabaseViewConfig(viewConfig);
+  return {
+    version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+    activeViewId: normalized.activeViewId,
+    views: normalized.views.map((view) => ({
+      id: view.id,
+      sorts: view.sorts,
+      filters: view.filters,
+      filterMode: view.filterMode ?? "and",
+    })),
+  };
+}
+
+export function applyPersonalDatabaseViewOverrides(
+  savedViewConfig: ContentDatabaseViewConfig,
+  overrides: PersonalDatabaseViewOverrides | null,
+) {
+  const saved = normalizeClientDatabaseViewConfig(savedViewConfig);
+  if (!overrides) return saved;
+
+  const overridesByViewId = new Map(
+    overrides.views.map((view) => [view.id, view]),
+  );
+  return normalizeClientDatabaseViewConfig({
+    ...saved,
+    activeViewId: saved.views.some((view) => view.id === overrides.activeViewId)
+      ? overrides.activeViewId
+      : saved.activeViewId,
+    views: saved.views.map((view) => {
+      const override = overridesByViewId.get(view.id);
+      if (!override) return view;
+      return {
+        ...view,
+        sorts: override.sorts,
+        filters: override.filters,
+        filterMode: override.filterMode,
+      };
+    }),
+  });
+}
+
+export function databaseViewConfigWithSavedQueryState(
+  currentViewConfig: ContentDatabaseViewConfig,
+  savedViewConfig: ContentDatabaseViewConfig,
+) {
+  const current = normalizeClientDatabaseViewConfig(currentViewConfig);
+  const saved = normalizeClientDatabaseViewConfig(savedViewConfig);
+  const savedViewsById = new Map(saved.views.map((view) => [view.id, view]));
+
+  return normalizeClientDatabaseViewConfig({
+    ...current,
+    activeViewId: saved.activeViewId,
+    views: current.views.map((view) => {
+      const savedView = savedViewsById.get(view.id);
+      if (!savedView) return view;
+      return {
+        ...view,
+        sorts: savedView.sorts,
+        filters: savedView.filters,
+        filterMode: savedView.filterMode,
+      };
+    }),
+  });
+}
+
+export function databaseViewConfigWithClearedActiveFilters(
+  viewConfig: ContentDatabaseViewConfig,
+) {
+  return updateActiveDatabaseView(
+    normalizeClientDatabaseViewConfig(viewConfig),
+    (view) => ({ ...view, filters: [], filterMode: "and" }),
+  );
+}
+
+export function databaseViewHasPersonalQueryChanges(
+  currentViewConfig: ContentDatabaseViewConfig,
+  savedViewConfig: ContentDatabaseViewConfig,
+) {
+  return (
+    databaseViewQueryStateKey(currentViewConfig) !==
+    databaseViewQueryStateKey(savedViewConfig)
+  );
+}
+
+function databaseViewQueryStateKey(viewConfig: ContentDatabaseViewConfig) {
+  const normalized = normalizeClientDatabaseViewConfig(viewConfig);
+  return JSON.stringify({
+    activeViewId: normalized.activeViewId,
+    views: normalized.views.map((view) => ({
+      id: view.id,
+      sorts: view.sorts,
+      filters: view.filters,
+      filterMode: view.filterMode ?? "and",
+    })),
+  });
+}
+
 function isTablePropertyVisible(
   property: DocumentProperty,
   items: ContentDatabaseItem[],
@@ -10695,12 +12452,24 @@ function isTablePropertyVisible(
   });
 }
 
-function databaseTableCellDisplayValue(property: DocumentProperty) {
+function databaseTableCellDisplayValue(
+  property: DocumentProperty,
+  item?: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
+) {
   // Blocks columns show a word count, never the dumped body content.
   if (property.definition.type === "blocks") {
     const content = typeof property.value === "string" ? property.value : "";
     const words = countWords(content);
-    if (words === 0) return <span aria-hidden="true">&nbsp;</span>;
+    if (words === 0) {
+      if (item && databaseItemBodyHydrationIsPending(item)) {
+        return (
+          <span className="text-muted-foreground">
+            {dbText("builderBodySyncing")}
+          </span>
+        );
+      }
+      return <span aria-hidden="true">&nbsp;</span>;
+    }
     return (
       <span className="text-muted-foreground">{formatWordCount(content)}</span>
     );
@@ -11168,6 +12937,156 @@ function databaseItemPropertyById(
     ) ??
     properties.find((candidate) => candidate.definition.id === propertyId) ??
     null
+  );
+}
+
+export type DatabaseBulkMultiSelectOperation =
+  | { kind: "multi_select_add"; optionIds: string[] }
+  | { kind: "multi_select_remove"; optionIds: string[] }
+  | {
+      kind: "multi_select_batch";
+      addOptionIds: string[];
+      removeOptionIds: string[];
+    };
+
+export type DatabaseBulkPropertyValueOperation =
+  | { kind: "set"; value: DocumentPropertyValue }
+  | DatabaseBulkMultiSelectOperation;
+
+export function databaseBulkPropertyValueForItem(
+  item: ContentDatabaseItem,
+  property: DocumentProperty,
+  operation: DatabaseBulkPropertyValueOperation,
+): DocumentPropertyValue {
+  if (operation.kind === "set") return operation.value;
+  const itemProperty = databaseItemPropertyById(
+    item,
+    [property],
+    property.definition.id,
+  );
+  return databaseBulkMultiSelectValueAfterOperation(
+    itemProperty?.value ?? null,
+    operation,
+  );
+}
+
+function databaseBulkMultiSelectValue(value: DocumentPropertyValue) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export function databaseBulkMultiSelectValueAfterOperation(
+  value: DocumentPropertyValue,
+  operation: DatabaseBulkMultiSelectOperation,
+) {
+  const current = databaseBulkMultiSelectValue(value);
+  const addOptionIds =
+    operation.kind === "multi_select_batch"
+      ? operation.addOptionIds
+      : operation.kind === "multi_select_add"
+        ? operation.optionIds
+        : [];
+  const removeOptionIds =
+    operation.kind === "multi_select_batch"
+      ? operation.removeOptionIds
+      : operation.kind === "multi_select_remove"
+        ? operation.optionIds
+        : [];
+  const removedIds = new Set(removeOptionIds);
+  const kept = current.filter((optionId) => !removedIds.has(optionId));
+  const keptIds = new Set(kept);
+  return [
+    ...kept,
+    ...Array.from(new Set(addOptionIds)).filter(
+      (optionId) => !keptIds.has(optionId),
+    ),
+  ];
+}
+
+export function databaseBulkMultiSelectOptionPresence(
+  items: ContentDatabaseItem[],
+  property: DocumentProperty,
+  optionId: string,
+  operation?: DatabaseBulkMultiSelectOperation,
+) {
+  const values = items.map((item) =>
+    operation
+      ? databaseBulkMultiSelectValueAfterOperation(
+          databaseItemPropertyById(item, [property], property.definition.id)
+            ?.value ?? null,
+          operation,
+        )
+      : databaseBulkMultiSelectValue(
+          databaseItemPropertyById(item, [property], property.definition.id)
+            ?.value ?? null,
+        ),
+  );
+  return {
+    presentInAny: values.some((value) => value.includes(optionId)),
+    presentInAll:
+      values.length > 0 && values.every((value) => value.includes(optionId)),
+  };
+}
+
+export function databaseBulkMultiSelectToggleOperation(
+  items: ContentDatabaseItem[],
+  property: DocumentProperty,
+  optionId: string,
+  operation: DatabaseBulkMultiSelectOperation = {
+    kind: "multi_select_batch",
+    addOptionIds: [],
+    removeOptionIds: [],
+  },
+): DatabaseBulkMultiSelectOperation {
+  const presence = databaseBulkMultiSelectOptionPresence(
+    items,
+    property,
+    optionId,
+    operation,
+  );
+  const addOptionIds =
+    operation.kind === "multi_select_batch"
+      ? new Set(operation.addOptionIds)
+      : operation.kind === "multi_select_add"
+        ? new Set(operation.optionIds)
+        : new Set<string>();
+  const removeOptionIds =
+    operation.kind === "multi_select_batch"
+      ? new Set(operation.removeOptionIds)
+      : operation.kind === "multi_select_remove"
+        ? new Set(operation.optionIds)
+        : new Set<string>();
+  if (presence.presentInAll) {
+    addOptionIds.delete(optionId);
+    removeOptionIds.add(optionId);
+  } else {
+    removeOptionIds.delete(optionId);
+    addOptionIds.add(optionId);
+  }
+  return {
+    kind: "multi_select_batch",
+    addOptionIds: Array.from(addOptionIds),
+    removeOptionIds: Array.from(removeOptionIds),
+  };
+}
+
+function databaseBulkMultiSelectOperationHasChanges(
+  operation: DatabaseBulkMultiSelectOperation,
+) {
+  return operation.kind === "multi_select_batch"
+    ? operation.addOptionIds.length > 0 || operation.removeOptionIds.length > 0
+    : operation.optionIds.length > 0;
+}
+
+export function databaseBulkMultiSelectFilteredOptions(
+  options: DocumentPropertyOption[],
+  query: string,
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return options;
+  return options.filter((option) =>
+    option.name.trim().toLowerCase().includes(normalizedQuery),
   );
 }
 
@@ -11973,6 +13892,7 @@ function DatabaseSelectionBar({
   selectedCount,
   canEdit,
   properties,
+  selectedItems,
   duplicateDisabled,
   deleteDisabled,
   updateDisabled,
@@ -11984,13 +13904,14 @@ function DatabaseSelectionBar({
   selectedCount: number;
   canEdit: boolean;
   properties: DocumentProperty[];
+  selectedItems: ContentDatabaseItem[];
   duplicateDisabled: boolean;
   deleteDisabled: boolean;
   updateDisabled: boolean;
   onClearSelection: () => void;
   onSetPropertyValue: (
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) => Promise<void>;
   onDuplicateSelected: () => void;
   onDeleteSelected: () => void;
@@ -12006,6 +13927,7 @@ function DatabaseSelectionBar({
             <DatabaseBulkEditPopover
               properties={properties}
               selectedCount={selectedCount}
+              selectedItems={selectedItems}
               disabled={updateDisabled || properties.length === 0}
               onSetPropertyValue={onSetPropertyValue}
             />
@@ -12050,15 +13972,17 @@ function DatabaseSelectionBar({
 function DatabaseBulkEditPopover({
   properties,
   selectedCount,
+  selectedItems,
   disabled,
   onSetPropertyValue,
 }: {
   properties: DocumentProperty[];
   selectedCount: number;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
   onSetPropertyValue: (
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -12079,9 +14003,9 @@ function DatabaseBulkEditPopover({
 
   async function applyValue(
     property: DocumentProperty,
-    value: DocumentPropertyValue,
+    operation: DatabaseBulkPropertyValueOperation,
   ) {
-    await onSetPropertyValue(property, value);
+    await onSetPropertyValue(property, operation);
     setOpen(false);
   }
 
@@ -12096,7 +14020,7 @@ function DatabaseBulkEditPopover({
           disabled={disabled}
         >
           <IconPencil className="size-3.5" />
-          Set
+          Edit
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[28rem] p-2">
@@ -12132,6 +14056,7 @@ function DatabaseBulkEditPopover({
               {selectedProperty ? (
                 <DatabaseBulkPropertyValueEditor
                   property={selectedProperty}
+                  selectedItems={selectedItems}
                   disabled={disabled}
                   onApply={(value) => applyValue(selectedProperty, value)}
                   onCancel={() => setOpen(false)}
@@ -12151,13 +14076,15 @@ function DatabaseBulkEditPopover({
 
 function DatabaseBulkPropertyValueEditor({
   property,
+  selectedItems,
   disabled,
   onApply,
   onCancel,
 }: {
   property: DocumentProperty;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const type = property.definition.type;
@@ -12171,7 +14098,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="secondary"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(true)}
+          onClick={() => void onApply({ kind: "set", value: true })}
         >
           <IconCheck className="mr-1.5 size-3.5" />
           Checked
@@ -12182,7 +14109,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="secondary"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(false)}
+          onClick={() => void onApply({ kind: "set", value: false })}
         >
           <IconMinus className="mr-1.5 size-3.5" />
           Unchecked
@@ -12193,7 +14120,7 @@ function DatabaseBulkPropertyValueEditor({
           variant="ghost"
           className="justify-start"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           {dbText("clearValue")}
         </Button>
@@ -12205,6 +14132,7 @@ function DatabaseBulkPropertyValueEditor({
     return (
       <DatabaseBulkOptionValueEditor
         property={property}
+        selectedItems={selectedItems}
         disabled={disabled}
         onApply={onApply}
         onCancel={onCancel}
@@ -12240,7 +14168,7 @@ function DatabaseBulkScalarValueEditor({
 }: {
   property: DocumentProperty;
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const type = property.definition.type;
@@ -12265,7 +14193,7 @@ function DatabaseBulkScalarValueEditor({
       onSubmit={(event) => {
         event.preventDefault();
         if (!valueState.isValid) return;
-        void onApply(valueState.value);
+        void onApply({ kind: "set", value: valueState.value });
       }}
     >
       {type === "date" ? (
@@ -12278,8 +14206,11 @@ function DatabaseBulkScalarValueEditor({
             disabled={disabled}
             onClick={() =>
               void onApply({
-                start: dateInputValueForOffset(new Date(), 0),
-                includeTime: false,
+                kind: "set",
+                value: {
+                  start: dateInputValueForOffset(new Date(), 0),
+                  includeTime: false,
+                },
               })
             }
           >
@@ -12294,8 +14225,11 @@ function DatabaseBulkScalarValueEditor({
             disabled={disabled}
             onClick={() =>
               void onApply({
-                start: dateInputValueForOffset(new Date(), 1),
-                includeTime: false,
+                kind: "set",
+                value: {
+                  start: dateInputValueForOffset(new Date(), 1),
+                  includeTime: false,
+                },
               })
             }
           >
@@ -12308,7 +14242,7 @@ function DatabaseBulkScalarValueEditor({
         autoFocus
         value={value}
         type={inputType}
-        aria-label={`Set ${property.definition.name} for selected rows`}
+        aria-label={`Edit ${property.definition.name} for selected rows`}
         placeholder="Value"
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -12329,7 +14263,7 @@ function DatabaseBulkScalarValueEditor({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           Clear
         </Button>
@@ -12354,7 +14288,7 @@ function DatabaseBulkFilesValueEditor({
   onCancel,
 }: {
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -12365,12 +14299,12 @@ function DatabaseBulkFilesValueEditor({
       onSubmit={(event) => {
         event.preventDefault();
         const items = filesMediaItems(value);
-        void onApply(items.length > 0 ? items : null);
+        void onApply({ kind: "set", value: items.length > 0 ? items : null });
       }}
     >
       <textarea
         autoFocus
-        aria-label="Set files for selected rows"
+        aria-label={dbText("editFilesForSelectedRows")}
         value={value}
         placeholder={dbText("oneFileOrMediaLinkPerLine")}
         rows={4}
@@ -12389,7 +14323,7 @@ function DatabaseBulkFilesValueEditor({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          onClick={() => void onApply(null)}
+          onClick={() => void onApply({ kind: "set", value: null })}
         >
           Clear
         </Button>
@@ -12406,18 +14340,35 @@ function DatabaseBulkFilesValueEditor({
 
 function DatabaseBulkOptionValueEditor({
   property,
+  selectedItems,
   disabled,
   onApply,
   onCancel,
 }: {
   property: DocumentProperty;
+  selectedItems: ContentDatabaseItem[];
   disabled: boolean;
-  onApply: (value: DocumentPropertyValue) => Promise<void>;
+  onApply: (operation: DatabaseBulkPropertyValueOperation) => Promise<void>;
   onCancel: () => void;
 }) {
   const options = property.definition.options.options ?? [];
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const multi = property.definition.type === "multi_select";
+  const selectedItemsKey = selectedItems.map((item) => item.id).join("|");
+  const [pendingMultiSelectOperation, setPendingMultiSelectOperation] =
+    useState<DatabaseBulkMultiSelectOperation>({
+      kind: "multi_select_batch",
+      addOptionIds: [],
+      removeOptionIds: [],
+    });
+  const [optionSearchQuery, setOptionSearchQuery] = useState("");
+
+  useEffect(() => {
+    setPendingMultiSelectOperation({
+      kind: "multi_select_batch",
+      addOptionIds: [],
+      removeOptionIds: [],
+    });
+  }, [property.definition.id, selectedItemsKey]);
 
   if (options.length === 0) {
     return (
@@ -12425,68 +14376,130 @@ function DatabaseBulkOptionValueEditor({
         <div className="rounded bg-muted/40 px-2 py-3 text-sm text-muted-foreground">
           {dbText("thisPropertyHasNoOptionsYet")}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="justify-start"
-          disabled={disabled}
-          onClick={() => void onApply(multi ? [] : null)}
-        >
-          {dbText("clearValue")}
-        </Button>
+        {multi ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            disabled={disabled}
+            onClick={() => void onApply({ kind: "set", value: null })}
+          >
+            {dbText("clearValue")}
+          </Button>
+        )}
       </div>
     );
   }
 
   if (multi) {
+    const hasPendingChanges = databaseBulkMultiSelectOperationHasChanges(
+      pendingMultiSelectOperation,
+    );
+    const filteredOptions = databaseBulkMultiSelectFilteredOptions(
+      options,
+      optionSearchQuery,
+    );
     return (
       <div className="grid gap-2">
+        <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+          <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={optionSearchQuery}
+            placeholder={dbText("searchOptions")}
+            aria-label={`Search ${property.definition.name} options`}
+            className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+            onChange={(event) => setOptionSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                if (optionSearchQuery) {
+                  setOptionSearchQuery("");
+                } else {
+                  onCancel();
+                }
+              }
+            }}
+          />
+        </div>
         <div className="max-h-52 overflow-auto">
-          {options.map((option) => {
-            const checked = selectedIds.includes(option.id);
+          {filteredOptions.length === 0 ? (
+            <div className="rounded px-2 py-3 text-sm text-muted-foreground">
+              {dbText("noMatchingOptions")}
+            </div>
+          ) : null}
+          {filteredOptions.map((option) => {
+            const presence = databaseBulkMultiSelectOptionPresence(
+              selectedItems,
+              property,
+              option.id,
+              pendingMultiSelectOperation,
+            );
             return (
               <button
                 key={option.id}
                 type="button"
-                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                aria-pressed={presence.presentInAll}
+                aria-label={`${
+                  presence.presentInAll ? "Remove" : "Add"
+                } ${option.name} for selected rows`}
+                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                disabled={disabled}
                 onClick={() =>
-                  setSelectedIds((current) =>
-                    current.includes(option.id)
-                      ? current.filter((id) => id !== option.id)
-                      : [...current, option.id],
+                  setPendingMultiSelectOperation((current) =>
+                    databaseBulkMultiSelectToggleOperation(
+                      selectedItems,
+                      property,
+                      option.id,
+                      current,
+                    ),
                   )
                 }
               >
                 <DatabaseBulkOptionPill option={option} />
-                {checked ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
+                {presence.presentInAll ? (
+                  <IconCheck className="size-4 shrink-0 text-muted-foreground" />
+                ) : presence.presentInAny ? (
+                  <IconMinus className="size-4 shrink-0 text-muted-foreground" />
                 ) : null}
               </button>
             );
           })}
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => void onApply([])}
+            onClick={() => void onApply({ kind: "set", value: [] })}
           >
-            Clear
+            {dbText("clearValue")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled}
-            onClick={() => void onApply(selectedIds)}
-          >
-            Apply
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={disabled || !hasPendingChanges}
+              onClick={() => void onApply(pendingMultiSelectOperation)}
+            >
+              Apply
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -12501,7 +14514,7 @@ function DatabaseBulkOptionValueEditor({
             type="button"
             className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
             disabled={disabled}
-            onClick={() => void onApply(option.id)}
+            onClick={() => void onApply({ kind: "set", value: option.id })}
           >
             <DatabaseBulkOptionPill option={option} />
           </button>
@@ -12513,7 +14526,7 @@ function DatabaseBulkOptionValueEditor({
         variant="ghost"
         className="justify-start"
         disabled={disabled}
-        onClick={() => void onApply(null)}
+        onClick={() => void onApply({ kind: "set", value: null })}
       >
         {dbText("clearValue")}
       </Button>
@@ -13036,13 +15049,12 @@ export function applyDatabaseView(
   const activeFilters = filters.filter(isActiveFilter);
   const filtered = activeFilters.length
     ? searched.filter((item) =>
-        filterMode === "or"
-          ? activeFilters.some((filter) =>
-              databaseItemMatchesFilter(item, properties, filter),
-            )
-          : activeFilters.every((filter) =>
-              databaseItemMatchesFilter(item, properties, filter),
-            ),
+        databaseItemMatchesFilterTree(
+          item,
+          properties,
+          activeFilters,
+          filterMode,
+        ),
       )
     : searched;
 
@@ -13062,6 +15074,53 @@ export function applyDatabaseView(
   });
 }
 
+function databaseItemMatchesFilterTree(
+  item: ContentDatabaseItem,
+  properties: DocumentProperty[],
+  filters: DatabaseFilter[],
+  filterMode: DatabaseFilterMode,
+) {
+  const rootFilters = filters.filter((filter) => !filter.parentFilterGroupId);
+  const nestedGroups = nestedDatabaseFilterGroups(filters);
+  const matches = [
+    ...rootFilters.map((filter) =>
+      databaseItemMatchesFilter(item, properties, filter),
+    ),
+    ...nestedGroups.map((group) =>
+      combineDatabaseFilterMatches(
+        group.map((filter) =>
+          databaseItemMatchesFilter(item, properties, filter),
+        ),
+        filterMode,
+      ),
+    ),
+  ];
+
+  return combineDatabaseFilterMatches(matches, filterMode);
+}
+
+function nestedDatabaseFilterGroups(filters: DatabaseFilter[]) {
+  const groups = new Map<string, DatabaseFilter[]>();
+  for (const filter of filters) {
+    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
+    groups.set(filter.filterGroupId, [
+      ...(groups.get(filter.filterGroupId) ?? []),
+      filter,
+    ]);
+  }
+  return [...groups.values()].filter((group) => group.length > 0);
+}
+
+function combineDatabaseFilterMatches(
+  matches: boolean[],
+  filterMode: DatabaseFilterMode,
+) {
+  if (matches.length === 0) return true;
+  return filterMode === "or"
+    ? matches.some((matched) => matched)
+    : matches.every((matched) => matched);
+}
+
 function defaultDatabaseSort(): DatabaseSort {
   return {
     key: "name",
@@ -13077,6 +15136,71 @@ function defaultDatabaseFilter(): DatabaseFilter {
     operator: "contains",
     value: "",
   };
+}
+
+function createDatabaseFilterForField(
+  key: ColumnKey,
+  label: string,
+  properties: DocumentProperty[],
+  advanced:
+    | boolean
+    | { filterGroupId: string; parentFilterGroupId?: string } = false,
+): DatabaseFilter {
+  const group =
+    typeof advanced === "object"
+      ? advanced
+      : advanced
+        ? { filterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID }
+        : null;
+  return {
+    key,
+    label,
+    operator: defaultFilterOperatorForKey(key, properties),
+    value: "",
+    ...(group ? { filterGroupId: group.filterGroupId } : {}),
+    ...(group?.parentFilterGroupId
+      ? { parentFilterGroupId: group.parentFilterGroupId }
+      : {}),
+  };
+}
+
+function isAdvancedDatabaseFilter(filter: DatabaseFilter) {
+  return (
+    filter.filterGroupId === DATABASE_ADVANCED_FILTER_GROUP_ID ||
+    filter.parentFilterGroupId === DATABASE_ADVANCED_FILTER_GROUP_ID
+  );
+}
+
+function advancedNestedFilterGroups(
+  entries: DatabaseFilterEntry[],
+): DatabaseNestedFilterGroupEntry[] {
+  const groups = new Map<string, DatabaseFilterEntry[]>();
+  for (const entry of entries) {
+    if (
+      entry.filter.parentFilterGroupId !== DATABASE_ADVANCED_FILTER_GROUP_ID ||
+      !entry.filter.filterGroupId
+    ) {
+      continue;
+    }
+    groups.set(entry.filter.filterGroupId, [
+      ...(groups.get(entry.filter.filterGroupId) ?? []),
+      entry,
+    ]);
+  }
+  return [...groups.entries()].map(([id, groupEntries]) => ({
+    id,
+    entries: groupEntries,
+  }));
+}
+
+function createAdvancedNestedFilterGroupId() {
+  return `advanced-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function advancedFilterGroupLabel(ruleCount: number) {
+  return `${ruleCount} rule${ruleCount === 1 ? "" : "s"}`;
 }
 
 export function upsertDatabaseSort(
@@ -13234,7 +15358,7 @@ function isActiveFilter(
 ): filter is DatabaseFilter {
   if (!filter) return false;
   if (filterOperatorNeedsValue(filter.operator)) {
-    return filter.value.trim().length > 0;
+    return databaseFilterSelectedValues(filter.value).length > 0;
   }
   return true;
 }
@@ -13279,21 +15403,42 @@ function databaseFilterDefaultValueForNewItem(
   if (filter.operator === "is_unchecked") {
     return property.definition.type === "checkbox" ? false : undefined;
   }
-  if (filter.operator !== "equals") return undefined;
+  if (property.definition.type === "multi_select") {
+    if (filter.operator !== "equals" && filter.operator !== "contains") {
+      return undefined;
+    }
+    const values = databaseFilterSelectedValues(filter.value);
+    if (values.length === 0) return undefined;
+    return values.map(
+      (value) =>
+        databasePropertyOptionIdForFilterValue(property, value) ?? value,
+    );
+  }
+  if (property.definition.type === "person" && filter.operator === "contains") {
+    const values = databaseFilterSelectedValues(filter.value);
+    return values.length > 0 ? values : undefined;
+  }
 
   const value = filter.value.trim();
   if (!value) return undefined;
 
-  const optionValue = databasePropertyOptionIdForFilterValue(property, value);
-  if (property.definition.type === "multi_select") {
-    return [optionValue ?? value];
-  }
   if (
     property.definition.type === "select" ||
     property.definition.type === "status"
   ) {
-    return optionValue ?? value;
+    if (filter.operator !== "equals" && filter.operator !== "contains") {
+      return undefined;
+    }
+    const values = databaseFilterSelectedValues(filter.value);
+    const firstValue = values[0]?.trim() ?? "";
+    if (!firstValue) return undefined;
+    return (
+      databasePropertyOptionIdForFilterValue(property, firstValue) ?? firstValue
+    );
   }
+
+  if (filter.operator !== "equals") return undefined;
+
   if (property.definition.type === "date") {
     return /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? { start: value, includeTime: false }
@@ -13338,10 +15483,20 @@ function databaseItemMatchesFilter(
       : current < target;
   }
 
-  if (filter.operator === "before" || filter.operator === "after") {
+  if (
+    filter.operator === "before" ||
+    filter.operator === "after" ||
+    filter.operator === "between"
+  ) {
     const current = propertyDateValue(property);
+    if (!Number.isFinite(current)) return false;
+    if (filter.operator === "between") {
+      const range = databaseFilterDateRangeValue(filter.value);
+      if (!range) return false;
+      return current >= range[0] && current <= range[1];
+    }
     const target = new Date(filter.value.trim()).getTime();
-    if (!Number.isFinite(current) || !Number.isFinite(target)) return false;
+    if (!Number.isFinite(target)) return false;
     return filter.operator === "before" ? current < target : current > target;
   }
 
@@ -13350,8 +15505,31 @@ function databaseItemMatchesFilter(
     properties,
     filter.key,
   ).map((candidate) => candidate.trim().toLowerCase());
+  const selectedFilterValues = databaseFilterSelectedValues(filter.value).map(
+    (candidate) => candidate.trim().toLowerCase(),
+  );
   const normalizedValue = value.trim().toLowerCase();
-  const normalizedFilter = filter.value.trim().toLowerCase();
+  const normalizedFilter = selectedFilterValues[0] ?? "";
+  const usesDiscreteValues =
+    property?.definition.type === "select" ||
+    property?.definition.type === "status" ||
+    property?.definition.type === "multi_select" ||
+    property?.definition.type === "person";
+
+  if (
+    usesDiscreteValues &&
+    (filter.operator === "equals" || filter.operator === "contains")
+  ) {
+    return selectedFilterValues.some((filterValue) =>
+      candidateValues.includes(filterValue),
+    );
+  }
+  if (usesDiscreteValues && filter.operator === "does_not_equal") {
+    return selectedFilterValues.every(
+      (filterValue) => !candidateValues.includes(filterValue),
+    );
+  }
+
   if (filter.operator === "equals") {
     return candidateValues.includes(normalizedFilter);
   }
@@ -13525,6 +15703,10 @@ function propertyDateValue(property: DocumentProperty | null | undefined) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
+function databaseSortDirectionLabel(direction: SortDirection) {
+  return direction === "asc" ? "Ascending" : "Descending";
+}
+
 function SortMenu({
   properties,
   sorts,
@@ -13560,6 +15742,10 @@ function SortMenu({
     onSortsChange([...sorts, defaultDatabaseSort()]);
   }
 
+  function addSortForField(key: "name" | string, label: string) {
+    onSortsChange([...sorts, { key, label, direction: "asc" }]);
+  }
+
   function removeSort(index: number) {
     onSortsChange(sorts.filter((_, sortIndex) => sortIndex !== index));
   }
@@ -13592,96 +15778,112 @@ function SortMenu({
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[340px]">
-        <div className="grid gap-2 p-2">
-          <div className="text-xs font-medium text-muted-foreground">
-            {dbText("sortRowsBy")}
+      <DropdownMenuContent
+        align="end"
+        className={cn("w-[340px]", sorts.length === 0 && "w-64 p-0")}
+      >
+        {sorts.length === 0 ? (
+          <div onKeyDown={(event) => event.stopPropagation()}>
+            <DatabasePropertyPickerMenuItems
+              properties={properties}
+              includeName
+              placeholder={dbText("sortBy")}
+              closeOnSelect
+              onSelect={addSortForField}
+            />
           </div>
-          <div className="grid gap-2">
-            {displayedSorts.map((sort, index) => (
-              <div
-                key={`${index}-${sort.key}`}
-                className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-1 rounded border border-border/70 bg-background p-1.5"
-              >
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="min-w-0">
-                    <SortFieldIcon sort={sort} properties={properties} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {sort.label}
-                    </span>
-                  </DropdownMenuSubTrigger>
-                  <DatabasePropertyPickerSubContent
-                    properties={properties}
-                    selectedKey={sort.key}
-                    includeName
-                    onSelect={(key, label) => selectSort(index, key, label)}
-                  />
-                </DropdownMenuSub>
-                <button
-                  type="button"
-                  className="flex h-8 items-center rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => toggleDirection(index)}
+        ) : null}
+        {sorts.length > 0 ? (
+          <div className="grid gap-2 p-2">
+            <div className="text-xs font-medium text-muted-foreground">
+              {dbText("sortRowsBy")}
+            </div>
+            <div className="grid gap-2">
+              {displayedSorts.map((sort, index) => (
+                <div
+                  key={`${index}-${sort.key}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-1 rounded border border-border/70 bg-background p-1.5"
                 >
-                  {sort.direction === "asc" ? "Asc" : "Desc"}
-                </button>
-                <div className="flex items-center">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="min-w-0">
+                      <SortFieldIcon sort={sort} properties={properties} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {sort.label}
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DatabasePropertyPickerSubContent
+                      properties={properties}
+                      selectedKey={sort.key}
+                      includeName
+                      onSelect={(key, label) => selectSort(index, key, label)}
+                    />
+                  </DropdownMenuSub>
                   <button
                     type="button"
-                    aria-label={`Move sort ${index + 1} earlier`}
-                    className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                    disabled={sorts.length <= 1 || index === 0}
-                    onClick={() => moveSort(index, "up")}
+                    className="flex h-8 items-center rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => toggleDirection(index)}
                   >
-                    <IconArrowUp className="size-3.5" />
+                    {sort.direction === "asc" ? "Asc" : "Desc"}
                   </button>
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      aria-label={`Move sort ${index + 1} earlier`}
+                      className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      disabled={sorts.length <= 1 || index === 0}
+                      onClick={() => moveSort(index, "up")}
+                    >
+                      <IconArrowUp className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move sort ${index + 1} later`}
+                      className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      disabled={
+                        sorts.length <= 1 || index >= displayedSorts.length - 1
+                      }
+                      onClick={() => moveSort(index, "down")}
+                    >
+                      <IconArrowDown className="size-3.5" />
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    aria-label={`Move sort ${index + 1} later`}
+                    aria-label={`Remove sort ${index + 1}`}
                     className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                    disabled={
-                      sorts.length <= 1 || index >= displayedSorts.length - 1
-                    }
-                    onClick={() => moveSort(index, "down")}
+                    disabled={sorts.length === 0}
+                    onClick={() => removeSort(index)}
                   >
-                    <IconArrowDown className="size-3.5" />
+                    <IconX className="size-4" />
                   </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label={`Remove sort ${index + 1}`}
-                  className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                  disabled={sorts.length === 0}
-                  onClick={() => removeSort(index)}
-                >
-                  <IconX className="size-4" />
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          <div className="flex justify-between gap-2 border-t pt-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs"
-              onClick={addSort}
-            >
-              <IconPlus className="mr-1 size-3.5" />
-              {dbText("addSort")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs"
-              disabled={sorts.length === 0}
-              onClick={() => onSortsChange([])}
-            >
-              {dbText("clearSorts")}
-            </Button>
+            <div className="flex justify-between gap-2 border-t pt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs"
+                onClick={addSort}
+              >
+                <IconPlus className="mr-1 size-3.5" />
+                {dbText("addSort")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs"
+                disabled={sorts.length === 0}
+                onClick={() => onSortsChange([])}
+              >
+                {dbText("clearSorts")}
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -13705,250 +15907,81 @@ function SortFieldIcon({
 }
 
 function FilterMenu({
-  documentId,
-  properties,
   filters,
-  filterMode,
-  onFiltersChange,
-  onFilterModeChange,
+  properties,
+  inlineOpen,
+  open,
+  onOpenChange,
+  onAddFilter,
+  onAddAdvancedFilter,
 }: {
-  documentId: string;
-  properties: DocumentProperty[];
   filters: DatabaseFilter[];
-  filterMode: DatabaseFilterMode;
-  onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onFilterModeChange: (filterMode: DatabaseFilterMode) => void;
+  properties: DocumentProperty[];
+  inlineOpen: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAddFilter: (key: "name" | string, label: string) => void;
+  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
 }) {
   const activeFilters = filters.filter(isActiveFilter);
-  const active = activeFilters.length > 0;
-  const displayedFilters =
-    filters.length > 0 ? filters : [defaultDatabaseFilter()];
-
-  function updateFilter(index: number, next: Partial<DatabaseFilter>) {
-    const baseFilters =
-      filters.length > 0 ? [...filters] : [defaultDatabaseFilter()];
-    const currentFilter = baseFilters[index] ?? defaultDatabaseFilter();
-    const nextOperator = next.operator ?? currentFilter.operator;
-    baseFilters[index] = {
-      ...currentFilter,
-      ...next,
-      value: filterOperatorNeedsValue(nextOperator)
-        ? (next.value ?? currentFilter.value)
-        : "",
-    };
-    onFiltersChange(baseFilters);
-  }
-
-  function selectField(index: number, key: "name" | string, label: string) {
-    updateFilter(index, {
-      key,
-      label,
-      operator: defaultFilterOperatorForKey(key, properties),
-      value: "",
-    });
-  }
-
-  function selectOperator(index: number, operator: FilterOperator) {
-    updateFilter(index, { operator });
-  }
-
-  function addFilter() {
-    onFiltersChange([...filters, defaultDatabaseFilter()]);
-  }
-
-  function removeFilter(index: number) {
-    onFiltersChange(filters.filter((_, filterIndex) => filterIndex !== index));
-  }
-
-  function moveFilter(
-    index: number,
-    direction: DatabaseConditionMoveDirection,
-  ) {
-    onFiltersChange(moveDatabaseFilter(filters, index, direction));
-  }
+  const active = activeFilters.length > 0 || inlineOpen;
+  const excludedFilterKeys = useMemo(
+    () => new Set(activeFilters.map((filter) => filter.key)),
+    [activeFilters],
+  );
+  const advancedFilterCandidate =
+    databasePropertyPickerItems(properties, "", {
+      includeName: false,
+      excludeKeys: excludedFilterKeys,
+    })[0] ??
+    databasePropertyPickerItems(properties, "", {
+      includeName: true,
+      excludeKeys: excludedFilterKeys,
+    })[0];
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           aria-label={
-            active ? `${activeFilters.length} active filters` : "Filter"
+            activeFilters.length > 0
+              ? `${activeFilters.length} active filters`
+              : "Filter"
           }
           title="Filter"
-          className={cn(databaseToolbarIconButtonClass(active), "relative")}
+          className={databaseToolbarIconButtonClass(active || open)}
         >
           <IconFilter className="size-3.5" />
-          {active ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-              {formatCompactCountBadge(activeFilters.length)}
-            </span>
-          ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[360px]">
-        <div
-          className="grid gap-2 p-2"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <div className="text-xs font-medium text-muted-foreground">
-            {dbText("filterRowsWhere")}
-          </div>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="h-8 rounded border border-border/70 bg-background px-2 text-sm">
-              <span className="min-w-0 flex-1 truncate text-left">
-                Match {databaseFilterModePhrase(filterMode)}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-44">
-              {DATABASE_FILTER_MODES.map((mode) => (
-                <DropdownMenuItem
-                  key={mode}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onFilterModeChange(mode);
-                  }}
-                >
-                  <span className="flex-1">
-                    {databaseFilterModeLabel(mode)}
-                  </span>
-                  {filterMode === mode ? (
-                    <IconCheck className="size-4 text-muted-foreground" />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <div className="grid gap-2">
-            {displayedFilters.map((currentFilter, index) => (
-              <div
-                key={`${index}-${currentFilter.key}`}
-                className="grid gap-1 rounded border border-border/70 bg-background p-1.5"
-              >
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-1">
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="min-w-0">
-                      <FilterFieldIcon
-                        filter={currentFilter}
-                        properties={properties}
-                      />
-                      <span className="min-w-0 flex-1 truncate">
-                        {currentFilter.label}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DatabasePropertyPickerSubContent
-                      properties={properties}
-                      selectedKey={currentFilter.key}
-                      includeName
-                      onSelect={(key, label) => selectField(index, key, label)}
-                    />
-                  </DropdownMenuSub>
-
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="min-w-0">
-                      <IconFilter className="mr-2 size-4 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {FILTER_OPERATOR_LABELS[currentFilter.operator] ??
-                          "Contains"}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
-                      {filterOperatorsForKey(currentFilter.key, properties).map(
-                        (operator) => (
-                          <DropdownMenuItem
-                            key={operator}
-                            onSelect={(event) => {
-                              event.preventDefault();
-                              selectOperator(index, operator);
-                            }}
-                          >
-                            <span className="flex-1">
-                              {FILTER_OPERATOR_LABELS[operator]}
-                            </span>
-                            {currentFilter.operator === operator ? (
-                              <IconCheck className="size-4 text-muted-foreground" />
-                            ) : null}
-                          </DropdownMenuItem>
-                        ),
-                      )}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-
-                  <div className="flex items-center">
-                    <button
-                      type="button"
-                      aria-label={`Move filter ${index + 1} earlier`}
-                      className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                      disabled={filters.length <= 1 || index === 0}
-                      onClick={() => moveFilter(index, "up")}
-                    >
-                      <IconArrowUp className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move filter ${index + 1} later`}
-                      className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                      disabled={
-                        filters.length <= 1 ||
-                        index >= displayedFilters.length - 1
-                      }
-                      onClick={() => moveFilter(index, "down")}
-                    >
-                      <IconArrowDown className="size-3.5" />
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    aria-label={`Remove filter ${index + 1}`}
-                    className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                    disabled={filters.length === 0}
-                    onClick={() => removeFilter(index)}
-                  >
-                    <IconX className="size-4" />
-                  </button>
-                </div>
-
-                {filterOperatorNeedsValue(currentFilter.operator) ? (
-                  <DatabaseFilterValueControl
-                    autoFocus={index === displayedFilters.length - 1}
-                    documentId={documentId}
-                    filter={currentFilter}
-                    properties={properties}
-                    onValueChange={(value) => updateFilter(index, { value })}
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-between gap-2 border-t pt-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs"
-              onClick={addFilter}
-            >
-              <IconPlus className="mr-1 size-3.5" />
-              {dbText("addFilter")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 px-2 text-xs"
-              disabled={filters.length === 0}
-              onClick={() => onFiltersChange([])}
-            >
-              {dbText("clearFilters")}
-            </Button>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {active ? `${activeFilters.length} active` : "Set a value to apply"}
-          </span>
+      <DropdownMenuContent align="end" className="w-64">
+        <div onKeyDown={(event) => event.stopPropagation()}>
+          <DatabasePropertyPickerMenuItems
+            properties={properties}
+            includeName
+            excludeKeys={excludedFilterKeys}
+            placeholder={dbText("filterBy")}
+            closeOnSelect
+            onSelect={onAddFilter}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!advancedFilterCandidate}
+            onSelect={(event) => {
+              event.preventDefault();
+              if (!advancedFilterCandidate) return;
+              onAddAdvancedFilter(
+                advancedFilterCandidate.key,
+                advancedFilterCandidate.label,
+              );
+            }}
+          >
+            <IconPlus className="mr-2 size-4 text-muted-foreground" />
+            {dbText("addAdvancedFilter")}
+          </DropdownMenuItem>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -13958,18 +15991,29 @@ function FilterMenu({
 function DatabaseFilterValueControl({
   documentId,
   filter,
+  items,
   properties,
   autoFocus,
+  hideOptionsUntilQuery = false,
   onValueChange,
 }: {
   documentId: string;
   filter: DatabaseFilter;
+  items: ContentDatabaseItem[];
   properties: DocumentProperty[];
   autoFocus?: boolean;
+  hideOptionsUntilQuery?: boolean;
   onValueChange: (value: string) => void;
 }) {
   const configureProperty = useConfigureDocumentProperty(documentId);
-  const options = databaseFilterOptionChoices(filter.key, properties);
+  const { session } = useSession();
+  const currentUserEmail = session?.email?.trim() ?? "";
+  const options = databaseFilterOptionChoices(
+    filter.key,
+    properties,
+    items,
+    currentUserEmail,
+  );
   const type = filterPropertyTypeForKey(filter.key, properties);
   const [optionQuery, setOptionQuery] = useState("");
   const filteredOptions = filterPropertyOptions(options, optionQuery);
@@ -13978,7 +16022,57 @@ function DatabaseFilterValueControl({
     properties,
   );
   const canCreateOption =
-    !!optionProperty && canCreatePropertyOption(options, optionQuery);
+    !!optionProperty &&
+    optionProperty.definition.type !== "person" &&
+    canCreatePropertyOption(options, optionQuery);
+  const usesOptionFilterValues =
+    optionProperty?.definition.type === "select" ||
+    optionProperty?.definition.type === "status" ||
+    optionProperty?.definition.type === "multi_select" ||
+    optionProperty?.definition.type === "person";
+  const allowsMultipleValues =
+    usesOptionFilterValues &&
+    (filter.operator === "contains" || filter.operator === "does_not_equal");
+  const selectedValues = databaseFilterSelectedValues(filter.value);
+  const selectedOptions = selectedValues
+    .map((value) =>
+      options.find(
+        (option) =>
+          databaseFilterChoiceValue(option) === value ||
+          option.id === value ||
+          option.name.trim().toLowerCase() === value.trim().toLowerCase(),
+      ),
+    )
+    .filter((option): option is DatabaseFilterChoice => !!option);
+  const showClearValue = selectedValues.length > 0;
+  const showOptionChoices =
+    !hideOptionsUntilQuery ||
+    optionQuery.trim().length > 0 ||
+    selectedValues.length > 0;
+  const showCompactOptionValueInput =
+    hideOptionsUntilQuery && selectedOptions.length === 0;
+
+  function setSelectedValues(values: string[]) {
+    onValueChange(databaseFilterEncodeSelectedValues(values));
+  }
+
+  function chooseFilterOption(option: DatabaseFilterChoice) {
+    const optionValue = databaseFilterChoiceValue(option);
+    if (!allowsMultipleValues) {
+      onValueChange(optionValue);
+      return;
+    }
+    const selected = databaseFilterOptionIsSelected(option, selectedValues);
+    setSelectedValues(
+      selected
+        ? selectedValues.filter(
+            (value) =>
+              value !== optionValue &&
+              value.trim().toLowerCase() !== option.name.trim().toLowerCase(),
+          )
+        : [...selectedValues, optionValue],
+    );
+  }
 
   async function createFilterOption() {
     if (!optionProperty || !canCreateOption) return;
@@ -13992,37 +16086,82 @@ function DatabaseFilterValueControl({
       options: { options: [...options, option] },
     });
     setOptionQuery("");
-    onValueChange(option.id);
+    if (allowsMultipleValues) {
+      setSelectedValues([...selectedValues, option.id]);
+    } else {
+      onValueChange(option.id);
+    }
+  }
+
+  if (
+    filter.operator === "between" &&
+    (type === "date" || type === "created_time" || type === "last_edited_time")
+  ) {
+    return (
+      <DatabaseBetweenDateFilterValueControl
+        filter={filter}
+        onValueChange={onValueChange}
+      />
+    );
   }
 
   if (optionProperty) {
     return (
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="h-8 rounded border border-input bg-background px-2 text-sm">
-          <span className="min-w-0 flex-1 truncate text-left">
-            {databaseFilterValueLabel(filter, properties)}
-          </span>
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
-          <div
-            className="sticky top-0 z-10 border-b border-border bg-popover p-2"
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
+      <div className="overflow-hidden rounded-sm">
+        <div className="px-1 pb-1">
+          <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-input bg-background px-2 py-1 focus-within:border-[#2383e2] focus-within:ring-2 focus-within:ring-[#2383e2]/25">
+            {showCompactOptionValueInput ? null : (
               <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-              <Input
-                autoFocus={autoFocus}
-                value={optionQuery}
-                placeholder={dbText("searchOptions")}
-                aria-label={`Search ${filter.label} filter options`}
-                onChange={(event) => setOptionQuery(event.target.value)}
-                className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-              />
-            </div>
+            )}
+            {selectedOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={cn(
+                  "inline-flex max-w-[9rem] items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium",
+                  optionProperty?.definition.type === "person"
+                    ? "bg-muted text-foreground"
+                    : OPTION_COLOR_CLASSES[option.color ?? "gray"],
+                )}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelectedValues(
+                    selectedValues.filter(
+                      (value) => value !== databaseFilterChoiceValue(option),
+                    ),
+                  );
+                }}
+              >
+                {optionProperty?.definition.type === "person" ? (
+                  <PersonPill value={databaseFilterChoiceValue(option)} />
+                ) : (
+                  <span className="truncate">{option.name}</span>
+                )}
+                <IconX className="size-3 opacity-70" />
+              </button>
+            ))}
+            <Input
+              autoFocus={autoFocus}
+              value={optionQuery}
+              placeholder={
+                showCompactOptionValueInput
+                  ? filterValuePlaceholder(filter.key, properties)
+                  : selectedOptions.length > 0
+                    ? ""
+                    : filterOptionSearchPlaceholder(filter.key, properties)
+              }
+              aria-label={`Search ${filter.label} filter options`}
+              onChange={(event) => setOptionQuery(event.target.value)}
+              className="h-7 min-w-[7rem] flex-1 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+            />
           </div>
-          {filter.value ? (
-            <>
+        </div>
+        {showOptionChoices ? (
+          <div className="max-h-60 overflow-auto py-0.5">
+            {showClearValue ? (
               <DropdownMenuItem
+                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
                   onValueChange("");
@@ -14031,45 +16170,56 @@ function DatabaseFilterValueControl({
                 <IconX className="mr-2 size-4 text-muted-foreground" />
                 {dbText("clearValue")}
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          ) : null}
-          {filteredOptions.length === 0 && !canCreateOption ? (
-            <div className="px-3 py-4 text-sm text-muted-foreground">
-              {dbText("noMatchingOptions")}
-            </div>
-          ) : null}
-          {filteredOptions.map((option) => (
-            <DropdownMenuItem
-              key={option.id}
-              onSelect={(event) => {
-                event.preventDefault();
-                onValueChange(option.id);
-              }}
-            >
-              <span className="min-w-0 flex-1 truncate">{option.name}</span>
-              {filter.value === option.id || filter.value === option.name ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-          ))}
-          {canCreateOption ? (
-            <>
-              <DropdownMenuSeparator />
+            ) : null}
+            {filteredOptions.length === 0 && !canCreateOption ? (
+              <div className="px-2 py-3 text-xs text-muted-foreground">
+                {dbText("noMatchingOptions")}
+              </div>
+            ) : null}
+            {filteredOptions.map((option) => (
               <DropdownMenuItem
-                disabled={configureProperty.isPending}
+                key={option.id}
+                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
-                  void createFilterOption();
+                  chooseFilterOption(option);
                 }}
               >
-                <IconPlus className="mr-2 size-4 text-muted-foreground" />
-                Create &ldquo;{optionQuery.trim()}&rdquo;
+                <span className="min-w-0 flex-1 truncate">
+                  {optionProperty?.definition.type === "person" ? (
+                    option.name === "Me" ? (
+                      "Me"
+                    ) : (
+                      <PersonPill value={databaseFilterChoiceValue(option)} />
+                    )
+                  ) : (
+                    option.name
+                  )}
+                </span>
+                {databaseFilterOptionIsSelected(option, selectedValues) ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
               </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
+            ))}
+            {canCreateOption ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={configureProperty.isPending}
+                  className="text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void createFilterOption();
+                  }}
+                >
+                  <IconPlus className="mr-2 size-4 text-muted-foreground" />
+                  Create &ldquo;{optionQuery.trim()}&rdquo;
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -14081,7 +16231,7 @@ function DatabaseFilterValueControl({
       value={filter.value}
       placeholder={filterValuePlaceholder(filter.key, properties)}
       onChange={(event) => onValueChange(event.target.value)}
-      className="h-8"
+      className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
     />
   );
 }
@@ -14111,11 +16261,38 @@ const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
   less_than: "Less than",
   before: "Before",
   after: "After",
+  between: "Between",
   is_checked: "Checked",
   is_unchecked: "Unchecked",
   is_empty: "Is empty",
   is_not_empty: "Is not empty",
 };
+
+function databaseFilterOperatorLabel(
+  operator: FilterOperator,
+  key: string,
+  properties: DocumentProperty[],
+) {
+  const type = filterPropertyTypeForKey(key, properties);
+  if (
+    operator === "does_not_equal" &&
+    (type === "select" ||
+      type === "status" ||
+      type === "multi_select" ||
+      type === "person")
+  ) {
+    return "Does not contain";
+  }
+  return FILTER_OPERATOR_LABELS[operator] ?? "Contains";
+}
+
+function databaseFilterOperatorInlineLabel(
+  operator: FilterOperator,
+  key: string,
+  properties: DocumentProperty[],
+) {
+  return databaseFilterOperatorLabel(operator, key, properties).toLowerCase();
+}
 
 function filterOperatorsForKey(
   key: string,
@@ -14127,8 +16304,13 @@ function filterOperatorsForKey(
     return ["is_checked", "is_unchecked"];
   }
 
-  if (type === "select" || type === "status" || type === "multi_select") {
-    return ["equals", "does_not_equal", "is_empty", "is_not_empty"];
+  if (
+    type === "select" ||
+    type === "status" ||
+    type === "multi_select" ||
+    type === "person"
+  ) {
+    return ["contains", "does_not_equal", "is_empty", "is_not_empty"];
   }
 
   if (type === "number") {
@@ -14152,6 +16334,7 @@ function filterOperatorsForKey(
       "does_not_equal",
       "before",
       "after",
+      "between",
       "is_empty",
       "is_not_empty",
     ];
@@ -14195,6 +16378,18 @@ function filterValuePlaceholder(key: string, properties: DocumentProperty[]) {
   return "Value";
 }
 
+function filterOptionSearchPlaceholder(
+  key: string,
+  properties: DocumentProperty[],
+) {
+  const type = filterPropertyTypeForKey(key, properties);
+  if (type === "person") return "Search for one or more people...";
+  if (type === "select" || type === "status" || type === "multi_select") {
+    return "Search for one or more options...";
+  }
+  return "Search for an option...";
+}
+
 function filterValueInputType(type: DocumentPropertyType) {
   if (type === "number") return "number";
   if (type === "date" || type === "created_time" || type === "last_edited_time")
@@ -14202,12 +16397,106 @@ function filterValueInputType(type: DocumentPropertyType) {
   return "text";
 }
 
+function DatabaseBetweenDateFilterValueControl({
+  filter,
+  onValueChange,
+}: {
+  filter: DatabaseFilter;
+  onValueChange: (value: string) => void;
+}) {
+  const [start, end] = databaseFilterDateRangeValues(filter.value);
+  const updateRange = (nextStart: string, nextEnd: string) => {
+    onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
+  };
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+      <Input
+        type="date"
+        value={start}
+        aria-label={`Start ${filter.label} filter date`}
+        onChange={(event) => updateRange(event.target.value, end)}
+        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+      />
+      <span className="text-xs text-muted-foreground">to</span>
+      <Input
+        type="date"
+        value={end}
+        aria-label={`End ${filter.label} filter date`}
+        onChange={(event) => updateRange(start, event.target.value)}
+        className="h-9 text-sm focus-visible:border-[#2383e2] focus-visible:ring-[#2383e2]/25"
+      />
+    </div>
+  );
+}
+
 export function databaseFilterOptionChoices(
   key: string,
   properties: DocumentProperty[],
+  items: ContentDatabaseItem[] = [],
+  currentUserEmail = "",
+): DatabaseFilterChoice[] {
+  const property = databaseFilterPropertyForKey(key, properties);
+  if (property?.definition.type === "person") {
+    return databaseFilterPersonChoices(
+      property.definition.id,
+      items,
+      currentUserEmail,
+    );
+  }
+  const optionProperty = databaseFilterOptionPropertyForKey(key, properties);
+  return optionProperty?.definition.options.options ?? [];
+}
+
+type DatabaseFilterChoice = DocumentPropertyOption & {
+  filterValue?: string;
+};
+
+function databaseFilterChoiceValue(option: DatabaseFilterChoice) {
+  return option.filterValue ?? option.id;
+}
+
+function databaseFilterPersonChoices(
+  propertyId: string,
+  items: ContentDatabaseItem[],
+  currentUserEmail = "",
 ) {
-  const property = databaseFilterOptionPropertyForKey(key, properties);
-  return property?.definition.options.options ?? [];
+  const people = new Map<string, string>();
+  for (const item of items) {
+    const property = item.properties.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    for (const person of personItems(property?.value ?? null)) {
+      const key = person.trim().toLowerCase();
+      if (!people.has(key)) people.set(key, person);
+    }
+  }
+  const choices: DatabaseFilterChoice[] = [];
+  const currentUserLabel = currentUserEmail
+    ? personLabel(currentUserEmail)
+    : "";
+  if (currentUserEmail) {
+    const matchingPerson =
+      Array.from(people.values()).find(
+        (person) =>
+          person.toLowerCase() === currentUserEmail.toLowerCase() ||
+          personLabel(person).toLowerCase() === currentUserLabel.toLowerCase(),
+      ) ?? currentUserEmail;
+    choices.push({
+      id: `__current_user__:${matchingPerson}`,
+      name: "Me",
+      color: "gray" as const,
+      filterValue: matchingPerson,
+    });
+  }
+  choices.push(
+    ...Array.from(people.values()).map((person) => ({
+      id: person,
+      name: personLabel(person),
+      color: "gray" as const,
+    })),
+  );
+  return choices;
 }
 
 export function databaseFilterOptionPropertyForKey(
@@ -14219,7 +16508,8 @@ export function databaseFilterOptionPropertyForKey(
   if (
     property.definition.type !== "select" &&
     property.definition.type !== "status" &&
-    property.definition.type !== "multi_select"
+    property.definition.type !== "multi_select" &&
+    property.definition.type !== "person"
   ) {
     return null;
   }
@@ -14230,18 +16520,105 @@ function databaseFilterValueLabel(
   filter: DatabaseFilter,
   properties: DocumentProperty[],
 ) {
-  const option = databaseFilterOptionChoices(filter.key, properties).find(
-    (candidate) =>
-      candidate.id === filter.value || candidate.name === filter.value,
+  if (filter.operator === "between") {
+    const [start, end] = databaseFilterDateRangeValues(filter.value);
+    if (start && end) return `${start} to ${end}`;
+    return start || end || "Choose dates";
+  }
+  const values = databaseFilterSelectedValues(filter.value);
+  const options = databaseFilterOptionChoices(filter.key, properties);
+  if (options.length > 0) {
+    const labels = values.map((value) => {
+      const option = options.find(
+        (candidate) =>
+          candidate.id === value ||
+          candidate.name.trim().toLowerCase() === value.trim().toLowerCase(),
+      );
+      return option?.name ?? value;
+    });
+    return labels.length > 0 ? labels.join(", ") : "Choose option";
+  }
+  return values[0] || "Choose option";
+}
+
+function databaseFilterSelectedValues(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [trimmed];
+    return [
+      ...new Set(
+        parsed
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ];
+  } catch {
+    return [trimmed];
+  }
+}
+
+function databaseFilterDateRangeValues(value: string): [string, string] {
+  const trimmed = value.trim();
+  if (!trimmed) return ["", ""];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [trimmed, ""];
+    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
+    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
+    return [start, end];
+  } catch {
+    return [trimmed, ""];
+  }
+}
+
+function databaseFilterEncodeDateRangeValues(start: string, end: string) {
+  const normalizedStart = start.trim();
+  const normalizedEnd = end.trim();
+  if (!normalizedStart && !normalizedEnd) return "";
+  return JSON.stringify([normalizedStart, normalizedEnd]);
+}
+
+function databaseFilterDateRangeValue(value: string): [number, number] | null {
+  const [startValue, endValue] = databaseFilterDateRangeValues(value);
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return start <= end ? [start, end] : [end, start];
+}
+
+function databaseFilterEncodeSelectedValues(values: string[]) {
+  const normalized = [
+    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ];
+  if (normalized.length === 0) return "";
+  if (normalized.length === 1) return normalized[0];
+  return JSON.stringify(normalized);
+}
+
+function databaseFilterOptionIsSelected(
+  option: DatabaseFilterChoice,
+  values: string[],
+) {
+  const optionValue = databaseFilterChoiceValue(option);
+  const optionName = option.name.trim().toLowerCase();
+  return values.some(
+    (value) =>
+      value === optionValue || value.trim().toLowerCase() === optionName,
   );
-  return (option?.name ?? filter.value) || "Choose option";
 }
 
 function databaseFilterChipLabel(
   filter: DatabaseFilter,
   properties: DocumentProperty[],
 ) {
-  const operator = FILTER_OPERATOR_LABELS[filter.operator] ?? "Contains";
+  const operator = databaseFilterOperatorLabel(
+    filter.operator,
+    filter.key,
+    properties,
+  );
   if (!filterOperatorNeedsValue(filter.operator)) {
     return `${filter.label} ${operator.toLowerCase()}`;
   }
@@ -14249,6 +16626,23 @@ function databaseFilterChipLabel(
     filter,
     properties,
   )}`;
+}
+
+export function databaseInlineFilterLabel(
+  filter: DatabaseFilter,
+  properties: DocumentProperty[],
+) {
+  if (!filterOperatorNeedsValue(filter.operator)) {
+    return `${filter.label}: ${databaseFilterOperatorLabel(
+      filter.operator,
+      filter.key,
+      properties,
+    )}`;
+  }
+  if (databaseFilterSelectedValues(filter.value).length === 0) {
+    return filter.label;
+  }
+  return `${filter.label}: ${databaseFilterValueLabel(filter, properties)}`;
 }
 
 function databaseFilterPropertyForKey(
@@ -14508,6 +16902,9 @@ function DatabaseTableRow({
           item.properties.find(
             (candidate) => candidate.definition.id === property.definition.id,
           ) ?? property;
+        const bodyCellHydrationPending =
+          itemProperty.definition.type === "blocks" &&
+          databaseItemBodyHydrationIsPending(item);
 
         const value = (
           <div
@@ -14516,10 +16913,12 @@ function DatabaseTableRow({
               wrapCells
                 ? "whitespace-normal break-words"
                 : "truncate whitespace-nowrap",
-              isEmptyPropertyValue(itemProperty.value) && "text-transparent",
+              isEmptyPropertyValue(itemProperty.value) &&
+                !bodyCellHydrationPending &&
+                "text-transparent",
             )}
           >
-            {databaseTableCellDisplayValue(itemProperty)}
+            {databaseTableCellDisplayValue(itemProperty, item)}
           </div>
         );
         const isEditableCheckbox =
@@ -14555,6 +16954,7 @@ function DatabaseTableRow({
               <PropertyValuePopover
                 property={itemProperty}
                 documentId={item.document.id}
+                databaseDocumentId={databaseDocumentId}
               >
                 {value}
               </PropertyValuePopover>

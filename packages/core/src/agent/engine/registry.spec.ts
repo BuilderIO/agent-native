@@ -359,15 +359,36 @@ describe("AgentEngine registry", () => {
   });
 
   describe("normalizeModelForEngine", () => {
-    it("falls back unsupported Builder models to gateway auto", async () => {
+    it("upgrades unsupported Builder models to the latest supported version match", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
         defaultModel: "claude-sonnet-5",
-        supportedModels: ["auto", "claude-sonnet-5"],
+        supportedModels: [
+          "auto",
+          "claude-opus-4-8",
+          "claude-sonnet-5",
+          "gpt-5-5",
+        ],
       } as any;
 
-      expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe("auto");
+      expect(normalizeModelForEngine(engine, "claude-opus-4-7")).toBe(
+        "claude-opus-4-8",
+      );
+      expect(normalizeModelForEngine(engine, "gpt-5-4")).toBe("gpt-5-5");
+    });
+
+    it("falls back unsupported models to the engine default when no version match exists", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "builder",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5"],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "totally-removed-model")).toBe(
+        "claude-sonnet-5",
+      );
     });
 
     it("keeps supported Builder models and missing values deterministic", async () => {
@@ -385,12 +406,32 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-5");
     });
 
-    it("keeps custom model strings for non-Builder engines", async () => {
+    it("normalizes removed non-Builder models when the engine declares supported models", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "ai-sdk:openrouter",
         defaultModel: "openai/gpt-5.5",
-        supportedModels: ["openai/gpt-5.5"],
+        supportedModels: [
+          "anthropic/claude-opus-4.8",
+          "openai/gpt-5.5",
+          "z-ai/glm-5.2",
+        ],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "anthropic/claude-opus-4.7")).toBe(
+        "anthropic/claude-opus-4.8",
+      );
+      expect(normalizeModelForEngine(engine, "custom/provider-model")).toBe(
+        "openai/gpt-5.5",
+      );
+    });
+
+    it("keeps custom model strings for engines without a supported model list", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "custom",
+        defaultModel: "default-model",
+        supportedModels: [],
       } as any;
 
       expect(normalizeModelForEngine(engine, "custom/provider-model")).toBe(

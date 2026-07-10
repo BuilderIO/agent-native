@@ -23,7 +23,8 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -66,11 +67,17 @@ export interface ChangeEvent {
 // In-memory ring buffer of recent changes. Kept small since clients
 // poll frequently (every 2-3s) and only need events since their last poll.
 const MAX_BUFFER = 200;
+const DURABLE_READ_LIMIT = 1000;
+const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
+const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 let _version = 0;
 const _buffer: ChangeEvent[] = [];
 export const POLL_CHANGE_EVENT = "poll-change";
 const _pollEmitter = new EventEmitter();
 _pollEmitter.setMaxListeners(0);
+let _syncEventsInitPromise: Promise<boolean> | undefined;
+let _lastDurablePrune = 0;
 
 /**
  * Whether we've seeded _version from the DB. In serverless (Netlify,
@@ -142,6 +149,130 @@ function sqlWatermarkValue(value: unknown): string | number | undefined {
   if (typeof value === "string" && value.length > 0) return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return undefined;
+}
+
+function syncEventsDisabled(): boolean {
+  return (
+    process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE === "1" ||
+    (process.env.VITEST === "true" &&
+      process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS !== "1")
+  );
+}
+
+async function ensureSyncEventsTable(): Promise<boolean> {
+  if (syncEventsDisabled()) return false;
+  if (!_syncEventsInitPromise) {
+    _syncEventsInitPromise = (async () => {
+      const client = getDbExec();
+      const createSql = `
+        CREATE TABLE IF NOT EXISTS sync_events (
+          id TEXT PRIMARY KEY,
+          version BIGINT NOT NULL,
+          event_json TEXT NOT NULL,
+          source TEXT NOT NULL,
+          type TEXT NOT NULL,
+          event_key TEXT,
+          owner TEXT,
+          org_id TEXT,
+          resource_type TEXT,
+          resource_id TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+      if (isPostgres()) {
+        await ensureTableExists("sync_events", createSql);
+        await ensureIndexExists(
+          "sync_events_version_idx",
+          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+        );
+        await ensureIndexExists(
+          "sync_events_owner_version_idx",
+          "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+        );
+        await ensureIndexExists(
+          "sync_events_org_version_idx",
+          "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+        );
+        return true;
+      }
+
+      await client.execute(createSql);
+      for (const ddl of [
+        "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+        "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+        "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+      ]) {
+        try {
+          await client.execute(ddl);
+        } catch {
+          // Index already exists or the dialect rejected a duplicate.
+        }
+      }
+      return true;
+    })().catch(() => {
+      _syncEventsInitPromise = undefined;
+      return false;
+    });
+  }
+  return _syncEventsInitPromise;
+}
+
+function durableEventId(version: number): string {
+  return `${version}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function pruneDurableEvents(client: ReturnType<typeof getDbExec>) {
+  const now = Date.now();
+  if (now - _lastDurablePrune < 5 * 60 * 1000) return;
+  _lastDurablePrune = now;
+  await client
+    .execute({
+      sql: "DELETE FROM sync_events WHERE created_at < ?",
+      args: [now - DURABLE_RETENTION_MS],
+    })
+    .catch(() => {});
+}
+
+async function persistSyncEvent(event: ChangeEvent): Promise<void> {
+  if (!(await ensureSyncEventsTable())) return;
+  const client = getDbExec();
+  await client
+    .execute({
+      sql: isPostgres()
+        ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (id) DO NOTHING`
+        : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        durableEventId(event.version),
+        event.version,
+        JSON.stringify(event),
+        event.source,
+        event.type,
+        event.key ?? null,
+        event.owner ?? null,
+        event.orgId ?? null,
+        event.resourceType ?? null,
+        event.resourceId ?? null,
+        Date.now(),
+      ],
+    })
+    .catch(() => {});
+  await pruneDurableEvents(client);
+}
+
+async function readMaxSyncEventVersion(): Promise<number> {
+  if (!(await ensureSyncEventsTable())) return 0;
+  try {
+    const result = await getDbExec().execute(
+      "SELECT MAX(version) as max_version FROM sync_events",
+    );
+    return timestampValue(result.rows[0]?.max_version);
+  } catch {
+    return 0;
+  }
 }
 
 async function readMaxUpdatedAtRaw(
@@ -340,6 +471,16 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 type ChangeVisibility = "visible" | "hidden" | "pending";
+type ChangeReadResult = {
+  version: number;
+  events: ChangeEvent[];
+  /**
+   * True when the returned version is an intentional cursor stop, not the
+   * source high-water mark. This happens when access is still pending or when a
+   * durable page hit the read limit and more rows may remain unread.
+   */
+  cursorLimited?: boolean;
+};
 
 /**
  * Decide whether a poll/SSE change event should be delivered to a user.
@@ -424,6 +565,7 @@ export function recordChange(event: {
     _buffer.splice(0, _buffer.length - MAX_BUFFER);
   }
   _pollEmitter.emit(POLL_CHANGE_EVENT, entry);
+  void persistSyncEvent(entry);
 }
 
 function extensionTargetKey(target: ExtensionChangeTarget): string | null {
@@ -565,7 +707,7 @@ export function getChangesSinceForUser(
   since: number,
   userEmail: string,
   orgId: string | undefined,
-): { version: number; events: ChangeEvent[] } {
+): ChangeReadResult {
   if (since >= _version) {
     return { version: _version, events: [] };
   }
@@ -580,10 +722,137 @@ export function getChangesSinceForUser(
     }
     if (visibility === "pending") {
       version = Math.max(since, event.version - 1);
-      break;
+      return { version, events, cursorLimited: true };
     }
   }
   return { version, events };
+}
+
+async function getDurableChangesSinceForUser(
+  since: number,
+  userEmail: string,
+  orgId: string | undefined,
+): Promise<ChangeReadResult> {
+  if (since <= 0 || !(await ensureSyncEventsTable())) {
+    return { version: _version, events: [] };
+  }
+
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT version, event_json FROM sync_events WHERE version > ? ORDER BY version ASC LIMIT ?`,
+      args: [since, DURABLE_READ_LIMIT + 1],
+    });
+    const events: ChangeEvent[] = [];
+    let version = Math.max(_version, since);
+    let lastDurableVersion = since;
+    const rows = result.rows.slice(0, DURABLE_READ_LIMIT);
+    const overflowVersion = timestampValue(
+      result.rows[DURABLE_READ_LIMIT]?.version,
+    );
+
+    for (const row of rows) {
+      const rawVersion = timestampValue(row.version);
+      if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
+      if (rawVersion > version) version = rawVersion;
+      let event: ChangeEvent | null = null;
+      try {
+        const parsed = JSON.parse(String(row.event_json));
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          typeof parsed.source === "string" &&
+          typeof parsed.type === "string"
+        ) {
+          event = {
+            ...(parsed as ChangeEvent),
+            version: rawVersion || (parsed as ChangeEvent).version,
+          };
+        }
+      } catch {
+        event = null;
+      }
+      if (!event) continue;
+
+      const visibility = getChangeVisibilityForUser(event, userEmail, orgId);
+      if (visibility === "visible") {
+        events.push(event);
+        continue;
+      }
+      if (visibility === "pending") {
+        return {
+          version: Math.max(since, event.version - 1),
+          events,
+          cursorLimited: true,
+        };
+      }
+    }
+
+    if (rows.length >= DURABLE_READ_LIMIT) {
+      if (overflowVersion === lastDurableVersion) {
+        const boundaryVersion = lastDurableVersion;
+        return {
+          version: Math.max(since, boundaryVersion - 1),
+          events: events.filter((event) => event.version < boundaryVersion),
+          cursorLimited: true,
+        };
+      }
+      return {
+        version: Math.max(since, lastDurableVersion),
+        events,
+        cursorLimited: true,
+      };
+    }
+
+    return { version, events };
+  } catch {
+    return { version: _version, events: [] };
+  }
+}
+
+async function getCombinedChangesSinceForUser(
+  since: number,
+  userEmail: string,
+  orgId: string | undefined,
+  useDurableEvents: boolean,
+): Promise<{ version: number; events: ChangeEvent[] }> {
+  const memory = getChangesSinceForUser(since, userEmail, orgId);
+  if (!useDurableEvents) return memory;
+
+  const durable = await getDurableChangesSinceForUser(since, userEmail, orgId);
+  const byIdentity = new Map<string, ChangeEvent>();
+  for (const event of [...durable.events, ...memory.events]) {
+    byIdentity.set(
+      JSON.stringify([
+        event.version,
+        event.source,
+        event.type,
+        event.key,
+        event.owner,
+        event.orgId,
+        event.resourceType,
+        event.resourceId,
+      ]),
+      event,
+    );
+  }
+  const events = Array.from(byIdentity.values()).sort(
+    (a, b) => a.version - b.version,
+  );
+  const limitedVersions = [memory, durable]
+    .filter((result) => result.cursorLimited)
+    .map((result) => result.version);
+  return {
+    version:
+      limitedVersions.length > 0
+        ? Math.min(...limitedVersions)
+        : Math.max(memory.version, durable.version, since),
+    events:
+      limitedVersions.length > 0
+        ? events.filter(
+            (event) => event.version <= Math.min(...limitedVersions),
+          )
+        : events,
+  };
 }
 
 /**
@@ -598,6 +867,7 @@ async function seedVersionFromDb(): Promise<void> {
     const db = getDbExec();
 
     const [
+      syncEventsTs,
       appTs,
       settingsTs,
       extensionsMaxUpdatedAt,
@@ -605,6 +875,7 @@ async function seedVersionFromDb(): Promise<void> {
       actionMarkerTs,
       refreshResult,
     ] = await Promise.all([
+      readMaxSyncEventVersion(),
       readMaxUpdatedAt(db, "application_state"),
       readMaxUpdatedAt(db, "settings"),
       readMaxUpdatedAtRaw(db, "tools"),
@@ -627,6 +898,7 @@ async function seedVersionFromDb(): Promise<void> {
     // Seed version — never decrease an already-set value
     _version = Math.max(
       _version,
+      syncEventsTs,
       appTs,
       settingsTs,
       extensionsTs,
@@ -667,9 +939,14 @@ async function seedVersionFromDb(): Promise<void> {
  * Check for cross-process DB writes by comparing updated_at timestamps.
  * Runs at most once per second to avoid excessive queries.
  */
-async function checkExternalDbChanges(): Promise<void> {
+async function checkExternalDbChanges(options: {
+  durableEvents: boolean;
+}): Promise<void> {
   const now = Date.now();
-  if (now - _lastDbCheck < 1000) return;
+  const interval = options.durableEvents
+    ? DURABLE_LEGACY_DB_CHECK_INTERVAL_MS
+    : LEGACY_DB_CHECK_INTERVAL_MS;
+  if (now - _lastDbCheck < interval) return;
   // Coalesce: if a check is already running, await it instead of starting a
   // second overlapping run that would double-advance the shared watermarks
   // (and double-emit change events).
@@ -906,11 +1183,19 @@ export function createPollHandler() {
     }
     // On cold start, seed _version from DB so we don't return version: 0
     await seedVersionFromDb();
-    // Check for cross-process writes before responding
-    await checkExternalDbChanges();
+    const durableEvents = await ensureSyncEventsTable();
+    // Durable sync_events rows are the cheap cross-process path. Keep the
+    // legacy watermark scan as a slower safety net for direct SQL writes and
+    // older processes that have not started writing durable events yet.
+    await checkExternalDbChanges({ durableEvents });
 
     const query = getQuery(event);
     const since = parseInt(String(query.since ?? "0"), 10) || 0;
-    return getChangesSinceForUser(since, session.email, session.orgId);
+    return getCombinedChangesSinceForUser(
+      since,
+      session.email,
+      session.orgId,
+      durableEvents,
+    );
   });
 }

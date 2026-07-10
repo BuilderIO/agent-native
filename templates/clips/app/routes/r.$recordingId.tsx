@@ -59,7 +59,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -67,6 +66,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -499,6 +499,15 @@ export default function RecordingPage() {
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
+  const requestTranscript = useActionMutation("request-transcript" as any, {
+    onSuccess: () => void playerDataQ.refetch(),
+    onError: (err: Error) =>
+      toast.error(
+        t("recordingPage.retryFailed", {
+          message: err?.message ?? t("recordingPage.networkError"),
+        }),
+      ),
+  });
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.updated) {
@@ -913,36 +922,34 @@ export default function RecordingPage() {
             durationMs={recording.durationMs}
             currentMs={currentMs}
             onSeek={(ms) => playerRef.current?.seek(ms)}
-            status={transcriptStatus}
+            status={
+              requestTranscript.isPending && transcriptStatus === "failed"
+                ? "pending"
+                : transcriptStatus
+            }
             failureReason={transcriptFailureReason}
             cleanup={transcriptCleanup}
             recordingTitle={recording.title}
-            onRetry={() => {
-              // Force a fresh transcript job, then let polling swap the panel
-              // back to the pending state while it runs.
-              fetch(
-                agentNativePath("/_agent-native/actions/request-transcript"),
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    recordingId: recording.id,
-                    force: true,
-                  }),
-                },
-              )
-                .then((res) => {
-                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                })
-                .catch((err) =>
-                  toast.error(
-                    t("recordingPage.retryFailed", {
-                      message: err?.message ?? t("recordingPage.networkError"),
-                    }),
-                  ),
-                )
-                .finally(() => playerDataQ.refetch());
-            }}
+            onRetry={
+              canEdit
+                ? () =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                    } as any)
+                : undefined
+            }
+            onRegenerate={
+              canEdit && transcriptStatus === "ready"
+                ? () =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                      regenerate: true,
+                    } as any)
+                : undefined
+            }
+            isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
         <TabsContent
@@ -1061,16 +1068,21 @@ export default function RecordingPage() {
                   {t("recordingPage.enhanceRecording")}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={includeFullVideoInAi}
-                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-                  onCheckedChange={handleIncludeFullVideoChange}
-                  onSelect={(event) => event.preventDefault()}
-                  title={t("recordingPage.includeFullVideoDescription")}
+                <DropdownMenuItem
+                  disabled={requestTranscript.isPending}
+                  onSelect={() =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                      regenerate: true,
+                    } as any)
+                  }
                 >
-                  {t("recordingPage.includeFullVideo")}
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
+                  {requestTranscript.isPending ? (
+                    <Spinner className="size-4" />
+                  ) : null}
+                  {t("transcriptPanel.regenerate")}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={regenerateTitle.isPending}
                   onSelect={() =>
@@ -1096,6 +1108,7 @@ export default function RecordingPage() {
                   onSelect={() =>
                     regenerateChapters.mutate({
                       recordingId: recording.id,
+                      openInChat: true,
                     } as any)
                   }
                 >
@@ -1160,6 +1173,25 @@ export default function RecordingPage() {
                     </Tooltip>
                   );
                 })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleIncludeFullVideoChange(!includeFullVideoInAi);
+                  }}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                  className="justify-between gap-3"
+                >
+                  <span>{t("recordingPage.includeFullVideo")}</span>
+                  <Switch
+                    checked={includeFullVideoInAi}
+                    disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="pointer-events-none"
+                  />
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -1167,6 +1199,8 @@ export default function RecordingPage() {
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
+            initialVisibility={recording.visibility}
+            initialRole={role}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
             isLoomRecording={isLoomEmbedBacked}

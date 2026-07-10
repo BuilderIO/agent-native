@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clampOverviewDisplayZoom,
   clampZoom,
   computeFitCameraForFrames,
+  computeIframeLocalCanvasPoint,
+  readOverviewZoomPercentFromTransform,
+  DEFAULT_OVERVIEW_ZOOM,
   getAllScreenFrameEntries,
   getNextZoomStepDown,
   getNextZoomStepUp,
+  getOverviewDisplayZoom,
+  getOverviewZoomScale,
   MAX_SANE_SCREEN_ENTRY_ZOOM,
+  MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM,
+  resolveOverviewZoomBasisScreenId,
   resolveScreenEntryZoom,
   shouldPopToOverviewOnZoomChange,
-} from "./DesignEditor";
+  shouldResetExplicitOverviewZoomOnBasisChange,
+} from "./design-editor/overview-camera";
 
 describe("clampZoom", () => {
   it("clamps to the shared canvas zoom range by default", () => {
@@ -120,15 +129,29 @@ describe("getAllScreenFrameEntries", () => {
     expect(Number.isFinite(b.geometry.y)).toBe(true);
   });
 
-  it("includes the board frame when provided and not already a screen", () => {
+  it("includes actual board content bounds when provided and not already a screen", () => {
     const entries = getAllScreenFrameEntries({
       overviewScreens: [],
       canvasFrameGeometryById: {},
       boardFileId: "board-1",
-      boardFrameGeometry: { x: -1000, y: -1000, width: 2000, height: 2000 },
+      boardContentBounds: { x: 120, y: 80, width: 240, height: 160 },
     });
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.id).toBe("board-1");
+    expect(entries[0]).toEqual({
+      id: "board-1",
+      geometry: { x: 120, y: 80, width: 240, height: 160 },
+    });
+  });
+
+  it("does not include an empty board in fit or placement entries", () => {
+    expect(
+      getAllScreenFrameEntries({
+        overviewScreens: [],
+        canvasFrameGeometryById: {},
+        boardFileId: "board-1",
+        boardContentBounds: null,
+      }),
+    ).toEqual([]);
   });
 
   it("returns an empty list for no screens and no board", () => {
@@ -299,6 +322,197 @@ describe("shouldPopToOverviewOnZoomChange — explicit zoom-to-N% presets never 
   });
 });
 
+describe("resolveOverviewZoomBasisScreenId — the board can never define the overview zoom scale", () => {
+  const overviewScreenIds = ["screen-1", "screen-2"];
+
+  it("returns the candidate when it is a real overview screen", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: "screen-2",
+        boardFileId: "board-file",
+        overviewScreenIds,
+      }),
+    ).toBe("screen-2");
+  });
+
+  it("falls back to the first overview screen when the candidate is the board file", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: "board-file",
+        boardFileId: "board-file",
+        overviewScreenIds,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("falls back to the first overview screen for a non-screen file (e.g. a CSS support file)", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: "styles-css-file",
+        boardFileId: "board-file",
+        overviewScreenIds,
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("returns null when there are no overview screens at all", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: "board-file",
+        boardFileId: "board-file",
+        overviewScreenIds: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("never returns the board even if it leaked into the screen id list", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: null,
+        boardFileId: "board-file",
+        overviewScreenIds: ["board-file", "screen-1"],
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("handles a null candidate (no active file yet)", () => {
+    expect(
+      resolveOverviewZoomBasisScreenId({
+        candidateFileId: null,
+        boardFileId: null,
+        overviewScreenIds,
+      }),
+    ).toBe("screen-1");
+  });
+});
+
+describe("board flip zoom corruption (observed displayed zoom: 10241.49%)", () => {
+  it("keeps the zoom basis anchored to the real screen when activeFileId flips to the board — the scale (and therefore the displayed zoom) cannot move", () => {
+    const overviewScreenIds = ["screen-1"];
+    const basisBefore = resolveOverviewZoomBasisScreenId({
+      candidateFileId: "screen-1",
+      boardFileId: "board-file",
+      overviewScreenIds,
+    });
+    // Board text-tool creation / board element click flips activeFileId to
+    // the board file; the basis must not follow it.
+    const basisAfter = resolveOverviewZoomBasisScreenId({
+      candidateFileId: "board-file",
+      boardFileId: "board-file",
+      overviewScreenIds,
+    });
+    expect(basisBefore).toBe("screen-1");
+    expect(basisAfter).toBe("screen-1");
+  });
+
+  it("documents the old derivation: a board basis has neither frame geometry nor a source width, snapping the scale to the 0.25 double-fallback and displaying garbage against the pinned explicit zoom", () => {
+    // The board is excluded from overviewScreens and canvasFrames, so BOTH
+    // getOverviewZoomScale inputs fell back: 320 / 1280.
+    const boardBasisScale = getOverviewZoomScale({
+      frameWidth: undefined,
+      sourceWidth: undefined,
+    });
+    expect(boardBasisScale).toBe(0.25);
+    // explicitOverviewCanvasZoom stayed pinned to a value established under
+    // the real screen's scale — the product is the garbage seen in the wild.
+    const pinnedExplicitCanvasZoom = 40965.96;
+    expect(
+      getOverviewDisplayZoom(pinnedExplicitCanvasZoom, boardBasisScale),
+    ).toBeCloseTo(10241.49, 2);
+  });
+});
+
+describe("shouldResetExplicitOverviewZoomOnBasisChange — basis-identity invalidation", () => {
+  it("never resets while the basis identity is unchanged", () => {
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-1",
+        explicitOverviewCanvasZoom: 40965.96,
+        nextOverviewZoomScale: 0.25,
+      }),
+    ).toBe(false);
+  });
+
+  it("never resets when there is no pinned explicit zoom", () => {
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-2",
+        explicitOverviewCanvasZoom: null,
+        nextOverviewZoomScale: 0.25,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the pin across a normal screen-to-screen basis change (sane label shift, camera untouched)", () => {
+    // canvas zoom 40 under a 2.5 scale (display 100%) → basis change to a
+    // 1.25-scale screen displays 50% — a legitimate Figma-like label shift.
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-2",
+        explicitOverviewCanvasZoom: 40,
+        nextOverviewZoomScale: 1.25,
+      }),
+    ).toBe(false);
+  });
+
+  it("resets when the basis change turns the pin into a displayed zoom above the editor's absolute max", () => {
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-2",
+        explicitOverviewCanvasZoom: 40965.96,
+        nextOverviewZoomScale: 2.5, // → 102,414.9% displayed
+      }),
+    ).toBe(true);
+  });
+
+  it("resets when the basis change turns the pin into an unrenderably small or non-finite displayed zoom", () => {
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-2",
+        explicitOverviewCanvasZoom: 0.0001,
+        nextOverviewZoomScale: 0.25, // → 0.000025% displayed
+      }),
+    ).toBe(true);
+    expect(
+      shouldResetExplicitOverviewZoomOnBasisChange({
+        previousBasisScreenId: "screen-1",
+        nextBasisScreenId: "screen-2",
+        explicitOverviewCanvasZoom: Number.POSITIVE_INFINITY,
+        nextOverviewZoomScale: 0.25,
+      }),
+    ).toBe(true);
+    expect(MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM).toBeGreaterThan(0);
+  });
+});
+
+describe("clampOverviewDisplayZoom — final displayed-zoom sanity net", () => {
+  it("falls back to the default overview zoom for non-finite or non-positive products", () => {
+    expect(clampOverviewDisplayZoom(NaN)).toBe(DEFAULT_OVERVIEW_ZOOM);
+    expect(clampOverviewDisplayZoom(Number.POSITIVE_INFINITY)).toBe(
+      DEFAULT_OVERVIEW_ZOOM,
+    );
+    expect(clampOverviewDisplayZoom(0)).toBe(DEFAULT_OVERVIEW_ZOOM);
+    expect(clampOverviewDisplayZoom(-50)).toBe(DEFAULT_OVERVIEW_ZOOM);
+  });
+
+  it("caps a beyond-max garbage product at the editor's absolute max zoom", () => {
+    expect(clampOverviewDisplayZoom(102414.9)).toBe(25600);
+    expect(clampOverviewDisplayZoom(1e9)).toBe(25600);
+  });
+
+  it("passes legitimate display zooms through unchanged, including sub-minimum products of small screen scales", () => {
+    expect(clampOverviewDisplayZoom(100)).toBe(100);
+    expect(clampOverviewDisplayZoom(60)).toBe(60);
+    // canvas zoom near min times a sub-1 scale legitimately displays < 2%.
+    expect(clampOverviewDisplayZoom(0.5)).toBe(0.5);
+  });
+});
+
 describe("computeFitCameraForFrames", () => {
   it("returns null when there are no frames", () => {
     expect(
@@ -354,5 +568,90 @@ describe("computeFitCameraForFrames", () => {
     });
     expect(camera).not.toBeNull();
     expect(camera!.zoom).toBeLessThanOrEqual(25600);
+  });
+});
+
+describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
+  // handleIframeContextMenu opens the canvas context menu imperatively via a
+  // ref, bypassing CanvasContextMenu's own onContextMenuCapture (the only
+  // place that normally attaches canvasX/canvasY to the menu's point). This
+  // is the shared math both paths now use so "Paste here" lands under the
+  // cursor whether the right-click hit the canvas background or actual
+  // rendered screen content.
+  it("converts a viewport point to iframe-local document coordinates at 100% zoom", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 220,
+        iframeRect: { left: 50, top: 100 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 100, y: 120 });
+  });
+
+  it("divides by the zoom factor so a zoomed-out iframe still maps to the correct document point", () => {
+    // 50% zoom means 1 document px renders as 0.5 screen px, so a 100px
+    // on-screen offset from the iframe's origin is 200 document px.
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 100,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 50,
+      }),
+    ).toEqual({ x: 200, y: 100 });
+  });
+
+  it("clamps negative offsets (click above/left of the iframe origin) to zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
+  it("returns null when there is no iframe rect to measure against", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: null,
+        zoomPercent: 100,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for a non-positive zoom percent instead of dividing by zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 0, top: 0 },
+        zoomPercent: 0,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("readOverviewZoomPercentFromTransform", () => {
+  it("reads the live scale written during an unsettled overview gesture", () => {
+    expect(
+      readOverviewZoomPercentFromTransform(
+        "translate(42px, -18px) scale(0.375)",
+        100,
+      ),
+    ).toBe(37.5);
+  });
+
+  it("falls back for missing, malformed, zero, or negative scales", () => {
+    expect(readOverviewZoomPercentFromTransform("", 64)).toBe(64);
+    expect(
+      readOverviewZoomPercentFromTransform("translate(1px, 2px)", 64),
+    ).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(0)", 64)).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(-2)", 64)).toBe(64);
   });
 });

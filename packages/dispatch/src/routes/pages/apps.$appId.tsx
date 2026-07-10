@@ -7,14 +7,14 @@ import {
 import { useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
@@ -23,13 +23,9 @@ export function meta() {
 export default function WorkspaceAppRoute() {
   const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    {
-      refetchInterval: 2_000,
-    },
-  );
+  const { data: apps = [], isLoading } = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,

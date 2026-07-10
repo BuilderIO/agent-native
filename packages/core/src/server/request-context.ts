@@ -118,6 +118,13 @@ export interface RequestRunContext {
   toolCalls?: Array<{ name: string; input: unknown }>;
   /** Tool results returned so far in the current agent loop. */
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
+  /** Per-run fingerprints for large extension bodies already sent to the LLM. */
+  extensionContentReads?: Record<string, string>;
+  /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
+  toolSearchReads?: Record<
+    string,
+    { totalTools: number; resultNames: string[] }
+  >;
 }
 
 export interface RequestContext {

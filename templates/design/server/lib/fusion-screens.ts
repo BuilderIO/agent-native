@@ -29,8 +29,8 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
-import { parseDesignDataBlob } from "../../shared/full-app.js";
 import { getDb, schema } from "../db/index.js";
+import { mutateDesignData } from "./design-data-mutation.js";
 
 /** Default iframe viewport, mirroring add-localhost-screens' defaults. */
 export const DEFAULT_FUSION_SCREEN_WIDTH = 1280;
@@ -117,18 +117,6 @@ export async function upsertFusionScreens(args: {
   }
 
   const db = getDb();
-  const [design] = await db
-    .select({ data: schema.designs.data })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-  const prevData = parseDesignDataBlob(design?.data);
-  const existingCanvasFrames = parseCanvasFrameGeometryById(
-    prevData.canvasFrames,
-  );
-  const existingMetadata = isRecord(prevData.screenMetadata)
-    ? { ...(prevData.screenMetadata as Record<string, unknown>) }
-    : {};
   const existingFiles = await db
     .select()
     .from(schema.designFiles)
@@ -140,22 +128,6 @@ export async function upsertFusionScreens(args: {
   const now = new Date().toISOString();
 
   const results: FusionScreenResult[] = [];
-  const placements: CanvasFramePlacement[] = [];
-
-  // Only place screens that don't already have canvas geometry so re-syncs
-  // never reset positions the user has arranged. New screens start after the
-  // right-most existing frame.
-  const existingGeometries = Object.values(existingCanvasFrames);
-  let nextX = startX;
-  if (existingGeometries.length > 0) {
-    nextX =
-      Math.max(
-        startX,
-        ...existingGeometries.map(
-          (frame) => (frame.x ?? 0) + (frame.width ?? width),
-        ),
-      ) + gap;
-  }
 
   for (let index = 0; index < paths.length; index += 1) {
     const path = paths[index]!;
@@ -190,57 +162,98 @@ export async function upsertFusionScreens(args: {
     }
 
     results.push({ fileId, filename, path, url, title, width, height });
-    if (!existingCanvasFrames[fileId]) {
-      placements.push({
-        fileId,
-        filename,
-        x: nextX,
-        y: startY,
-        width,
-        height,
-        z: placements.length,
-      });
-      nextX += width + gap;
-    }
   }
 
-  const mergedFrames = mergeCanvasFramePlacements({
-    existing: prevData.canvasFrames,
-    placements,
-    resolveFileId: (placement) => placement.fileId,
+  let placedFrames: Array<{
+    fileId: string;
+    filename?: string;
+    frame: CanvasFramePlacement;
+  }> = [];
+  await mutateDesignData({
+    designId,
+    mutate: (current, { updatedAt }) => {
+      const currentFrames = parseCanvasFrameGeometryById(current.canvasFrames);
+      const existingGeometries = Object.values(currentFrames);
+      let nextX = startX;
+      if (existingGeometries.length > 0) {
+        nextX =
+          Math.max(
+            startX,
+            ...existingGeometries.map(
+              (frame) => (frame.x ?? 0) + (frame.width ?? width),
+            ),
+          ) + gap;
+      }
+
+      const placements: CanvasFramePlacement[] = [];
+      for (const screen of results) {
+        if (currentFrames[screen.fileId]) continue;
+        placements.push({
+          fileId: screen.fileId,
+          filename: screen.filename,
+          x: nextX,
+          y: startY,
+          width,
+          height,
+          z: placements.length,
+        });
+        nextX += width + gap;
+      }
+      const mergedFrames = mergeCanvasFramePlacements({
+        existing: current.canvasFrames,
+        placements,
+        resolveFileId: (placement) => placement.fileId,
+      });
+      placedFrames = mergedFrames.placedFrames;
+
+      const metadata = isRecord(current.screenMetadata)
+        ? { ...current.screenMetadata }
+        : {};
+      for (const screen of results) {
+        // Preserve user-adjusted title/dimensions on refresh; only URL-backed
+        // source fields track the current container preview.
+        const candidate = metadata[screen.fileId];
+        const previous: Record<string, unknown> = isRecord(candidate)
+          ? candidate
+          : {};
+        metadata[screen.fileId] = {
+          ...previous,
+          sourceType: "fusion",
+          previewState: "live",
+          title: previous.title ?? screen.title,
+          width: previous.width ?? screen.width,
+          height: previous.height ?? screen.height,
+          url: screen.url,
+          previewUrl: screen.url,
+          path: screen.path,
+        };
+      }
+
+      return {
+        ...current,
+        canvasFrames: mergedFrames.canvasFrames,
+        screenMetadata: metadata,
+        updatedAt,
+      };
+    },
+    isApplied: (current) => {
+      const frames = parseCanvasFrameGeometryById(current.canvasFrames);
+      const metadata = isRecord(current.screenMetadata)
+        ? current.screenMetadata
+        : {};
+      return results.every((screen) => {
+        const entry = metadata[screen.fileId];
+        return (
+          Boolean(frames[screen.fileId]) &&
+          isRecord(entry) &&
+          entry.sourceType === "fusion" &&
+          entry.url === screen.url &&
+          entry.previewUrl === screen.url &&
+          entry.path === screen.path
+        );
+      });
+    },
   });
 
-  for (const screen of results) {
-    // Preserve user-adjusted title/dimensions on refresh; only the URL keys
-    // must always track the current preview URL.
-    const prevMeta = isRecord(existingMetadata[screen.fileId])
-      ? (existingMetadata[screen.fileId] as Record<string, unknown>)
-      : {};
-    existingMetadata[screen.fileId] = {
-      ...prevMeta,
-      sourceType: "fusion",
-      previewState: "live",
-      title: prevMeta.title ?? screen.title,
-      width: prevMeta.width ?? screen.width,
-      height: prevMeta.height ?? screen.height,
-      url: screen.url,
-      previewUrl: screen.url,
-      path: screen.path,
-    };
-  }
-
-  await db
-    .update(schema.designs)
-    .set({
-      data: JSON.stringify({
-        ...prevData,
-        canvasFrames: mergedFrames.canvasFrames,
-        screenMetadata: existingMetadata,
-        updatedAt: now,
-      }),
-      updatedAt: now,
-    })
-    .where(eq(schema.designs.id, designId));
-
-  return { screens: results, placedFrames: mergedFrames.placedFrames };
+  return { screens: results, placedFrames };
 }

@@ -14,6 +14,9 @@ export {
 export {
   AutoLayoutMatrix,
   type AutoLayoutDirection,
+  type AutoLayoutFlow,
+  type AutoLayoutGridTrackSizing,
+  type AutoLayoutGridValue,
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixProps,
   type AutoLayoutMatrixValue,

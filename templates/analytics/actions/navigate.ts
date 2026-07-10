@@ -4,13 +4,13 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view, dashboard, analysis, extension, Analytics session recording, or Analytics agent-admin surface. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
+    "Navigate the UI to a specific view, dashboard, analysis, extension, Analytics session recording, Monitoring tab (uptime checks, public status pages, or captured errors), or Analytics agent-admin surface. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
   schema: z.object({
     view: z
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, agents, catalog, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, catalog, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()
@@ -29,14 +29,40 @@ export default defineAction({
       .optional()
       .describe("Session recording id to open (used with view=sessions)"),
     agentsView: z
-      .enum(["monitoring", "database"])
+      .enum(["monitoring", "dashboards", "database"])
       .optional()
-      .describe("Agents subview to open (monitoring or app databases)"),
+      .describe(
+        "Admin subview to open (monitoring, dashboard usage, or app databases)",
+      ),
     dbAdminConnectionId: z
       .string()
       .optional()
       .describe(
         "Connected app database id to select when navigating to agentsView=database",
+      ),
+    monitoringView: z
+      .enum(["uptime", "errors"])
+      .optional()
+      .describe(
+        "Monitoring tab subview to open (uptime checks or captured errors). Used with view=monitoring; defaults to uptime.",
+      ),
+    monitorId: z
+      .string()
+      .optional()
+      .describe(
+        'Uptime monitor id to open (used with view=monitoring; implies the uptime subview). Pass "new" to open the create-monitor form.',
+      ),
+    statusPageId: z
+      .string()
+      .optional()
+      .describe(
+        'Public status page to open in the uptime subview\'s Status pages config (used with view=monitoring; implies the uptime subview). Pass "list" for the index, "new" for the create form, or a status page id to edit that page.',
+      ),
+    errorIssueId: z
+      .string()
+      .optional()
+      .describe(
+        "Captured error issue id to open (used with view=monitoring; implies the errors subview).",
       ),
   }),
   http: false,
@@ -48,10 +74,14 @@ export default defineAction({
       !args.extensionId &&
       !args.recordingId &&
       !args.agentsView &&
-      !args.dbAdminConnectionId
+      !args.dbAdminConnectionId &&
+      !args.monitoringView &&
+      !args.monitorId &&
+      !args.statusPageId &&
+      !args.errorIssueId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, --agentsView, or --dbAdminConnectionId is required.",
+        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
       );
     }
     const nav: Record<string, string> = {};
@@ -81,6 +111,28 @@ export default defineAction({
       nav.agentsView = "database";
       if (!args.view) nav.view = "agents";
     }
+    if (args.monitoringView) {
+      nav.monitoringView = args.monitoringView;
+      if (!args.view) nav.view = "monitoring";
+    }
+    if (args.monitorId) {
+      nav.monitorId = args.monitorId;
+      // Monitors live under the uptime subview.
+      nav.monitoringView = "uptime";
+      if (!args.view) nav.view = "monitoring";
+    }
+    if (args.statusPageId) {
+      nav.statusPageId = args.statusPageId;
+      // Status pages are configured under the uptime subview.
+      nav.monitoringView = "uptime";
+      if (!args.view) nav.view = "monitoring";
+    }
+    if (args.errorIssueId) {
+      nav.errorIssueId = args.errorIssueId;
+      // Error issues live under the errors subview.
+      nav.monitoringView = "errors";
+      if (!args.view) nav.view = "monitoring";
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
@@ -92,6 +144,10 @@ export default defineAction({
     if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);
     if (nav.dbAdminConnectionId)
       parts.push(`db-admin:${nav.dbAdminConnectionId}`);
+    if (nav.monitoringView) parts.push(`monitoring:${nav.monitoringView}`);
+    if (nav.monitorId) parts.push(`monitor:${nav.monitorId}`);
+    if (nav.statusPageId) parts.push(`status-page:${nav.statusPageId}`);
+    if (nav.errorIssueId) parts.push(`issue:${nav.errorIssueId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

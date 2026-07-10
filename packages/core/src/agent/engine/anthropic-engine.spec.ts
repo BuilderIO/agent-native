@@ -201,6 +201,49 @@ describe("createAnthropicEngine", () => {
     expect(lowParams.max_tokens).toBe(64_000);
   });
 
+  it("clamps an explicit large thinking budget so it leaves headroom under max_tokens", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-opus-4-8",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "enabled", budgetTokens: 100_000 },
+        },
+      },
+    });
+
+    expect(requestParams.max_tokens).toBe(32_000);
+    // Unclamped this would have been 100_000 (> max_tokens, invalid per the
+    // Anthropic API contract). It must stay strictly below max_tokens and
+    // leave at least max(8000, 40% of max_tokens) for the actual response.
+    expect(requestParams.thinking.budget_tokens).toBeLessThan(32_000);
+    expect(
+      requestParams.max_tokens - requestParams.thinking.budget_tokens,
+    ).toBeGreaterThanOrEqual(8000);
+  });
+
+  it("leaves a small, already-safe thinking budget unchanged", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-opus-4-8",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "enabled", budgetTokens: 2_000 },
+        },
+      },
+    });
+
+    expect(requestParams.thinking.budget_tokens).toBe(2_000);
+  });
+
   it("adds no cache_control anywhere when cacheControl is disabled", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-haiku-4-5-20251001",
@@ -213,6 +256,101 @@ describe("createAnthropicEngine", () => {
 
     expect(requestParams.system[0].cache_control).toBeUndefined();
     expect(requestParams.messages[0].content[0].cache_control).toBeUndefined();
+  });
+
+  it("tags upstream 429 rate limits with http_429 + statusCode so retries kick in", async () => {
+    // The Anthropic SDK reports an empty-body rate limit as a bare
+    // "429 status code (no body)" message. Without forwarding the structured
+    // status, isRetryableError couldn't classify it and the run failed hard.
+    class MockRateLimitError extends Error {
+      status = 429;
+      constructor() {
+        super("429 status code (no body)");
+      }
+    }
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {
+        throw new MockRateLimitError();
+      },
+      finalMessage: vi.fn(),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
+    }));
+
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate({ apiKey: "test" });
+    const opts: EngineStreamOptions = {
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "Test",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    };
+
+    // The engine yields the terminal stop event and then rethrows the raw SDK
+    // error, so collect events defensively.
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const e of engine.stream(opts)) events.push(e);
+    }).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.error).toBe("429 status code (no body)");
+    expect(stopEvent?.errorCode).toBe("http_429");
+    expect(stopEvent?.statusCode).toBe(429);
+
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  it("tags Anthropic APIConnectionError as provider_network_error", async () => {
+    class MockConnectionError extends Error {
+      constructor() {
+        super("Connection error.");
+        this.name = "APIConnectionError";
+      }
+    }
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {
+        throw new MockConnectionError();
+      },
+      finalMessage: vi.fn(),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
+    }));
+
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate({ apiKey: "test" });
+    const opts: EngineStreamOptions = {
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "Test",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    };
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const e of engine.stream(opts)) events.push(e);
+    }).rejects.toThrow("Connection error.");
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.error).toBe("Connection error.");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+
+    vi.doUnmock("@anthropic-ai/sdk");
   });
 
   it("stream emits stop with error when API key is missing", async () => {

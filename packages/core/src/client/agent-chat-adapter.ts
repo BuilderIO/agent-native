@@ -133,16 +133,15 @@ const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
 // ── Background follow mode ──────────────────────────────────────────────────
-// For background-dispatched runs (dispatchMode starts with "background") the
-// SERVER is the sole recovery brain: it chains continuation chunks itself
-// (fresh runId, same turnId), pre-inserts the successor run row BEFORE the old
-// chunk completes (so /runs/active shows an active run continuously across
-// chunk boundaries), and a server sweep reaps lost handoffs into loud terminal
-// errors. The client therefore never POSTs synthetic continuations for these
-// runs — it demotes itself to a READER of server state: poll /runs/active,
-// (re)attach to whichever run of this turn is live, and fold its events into
-// the same assistant message. Read-only, so multiple tabs following the same
-// run are safe (no localStorage/Web-Locks claim needed).
+// For server-continued runs (dispatchMode starts with "background" or equals
+// "foreground-self-chain") the SERVER normally chains continuation chunks
+// itself (fresh runId, same turnId), pre-inserts the successor run row BEFORE
+// the old chunk completes (so /runs/active shows an active run continuously
+// across chunk boundaries), and a server sweep reaps lost handoffs into loud
+// terminal errors. The client demotes itself to a READER of server state for
+// healthy handoffs. Foreground self-chain keeps one escape hatch: if the server
+// reports that the self-dispatch itself failed before a successor claimed the
+// run, the existing client auto-continue POST remains the fallback.
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
@@ -197,6 +196,7 @@ function contentToContinuationHistory(content: ContentPart[]): string {
       if (part.text.trim()) chunks.push(part.text.trim());
       continue;
     }
+    if (part.type === "reasoning") continue;
     if (part.activity === true) continue;
     const toolSummary = [
       `Tool: ${part.toolName}`,
@@ -578,6 +578,12 @@ function contentToStructuredMessages(
       continue;
     }
 
+    // Reasoning/thinking is UI-only — do not send chain-of-thought back into
+    // model history on continuation.
+    if (part.type === "reasoning") {
+      continue;
+    }
+
     if (isToolCallContentPart(part)) {
       if (part.activity === true) continue;
       const toolCallId = nextToolCallId();
@@ -737,15 +743,15 @@ function combineContinuationHistory(fragments: string[]): string {
 }
 
 function hasContinuationProgress(content: ContentPart[]): boolean {
-  return content.some((part) =>
-    part.type === "text"
-      ? part.text.trim().length > 0
-      : part.result !== undefined,
-  );
+  return content.some((part) => {
+    if (part.type === "text") return part.text.trim().length > 0;
+    if (part.type === "reasoning") return false;
+    return part.result !== undefined;
+  });
 }
 
 const COMPLETED_TOOL_TIMEOUT_NAME_RE =
-  /^(add|apply|archive|capture|create|delete|deploy|duplicate|edit|generate|grant|insert|migrate|move|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
+  /^(add|apply|archive|capture|compose|create|delete|deploy|duplicate|edit|generate|grant|insert|install|migrate|move|mutate|present|publish|remove|rename|reorder|revoke|save|send|set|sync|trash|update|write)(-|$)/;
 const COMPLETED_TOOL_TIMEOUT_NAME_ALLOWLIST = new Set([
   "connect-assets-mcp",
   "import-design-tokens",
@@ -848,6 +854,21 @@ function lastActivityTool(
   return undefined;
 }
 
+function lastPreparingActionTool(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const entry = trail[i];
+    const tool = entry?.tool?.trim();
+    if (!tool) continue;
+    const label = entry.label.trim().toLowerCase();
+    if (label.startsWith("preparing ") && label.includes(" action")) {
+      return tool;
+    }
+  }
+  return undefined;
+}
+
 function formatActivityTrail(
   trail: readonly AgentActivityTrailEntry[],
 ): string | undefined {
@@ -881,7 +902,9 @@ function lastUnresolvedToolActivity(
 
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
-    part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
+    part.type === "text" || part.type === "reasoning"
+      ? { ...part }
+      : { ...part, args: { ...part.args } },
   );
 }
 
@@ -950,6 +973,22 @@ function contentAfterContinuationPrefix(
         continue;
       }
 
+      return content.slice(contentIndex);
+    }
+
+    if (prefixPart.type === "reasoning" && currentPart.type === "reasoning") {
+      if (currentPart.text === prefixPart.text) {
+        contentIndex += 1;
+        continue;
+      }
+      if (currentPart.text.startsWith(prefixPart.text)) {
+        const appendedText = currentPart.text.slice(prefixPart.text.length);
+        if (appendedText) {
+          delta.push({ type: "reasoning", text: appendedText });
+        }
+        contentIndex += 1;
+        continue;
+      }
       return content.slice(contentIndex);
     }
 
@@ -1687,12 +1726,29 @@ export function createAgentChatAdapter(
         if (mode) currentRunDispatchMode = mode;
       };
 
-      // Mode switch for recovery ownership: background-dispatched runs are
-      // recovered by the SERVER (chained continuations, sweeps); the client
-      // only follows. Foreground (null/"foreground"/unknown) keeps the full
-      // client-side continuation machinery unchanged.
-      const isBackgroundDispatch = () =>
+      // Mode switch for recovery ownership: durable/background-dispatched runs
+      // are always recovered by the server. Foreground self-chain follows the
+      // server on healthy handoffs. A loud continuation-dispatch failure falls
+      // back to the client POST path in either mode because the server has
+      // already marked the unclaimed successor terminal; the per-turn tool
+      // journal keeps that retry from replaying completed side effects.
+      const isDurableBackgroundDispatch = () =>
         currentRunDispatchMode?.startsWith("background") === true;
+      const isForegroundSelfChainDispatch = () =>
+        currentRunDispatchMode === "foreground-self-chain";
+      const shouldFollowServerContinuation = (
+        signal?: AgentAutoContinueSignal,
+      ) => {
+        if (
+          signal?.errorInfo?.errorCode ===
+          "background_continuation_dispatch_failed"
+        ) {
+          return false;
+        }
+        if (isDurableBackgroundDispatch()) return true;
+        if (!isForegroundSelfChainDispatch()) return false;
+        return true;
+      };
 
       const rememberRunSeq = (seq: number) => {
         lastSeq = seq;
@@ -2240,7 +2296,11 @@ export function createAgentChatAdapter(
         // ends the turn from the client side.
         const followBackgroundTurn = async function* (
           initialSignal: AgentAutoContinueSignal,
-        ): AsyncGenerator<ChatModelRunResult, void, unknown> {
+        ): AsyncGenerator<
+          ChatModelRunResult,
+          "completed" | "client_continue",
+          unknown
+        > {
           lastAutoContinueReason = initialSignal.reason;
           if (initialSignal.activityTrail.length > 0) {
             lastActivityTrail = [...initialSignal.activityTrail];
@@ -2274,7 +2334,7 @@ export function createAgentChatAdapter(
           while (true) {
             if (abortSignal.aborted) {
               clearActiveRun();
-              return;
+              return "completed";
             }
             let active: Record<string, unknown> | null = null;
             try {
@@ -2288,7 +2348,7 @@ export function createAgentChatAdapter(
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
                 clearActiveRun();
-                return;
+                return "completed";
               }
               // Transient poll failure — counts as "no active run" this tick.
             }
@@ -2315,8 +2375,25 @@ export function createAgentChatAdapter(
               const isTerminal =
                 activeStatus === "completed" || activeStatus === "errored";
               if (isTerminal && replayedTerminalRunIds.has(activeRunId)) {
+                if (
+                  lastAutoContinueReason === "stale_run" &&
+                  lastRecoverableRunError?.errorCode === "stale_run"
+                ) {
+                  const continuation = prepareAutoContinuation(
+                    new AgentAutoContinueSignal({
+                      reason: "stale_run",
+                      errorInfo: lastRecoverableRunError,
+                      activityTrail: lastActivityTrail,
+                    }),
+                  );
+                  if (continuation.ok) {
+                    dispatchResumingUiEvent();
+                    await delay(250, abortSignal);
+                    return "client_continue";
+                  }
+                }
                 yield* emitBackgroundTerminalOutcome(active);
-                return;
+                return "completed";
               }
               const previousRunId = runId;
               runId = activeRunId;
@@ -2329,7 +2406,7 @@ export function createAgentChatAdapter(
               }
               const attach = yield* followAttachOnce();
               if (attach === "completed" || attach === "aborted") {
-                return;
+                return "completed";
               }
               if (isTerminal) {
                 replayedTerminalRunIds.add(activeRunId);
@@ -2351,7 +2428,7 @@ export function createAgentChatAdapter(
                   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                 ) {
                   yield* emitBackgroundTerminalOutcome(lastSeenActive);
-                  return;
+                  return "completed";
                 }
               }
               dispatchResumingUiEvent();
@@ -2371,13 +2448,13 @@ export function createAgentChatAdapter(
                   },
                 );
                 yield* emitBackgroundTerminalOutcome(lastSeenActive);
-                return;
+                return "completed";
               }
             }
             await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
             if (abortSignal.aborted) {
               clearActiveRun();
-              return;
+              return "completed";
             }
           }
         };
@@ -2427,7 +2504,8 @@ export function createAgentChatAdapter(
               part.result !== undefined,
           );
           const currentPreparingToolName =
-            lastUnresolvedToolActivity(visibleContent);
+            lastUnresolvedToolActivity(visibleContent) ??
+            lastPreparingActionTool(signal.activityTrail);
           // In-flight tool stall guard. When the same write tool is stuck
           // in-flight because the connection keeps dropping (stream_ended),
           // hasInFlightTool=true keeps madeProgress=true and completely
@@ -2966,8 +3044,11 @@ export function createAgentChatAdapter(
               // following of server state instead. This is the fix for the
               // client/server recovery race: client watchdog signals here are
               // just "reattach", not "recover".
-              if (isBackgroundDispatch() && threadId) {
-                yield* followBackgroundTurn(err);
+              if (shouldFollowServerContinuation(err) && threadId) {
+                const followOutcome = yield* followBackgroundTurn(err);
+                if (followOutcome === "client_continue") {
+                  continue;
+                }
                 return;
               }
               if (err.reason === "no_progress") {
@@ -3145,10 +3226,13 @@ export function createAgentChatAdapter(
             // synthetic-continuation POST below. (An initial POST that failed
             // before any response headers arrived has no dispatch mode yet
             // and keeps the foreground startup-retry path.)
-            if (isBackgroundDispatch() && threadId) {
-              yield* followBackgroundTurn(
+            if (shouldFollowServerContinuation() && threadId) {
+              const followOutcome = yield* followBackgroundTurn(
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
               );
+              if (followOutcome === "client_continue") {
+                continue;
+              }
               return;
             }
 

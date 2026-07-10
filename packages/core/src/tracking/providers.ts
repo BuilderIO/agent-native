@@ -30,6 +30,10 @@ interface QueuedEvent {
   headers?: Record<string, string>;
 }
 
+interface EnqueueOptions {
+  flushImmediately?: boolean;
+}
+
 // Use globalThis so multiple ESM graph instances (Vite dev + Nitro symlinks)
 // share one queue, matching the same pattern as the tracking registry.
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
@@ -59,10 +63,11 @@ function enqueue(
   url: string,
   body: string,
   headers?: Record<string, string>,
+  options?: EnqueueOptions,
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  if (queue.length >= MAX_BATCH_SIZE) {
+  if (options?.flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
   } else if (!getTimer()) {
     const timer = setTimeout(() => {
@@ -130,6 +135,25 @@ function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
     process.env.VERCEL_PROJECT_PRODUCTION_URL,
     process.env.VERCEL_URL,
   ].some(isLocalhostUrl);
+}
+
+function isServerlessRuntime(): boolean {
+  return Boolean(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.AWS_EXECUTION_ENV ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.FUNCTION_NAME,
+  );
+}
+
+function agentNativeAnalyticsFlushesImmediately(): boolean {
+  const mode =
+    process.env.AGENT_NATIVE_ANALYTICS_FLUSH_MODE?.trim().toLowerCase();
+  if (mode === "batch") return false;
+  if (mode === "immediate") return true;
+  return isServerlessRuntime();
 }
 
 // ─── PostHog ───────────────────────────────────────────────────────────────
@@ -307,6 +331,7 @@ function createAgentNativeAnalyticsProvider(
   publicKey: string,
   endpoint: string,
 ): TrackingProvider {
+  const flushImmediately = agentNativeAnalyticsFlushesImmediately();
   return {
     name: "agent-native-analytics",
     track(event: TrackingEvent) {
@@ -319,6 +344,8 @@ function createAgentNativeAnalyticsProvider(
           userId: event.userId,
           timestamp: event.timestamp,
         }),
+        undefined,
+        { flushImmediately },
       );
     },
     identify(userId, traits) {
@@ -331,6 +358,8 @@ function createAgentNativeAnalyticsProvider(
           properties: traits ?? {},
           timestamp: new Date().toISOString(),
         }),
+        undefined,
+        { flushImmediately },
       );
     },
     flush: () => {
@@ -366,7 +395,9 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
   }
 
-  const agentNativeAnalyticsKey = process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  const agentNativeAnalyticsKey =
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (
     agentNativeAnalyticsKey &&
     !shouldSkipAgentNativeAnalyticsForLocalhost()

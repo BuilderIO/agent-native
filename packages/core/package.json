@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.90.4",
+  "version": "0.92.11",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -227,15 +227,15 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
-    "dev": "tsgo --watch",
-    "typecheck": "tsgo --noEmit",
+    "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
     "test": "vitest --run src --maxWorkers=25%",
     "prepack": "tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agent-native/toolkit": "workspace:*",
+    "@agent-native/toolkit": "workspace:^",
     "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",
     "@anthropic-ai/tokenizer": "0.0.4",
@@ -265,6 +265,7 @@
     "@rrweb/record": "2.0.1",
     "@sentry/browser": "10.60.0",
     "@sentry/node": "10.60.0",
+    "@shadcn/react": "^0.2.0",
     "@standard-schema/spec": "^1.1.0",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "3.27.1",
@@ -366,7 +367,8 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",
     "ws": "^8.18.0"

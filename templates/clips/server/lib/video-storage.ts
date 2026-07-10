@@ -25,6 +25,10 @@ export function requiresConfiguredVideoStorage(): boolean {
   return process.env.NODE_ENV === "production" || !isLikelyLocalDatabase();
 }
 
+export function allowsSqlRecordingChunkScratch(): boolean {
+  return !requiresConfiguredVideoStorage();
+}
+
 interface VideoStorageResolveContext {
   userEmail?: string;
   orgId?: string | null;

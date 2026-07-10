@@ -15,8 +15,8 @@ use tauri::{
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor, VoiceTargetBundle,
-    VoiceWakePopover,
+    ActiveMeetingId, DictationActive, LastTranscript, MeetingActive, RecordingActive, TrayAnchor,
+    VoiceTargetBundle, VoiceWakePopover,
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
@@ -46,6 +46,15 @@ const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
 const ONBOARDING_LABEL: &str = "onboarding";
+const OVERLAY_LABELS: &[&str] = &[
+    COUNTDOWN_LABEL,
+    TOOLBAR_LABEL,
+    BUBBLE_LABEL,
+    FINALIZING_LABEL,
+    FLOW_BAR_LABEL,
+    REGION_GUIDES_LABEL,
+    REGION_RECORD_BORDER_LABEL,
+];
 const ONBOARDING_WIDTH_LOGICAL: f64 = 560.0;
 const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 
@@ -56,7 +65,7 @@ const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 /// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
@@ -952,25 +961,30 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
     Ok(())
 }
 
+fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
+    OVERLAY_LABELS
+        .iter()
+        .copied()
+        .filter(move |label| !preserve_finalizing || *label != FINALIZING_LABEL)
+}
+
 #[tauri::command]
-pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+pub async fn hide_overlays(
+    app: AppHandle,
+    preserve_finalizing: Option<bool>,
+) -> Result<(), String> {
     stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
-    for label in [
-        COUNTDOWN_LABEL,
-        TOOLBAR_LABEL,
-        BUBBLE_LABEL,
-        FINALIZING_LABEL,
-        FLOW_BAR_LABEL,
-        REGION_GUIDES_LABEL,
-        REGION_RECORD_BORDER_LABEL,
-    ] {
+    for label in overlay_labels_to_hide(preserve_finalizing.unwrap_or(false)) {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
     }
-    // A recording pill may be owned by meeting or voice flows; tear it down too.
-    let _ = crate::recording_indicator::recording_pill_hide(app).await;
+    // The meeting pill belongs to the live notes session, not the popover's
+    // camera/bubble lifecycle. Keep it visible when the popover closes.
+    if !crate::util::is_meeting_active(&app) {
+        let _ = crate::recording_indicator::recording_pill_hide(app).await;
+    }
     Ok(())
 }
 
@@ -1521,8 +1535,15 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
+        overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
+        TextInsertionStrategy, FINALIZING_LABEL,
     };
+
+    #[test]
+    fn overlay_cleanup_can_preserve_finalizing_progress() {
+        assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+    }
 
     #[test]
     fn uses_clipboard_paste_for_chrome() {
@@ -1887,14 +1908,35 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
 /// teardown in `lib.rs`: quit stays instant when no meeting is active, and
 /// only waits for a graceful stop when one is.
 #[tauri::command]
-pub async fn set_meeting_active(app: AppHandle, active: bool) -> Result<(), String> {
-    dlog!("[clips-tray] set_meeting_active active={}", active);
+pub async fn set_meeting_active(
+    app: AppHandle,
+    active: bool,
+    meeting_id: Option<String>,
+) -> Result<(), String> {
+    dlog!(
+        "[clips-tray] set_meeting_active active={} meeting_id={:?}",
+        active,
+        meeting_id
+    );
     if let Some(state) = app.try_state::<MeetingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
         }
     }
+    if let Some(state) = app.try_state::<ActiveMeetingId>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = if active { meeting_id } else { None };
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_meeting_id(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app
+        .try_state::<ActiveMeetingId>()
+        .and_then(|s| s.0.lock().ok().and_then(|g| g.clone())))
 }
 
 /// Guards the quit-teardown handshake in `lib.rs`'s `ExitRequested` handler:
@@ -1935,6 +1977,16 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = false;
+        }
+    }
+    if let Some(state) = app.try_state::<MeetingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    if let Some(state) = app.try_state::<ActiveMeetingId>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = None;
         }
     }
     if let Some(w) = app.get_webview_window(REGION_GUIDES_LABEL) {

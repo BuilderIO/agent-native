@@ -5,6 +5,7 @@
 //! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
+mod adhoc_meetings_watcher;
 mod clips;
 mod config;
 mod debug;
@@ -32,8 +33,8 @@ use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
-    DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
+    ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
+    PopoverShownAt, RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -94,6 +95,7 @@ pub fn run() {
             clips::paste_last_dictation,
             clips::set_recording_state,
             clips::set_meeting_active,
+            clips::get_active_meeting_id,
             clips::quit_teardown_done,
             clips::reset_state,
             clips::save_bubble_position,
@@ -203,6 +205,7 @@ pub fn run() {
         .manage(PopoverShownAt::default())
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
+        .manage(ActiveMeetingId::default())
         .manage(DictationEnabled::default())
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
@@ -211,6 +214,7 @@ pub fn run() {
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
+        .manage(adhoc_meetings_watcher::AdhocMeetingsWatcherState::default())
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
@@ -260,6 +264,9 @@ pub fn run() {
             // server URL via `meetings_watcher_set_server_url` once the
             // popover boots.
             meetings_watcher::spawn_watcher(app.handle().clone());
+            // Granola-style adhoc Zoom/Teams detection — shares session
+            // credentials with the calendar watcher above.
+            adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
 
             // Pre-download the Whisper model in the background so the first
             // meeting doesn't pay the ~142 MB download cost mid-call. Skipped

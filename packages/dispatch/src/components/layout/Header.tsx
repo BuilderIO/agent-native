@@ -3,8 +3,7 @@ import { RunsTray } from "@agent-native/core/client/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";
 
-import { Button } from "@/components/ui/button";
-
+import { Button } from "../ui/button";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
@@ -18,6 +17,7 @@ const pageTitles: Record<string, string> = {
   "/destinations": "Destinations",
   "/identities": "Identities",
   "/approvals": "Approvals",
+  "/automations": "Automations",
   "/audit": "Audit",
   "/settings": "Settings",
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldClearSelectionOnEmptyCanvasClick } from "./MultiScreenCanvas";
+import { shouldClearSelectionOnEmptyCanvasClick } from "./multi-screen/canvas-tools";
 
 /**
  * Regression coverage for the overview board's empty-space click behavior:

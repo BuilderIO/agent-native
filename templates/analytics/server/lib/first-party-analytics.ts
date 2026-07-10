@@ -2,6 +2,11 @@ import { getDbExec } from "@agent-native/core/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  EXCEPTION_EVENT_NAME,
+  ingestAnalyticsExceptionEvents,
+  type DerivedExceptionFields,
+} from "./error-capture.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -351,6 +356,10 @@ export async function recordAnalyticsEvents(
   }
 
   const receivedAt = nowIso();
+  const exceptionSources: Array<{
+    properties: Record<string, unknown>;
+    derived: DerivedExceptionFields;
+  }> = [];
   const rows = events.map((event) => {
     const properties = event.properties ?? {};
     const context = event.context ?? {};
@@ -380,6 +389,24 @@ export async function recordAnalyticsEvents(
       asString((properties as any).distinctId);
     const userKey = userId || anonymousId;
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
+    const sessionId =
+      event.sessionId ?? asString((properties as any).sessionId);
+
+    if (event.event === EXCEPTION_EVENT_NAME) {
+      exceptionSources.push({
+        properties,
+        derived: {
+          app,
+          template,
+          url: parts.url,
+          userId,
+          anonymousId,
+          userKey,
+          sessionId,
+          timestamp,
+        },
+      });
+    }
 
     return {
       id: id("evt"),
@@ -388,7 +415,7 @@ export async function recordAnalyticsEvents(
       userId,
       anonymousId,
       userKey,
-      sessionId: event.sessionId ?? asString((properties as any).sessionId),
+      sessionId,
       timestamp,
       eventDate: eventDateFromTimestamp(timestamp),
       receivedAt,
@@ -413,6 +440,25 @@ export async function recordAnalyticsEvents(
       .update(schema.analyticsPublicKeys)
       .set({ lastUsedAt: receivedAt })
       .where(eq(schema.analyticsPublicKeys.id, key.id));
+  }
+
+  // Fork captured exceptions into the dedicated error-capture tables. This is
+  // best-effort: a malformed `$exception` payload must never reject the whole
+  // analytics ingest (the event is still recorded in analytics_events above,
+  // which keeps alerting working).
+  if (exceptionSources.length) {
+    try {
+      await ingestAnalyticsExceptionEvents(
+        {
+          ownerEmail: key.ownerEmail,
+          orgId: key.orgId ?? null,
+          publicKeyId: key.id,
+        },
+        exceptionSources,
+      );
+    } catch (error) {
+      console.warn("[first-party-analytics] Exception ingest failed:", error);
+    }
   }
 
   return { accepted: rows.length, keyId: key.id };

@@ -12,7 +12,7 @@ description: >
 **`bigquery` is available directly in the agent's tool list as a native callable tool.**
 
 - If you see `bigquery` in your available tools — **call it directly with your SQL**. Do not use HTTP workarounds, web-request hacks, or scripts as a substitute.
-- The `server/lib/bigquery.ts` description below is the *underlying implementation*. It does **not** mean BigQuery is only accessible via terminal commands or scripts.
+- The `server/lib/bigquery.ts` description below is the _underlying implementation_. It does **not** mean BigQuery is only accessible via terminal commands or scripts.
 - **When uncertain if the tool works, call it — don't reason your way to "it won't work".** Empirically test by calling the tool.
 - Scripts (`pnpm action`) and the server lib are for dashboard UI code and CLI use. The agent calls BigQuery directly via its native tool.
 
@@ -71,16 +71,16 @@ description: >
 
 ### Sigma Blog Metadata Column Mapping
 
-| Cryptic Column | Meaning                  | Example Values                                                    |
-| -------------- | ------------------------ | ----------------------------------------------------------------- |
-| `SUOHFYGIOG`   | Blog URL                 | `https://www.example.com/blog/sample-post`                        |
-| `H5YIATNDT5`   | Author                   | Jane Doe, Alex Chen, Sam Patel, Taylor Kim                        |
-| `ZZJ6XRJAII`   | Publish date (TIMESTAMP) |                                                                   |
-| `FTRKLGZM1R`   | Purpose                  | Acquisition, Awareness                                            |
-| `IFHWPU1IDO`   | Persona                  | Developers, Product Managers, Engineering Leaders, Designers      |
-| `Z52LFY52AK`   | Topic                    | AI, CMS, Web Development, Design                                  |
-| `_DGCBJNKLE`   | Sub-type                 | Tooling, Development, Prototyping                                 |
-| `JQL-G1QE-B`   | Sub-topic                | AI Design, AI Prototyping, AI Tools                               |
+| Cryptic Column | Meaning                  | Example Values                                               |
+| -------------- | ------------------------ | ------------------------------------------------------------ |
+| `SUOHFYGIOG`   | Blog URL                 | `https://www.example.com/blog/sample-post`                   |
+| `H5YIATNDT5`   | Author                   | Jane Doe, Alex Chen, Sam Patel, Taylor Kim                   |
+| `ZZJ6XRJAII`   | Publish date (TIMESTAMP) |                                                              |
+| `FTRKLGZM1R`   | Purpose                  | Acquisition, Awareness                                       |
+| `IFHWPU1IDO`   | Persona                  | Developers, Product Managers, Engineering Leaders, Designers |
+| `Z52LFY52AK`   | Topic                    | AI, CMS, Web Development, Design                             |
+| `_DGCBJNKLE`   | Sub-type                 | Tooling, Development, Prototyping                            |
+| `JQL-G1QE-B`   | Sub-topic                | AI Design, AI Prototyping, AI Tools                          |
 
 **Deduplication**: Table has duplicates (http:// vs https://). Always deduplicate: `REGEXP_EXTRACT(SUOHFYGIOG, r'/blog/([^/?#]+)')` with ROW_NUMBER or DISTINCT.
 
@@ -170,12 +170,12 @@ Use **Amplitude** (`amplitude.EVENTS_182198`) instead of `@app_events` — small
 
 ### Key agent chat event types
 
-| Event                                     | Description                              |
-| ----------------------------------------- | ---------------------------------------- |
-| `agent chat message submitted`            | User sends message in AI chat            |
-| `visual editor ai chat message submitted` | User sends message in Visual Editor AI   |
-| `agent chat message completed`            | AI response completed                    |
-| `agent chat code applied`                 | User applied generated code              |
+| Event                                     | Description                            |
+| ----------------------------------------- | -------------------------------------- |
+| `agent chat message submitted`            | User sends message in AI chat          |
+| `visual editor ai chat message submitted` | User sends message in Visual Editor AI |
+| `agent chat message completed`            | AI response completed                  |
+| `agent chat code applied`                 | User applied generated code            |
 
 ### Customer agent chat message lookup pipeline
 

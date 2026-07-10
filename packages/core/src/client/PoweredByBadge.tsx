@@ -1,4 +1,3 @@
-import { IconBrandGithub } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 
 import { appPath } from "./api-path.js";
@@ -192,7 +191,7 @@ export function PoweredByBadge({
 }
 
 /**
- * Small GitHub badge: "Free and open source"
+ * Small badge: "Free and open source"
  *
  * Intended to pair with PoweredByBadge on public pages.
  */
@@ -209,11 +208,6 @@ export function OpenSourceBadge({
   return (
     <>
       <style>{`
-        .an-open-source-badge svg {
-          width: 15px;
-          height: 15px;
-          flex: none;
-        }
         .an-open-source-badge {
           background: transparent !important;
           border-color: transparent !important;
@@ -283,7 +277,6 @@ export function OpenSourceBadge({
             : containerStyle(position)
         }
       >
-        <IconBrandGithub aria-hidden="true" stroke={1.8} />
         <span>Free and open source</span>
       </a>
     </>

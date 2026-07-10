@@ -34,6 +34,11 @@ pub struct RecordingActive(pub Mutex<bool>);
 #[derive(Default)]
 pub struct MeetingActive(pub Mutex<bool>);
 
+/// Active meeting id, when meeting notes are currently running. Kept separate
+/// from `MeetingActive` so older boolean-only state checks stay simple.
+#[derive(Default)]
+pub struct ActiveMeetingId(pub Mutex<Option<String>>);
+
 #[allow(dead_code)]
 /// Whether dictation is toggled on.
 #[derive(Default)]

@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ configureTracking({
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 يقوم مساعد المتصفح أيضًا بإجراء قراءة غير محظِّرة وبأفضل جهد ممكن لجلسة مصادقة Agent Native الحالية. إعادة التشغيل مخصصة لتسجيل الدخول فقط بشكل افتراضي: عندما يكون `sessionReplay` مفعّلاً، لا يبدأ التسجيل ما لم تُحلّ الجلسة إلى عنوان بريد إلكتروني لمستخدم. تتضمن إعادة تشغيل الجلسات المسجَّلة `userId`/`userEmail` المدعومين بالبريد الإلكتروني بالإضافة إلى `orgId`.
 
 اضبط `sessionReplay.requireSignedInUser: false` أو `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` فقط من أجل نشر إعادة تشغيل مجهولة الهوية مقصود. عندما يتم تعطيل تحكم المصادقة، تظل التسجيلات المجهولة قابلة للاستعلام حسب الزائر المجهول، والجلسة، والتطبيق/القالب، واسم المضيف، والمسار.
 
-يتم أخذ عينات من إعادة تشغيل الجلسة بشكل حتمي لكل جلسة متصفح. يقوم `sampleRate` بقيمة `0.1` بتسجيل حوالي 10% من الجلسات المؤهلة؛ استخدم `1` عندما تكون المجموعة المؤهلة صغيرة عن قصد، مثل اختبار الاستخدام الداخلي لتسجيل الدخول فقط.
+يتم أخذ عينات من إعادة تشغيل الجلسة بشكل حتمي لكل جلسة متصفح. يقوم `sampleRate` بقيمة `1` بتسجيل جميع الجلسات المؤهلة؛ استخدم قيمًا أقل، مثل `0.1`، عندما تكون المجموعة المؤهلة واسعة عن قصد.
 
 إعدادات الخصوصية الافتراضية متحفظة عن قصد لكنها لا تزال مفيدة لإعادة التشغيل:
 

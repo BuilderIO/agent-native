@@ -101,6 +101,47 @@ function truncateSourceForContext(prompt: string): {
   };
 }
 
+interface DesignSystemGenerationContextResult {
+  title?: string;
+  agentContext?: string;
+}
+
+async function loadDesignSystemGenerationContext(
+  designSystemId?: string | null,
+): Promise<string> {
+  if (!designSystemId) return "";
+  try {
+    const result = (await callAction(
+      "get-design-system",
+      { id: designSystemId },
+      { method: "GET" },
+    )) as DesignSystemGenerationContextResult | undefined;
+    if (result?.agentContext?.trim()) {
+      return [
+        "",
+        result.agentContext.trim(),
+        "",
+        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
+      ].join("\n");
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown loading error";
+    return [
+      "",
+      "## Selected Design System Context",
+      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
+      "Before adding slides, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
+    ].join("\n");
+  }
+  return [
+    "",
+    "## Selected Design System Context",
+    `The selected design system id "${designSystemId}" returned no generation context.`,
+    "Call `get-design-system` for this id before adding slides. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
+  ].join("\n");
+}
+
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
@@ -359,13 +400,17 @@ export default function Index() {
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
         : "";
+    const hydratedDesignSystemContext = await loadDesignSystemGenerationContext(
+      selectedDesignSystem?.id,
+    );
     const designSystemContext = selectedDesignSystem
       ? [
           "",
           "Design system selection:",
           `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
           "- The deck has already been linked to this design system.",
-          `- Before adding slides, call \`get-design-system --id ${selectedDesignSystem.id}\` and use its tokens for colors, typography, spacing, imagery, and slide defaults.`,
+          "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
+          hydratedDesignSystemContext,
           "- Do not choose or apply a different design system.",
         ].join("\n")
       : [

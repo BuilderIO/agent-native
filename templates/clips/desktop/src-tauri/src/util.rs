@@ -5,7 +5,7 @@ use crate::state::{
     DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
@@ -423,6 +423,41 @@ pub fn is_recording_active(app: &AppHandle) -> bool {
     app.try_state::<RecordingActive>()
         .and_then(|s| s.0.lock().ok().map(|g| *g))
         .unwrap_or(false)
+}
+
+pub fn is_meeting_active(app: &AppHandle) -> bool {
+    use crate::state::MeetingActive;
+    app.try_state::<MeetingActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
+}
+
+/// Bundle id of the frontmost macOS app, or `None` on failure / non-macOS.
+/// Uses a lightweight `osascript` shell-out so callers don't need objc2.
+#[cfg(target_os = "macos")]
+pub fn frontmost_bundle_id() -> Option<String> {
+    use std::process::Command;
+    let out = Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"System Events\" to get bundle identifier of (first process whose frontmost is true)",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_bundle_id() -> Option<String> {
+    None
 }
 
 pub fn set_dictation_active(app: &AppHandle, active: bool) {

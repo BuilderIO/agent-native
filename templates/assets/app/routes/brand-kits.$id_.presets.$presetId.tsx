@@ -37,35 +37,63 @@ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconArrowLeft,
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
   IconLock,
   IconPhotoPlus,
+  IconPlus,
+  IconSearch,
   IconTrash,
   IconUpload,
+  IconUserPlus,
+  IconX,
 } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { messagesByLocale } from "@/i18n-data";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import type { AssetUploadResult } from "@/lib/upload-results";
 import { cn } from "@/lib/utils";
 
+import { normalizePresetReferences } from "../../server/lib/preset-references";
 import {
   ASPECT_RATIOS,
   GENERATION_PRESET_REFERENCE_POLICIES,
   IMAGE_CATEGORIES,
   IMAGE_MODELS,
   IMAGE_SIZES,
+  PRESET_REFERENCE_ROLES,
   supportedAspectRatiosForModel,
   type AspectRatio,
   type GenerationPresetReferencePolicy,
   type ImageCategory,
   type ImageModel,
   type ImageSize,
+  type PresetReference,
+  type PresetReferenceRole,
   type PresetSkeletonSpec,
 } from "../../shared/api";
 
@@ -101,11 +129,13 @@ type PresetFormState = {
   skeletonDropShadow: boolean;
   skeletonLogo: boolean;
   skeletonLogoPlacement: SkeletonLogoPlacement;
+  presetReferences: PresetReference[];
 };
 
 const NO_COLLECTION = "__none__";
 const NO_SKELETON_BACKGROUND = "__none__";
 const NO_SKELETON_MASK = "__none__";
+type ReferenceMode = "fixed" | "swappable" | "required";
 
 function usesSkeletonInpaintMode(
   form: Pick<PresetFormState, "model" | "skeletonContentMode">,
@@ -120,6 +150,10 @@ export function meta() {
 function skeletonFromPreset(preset: any): PresetSkeletonSpec | null {
   const spec = preset?.settings?.skeletonSpec;
   return spec && typeof spec === "object" ? (spec as PresetSkeletonSpec) : null;
+}
+
+function presetReferencesFromPreset(preset: any): PresetReference[] {
+  return normalizePresetReferences(preset?.settings?.presetReferences);
 }
 
 function logoPlacementFromLayer(
@@ -177,6 +211,40 @@ function buildSkeletonSpec(
   };
 }
 
+function normalizeReferenceEntries(entries: PresetReference[]) {
+  return normalizePresetReferences(
+    entries.map((entry) => ({
+      ...entry,
+      id: entry.id.trim(),
+      // A cleared label must not delete the entry (normalize drops
+      // label-less entries); fall back to the durable id as the label.
+      label: entry.label.trim() || entry.id.trim(),
+      description: entry.description?.trim() || undefined,
+      assetIds: entry.assetIds.filter(Boolean).slice(0, 4),
+      variable: Boolean(entry.variable),
+      required: Boolean(entry.variable && entry.required),
+    })),
+  );
+}
+
+function kebabIdFromLabel(label: string, existingIds: string[] = []): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40)
+      .replace(/-+$/g, "") || "reference";
+  const existing = new Set(existingIds);
+  if (!existing.has(base)) return base;
+  for (let index = 2; index < 100; index += 1) {
+    const suffix = `-${index}`;
+    const candidate = `${base.slice(0, 40 - suffix.length).replace(/-+$/g, "")}${suffix}`;
+    if (!existing.has(candidate)) return candidate;
+  }
+  return base;
+}
+
 function formFromPreset(
   preset: any,
   assets: Array<Record<string, any>> = [],
@@ -224,6 +292,7 @@ function formFromPreset(
     skeletonLogoPlacement: skeletonLogoLayer
       ? logoPlacementFromLayer(skeletonLogoLayer)
       : "upper-right",
+    presetReferences: presetReferencesFromPreset(preset),
   };
 }
 
@@ -239,6 +308,7 @@ function normalizedForm(form: PresetFormState) {
       : "0",
     skeletonBackgroundPreviewUrl: "",
     skeletonMaskPreviewUrl: "",
+    presetReferences: normalizeReferenceEntries(form.presetReferences),
   };
 }
 
@@ -248,6 +318,30 @@ function previewUrlForAsset(asset: any): string {
       asset?.thumbnailUrl ?? asset?.previewUrl ?? asset?.downloadUrl,
     ) ?? ""
   );
+}
+
+function referenceMode(entry: PresetReference): ReferenceMode {
+  if (!entry.variable) return "fixed";
+  return entry.required ? "required" : "swappable";
+}
+
+function referenceModePatch(mode: ReferenceMode): Partial<PresetReference> {
+  switch (mode) {
+    case "required":
+      return { variable: true, required: true };
+    case "swappable":
+      return { variable: true, required: false };
+    default:
+      return { variable: false, required: false };
+  }
+}
+
+function assetDisplayTitle(asset: any): string {
+  return asset?.title || asset?.metadata?.originalName || asset?.id || "Asset";
+}
+
+function truncateReferenceLabel(label: string): string {
+  return label.trim().slice(0, 60);
 }
 
 function isImageAsset(asset: any): boolean {
@@ -286,6 +380,23 @@ function FieldLabel({
       {children}
     </Label>
   );
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia(query);
+    setMatches(mediaQuery.matches);
+    const listener = (event: MediaQueryListEvent) => {
+      setMatches(event.matches);
+    };
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  }, [query]);
+
+  return matches;
 }
 
 function SkeletonPreview({ form }: { form: PresetFormState }) {
@@ -346,8 +457,26 @@ export default function GenerationPresetEditorRoute() {
   const [skeletonUploadPending, setSkeletonUploadPending] = useState(false);
   const [skeletonMaskUploadPending, setSkeletonMaskUploadPending] =
     useState(false);
+  const [referenceUploadPending, setReferenceUploadPending] = useState<
+    string | null
+  >(null);
+  const [referencePreviewUrls, setReferencePreviewUrls] = useState<
+    Record<string, string>
+  >({});
+  const [activeReferenceIndex, setActiveReferenceIndex] = useState<
+    number | null
+  >(null);
+  const [pickerReferenceIndex, setPickerReferenceIndex] = useState<
+    number | null
+  >(null);
+  const [referenceAssetSearch, setReferenceAssetSearch] = useState("");
+  const [autofocusReferenceIndex, setAutofocusReferenceIndex] = useState<
+    number | null
+  >(null);
   const skeletonFileInputRef = useRef<HTMLInputElement | null>(null);
   const skeletonMaskFileInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const isSmallEditorViewport = useMediaQuery("(max-width: 640px)");
 
   const library = libraryData?.library;
   const assets = useMemo(
@@ -363,6 +492,12 @@ export default function GenerationPresetEditorRoute() {
   );
   const presets = Array.isArray(presetData?.presets) ? presetData.presets : [];
   const preset = presets.find((item: any) => item.id === presetId);
+  // Saved entry ids are durable keys referenced by presetReferenceFills and
+  // past runs' boardAssignments; renaming a label must never change them.
+  const persistedReferenceIds = useMemo(
+    () => new Set(presetReferencesFromPreset(preset).map((entry) => entry.id)),
+    [preset],
+  );
   const loading = libraryLoading || presetsLoading;
   const accessRole = library?.accessRole;
   const readOnly = Boolean(accessRole && !isEditableRole(accessRole));
@@ -478,6 +613,34 @@ export default function GenerationPresetEditorRoute() {
     JSON.stringify(normalizedForm(form)) !==
       JSON.stringify(normalizedForm(initialForm)),
   );
+  const referenceImageCounts = useMemo(() => {
+    const entries = form?.presetReferences ?? [];
+    return {
+      total: entries.reduce((sum, entry) => sum + entry.assetIds.length, 0),
+      subject: entries
+        .filter((entry) => entry.role === "subject")
+        .reduce((sum, entry) => sum + entry.assetIds.length, 0),
+    };
+  }, [form?.presetReferences]);
+  const activeReferenceEntry =
+    activeReferenceIndex == null
+      ? null
+      : (form?.presetReferences[activeReferenceIndex] ?? null);
+  const pickerReferenceEntry =
+    pickerReferenceIndex == null
+      ? null
+      : (form?.presetReferences[pickerReferenceIndex] ?? null);
+  const filteredReferenceAssets = useMemo(() => {
+    const query = referenceAssetSearch.trim().toLowerCase();
+    if (!query) return skeletonBackgroundAssets;
+    return skeletonBackgroundAssets.filter((asset: any) =>
+      [assetDisplayTitle(asset), asset.id, asset.description]
+        .filter((value): value is string => typeof value === "string")
+        .join("\n")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [referenceAssetSearch, skeletonBackgroundAssets]);
   const settingsHref = libraryId
     ? `/library/${encodeURIComponent(libraryId)}?tab=settings`
     : "/library";
@@ -579,6 +742,217 @@ export default function GenerationPresetEditorRoute() {
     });
   }
 
+  function addPresetReference() {
+    if (!form || form.presetReferences.length >= 6 || readOnly) return;
+    const label = t("brandKitDetail.referenceDefaultLabel");
+    const id = kebabIdFromLabel(
+      label,
+      form.presetReferences.map((entry) => entry.id),
+    );
+    const nextIndex = form.presetReferences.length;
+    setForm({
+      ...form,
+      presetReferences: [
+        ...form.presetReferences,
+        {
+          id,
+          label,
+          role: "subject",
+          assetIds: [],
+          variable: true,
+          required: false,
+        },
+      ],
+    });
+    setActiveReferenceIndex(nextIndex);
+    setPickerReferenceIndex(nextIndex);
+    setReferenceAssetSearch("");
+    setAutofocusReferenceIndex(nextIndex);
+  }
+
+  function updatePresetReference(
+    index: number,
+    patch: Partial<PresetReference>,
+  ) {
+    setForm((current) => {
+      if (!current) return current;
+      const entries = current.presetReferences.map((entry, entryIndex) => {
+        if (entryIndex !== index) return entry;
+        const next = { ...entry, ...patch };
+        if (patch.label !== undefined && !persistedReferenceIds.has(entry.id)) {
+          next.id = kebabIdFromLabel(
+            patch.label,
+            current.presetReferences
+              .filter((_, otherIndex) => otherIndex !== index)
+              .map((item) => item.id),
+          );
+        }
+        if (!next.variable) {
+          next.required = false;
+        }
+        return next;
+      });
+      return { ...current, presetReferences: entries };
+    });
+  }
+
+  function removePresetReference(index: number) {
+    setActiveReferenceIndex(null);
+    setPickerReferenceIndex(null);
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            presetReferences: current.presetReferences.filter(
+              (_, entryIndex) => entryIndex !== index,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function addReferenceAsset(index: number, assetId: string, title?: string) {
+    const entry = form?.presetReferences[index];
+    const asset = skeletonBackgroundAssets.find(
+      (item: any) => item.id === assetId,
+    );
+    if (!entry || entry.assetIds.includes(assetId)) return;
+    if (entry.assetIds.length >= 4) return;
+    if (referenceImageCounts.total >= 8) {
+      toast.error(t("brandKitDetail.referenceBoardTotalLimitError"));
+      return;
+    }
+    if (entry.role === "subject" && referenceImageCounts.subject >= 4) {
+      toast.error(t("brandKitDetail.referenceBoardSubjectLimitError"));
+      return;
+    }
+    setForm((current) => {
+      if (!current) return current;
+      const entries = current.presetReferences.map((entry, entryIndex) => {
+        if (
+          entryIndex !== index ||
+          entry.assetIds.includes(assetId) ||
+          entry.assetIds.length >= 4
+        ) {
+          return entry;
+        }
+        const defaultLabel = t("brandKitDetail.referenceDefaultLabel");
+        const shouldPrefillLabel =
+          entry.assetIds.length === 0 && entry.label.trim() === defaultLabel;
+        const nextLabel = shouldPrefillLabel
+          ? truncateReferenceLabel(title || assetDisplayTitle(asset)) ||
+            entry.label
+          : entry.label;
+        return {
+          ...entry,
+          id: shouldPrefillLabel
+            ? kebabIdFromLabel(
+                nextLabel,
+                current.presetReferences
+                  .filter((_, otherIndex) => otherIndex !== index)
+                  .map((item) => item.id),
+              )
+            : entry.id,
+          label: nextLabel,
+          assetIds: [...entry.assetIds, assetId],
+        };
+      });
+      return { ...current, presetReferences: entries };
+    });
+    setPickerReferenceIndex(null);
+  }
+
+  function removeReferenceAsset(index: number, assetId: string) {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            presetReferences: current.presetReferences.map(
+              (entry, entryIndex) =>
+                entryIndex === index
+                  ? {
+                      ...entry,
+                      assetIds: entry.assetIds.filter((id) => id !== assetId),
+                    }
+                  : entry,
+            ),
+          }
+        : current,
+    );
+  }
+
+  async function uploadReferenceImage(files: FileList | null, index: number) {
+    if (!files?.length || !libraryId || readOnly || referenceUploadPending) {
+      return;
+    }
+    const entry = form?.presetReferences[index];
+    if (!entry || entry.assetIds.length >= 4) return;
+    if (referenceImageCounts.total >= 8) {
+      toast.error(t("brandKitDetail.referenceBoardTotalLimitError"));
+      return;
+    }
+    if (entry.role === "subject" && referenceImageCounts.subject >= 4) {
+      toast.error(t("brandKitDetail.referenceBoardSubjectLimitError"));
+      return;
+    }
+    const file = files[0];
+    const localPreviewUrl = URL.createObjectURL(file);
+    const body = new FormData();
+    body.append("libraryId", libraryId);
+    body.append(
+      "category",
+      entry.role === "product"
+        ? "product"
+        : entry.role === "subject"
+          ? "other"
+          : "style-only",
+    );
+    if (entry.role === "subject") {
+      body.append("intent", "subject");
+    }
+    body.append("files", file);
+    setReferenceUploadPending(entry.id);
+    try {
+      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+        method: "POST",
+        body,
+      });
+      if (!response.ok) {
+        const errorBody = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          errorBody?.error || `Upload failed (${response.status})`,
+        );
+      }
+      const result = (await response
+        .json()
+        .catch(() => null)) as AssetUploadResult | null;
+      const assetId = uploadedSkeletonAssetId(result);
+      if (!assetId) {
+        throw new Error(
+          result?.errors?.[0]?.message ??
+            t("brandKitDetail.couldNotUploadReferenceImage"),
+        );
+      }
+      addReferenceAsset(index, assetId, file.name);
+      setReferencePreviewUrls((current) => ({
+        ...current,
+        [assetId]: localPreviewUrl,
+      }));
+      toast.success(t("brandKitDetail.referenceImageUploaded"));
+    } catch (error) {
+      URL.revokeObjectURL(localPreviewUrl);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("brandKitDetail.couldNotUploadReferenceImage"),
+      );
+    } finally {
+      setReferenceUploadPending(null);
+    }
+  }
+
   async function uploadSkeletonImage(
     files: FileList | null,
     target: "background" | "mask" = "background",
@@ -670,6 +1044,14 @@ export default function GenerationPresetEditorRoute() {
       toast.error(t("brandKitDetail.skeletonImageRequired"));
       return;
     }
+    if (referenceImageCounts.total > 8) {
+      toast.error(t("brandKitDetail.referenceBoardTotalLimitError"));
+      return;
+    }
+    if (referenceImageCounts.subject > 4) {
+      toast.error(t("brandKitDetail.referenceBoardSubjectLimitError"));
+      return;
+    }
     try {
       const saved = await updatePreset.mutateAsync({
         id: preset.id,
@@ -688,6 +1070,9 @@ export default function GenerationPresetEditorRoute() {
             normalized,
             skeletonFromPreset(preset),
           ),
+          presetReferences: normalized.presetReferences.length
+            ? normalized.presetReferences
+            : null,
         },
         collectionId: normalized.collectionId,
         sortOrder: Number(normalized.sortOrder),
@@ -727,6 +1112,332 @@ export default function GenerationPresetEditorRoute() {
           : t("brandKitDetail.couldNotDeletePreset"),
       );
     }
+  }
+
+  const referenceUploadTargetIndex =
+    pickerReferenceIndex ?? activeReferenceIndex;
+  const referenceUploadTarget =
+    referenceUploadTargetIndex == null
+      ? null
+      : (form?.presetReferences[referenceUploadTargetIndex] ?? null);
+  const referenceUploadDisabled =
+    readOnly ||
+    referenceUploadTargetIndex == null ||
+    !referenceUploadTarget ||
+    referenceUploadTarget.assetIds.length >= 4 ||
+    Boolean(referenceUploadPending);
+
+  function openReferencePicker(index: number) {
+    setPickerReferenceIndex(index);
+    setReferenceAssetSearch("");
+  }
+
+  function renderReferenceEditor(entry: PresetReference, index: number) {
+    const uploadPending = referenceUploadPending === entry.id;
+    const mode = referenceMode(entry);
+    return (
+      <div className="grid gap-4">
+        <div className="grid gap-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="text-xs font-medium text-muted-foreground">
+              {t("brandKitDetail.referenceImageCount", {
+                count: entry.assetIds.length,
+                max: 4,
+              })}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-2"
+                disabled={readOnly || entry.assetIds.length >= 4}
+                onClick={() => openReferencePicker(index)}
+              >
+                <IconPhotoPlus className="h-4 w-4" />
+                {t("brandKitDetail.chooseReferenceImage")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-2"
+                disabled={
+                  readOnly || uploadPending || entry.assetIds.length >= 4
+                }
+                onClick={() => referenceUploadInputRef.current?.click()}
+              >
+                {uploadPending ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <IconUpload className="h-4 w-4" />
+                )}
+                {uploadPending
+                  ? t("brandKitDetail.uploadingReferenceImage")
+                  : t("brandKitDetail.uploadReferenceImage")}
+              </Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {entry.assetIds.map((assetId) => {
+              const asset = assets.find((item: any) => item.id === assetId);
+              const src =
+                referencePreviewUrls[assetId] || previewUrlForAsset(asset);
+              return (
+                <div
+                  key={assetId}
+                  className="group relative aspect-square overflow-hidden rounded-md border border-border bg-muted"
+                >
+                  {src ? (
+                    <img
+                      src={src}
+                      alt={assetDisplayTitle(asset)}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-2 text-center text-[11px] text-muted-foreground">
+                      {t("brandKitDetail.previewUnavailable")}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="absolute right-1 top-1 h-6 w-6 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                    disabled={readOnly}
+                    onClick={() => removeReferenceAsset(index, assetId)}
+                    aria-label={t("brandKitDetail.removeReferenceImage")}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              );
+            })}
+            {entry.assetIds.length === 0 ? (
+              <button
+                type="button"
+                className="col-span-4 flex aspect-[4/1] items-center justify-center rounded-md border border-dashed border-border bg-muted/40 px-3 text-center text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
+                disabled={readOnly}
+                onClick={() => openReferencePicker(index)}
+              >
+                {entry.variable
+                  ? t("brandKitDetail.filledPerGeneration")
+                  : t("brandKitDetail.noReferenceImages")}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid gap-2">
+          <FieldLabel htmlFor={`reference-label-${entry.id}`}>
+            {t("brandKitDetail.referenceLabel")}
+          </FieldLabel>
+          <Input
+            id={`reference-label-${entry.id}`}
+            value={entry.label}
+            maxLength={60}
+            disabled={readOnly}
+            autoFocus={autofocusReferenceIndex === index}
+            onFocus={() => setAutofocusReferenceIndex(null)}
+            onChange={(event) =>
+              updatePresetReference(index, {
+                label: event.target.value,
+              })
+            }
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <FieldLabel>{t("brandKitDetail.referenceRoleLabel")}</FieldLabel>
+          <Select
+            value={entry.role}
+            disabled={readOnly}
+            onValueChange={(value) =>
+              updatePresetReference(index, {
+                role: value as PresetReferenceRole,
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRESET_REFERENCE_ROLES.map((role) => (
+                <SelectItem key={role} value={role}>
+                  {t(`brandKitDetail.referenceRole_${role}` as any)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-2">
+          <FieldLabel htmlFor={`reference-description-${entry.id}`}>
+            {t("brandKitDetail.referenceDescription")}
+          </FieldLabel>
+          <Textarea
+            id={`reference-description-${entry.id}`}
+            value={entry.description ?? ""}
+            maxLength={400}
+            disabled={readOnly}
+            placeholder={t("brandKitDetail.referenceDescriptionPlaceholder")}
+            onChange={(event) =>
+              updatePresetReference(index, {
+                description: event.target.value,
+              })
+            }
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <FieldLabel>{t("brandKitDetail.referenceMode")}</FieldLabel>
+          <div
+            className="grid grid-cols-3 rounded-md border border-border bg-muted/30 p-1"
+            role="radiogroup"
+          >
+            {(["fixed", "swappable", "required"] as const).map((item) => {
+              const selected = mode === item;
+              const label =
+                item === "fixed"
+                  ? t("brandKitDetail.fixedReference")
+                  : item === "swappable"
+                    ? t("brandKitDetail.swappableReference")
+                    : t("brandKitDetail.requiredPerRun");
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  disabled={readOnly}
+                  className={cn(
+                    "h-8 rounded-sm px-2 text-xs font-medium text-muted-foreground transition",
+                    selected
+                      ? "bg-background text-foreground shadow-sm"
+                      : "hover:text-foreground",
+                  )}
+                  onClick={() =>
+                    updatePresetReference(index, referenceModePatch(item))
+                  }
+                >
+                  <span className="block truncate">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t pt-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 px-0 text-destructive hover:text-destructive"
+            disabled={readOnly}
+            onClick={() => removePresetReference(index)}
+          >
+            {t("brandKitDetail.removeReference")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderReferenceTile(entry: PresetReference, index: number) {
+    const firstAssetId = entry.assetIds[0];
+    const firstAsset = firstAssetId
+      ? assets.find((item: any) => item.id === firstAssetId)
+      : null;
+    const src =
+      (firstAssetId && referencePreviewUrls[firstAssetId]) ||
+      previewUrlForAsset(firstAsset);
+    const variableEmpty = entry.variable && entry.assetIds.length === 0;
+    const tileButton = (
+      <button
+        type="button"
+        className={cn(
+          "group block min-w-0 text-left outline-none",
+          readOnly && "cursor-default",
+        )}
+        disabled={readOnly}
+        onClick={() => setActiveReferenceIndex(index)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setActiveReferenceIndex(index);
+          }
+        }}
+      >
+        <div
+          className={cn(
+            "relative aspect-square overflow-hidden rounded-md border border-border bg-muted transition group-hover:border-foreground/30 group-focus-visible:ring-2 group-focus-visible:ring-ring",
+            entry.variable && "border-dashed",
+            variableEmpty && "bg-muted/30",
+          )}
+        >
+          {src && !variableEmpty ? (
+            <img
+              src={src}
+              alt={entry.label}
+              className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+            />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted-foreground">
+              <IconUserPlus className="h-8 w-8" />
+              <span className="text-xs font-medium">
+                {variableEmpty
+                  ? t("brandKitDetail.filledPerGeneration")
+                  : t("brandKitDetail.noReferenceImages")}
+              </span>
+            </div>
+          )}
+          {entry.assetIds.length > 1 ? (
+            <Badge className="absolute right-2 top-2 h-6 px-2 shadow-sm">
+              {t("brandKitDetail.moreImagesCount", {
+                count: entry.assetIds.length - 1,
+              })}
+            </Badge>
+          ) : null}
+          {entry.required ? (
+            <Badge
+              variant="secondary"
+              className="absolute left-2 top-2 h-6 px-2 shadow-sm"
+            >
+              {t("brandKitDetail.required")}
+            </Badge>
+          ) : null}
+          <Badge className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate px-2 shadow-sm">
+            {t(`brandKitDetail.referenceRole_${entry.role}` as any)}
+          </Badge>
+        </div>
+        <div className="mt-2 min-w-0">
+          <div className="truncate text-sm font-medium">
+            {entry.label || t("brandKitDetail.referenceDefaultLabel")}
+          </div>
+          {variableEmpty ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {t("brandKitDetail.filledPerGeneration")}
+            </div>
+          ) : null}
+        </div>
+      </button>
+    );
+
+    if (isSmallEditorViewport) return tileButton;
+
+    return (
+      <Popover
+        open={activeReferenceIndex === index}
+        onOpenChange={(open) => {
+          setActiveReferenceIndex(open ? index : null);
+          if (!open) setAutofocusReferenceIndex(null);
+        }}
+      >
+        <PopoverTrigger asChild>{tileButton}</PopoverTrigger>
+        <PopoverContent align="start" className="w-[420px] max-w-[90vw] p-4">
+          {renderReferenceEditor(entry, index)}
+        </PopoverContent>
+      </Popover>
+    );
   }
 
   if (loading) {
@@ -908,6 +1619,94 @@ export default function GenerationPresetEditorRoute() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="grid min-w-0 gap-4 rounded-md border border-border p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">
+                  {t("brandKitDetail.referenceBoard")}
+                </div>
+                {form.presetReferences.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Badge variant="outline">
+                      {t("brandKitDetail.referenceImageCount", {
+                        count: referenceImageCounts.total,
+                        max: 8,
+                      })}
+                    </Badge>
+                    <Badge variant="outline">
+                      {t("brandKitDetail.referenceSubjectImageCount", {
+                        count: referenceImageCounts.subject,
+                        max: 4,
+                      })}
+                    </Badge>
+                  </div>
+                ) : (
+                  <div className="mt-2 max-w-xl text-sm text-muted-foreground">
+                    {t("brandKitDetail.referenceBoardEmptyDescription")}
+                  </div>
+                )}
+              </div>
+              <div className="grid w-full min-w-0 gap-2 md:w-60">
+                <FieldLabel>{t("brandKitDetail.referencePolicy")}</FieldLabel>
+                <Select
+                  value={form.referencePolicy}
+                  disabled={readOnly}
+                  onValueChange={(value) =>
+                    updateForm({
+                      referencePolicy: value as GenerationPresetReferencePolicy,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GENERATION_PRESET_REFERENCE_POLICIES.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {form.presetReferences.length === 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit gap-2"
+                disabled={readOnly}
+                onClick={addPresetReference}
+              >
+                <IconPlus className="h-4 w-4" />
+                {t("brandKitDetail.addReference")}
+              </Button>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {form.presetReferences.map((entry, index) => (
+                  <div key={entry.id} className="min-w-0">
+                    {renderReferenceTile(entry, index)}
+                  </div>
+                ))}
+                {form.presetReferences.length < 6 ? (
+                  <button
+                    type="button"
+                    className="group block min-w-0 text-left outline-none"
+                    disabled={readOnly}
+                    onClick={addPresetReference}
+                  >
+                    <div className="flex aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground transition group-hover:border-foreground/30 group-hover:text-foreground group-focus-visible:ring-2 group-focus-visible:ring-ring">
+                      <IconPlus className="h-8 w-8" />
+                    </div>
+                    <div className="mt-2 truncate text-sm font-medium">
+                      {t("brandKitDetail.addReference")}
+                    </div>
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
           <div className="grid gap-2">
             <FieldLabel htmlFor="preset-template">
@@ -1322,6 +2121,13 @@ export default function GenerationPresetEditorRoute() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {form.presetReferences.some(
+                    (entry) => entry.role === "subject",
+                  ) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("brandKitDetail.subjectReferenceModelTip")}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="grid gap-2">
                   <FieldLabel>{t("brandKitDetail.imageSize")}</FieldLabel>
@@ -1337,30 +2143,6 @@ export default function GenerationPresetEditorRoute() {
                     </SelectTrigger>
                     <SelectContent>
                       {IMAGE_SIZES.map((item) => (
-                        <SelectItem key={item} value={item}>
-                          {item}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <FieldLabel>{t("brandKitDetail.referencePolicy")}</FieldLabel>
-                  <Select
-                    value={form.referencePolicy}
-                    disabled={readOnly}
-                    onValueChange={(value) =>
-                      updateForm({
-                        referencePolicy:
-                          value as GenerationPresetReferencePolicy,
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GENERATION_PRESET_REFERENCE_POLICIES.map((item) => (
                         <SelectItem key={item} value={item}>
                           {item}
                         </SelectItem>
@@ -1486,6 +2268,159 @@ export default function GenerationPresetEditorRoute() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <input
+        ref={referenceUploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={referenceUploadDisabled}
+        onChange={(event) => {
+          if (referenceUploadTargetIndex != null) {
+            void uploadReferenceImage(
+              event.currentTarget.files,
+              referenceUploadTargetIndex,
+            );
+          }
+          event.currentTarget.value = "";
+        }}
+      />
+
+      <Sheet
+        open={isSmallEditorViewport && activeReferenceEntry != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveReferenceIndex(null);
+            setAutofocusReferenceIndex(null);
+          }
+        }}
+      >
+        <SheetContent side="bottom" className="max-h-[90vh] overflow-auto">
+          <SheetHeader>
+            <SheetTitle>
+              {activeReferenceEntry?.label ||
+                t("brandKitDetail.referenceDefaultLabel")}
+            </SheetTitle>
+            <SheetDescription>
+              {t("brandKitDetail.editReference")}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {activeReferenceEntry && activeReferenceIndex != null
+              ? renderReferenceEditor(
+                  activeReferenceEntry,
+                  activeReferenceIndex,
+                )
+              : null}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog
+        open={pickerReferenceEntry != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPickerReferenceIndex(null);
+            setReferenceAssetSearch("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {t("brandKitDetail.chooseReferenceImage")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("brandKitDetail.searchLibraryImages")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={referenceAssetSearch}
+                onChange={(event) =>
+                  setReferenceAssetSearch(event.target.value)
+                }
+                placeholder={t("brandKitDetail.searchLibraryImages")}
+                className="pl-9"
+              />
+            </div>
+            <div className="max-h-[54vh] overflow-auto rounded-md border border-border p-3">
+              {filteredReferenceAssets.length ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                  {filteredReferenceAssets.map((asset: any) => {
+                    const alreadyAdded = Boolean(
+                      pickerReferenceEntry?.assetIds.includes(asset.id),
+                    );
+                    const src = previewUrlForAsset(asset);
+                    return (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        disabled={alreadyAdded || readOnly}
+                        title={`${assetDisplayTitle(asset)} · ${asset.id}`}
+                        className={cn(
+                          "group min-w-0 rounded-md border border-border bg-background p-1 text-left outline-none transition hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring",
+                          alreadyAdded && "cursor-default opacity-65",
+                        )}
+                        onClick={() => {
+                          if (pickerReferenceIndex == null) return;
+                          addReferenceAsset(pickerReferenceIndex, asset.id);
+                        }}
+                      >
+                        <div className="relative aspect-square overflow-hidden rounded-sm bg-muted">
+                          {src ? (
+                            <img
+                              src={src}
+                              alt={assetDisplayTitle(asset)}
+                              className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
+                              {t("brandKitDetail.previewUnavailable")}
+                            </div>
+                          )}
+                          {alreadyAdded ? (
+                            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-background/95 shadow-sm">
+                              <IconCheck className="h-4 w-4" />
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 truncate px-0.5 text-xs font-medium">
+                          {assetDisplayTitle(asset)}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex min-h-32 items-center justify-center text-center text-sm text-muted-foreground">
+                  {t("brandKitDetail.noReferenceImages")}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={referenceUploadDisabled}
+                onClick={() => referenceUploadInputRef.current?.click()}
+              >
+                {referenceUploadPending ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <IconUpload className="h-4 w-4" />
+                )}
+                {referenceUploadPending
+                  ? t("brandKitDetail.uploadingReferenceImage")
+                  : t("brandKitDetail.uploadReferenceImage")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

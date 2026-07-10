@@ -253,6 +253,7 @@ export function LibraryGrid({
         <ShareRecordingDialog
           recordingId={sharingRec.id}
           recordingTitle={sharingRec.title}
+          initialVisibility={sharingRec.visibility}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);

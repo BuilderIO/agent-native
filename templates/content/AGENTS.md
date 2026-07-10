@@ -9,6 +9,10 @@ Detailed document editing, Notion, storage, and UI rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for documents, blocks, comments, media, sharing, navigation, and
   Notion integration. Do not mutate document rows directly unless a skill says to
@@ -122,6 +126,7 @@ cd templates/content && pnpm action <name> [args]
 | `set-content-database-source-write-mode`    | `--databaseId <id>` or `--documentId <id> --liveWritesEnabled true\|false [--allowedWriteModes <json>]`                                                        | Enable/disable per-source Builder live writes; enabling is allowed only for `agent-native-blog-article-test` with explicit modes                         |
 | `stage-builder-revision`                    | `--databaseId <id>` or `--documentId <id>`                                                                                                                     | Stage pending local Builder CMS changes as a local-only save-revision record; never calls Builder                                                        |
 | `review-content-database-source-change-set` | `--databaseId <id>` or `--documentId <id> --changeSetId <id> --decision approve\|reject [--note]`                                                              | Approve or reject a local source change-set review record without provider writes                                                                        |
+| `stage-builder-source-bulk-update`          | `--databaseId <id>` or `--documentId <id> --itemIds <json-array>` or `--documentIds <json-array> --field <json> [--sourceId <id>] [--dryRun true\|false]`      | Preview or stage one bounded field update across selected source-backed Builder rows; apply still goes through Builder review/execution                  |
 | `prepare-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--pushModeConfirmation autosave\|draft\|publish]`                                                | Prepare a dry-run Builder execution gate for approved field/body changes with request semantics/idempotency key; never calls Builder                     |
 | `validate-builder-source-execution`         | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>]`                                                                         | Validate/replay a prepared Builder execution gate locally as a dry run; never calls Builder                                                              |
 | `execute-builder-source-execution`          | `--databaseId <id>` or `--documentId <id> --changeSetId <id> [--idempotencyKey <key>] [--pushModeConfirmation autosave\|draft\|publish]`                       | Execute a guarded live Builder write only when approved, validated, enabled, idempotent, and targeting `agent-native-blog-article-test`                  |
@@ -154,13 +159,14 @@ to SQL. `pull-document` closes that gap with a flush handshake — if a live Yjs
 collab session exists for the document it writes a one-shot `flush-request-<id>`
 application-state key (scoped to the browser session, just like `navigate`); the
 open editor sees that key, serializes its current document to markdown through
-its own existing serializer, calls `update-document`, and deletes the key;
-`pull-document` waits for the key to clear and then returns the now-fresh row.
-When no editor is open the SQL column is authoritative and the handshake is
+its own existing serializer, calls `update-document`, and writes an explicit
+request-id-matched success/error acknowledgement. `pull-document` waits for that
+acknowledgement and fails closed if the open editor cannot save; when no active
+human editor is present, the SQL column is authoritative and the handshake is
 skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
-returns `{ id, title, content, format, deepLink }`, and surfaces an
-"Open document" deep link for external agents. Use `--format text` for a
-plain-text strip of the markdown.
+returns `{ id, title, content, format, deepLink }`, and surfaces an "Open
+document" deep link for external agents. Use `--format text` for a plain-text
+strip of the markdown.
 
 ### Local Source Files
 

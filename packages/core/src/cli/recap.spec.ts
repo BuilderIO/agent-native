@@ -751,7 +751,7 @@ describe("recap setup planning", () => {
         env: {
           PLAN_RECAP_TOKEN: "example-plan-token",
           OPENAI_API_KEY: "example-openai-key",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
         } as NodeJS.ProcessEnv,
       });
@@ -765,7 +765,7 @@ describe("recap setup planning", () => {
         requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
         variableValues: {
           VISUAL_RECAP_AGENT: "codex",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
         },
       });
@@ -1277,7 +1277,12 @@ describe("recap screenshot browser launch", () => {
 describe("recap screenshot capture", () => {
   function createShotPlaywright(screenshotBytes: Buffer[]) {
     const page = {
-      goto: vi.fn(async () => undefined),
+      goto: vi.fn(async () => ({
+        ok: () => true,
+        status: () => 200,
+        url: () => "https://plan.agent-native.com/recaps/plan-abc123",
+        headers: () => ({ "content-type": "text/html; charset=utf-8" }),
+      })),
       waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
@@ -1379,6 +1384,47 @@ describe("recap screenshot capture", () => {
       );
       expect(page.waitForLoadState).toHaveBeenCalledWith("load", {
         timeout: 15_000,
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not upload a screenshot when the recap page returns an HTTP error", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.goto.mockResolvedValueOnce({
+      ok: () => false,
+      status: () => 500,
+      url: () => "https://plan.agent-native.com/recaps/recap-broken",
+      headers: () => ({ "content-type": "text/plain" }),
+    });
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/recap-broken",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        reason:
+          "recap page returned HTTP 500 while loading https://plan.agent-native.com/recaps/recap-broken",
       });
     } finally {
       stdout.mockRestore();
@@ -1788,7 +1834,7 @@ describe("recap gate decision", () => {
   });
 
   it("accepts a valid VISUAL_RECAP_MODEL value", () => {
-    const result = evaluateRecapGate(ok({ model: "gpt-5.5" }));
+    const result = evaluateRecapGate(ok({ model: "gpt-5.6-sol" }));
     expect(result.run).toBe(true);
   });
 
@@ -2624,8 +2670,8 @@ describe("reusable caller workflow builder", () => {
   });
 
   it("adds the model input line when a model is specified", () => {
-    const yml = buildReusableCallerWorkflow({ model: "gpt-5.5" });
-    expect(yml).toContain("model: gpt-5.5");
+    const yml = buildReusableCallerWorkflow({ model: "gpt-5.6-sol" });
+    expect(yml).toContain("model: gpt-5.6-sol");
   });
 });
 
@@ -3132,6 +3178,16 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     );
     expect(content).toContain("const trustedAssociations = [");
     expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");
+    expect(content).toContain("github.rest.pulls.get");
+    expect(content).toContain("github.rest.orgs.getMembershipForUser");
+    expect(content).toContain(
+      "github.rest.repos.getCollaboratorPermissionLevel",
+    );
+    expect(content).toContain("orgMember=${isOrgMember}");
+    expect(content).toContain("repoPermission=${repoPermission || 'unknown'}");
+    expect(content).toContain(
+      "pull_request_target webhook author_association is unreliable",
+    );
     expect(content).toContain("freshRecapLabel");
     expect(content).toContain(
       "external fork PR requires a maintainer to apply the recap label to the current head SHA",

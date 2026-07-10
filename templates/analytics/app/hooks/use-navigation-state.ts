@@ -19,6 +19,10 @@ interface NavigationState {
   recordingId?: string;
   agentsView?: string;
   dbAdminConnectionId?: string;
+  monitoringView?: string;
+  monitorId?: string;
+  statusPageId?: string;
+  errorIssueId?: string;
   filters?: Record<string, string>;
 }
 
@@ -82,6 +86,23 @@ export function useNavigationState() {
           if (dbAdminConnectionId)
             state.dbAdminConnectionId = dbAdminConnectionId;
         }
+      } else if (pathname === "/monitoring") {
+        state.view = "monitoring";
+        state.monitoringView =
+          searchParams.get("view") === "errors" ? "errors" : "uptime";
+        if (state.monitoringView === "errors") {
+          const issue = searchParams.get("issue");
+          if (issue) state.errorIssueId = issue;
+        } else {
+          const statusPage = searchParams.get("statuspage");
+          if (statusPage) {
+            // "list" | "new" | <id> - the status-pages config sub-view.
+            state.statusPageId = statusPage;
+          } else {
+            const monitor = searchParams.get("monitor");
+            if (monitor) state.monitorId = monitor;
+          }
+        }
       } else if (pathname === "/data-sources") {
         state.view = "data-sources";
       } else if (pathname === "/data-dictionary") {
@@ -106,12 +127,30 @@ export function useNavigationState() {
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";
-      if (cmd.view === "agents" && cmd.agentsView === "database") {
-        const params = new URLSearchParams({ view: "database" });
-        if (cmd.dbAdminConnectionId) params.set("db", cmd.dbAdminConnectionId);
+      if (
+        cmd.view === "agents" &&
+        (cmd.agentsView === "database" || cmd.agentsView === "dashboards")
+      ) {
+        const params = new URLSearchParams({ view: cmd.agentsView });
+        if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
+          params.set("db", cmd.dbAdminConnectionId);
+        }
         return `/agents?${params.toString()}`;
       }
       if (cmd.view === "agents") return "/agents";
+      if (cmd.view === "monitoring") {
+        const params = new URLSearchParams();
+        if (cmd.monitoringView === "errors") {
+          params.set("view", "errors");
+          if (cmd.errorIssueId) params.set("issue", cmd.errorIssueId);
+        } else if (cmd.statusPageId) {
+          params.set("statuspage", cmd.statusPageId);
+        } else if (cmd.monitorId) {
+          params.set("monitor", cmd.monitorId);
+        }
+        const qs = params.toString();
+        return qs ? `/monitoring?${qs}` : "/monitoring";
+      }
       if (cmd.view === "data-sources") return "/data-sources";
       if (cmd.view === "data-dictionary") return "/data-dictionary";
       if (cmd.view === "catalog") return "/catalog";

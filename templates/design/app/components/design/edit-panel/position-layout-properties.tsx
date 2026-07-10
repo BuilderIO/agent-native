@@ -43,7 +43,11 @@ import {
   AppearanceScrubField,
   CornerRadiusControl,
 } from "./appearance-properties";
-import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
+import {
+  commitStylePatch,
+  FieldTrailer,
+  ScrubStyleInput,
+} from "./field-primitives";
 import {
   InspectorIconButton,
   InspectorSegment,
@@ -57,6 +61,7 @@ import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
   StyleChangeHandler,
+  StylesChangeHandler,
 } from "./style-change-types";
 import {
   mergeRotationValue,
@@ -65,16 +70,254 @@ import {
   parseScaleValue,
 } from "./transform-helpers";
 
+/**
+ * `authoredStyleValue()` returns the *inline* value when one is set, but
+ * falls back to the *computed* style otherwise — and `getComputedStyle()`
+ * reports "auto" for left/right/top/bottom on any element that has never had
+ * one of those offsets explicitly authored (the ordinary case for a plain,
+ * not-yet-repositioned element). A bare "auto" is not a real authored pin,
+ * and the cross-selection Mixed sentinel isn't either. Without this guard,
+ * `authoredLeft && authoredRight` truthiness checks below treated "auto" as
+ * "yes, pinned", so a completely unconstrained element read as "left-right"/
+ * "top-bottom" (pinned to both edges) in the Constraints preview, the X/Y
+ * fields showed a parsed "0" instead of the element's real on-canvas
+ * position, and picking "Left"/"Top" from an unconstrained element could
+ * write the literal string `"auto"` as the new `left`/`top` value instead of
+ * anchoring it at its current position. Exported for tests.
+ */
+export function definiteAuthoredOffset(
+  raw: string | undefined,
+): string | undefined {
+  if (!raw || raw === "auto" || isMixedValue(raw)) return undefined;
+  return raw;
+}
+
+function percentageLength(raw: string | undefined): boolean {
+  return !!raw && /^-?(?:\d+\.?\d*|\.\d+)%$/.test(raw.trim());
+}
+
+function geometryPercent(value: number, total: number): string {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) {
+    return "0%";
+  }
+  return `${Number(((value / total) * 100).toFixed(6))}%`;
+}
+
+function geometryPx(value: number): string {
+  return `${Number(value.toFixed(3))}px`;
+}
+
+/** Once the bridge supplies an inline-style snapshot, absence is meaningful:
+ * an absolutely-positioned left-only element still has a computed `right`,
+ * but that resolved value is not an authored right pin. Older payloads omit
+ * `inlineStyles` entirely, so only those fall back to computed styles. */
+function authoredConstraintValue(
+  element: ElementInfo,
+  property: string,
+): string | undefined {
+  if (element.inlineStyles !== undefined) {
+    const value = element.inlineStyles[property];
+    return value === "auto" ? "" : value;
+  }
+  return element.computedStyles[property];
+}
+
+/**
+ * Derives the Constraints preview/widget state from an element's authored
+ * left/right/top/bottom/width/height/transform. Pulled out as a standalone
+ * pure function (mirrors `autoLayoutStylesForFlow` in layout-properties.tsx)
+ * so the "auto"/Mixed-safe derivation fixed by `definiteAuthoredOffset` above
+ * is directly unit-testable without rendering the whole panel. Exported for
+ * tests.
+ */
+export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
+  const authoredLeft = authoredConstraintValue(element, "left");
+  const authoredRight = authoredConstraintValue(element, "right");
+  const authoredTop = authoredConstraintValue(element, "top");
+  const authoredBottom = authoredConstraintValue(element, "bottom");
+  const authoredWidth = authoredConstraintValue(element, "width");
+  const authoredHeight = authoredConstraintValue(element, "height");
+  const authoredTransform = authoredConstraintValue(element, "transform");
+  const definiteLeft = definiteAuthoredOffset(authoredLeft);
+  const definiteRight = definiteAuthoredOffset(authoredRight);
+  const definiteTop = definiteAuthoredOffset(authoredTop);
+  const definiteBottom = definiteAuthoredOffset(authoredBottom);
+  const horizontalMixed = [
+    authoredLeft,
+    authoredRight,
+    authoredWidth,
+    authoredTransform,
+  ].some(isMixedValue);
+  const verticalMixed = [
+    authoredTop,
+    authoredBottom,
+    authoredHeight,
+    authoredTransform,
+  ].some(isMixedValue);
+  return {
+    horizontal: horizontalMixed
+      ? "mixed"
+      : // Check scale before left+right: "scale" writes width:100% and clears
+        // left/right to auto, but legacy data may have 0px values that are truthy.
+        authoredWidth === "100%" ||
+          (percentageLength(authoredWidth) && percentageLength(definiteLeft))
+        ? "scale"
+        : definiteLeft && definiteRight
+          ? "left-right"
+          : definiteRight
+            ? "right"
+            : authoredTransform?.includes("translateX(-50%)")
+              ? "center"
+              : "left",
+    vertical: verticalMixed
+      ? "mixed"
+      : authoredHeight === "100%" ||
+          (percentageLength(authoredHeight) && percentageLength(definiteTop))
+        ? "scale"
+        : definiteTop && definiteBottom
+          ? "top-bottom"
+          : definiteBottom
+            ? "bottom"
+            : authoredTransform?.includes("translateY(-50%)")
+              ? "center"
+              : "top",
+  };
+}
+
+/** Build the complete constraints edit before writing anything. The previous
+ * implementation emitted position, four offsets, size, and transform as
+ * separate writes, producing visible intermediate layouts and one undo entry
+ * per property. Keeping this pure also makes the exact atomic patch directly
+ * regression-testable. A mixed axis is intentionally left untouched until the
+ * user chooses a concrete value for that axis. */
+export function constraintsStylePatch(
+  element: ElementInfo,
+  value: ConstraintsValue,
+): Record<string, string> {
+  const authoredTransform = authoredConstraintValue(element, "transform");
+  const currentValue = deriveConstraintsValue(element);
+  const patch: Record<string, string> = {};
+  let transform = isMixedValue(authoredTransform)
+    ? undefined
+    : authoredTransform;
+  let transformChanged = false;
+  const parentBounds =
+    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
+  const childBounds = element.boundingRect;
+  const relativeLeft = parentBounds
+    ? childBounds.x - parentBounds.x
+    : childBounds.x;
+  const relativeTop = parentBounds
+    ? childBounds.y - parentBounds.y
+    : childBounds.y;
+  const rightGap = parentBounds
+    ? parentBounds.width - relativeLeft - childBounds.width
+    : 0;
+  const bottomGap = parentBounds
+    ? parentBounds.height - relativeTop - childBounds.height
+    : 0;
+
+  if (
+    value.horizontal !== "mixed" &&
+    value.horizontal !== currentValue.horizontal
+  ) {
+    patch.position = "absolute";
+    transform = mergeTranslateFunction(
+      transform,
+      "X",
+      value.horizontal === "center" ? "-50%" : null,
+    );
+    transformChanged = true;
+    if (value.horizontal === "left") {
+      patch.left = geometryPx(relativeLeft);
+      patch.right = "auto";
+      patch.width = geometryPx(childBounds.width);
+    } else if (value.horizontal === "right") {
+      patch.right = geometryPx(rightGap);
+      patch.left = "auto";
+      patch.width = geometryPx(childBounds.width);
+    } else if (value.horizontal === "left-right") {
+      patch.left = geometryPx(relativeLeft);
+      patch.right = geometryPx(rightGap);
+      patch.width = "auto";
+    } else if (value.horizontal === "center") {
+      const centerOffset = parentBounds
+        ? relativeLeft + childBounds.width / 2 - parentBounds.width / 2
+        : 0;
+      patch.left =
+        Math.abs(centerOffset) < 0.0005
+          ? "50%"
+          : `calc(50% + ${geometryPx(centerOffset)})`;
+      patch.right = "auto";
+      patch.width = geometryPx(childBounds.width);
+    } else {
+      patch.left = parentBounds
+        ? geometryPercent(relativeLeft, parentBounds.width)
+        : "0%";
+      patch.right = "auto";
+      patch.width = parentBounds
+        ? geometryPercent(childBounds.width, parentBounds.width)
+        : "100%";
+    }
+  }
+
+  if (value.vertical !== "mixed" && value.vertical !== currentValue.vertical) {
+    patch.position = "absolute";
+    transform = mergeTranslateFunction(
+      transform,
+      "Y",
+      value.vertical === "center" ? "-50%" : null,
+    );
+    transformChanged = true;
+    if (value.vertical === "top") {
+      patch.top = geometryPx(relativeTop);
+      patch.bottom = "auto";
+      patch.height = geometryPx(childBounds.height);
+    } else if (value.vertical === "bottom") {
+      patch.bottom = geometryPx(bottomGap);
+      patch.top = "auto";
+      patch.height = geometryPx(childBounds.height);
+    } else if (value.vertical === "top-bottom") {
+      patch.top = geometryPx(relativeTop);
+      patch.bottom = geometryPx(bottomGap);
+      patch.height = "auto";
+    } else if (value.vertical === "center") {
+      const centerOffset = parentBounds
+        ? relativeTop + childBounds.height / 2 - parentBounds.height / 2
+        : 0;
+      patch.top =
+        Math.abs(centerOffset) < 0.0005
+          ? "50%"
+          : `calc(50% + ${geometryPx(centerOffset)})`;
+      patch.bottom = "auto";
+      patch.height = geometryPx(childBounds.height);
+    } else {
+      patch.top = parentBounds
+        ? geometryPercent(relativeTop, parentBounds.height)
+        : "0%";
+      patch.bottom = "auto";
+      patch.height = parentBounds
+        ? geometryPercent(childBounds.height, parentBounds.height)
+        : "100%";
+    }
+  }
+
+  if (transformChanged) patch.transform = transform || "none";
+  return patch;
+}
+
 /** Position, size, and spacing properties */
 export function PositionLayoutProperties({
   element,
   onStyleChange,
+  onStylesChange,
   onAlignSelection,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
   /**
    * Moves the selection itself (Figma's real "Alignment" row semantics):
    * aligns to the combined selection bounding box for a 2+ multi-selection,
@@ -113,40 +356,16 @@ export function PositionLayoutProperties({
       value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
-  // Authored (not computed) offsets: when inlineStyles is present, "auto"/absent
-  // is treated as truly unset instead of the computed px fallback, so a plain
-  // top-left-anchored element reads as "left" rather than always "left-right".
+  // Authored (not computed) left/top: used directly (not through
+  // `definiteAuthoredOffset`) below because the X/Y fields need to tell
+  // "Mixed" apart from "unset", and handleConstraintsChange's own fallback
+  // already normalizes through `definiteAuthoredOffset` at its call sites.
+  // Right/bottom and the scale/rotation checks needed for the Constraints
+  // preview live in `deriveConstraintsValue` (above) instead.
   const authoredLeft = authoredStyleValue(element, "left");
-  const authoredRight = authoredStyleValue(element, "right");
   const authoredTop = authoredStyleValue(element, "top");
-  const authoredBottom = authoredStyleValue(element, "bottom");
-  const authoredWidth = authoredStyleValue(element, "width");
-  const authoredHeight = authoredStyleValue(element, "height");
   const authoredTransform = authoredStyleValue(element, "transform");
-  const constraintsValue: ConstraintsValue = {
-    horizontal:
-      // Check scale before left+right: "scale" writes width:100% and clears
-      // left/right to auto, but legacy data may have 0px values that are truthy.
-      authoredWidth === "100%"
-        ? "scale"
-        : authoredLeft && authoredRight
-          ? "left-right"
-          : authoredRight
-            ? "right"
-            : authoredTransform?.includes("translateX(-50%)")
-              ? "center"
-              : "left",
-    vertical:
-      authoredHeight === "100%"
-        ? "scale"
-        : authoredTop && authoredBottom
-          ? "top-bottom"
-          : authoredBottom
-            ? "bottom"
-            : authoredTransform?.includes("translateY(-50%)")
-              ? "center"
-              : "top",
-  };
+  const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
   // 3D rotation/perspective progressive-disclosure expander — mirrors
   // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
@@ -164,87 +383,13 @@ export function PositionLayoutProperties({
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
-      onStyleChange("position", "absolute");
-
-      // Compute the desired translateX/Y for each axis independently, then
-      // compose both into a single transform write so the two axes don't
-      // overwrite each other when both change simultaneously.
-      const txValue = value.horizontal === "center" ? "-50%" : null;
-      const tyValue = value.vertical === "center" ? "-50%" : null;
-      // Start from the current transform, apply X, then apply Y on top.
-      const transformAfterX = mergeTranslateFunction(
-        authoredTransform,
-        "X",
-        txValue,
+      commitStylePatch(
+        constraintsStylePatch(element, value),
+        onStyleChange,
+        onStylesChange,
       );
-      const transformAfterXY = mergeTranslateFunction(
-        transformAfterX,
-        "Y",
-        tyValue,
-      );
-
-      if (value.horizontal === "left") {
-        onStyleChange(
-          "left",
-          authoredLeft || `${Math.round(element.boundingRect.x)}px`,
-        );
-        onStyleChange("right", "auto");
-      } else if (value.horizontal === "right") {
-        onStyleChange("right", "0px");
-        onStyleChange("left", "auto");
-      } else if (value.horizontal === "left-right") {
-        onStyleChange(
-          "left",
-          authoredLeft || `${Math.round(element.boundingRect.x)}px`,
-        );
-        onStyleChange("right", "0px");
-      } else if (value.horizontal === "center") {
-        onStyleChange("left", "50%");
-        onStyleChange("right", "auto");
-      } else {
-        // scale: use auto (not 0px) so the left && right truthiness check
-        // in the reader does not misidentify this as "left-right".
-        onStyleChange("left", "auto");
-        onStyleChange("right", "auto");
-        onStyleChange("width", "100%");
-      }
-
-      if (value.vertical === "top") {
-        onStyleChange(
-          "top",
-          authoredTop || `${Math.round(element.boundingRect.y)}px`,
-        );
-        onStyleChange("bottom", "auto");
-      } else if (value.vertical === "bottom") {
-        onStyleChange("bottom", "0px");
-        onStyleChange("top", "auto");
-      } else if (value.vertical === "top-bottom") {
-        onStyleChange(
-          "top",
-          authoredTop || `${Math.round(element.boundingRect.y)}px`,
-        );
-        onStyleChange("bottom", "0px");
-      } else if (value.vertical === "center") {
-        onStyleChange("top", "50%");
-        onStyleChange("bottom", "auto");
-      } else {
-        // scale
-        onStyleChange("top", "auto");
-        onStyleChange("bottom", "auto");
-        onStyleChange("height", "100%");
-      }
-
-      // Write the composed transform once, after both axes are resolved.
-      onStyleChange("transform", transformAfterXY);
     },
-    [
-      element.boundingRect.x,
-      element.boundingRect.y,
-      onStyleChange,
-      authoredLeft,
-      authoredTop,
-      authoredTransform,
-    ],
+    [element, onStyleChange, onStylesChange],
   );
 
   return (
@@ -328,7 +473,9 @@ export function PositionLayoutProperties({
               ariaLabel="X-position"
               tooltipLabel="X-position"
               value={
-                isMixedValue(authoredLeft) ? MIXED_VALUE : authoredLeft || ""
+                isMixedValue(authoredLeft)
+                  ? MIXED_VALUE
+                  : (definiteAuthoredOffset(authoredLeft) ?? "")
               }
               placeholder={element.boundingRect.x}
               inputClassName="h-6"
@@ -338,8 +485,17 @@ export function PositionLayoutProperties({
                 // mirror handleConstraintsChange, which always sets
                 // position:absolute (the convention canvas drag/resize and
                 // primitive creation both use) before writing left/top.
-                if (!constrainedPosition) onStyleChange("position", "absolute");
-                onStyleChange("left", `${roundToOneDecimal(v)}px`, meta);
+                commitStylePatch(
+                  {
+                    ...(!constrainedPosition
+                      ? { position: "absolute" }
+                      : undefined),
+                    left: `${roundToOneDecimal(v)}px`,
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                  meta,
+                );
               }}
             />
             <FieldTrailer
@@ -358,13 +514,24 @@ export function PositionLayoutProperties({
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
               value={
-                isMixedValue(authoredTop) ? MIXED_VALUE : authoredTop || ""
+                isMixedValue(authoredTop)
+                  ? MIXED_VALUE
+                  : (definiteAuthoredOffset(authoredTop) ?? "")
               }
               placeholder={element.boundingRect.y}
               inputClassName="h-6"
               onChange={(v, meta) => {
-                if (!constrainedPosition) onStyleChange("position", "absolute");
-                onStyleChange("top", `${roundToOneDecimal(v)}px`, meta);
+                commitStylePatch(
+                  {
+                    ...(!constrainedPosition
+                      ? { position: "absolute" }
+                      : undefined),
+                    top: `${roundToOneDecimal(v)}px`,
+                  },
+                  onStyleChange,
+                  onStylesChange,
+                  meta,
+                );
               }}
             />
             <FieldTrailer

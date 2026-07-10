@@ -283,6 +283,58 @@ describe("embed auth client", () => {
     expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
   });
 
+  it("uses query-token auth for safe framework GETs to avoid CORS preflights", async () => {
+    window.history.replaceState(null, "", "/inbox?embedded=1");
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    const originalFetch = vi.fn(async () => new Response("ok"));
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    await window.fetch("/_agent-native/poll?since=100");
+
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = originalFetch.mock.calls[0]!;
+    expect(String(input)).toBe(
+      "http://localhost:3000/_agent-native/poll?since=100&__an_embed_token=stored-token",
+    );
+    const headers = new Headers(init?.headers);
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.has(EMBED_TARGET_HEADER)).toBe(false);
+  });
+
+  it("uses query-token auth for app-base-prefixed framework GETs", async () => {
+    window.history.replaceState(null, "", "/slides/deck/1?embedded=1");
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    const originalFetch = vi.fn(async () => new Response("ok"));
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    await window.fetch(
+      "/slides/_agent-native/agent-chat/runs/active?threadId=t1",
+    );
+
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+    const [input, init] = originalFetch.mock.calls[0]!;
+    expect(String(input)).toBe(
+      "http://localhost:3000/slides/_agent-native/agent-chat/runs/active?threadId=t1&__an_embed_token=stored-token",
+    );
+    const headers = new Headers(init?.headers);
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.has(EMBED_TARGET_HEADER)).toBe(false);
+  });
+
   it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

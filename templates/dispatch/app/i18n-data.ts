@@ -28,9 +28,17 @@ const enUS = {
       "Manage team access and shared workspace resources for Dispatch.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
+    automationsTitle: "Automations",
+    automationsDescription:
+      "Review, pause, and create scheduled or event-triggered jobs.",
+    openAutomations: "Open automations",
+    deliveryTitle: "Delivery",
+    deliveryDescription:
+      "Manage message destinations and check the outbound delivery queue.",
+    openDelivery: "Open delivery",
     agentTitle: "Agent settings",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+      "Open the agent sidebar settings for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
     openAgentSettings: "Open agent settings",
   },
   integrations: {
@@ -206,6 +214,34 @@ const enUS = {
     onboardingDescription:
       "Dispatch owns shared provider accounts. Each app owns how it uses the account.",
   },
+  dispatch: {
+    nav: {
+      automations: "Automations",
+      approvals: "Approvals",
+      delivery: "Delivery",
+      agents: "Agents",
+      vault: "Vault",
+      audit: "Audit",
+    },
+    pages: {
+      also: "Also",
+      workspaceShortcutsAria: "Workspace shortcuts",
+      deliveryQueue: "Delivery queue",
+      failedLastHour: "{{count}} failed in the last hour",
+      processingCount: "{{count}} processing",
+      queued: "Queued",
+      active: "Active",
+      done1h: "Done 1h",
+      failed1h: "Failed 1h",
+      oldestQueued: "Oldest queued: {{age}}",
+      queueAgeNone: "none",
+      queueFailureHint:
+        "Check credentials, destinations, and recent queue errors.",
+      unknownPlatform: "unknown",
+      attemptsCount: "{{count}} attempts",
+      noErrorMessage: "(no error message)",
+    },
+  },
 };
 
 type Messages = typeof enUS;
@@ -238,6 +274,21 @@ function mergeMessages(overrides: PartialMessages): Messages {
         ...overrides.integrations?.time,
       },
     },
+    dispatch: {
+      ...enUS.dispatch,
+      ...overrides.dispatch,
+      nav: {
+        ...enUS.dispatch.nav,
+        ...(overrides.dispatch as { nav?: Record<string, string> } | undefined)
+          ?.nav,
+      },
+      pages: {
+        ...enUS.dispatch.pages,
+        ...(
+          overrides.dispatch as { pages?: Record<string, string> } | undefined
+        )?.pages,
+      },
+    },
   };
 }
 
@@ -268,9 +319,15 @@ export const messagesByLocale = {
       workspaceDescription: "管理 Dispatch 的团队访问权限和共享工作区资源。",
       openTeamSettings: "打开团队设置",
       openResourceSettings: "打开资源设置",
+      automationsTitle: "自动化",
+      automationsDescription: "查看、暂停并创建定时或事件触发的任务。",
+      openAutomations: "打开自动化",
+      deliveryTitle: "投递",
+      deliveryDescription: "管理消息目的地并查看出站投递队列。",
+      openDelivery: "打开投递",
       agentTitle: "代理设置",
       agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
+        "打开代理侧边栏设置，管理模型、API 密钥、语音和其他代理控制项。定时与事件触发的任务请使用自动化页面。",
       openAgentSettings: "打开代理设置",
     },
     integrations: {
@@ -439,6 +496,34 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch 管理共享提供商账户。每个应用管理自己如何使用该账户。",
     },
+
+    dispatch: {
+      nav: {
+        automations: "自动化",
+        approvals: "批准",
+        delivery: "投递",
+        agents: "代理",
+        vault: "保险库",
+        audit: "审计",
+      },
+      pages: {
+        also: "还有",
+        workspaceShortcutsAria: "工作区快捷入口",
+        deliveryQueue: "投递队列",
+        failedLastHour: "过去一小时失败 {{count}} 次",
+        processingCount: "{{count}} 个处理中",
+        queued: "排队中",
+        active: "进行中",
+        done1h: "完成 1 小时",
+        failed1h: "失败 1 小时",
+        oldestQueued: "最早排队：{{age}}",
+        queueAgeNone: "无",
+        queueFailureHint: "请检查凭据、目的地和最近的队列错误。",
+        unknownPlatform: "未知",
+        attemptsCount: "{{count}} 次尝试",
+        noErrorMessage: "（无错误消息）",
+      },
+    },
   }),
   "es-ES": mergeMessages({
     routeTitles: {
@@ -467,9 +552,17 @@ export const messagesByLocale = {
         "Gestiona el acceso del equipo y los recursos compartidos de Dispatch.",
       openTeamSettings: "Abrir ajustes del equipo",
       openResourceSettings: "Abrir ajustes de recursos",
+      automationsTitle: "Automatizaciones",
+      automationsDescription:
+        "Revisa, pausa y crea trabajos programados o activados por eventos.",
+      openAutomations: "Abrir automatizaciones",
+      deliveryTitle: "Entrega",
+      deliveryDescription:
+        "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
+      openDelivery: "Abrir entrega",
       agentTitle: "Ajustes del agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
+        "Abre los ajustes del agente en la barra lateral para modelos, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
       openAgentSettings: "Abrir ajustes del agente",
     },
     integrations: {
@@ -658,6 +751,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch posee las cuentas compartidas de proveedores. Cada app posee cómo usa la cuenta.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatizaciones",
+        approvals: "Aprobaciones",
+        delivery: "Entrega",
+        agents: "Agentes",
+        vault: "Bóveda",
+        audit: "Auditoría",
+      },
+      pages: {
+        also: "También",
+        workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
+        deliveryQueue: "Cola de entrega",
+        failedLastHour: "{{count}} fallos en la última hora",
+        processingCount: "{{count}} en proceso",
+        queued: "En cola",
+        active: "Activo",
+        done1h: "Hecho 1 h",
+        failed1h: "Fallido 1 h",
+        oldestQueued: "Más antiguo en cola: {{age}}",
+        queueAgeNone: "ninguno",
+        queueFailureHint:
+          "Revisa las credenciales, los destinos y los errores recientes de la cola.",
+        unknownPlatform: "desconocido",
+        attemptsCount: "{{count}} intentos",
+        noErrorMessage: "(sin mensaje de error)",
+      },
+    },
   }),
   "fr-FR": mergeMessages({
     routeTitles: {
@@ -686,9 +808,17 @@ export const messagesByLocale = {
         "Gérez l’accès de l’équipe et les ressources partagées de Dispatch.",
       openTeamSettings: "Ouvrir les paramètres d’équipe",
       openResourceSettings: "Ouvrir les paramètres des ressources",
+      automationsTitle: "Automatisations",
+      automationsDescription:
+        "Consultez, mettez en pause et créez des tâches planifiées ou déclenchées par des événements.",
+      openAutomations: "Ouvrir les automatisations",
+      deliveryTitle: "Livraison",
+      deliveryDescription:
+        "Gérez les destinations de messages et consultez la file d’attente sortante.",
+      openDelivery: "Ouvrir la livraison",
       agentTitle: "Paramètres de l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
+        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, voix et autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
       openAgentSettings: "Ouvrir les paramètres de l’agent",
     },
     integrations: {
@@ -877,6 +1007,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch possède les comptes fournisseurs partagés. Chaque app possède la façon dont elle utilise le compte.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatisations",
+        approvals: "Approbations",
+        delivery: "Livraison",
+        agents: "Agents",
+        vault: "Coffre",
+        audit: "Audit",
+      },
+      pages: {
+        also: "Aussi",
+        workspaceShortcutsAria: "Raccourcis de l’espace de travail",
+        deliveryQueue: "File de livraison",
+        failedLastHour: "{{count}} échecs au cours de la dernière heure",
+        processingCount: "{{count}} en cours",
+        queued: "En file",
+        active: "Actif",
+        done1h: "Terminé 1 h",
+        failed1h: "Échoué 1 h",
+        oldestQueued: "Plus ancien en file : {{age}}",
+        queueAgeNone: "aucun",
+        queueFailureHint:
+          "Vérifiez les identifiants, les destinations et les erreurs récentes de la file.",
+        unknownPlatform: "inconnu",
+        attemptsCount: "{{count}} tentatives",
+        noErrorMessage: "(aucun message d’erreur)",
+      },
+    },
   }),
   "de-DE": mergeMessages({
     routeTitles: {
@@ -905,9 +1064,17 @@ export const messagesByLocale = {
         "Verwalte Teamzugriff und gemeinsam genutzte Dispatch-Ressourcen.",
       openTeamSettings: "Teameinstellungen öffnen",
       openResourceSettings: "Ressourceneinstellungen öffnen",
+      automationsTitle: "Automatisierungen",
+      automationsDescription:
+        "Geplante oder ereignisgesteuerte Jobs prüfen, pausieren und erstellen.",
+      openAutomations: "Automatisierungen öffnen",
+      deliveryTitle: "Zustellung",
+      deliveryDescription:
+        "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
+      openDelivery: "Zustellung öffnen",
       agentTitle: "Agent-Einstellungen",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
+        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Sprache und weitere Steuerungen. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
       openAgentSettings: "Agent-Einstellungen öffnen",
     },
     integrations: {
@@ -1086,6 +1253,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch besitzt gemeinsame Anbieter-Konten. Jede App besitzt, wie sie das Konto verwendet.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automatisierungen",
+        approvals: "Freigaben",
+        delivery: "Zustellung",
+        agents: "Agenten",
+        vault: "Tresor",
+        audit: "Audit",
+      },
+      pages: {
+        also: "Außerdem",
+        workspaceShortcutsAria: "Workspace-Kurzbefehle",
+        deliveryQueue: "Zustellungswarteschlange",
+        failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
+        processingCount: "{{count}} in Bearbeitung",
+        queued: "Warteschlange",
+        active: "Aktiv",
+        done1h: "Erledigt 1 Std.",
+        failed1h: "Fehlgeschlagen 1 Std.",
+        oldestQueued: "Älteste Warteschlange: {{age}}",
+        queueAgeNone: "keine",
+        queueFailureHint:
+          "Prüfe Anmeldedaten, Ziele und aktuelle Warteschlangenfehler.",
+        unknownPlatform: "unbekannt",
+        attemptsCount: "{{count}} Versuche",
+        noErrorMessage: "(keine Fehlermeldung)",
+      },
+    },
   }),
   "ja-JP": mergeMessages({
     routeTitles: {
@@ -1113,9 +1309,17 @@ export const messagesByLocale = {
         "Dispatch のチームアクセスと共有ワークスペースリソースを管理します。",
       openTeamSettings: "チーム設定を開く",
       openResourceSettings: "リソース設定を開く",
+      automationsTitle: "自動化",
+      automationsDescription:
+        "スケジュールまたはイベント駆動のジョブを確認、一時停止、作成します。",
+      openAutomations: "自動化を開く",
+      deliveryTitle: "配信",
+      deliveryDescription:
+        "メッセージの送信先を管理し、送信キューを確認します。",
+      openDelivery: "配信を開く",
       agentTitle: "エージェント設定",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
+        "右サイドバーのエージェント設定を開き、モデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
       openAgentSettings: "エージェント設定を開く",
     },
     integrations: {
@@ -1293,6 +1497,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch は共有プロバイダーアカウントを管理します。各アプリはそのアカウントの使い方を管理します。",
     },
+
+    dispatch: {
+      nav: {
+        automations: "自動化",
+        approvals: "承認",
+        delivery: "配信",
+        agents: "エージェント",
+        vault: "ボールト",
+        audit: "監査",
+      },
+      pages: {
+        also: "その他",
+        workspaceShortcutsAria: "ワークスペースのショートカット",
+        deliveryQueue: "配信キュー",
+        failedLastHour: "過去 1 時間で {{count}} 件失敗",
+        processingCount: "{{count}} 件処理中",
+        queued: "待機中",
+        active: "実行中",
+        done1h: "完了 1h",
+        failed1h: "失敗 1h",
+        oldestQueued: "最古の待機: {{age}}",
+        queueAgeNone: "なし",
+        queueFailureHint:
+          "認証情報、送信先、最近のキューエラーを確認してください。",
+        unknownPlatform: "不明",
+        attemptsCount: "{{count}} 回試行",
+        noErrorMessage: "（エラーメッセージなし）",
+      },
+    },
   }),
   "ko-KR": mergeMessages({
     routeTitles: {
@@ -1320,9 +1553,17 @@ export const messagesByLocale = {
         "Dispatch의 팀 접근 권한과 공유 워크스페이스 리소스를 관리합니다.",
       openTeamSettings: "팀 설정 열기",
       openResourceSettings: "리소스 설정 열기",
+      automationsTitle: "자동화",
+      automationsDescription:
+        "예약 또는 이벤트 트리거 작업을 검토, 일시 중지, 생성합니다.",
+      openAutomations: "자동화 열기",
+      deliveryTitle: "전달",
+      deliveryDescription:
+        "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
+      openDelivery: "전달 열기",
       agentTitle: "에이전트 설정",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
       openAgentSettings: "에이전트 설정 열기",
     },
     integrations: {
@@ -1497,6 +1738,34 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch는 공유 공급자 계정을 소유합니다. 각 앱은 계정 사용 방식을 소유합니다.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "자동화",
+        approvals: "승인",
+        delivery: "전달",
+        agents: "에이전트",
+        vault: "볼트",
+        audit: "감사",
+      },
+      pages: {
+        also: "또한",
+        workspaceShortcutsAria: "워크스페이스 바로가기",
+        deliveryQueue: "전달 대기열",
+        failedLastHour: "지난 1시간 동안 {{count}}건 실패",
+        processingCount: "{{count}}건 처리 중",
+        queued: "대기 중",
+        active: "진행 중",
+        done1h: "완료 1시간",
+        failed1h: "실패 1시간",
+        oldestQueued: "가장 오래된 대기: {{age}}",
+        queueAgeNone: "없음",
+        queueFailureHint: "자격 증명, 대상, 최근 대기열 오류를 확인하세요.",
+        unknownPlatform: "알 수 없음",
+        attemptsCount: "{{count}}회 시도",
+        noErrorMessage: "(오류 메시지 없음)",
+      },
+    },
   }),
   "pt-BR": mergeMessages({
     routeTitles: {
@@ -1525,9 +1794,17 @@ export const messagesByLocale = {
         "Gerencie acesso da equipe e recursos compartilhados do Dispatch.",
       openTeamSettings: "Abrir configurações da equipe",
       openResourceSettings: "Abrir configurações de recursos",
+      automationsTitle: "Automações",
+      automationsDescription:
+        "Revise, pause e crie trabalhos agendados ou acionados por eventos.",
+      openAutomations: "Abrir automações",
+      deliveryTitle: "Entrega",
+      deliveryDescription:
+        "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
+      openDelivery: "Abrir entrega",
       agentTitle: "Configurações do agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
+        "Abra as configurações do agente na barra lateral para modelos, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
       openAgentSettings: "Abrir configurações do agente",
     },
     integrations: {
@@ -1712,6 +1989,35 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch possui as contas compartilhadas de provedores. Cada app possui como usa a conta.",
     },
+
+    dispatch: {
+      nav: {
+        automations: "Automações",
+        approvals: "Aprovações",
+        delivery: "Entrega",
+        agents: "Agentes",
+        vault: "Cofre",
+        audit: "Auditoria",
+      },
+      pages: {
+        also: "Também",
+        workspaceShortcutsAria: "Atalhos do espaço de trabalho",
+        deliveryQueue: "Fila de entrega",
+        failedLastHour: "{{count}} falhas na última hora",
+        processingCount: "{{count}} em processamento",
+        queued: "Na fila",
+        active: "Ativo",
+        done1h: "Concluído 1 h",
+        failed1h: "Falhou 1 h",
+        oldestQueued: "Mais antigo na fila: {{age}}",
+        queueAgeNone: "nenhum",
+        queueFailureHint:
+          "Verifique credenciais, destinos e erros recentes da fila.",
+        unknownPlatform: "desconhecido",
+        attemptsCount: "{{count}} tentativas",
+        noErrorMessage: "(sem mensagem de erro)",
+      },
+    },
   }),
   "hi-IN": mergeMessages({
     routeTitles: {
@@ -1738,9 +2044,16 @@ export const messagesByLocale = {
         "Dispatch के लिए टीम पहुंच और साझा कार्यस्थान संसाधनों को प्रबंधित करें।",
       openTeamSettings: "टीम सेटिंग्स खोलें",
       openResourceSettings: "संसाधन सेटिंग्स खोलें",
+      automationsTitle: "ऑटोमेशन",
+      automationsDescription:
+        "शेड्यूल या इवेंट-ट्रिगर जॉब्स की समीक्षा करें, रोकें और बनाएं।",
+      openAutomations: "ऑटोमेशन खोलें",
+      deliveryTitle: "डिलीवरी",
+      deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
+      openDelivery: "डिलीवरी खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
+        "मॉडल, API कुंजियों, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
       openAgentSettings: "एजेंट सेटिंग्स खोलें",
     },
     integrations: {
@@ -1911,6 +2224,34 @@ export const messagesByLocale = {
       onboardingDescription:
         "Dispatch साझा प्रदाता खातों का स्वामी है। हर ऐप खाते का उपयोग कैसे करता है, यह वही संभालता है।",
     },
+
+    dispatch: {
+      nav: {
+        automations: "ऑटोमेशन",
+        approvals: "अनुमोदन",
+        delivery: "डिलीवरी",
+        agents: "एजेंट",
+        vault: "वॉल्ट",
+        audit: "ऑडिट",
+      },
+      pages: {
+        also: "और भी",
+        workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
+        deliveryQueue: "डिलीवरी कतार",
+        failedLastHour: "पिछले घंटे में {{count}} विफल",
+        processingCount: "{{count}} प्रोसेस हो रहे हैं",
+        queued: "कतार में",
+        active: "सक्रिय",
+        done1h: "पूर्ण 1घं",
+        failed1h: "विफल 1घं",
+        oldestQueued: "सबसे पुराना कतार में: {{age}}",
+        queueAgeNone: "कोई नहीं",
+        queueFailureHint: "क्रेडेंशियल, गंतव्य और हाल की कतार त्रुटियाँ जाँचें।",
+        unknownPlatform: "अज्ञात",
+        attemptsCount: "{{count}} प्रयास",
+        noErrorMessage: "(कोई त्रुटि संदेश नहीं)",
+      },
+    },
   }),
   "ar-SA": mergeMessages({
     routeTitles: {
@@ -1937,9 +2278,16 @@ export const messagesByLocale = {
         "إدارة وصول الفريق وموارد مساحة العمل المشتركة في Dispatch.",
       openTeamSettings: "فتح إعدادات الفريق",
       openResourceSettings: "فتح إعدادات الموارد",
+      automationsTitle: "الأتمتة",
+      automationsDescription: "راجع وأوقف وأنشئ مهامًا مجدولة أو مُشغَّلة بالأحداث.",
+      openAutomations: "فتح الأتمتة",
+      deliveryTitle: "التسليم",
+      deliveryDescription:
+        "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
+      openDelivery: "فتح التسليم",
       agentTitle: "إعدادات الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
       openAgentSettings: "فتح إعدادات الوكيل",
     },
     integrations: {
@@ -2144,6 +2492,35 @@ export const messagesByLocale = {
       onboardingTitle: "اربط مرة واحدة، وامنح للتطبيقات",
       onboardingDescription:
         "يمتلك Dispatch حسابات المزوّدين المشتركة. ويمتلك كل تطبيق طريقة استخدامه للحساب.",
+    },
+
+    dispatch: {
+      nav: {
+        automations: "الأتمتة",
+        approvals: "الموافقات",
+        delivery: "التسليم",
+        agents: "الوكلاء",
+        vault: "الخزنة",
+        audit: "التدقيق",
+      },
+      pages: {
+        also: "أيضًا",
+        workspaceShortcutsAria: "اختصارات مساحة العمل",
+        deliveryQueue: "قائمة انتظار التسليم",
+        failedLastHour: "{{count}} فشل خلال الساعة الماضية",
+        processingCount: "{{count}} قيد المعالجة",
+        queued: "في الانتظار",
+        active: "نشط",
+        done1h: "تم خلال ساعة",
+        failed1h: "فشل خلال ساعة",
+        oldestQueued: "الأقدم في الانتظار: {{age}}",
+        queueAgeNone: "لا شيء",
+        queueFailureHint:
+          "تحقق من بيانات الاعتماد والوجهات وأخطاء قائمة الانتظار الأخيرة.",
+        unknownPlatform: "غير معروف",
+        attemptsCount: "{{count}} محاولات",
+        noErrorMessage: "(لا توجد رسالة خطأ)",
+      },
     },
   }),
 } satisfies Record<LocaleCode, Messages>;

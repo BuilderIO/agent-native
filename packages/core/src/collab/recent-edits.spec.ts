@@ -50,6 +50,57 @@ describe("appendRecentEdit", () => {
     appendRecentEdit(original, { descriptor: { kind: "doc" }, at: 2 });
     expect(original).toHaveLength(1);
   });
+
+  it("truncates an oversized quote so a caller forgetting to trim can't blow up the awareness payload", () => {
+    const hugeQuote = "x".repeat(50_000);
+    const [entry] = appendRecentEdit(undefined, {
+      descriptor: { kind: "text", quote: hugeQuote },
+      at: 1,
+    });
+    expect(
+      (entry.descriptor as { kind: "text"; quote: string }).quote.length,
+    ).toBe(500);
+  });
+
+  it("truncates an oversized selector and each oversized path entry", () => {
+    const huge = "a".repeat(10_000);
+    const [selectorEntry] = appendRecentEdit(undefined, {
+      descriptor: { kind: "selector", selector: huge },
+      at: 1,
+    });
+    expect(
+      (selectorEntry.descriptor as { kind: "selector"; selector: string })
+        .selector.length,
+    ).toBe(500);
+
+    const [pathsEntry] = appendRecentEdit(undefined, {
+      descriptor: { kind: "paths", paths: [huge, "short.path"] },
+      at: 1,
+    });
+    const paths = (pathsEntry.descriptor as { kind: "paths"; paths: string[] })
+      .paths;
+    expect(paths[0]!.length).toBe(500);
+    expect(paths[1]).toBe("short.path");
+  });
+
+  it("truncates an oversized label", () => {
+    const [entry] = appendRecentEdit(undefined, {
+      descriptor: { kind: "doc" },
+      label: "y".repeat(2_000),
+      at: 1,
+    });
+    expect(entry.label!.length).toBe(500);
+  });
+
+  it("leaves short descriptors and labels untouched", () => {
+    const [entry] = appendRecentEdit(undefined, {
+      descriptor: { kind: "text", quote: "hello world" },
+      label: "Edited",
+      at: 1,
+    });
+    expect(entry.descriptor).toEqual({ kind: "text", quote: "hello world" });
+    expect(entry.label).toBe("Edited");
+  });
 });
 
 describe("collectRecentEdits", () => {

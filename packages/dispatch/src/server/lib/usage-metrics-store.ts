@@ -213,6 +213,17 @@ async function queryRows<T extends Record<string, unknown>>(
   }
 }
 
+async function initializeUsageMetricsTable(sinceMs: number): Promise<void> {
+  try {
+    // Initializes token_usage on fresh deployments before the read-only
+    // aggregate queries below. The fake owner avoids changing visible data.
+    await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
+  } catch {
+    // Metrics should still render an empty state if usage storage is locked,
+    // stale, or unavailable; each aggregate read below is already best-effort.
+  }
+}
+
 async function getViewerOrgRole(
   orgId: string | null,
   email: string,
@@ -397,9 +408,7 @@ export async function listDispatchUsageMetrics(input: {
   const sinceMs = Date.now() - sinceDays * DAY_MS;
   const billing = usageBillingForEngine(await detectUsageEngineName());
 
-  // Initializes token_usage on fresh deployments before the read-only
-  // aggregate queries below. The fake owner avoids changing visible data.
-  await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
+  await initializeUsageMetricsTable(sinceMs);
 
   const rawMembers = orgId
     ? await listOrgMembers(orgId)

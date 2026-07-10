@@ -15,9 +15,15 @@ import {
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
-import { AppKeysPopover } from "@/components/app-keys-popover";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { cn } from "../lib/utils";
+import {
+  isPendingBuilderHref,
+  workspaceAppHref,
+  type WorkspaceAppSummary,
+} from "../lib/workspace-apps";
+import { AppKeysPopover } from "./app-keys-popover";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,28 +32,18 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
+} from "./ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { AppResourceEffectiveStack } from "@/components/workspace-resource-effective-stack";
-import { cn } from "@/lib/utils";
-import {
-  isPendingBuilderHref,
-  workspaceAppHref,
-  type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "./ui/dropdown-menu";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack";
 
 export function WorkspaceAppCard({
   app,

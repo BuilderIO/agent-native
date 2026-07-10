@@ -15,9 +15,13 @@ vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
 
-import type { IncomingMessage } from "@agent-native/core/server";
+import type {
+  IncomingMessage,
+  PlatformAdapter,
+} from "@agent-native/core/server";
 
 import {
+  beforeDispatchProcess,
   identityKeyForIncoming,
   resolveDispatchOwner,
 } from "./dispatch-integrations.js";
@@ -54,6 +58,38 @@ function emailIncoming(
   };
 }
 
+function telegramIncoming(
+  overrides: Partial<IncomingMessage> = {},
+): IncomingMessage {
+  return {
+    platform: "telegram",
+    externalThreadId: "12345",
+    text: "ask analytics about traffic",
+    senderId: "777",
+    senderName: "Steve",
+    platformContext: { chatId: 12345, fromId: 777, rawText: "hello" },
+    timestamp: 1,
+    ...overrides,
+  };
+}
+
+const noopAdapter: PlatformAdapter = {
+  platform: "telegram",
+  label: "Telegram",
+  getRequiredEnvKeys: () => [],
+  handleVerification: async () => ({ handled: false }),
+  verifyWebhook: async () => true,
+  parseIncomingMessage: async () => null,
+  sendResponse: async () => {},
+  formatAgentResponse: (text: string) => ({ text, platformContext: {} }),
+  getStatus: async () => ({
+    platform: "telegram",
+    label: "Telegram",
+    enabled: true,
+    configured: true,
+  }),
+};
+
 beforeEach(() => {
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
@@ -74,6 +110,10 @@ afterEach(() => {
 describe("identityKeyForIncoming", () => {
   it("scopes Slack identities by team", () => {
     expect(identityKeyForIncoming(slackIncoming())).toBe("T123:U123");
+  });
+
+  it("uses Telegram sender ids as link identities", () => {
+    expect(identityKeyForIncoming(telegramIncoming())).toBe("777");
   });
 });
 
@@ -182,5 +222,56 @@ describe("resolveDispatchOwner", () => {
     await expect(
       resolveDispatchOwner(emailIncoming({ senderVerified: false })),
     ).resolves.toBe("victim@member.test");
+  });
+});
+
+describe("beforeDispatchProcess", () => {
+  it("asks unlinked Telegram users to link before using org context", async () => {
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
+
+    const result = await beforeDispatchProcess(telegramIncoming(), noopAdapter);
+
+    expect(result).toEqual({
+      handled: true,
+      responseText:
+        "Telegram is connected, but this Telegram account is not linked to an Agent-Native user yet. Tap https://dispatch.agent-native.test/identities, create a Telegram link token, then send `/link <token>` here. After that I can use your Builder.io org and connected apps.",
+    });
+    expect(mocks.resolveLinkedOwner).toHaveBeenCalledWith("telegram", "777", {
+      allowAnyOrgFallback: true,
+    });
+  });
+
+  it("lets linked Telegram users proceed to normal agent processing", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("steve@builder.io");
+
+    await expect(
+      beforeDispatchProcess(telegramIncoming(), noopAdapter),
+    ).resolves.toEqual({ handled: false });
+  });
+
+  it("still consumes Telegram link commands before enforcing the link gate", async () => {
+    const result = await beforeDispatchProcess(
+      telegramIncoming({
+        text: "token-123",
+        platformContext: {
+          chatId: 12345,
+          fromId: 777,
+          rawText: "/link token-123",
+        },
+      }),
+      noopAdapter,
+    );
+
+    expect(result).toEqual({
+      handled: true,
+      responseText:
+        "Linked successfully. Future telegram messages will use owner@example.test's personal dispatch context.",
+    });
+    expect(mocks.consumeLinkToken).toHaveBeenCalledWith({
+      platform: "telegram",
+      token: "token-123",
+      externalUserId: "777",
+      externalUserName: "Steve",
+    });
   });
 });

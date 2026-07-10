@@ -166,6 +166,26 @@ export interface PresetSkeletonSpec {
   foreground?: PresetSkeletonForegroundLayer[];
 }
 
+export const PRESET_REFERENCE_ROLES = [
+  "subject",
+  "style",
+  "product",
+  "background",
+  "composition",
+] as const;
+
+export type PresetReferenceRole = (typeof PRESET_REFERENCE_ROLES)[number];
+
+export interface PresetReference {
+  id: string;
+  label: string;
+  role: PresetReferenceRole;
+  description?: string;
+  assetIds: string[];
+  variable: boolean;
+  required: boolean;
+}
+
 export interface ImageLibrarySummary {
   id: string;
   title: string;

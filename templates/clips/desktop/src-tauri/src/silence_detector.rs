@@ -341,7 +341,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     fired = false;
                     continue;
                 }
-                let front = frontmost_bundle_id();
+                let front = crate::util::frontmost_bundle_id();
                 let is_strong_vc = front
                     .as_ref()
                     .map(|b| strong_vc_bundles.iter().any(|k| k == b))
@@ -407,28 +407,4 @@ fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: 
         .map(|s| now.duration_since(s.last_loud_at) >= window)
         .unwrap_or(false);
     mic_silent && system_silent
-}
-
-#[cfg(target_os = "macos")]
-fn frontmost_bundle_id() -> Option<String> {
-    // Lightweight shell-out to avoid extra crates: AppleScript via `osascript`
-    // returns the bundle id of the frontmost app. This avoids pulling in a
-    // full objc2 dependency just for one read.
-    use std::process::Command;
-    let out = Command::new("osascript")
-        .args([
-            "-e",
-            "tell application \"System Events\" to get bundle identifier of (first process whose frontmost is true)",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
 }

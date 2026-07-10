@@ -66,8 +66,20 @@ function extractSelector(tagHtml: string, tagName: string): string | undefined {
   if (idMatch) return `#${idMatch[1] ?? idMatch[2]}`;
   const classMatch = tagHtml.match(/\bclass\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
   if (classMatch) {
-    const first = (classMatch[1] ?? classMatch[2] ?? "").trim().split(/\s+/)[0];
-    if (first) return `${tagName.toLowerCase()}.${first}`;
+    const classNames = (classMatch[1] ?? classMatch[2] ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (classNames.length > 0) {
+      // Include every class, not just the first: Tailwind screens commonly
+      // have several sibling elements sharing one common utility class (e.g.
+      // two buttons both carrying "h-4" but differing in every other class).
+      // A first-class-only selector is ambiguous and apply-a11y-fix's
+      // deterministic edit engine (which treats every dot segment after the
+      // tag as a required class, see shared/code-layer.ts) would match the
+      // wrong element among several sharing only that one class.
+      return `${tagName.toLowerCase()}.${classNames.join(".")}`;
+    }
   }
   return undefined;
 }
@@ -104,6 +116,13 @@ function checkMissingAlt(html: string): A11yFinding[] {
   return findings;
 }
 
+/** Escape regex metacharacters so untrusted HTML attribute values (e.g. an
+ * author-supplied `id`) can be safely interpolated into a `RegExp` source
+ * string instead of crashing the audit or matching unintended text. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Check form inputs without an associated <label> or aria-label/aria-labelledby. */
 function checkMissingLabels(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
@@ -126,7 +145,10 @@ function checkMissingLabels(html: string): A11yFinding[] {
     const idMatch = tag.match(/\bid\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     const inputId = idMatch?.[1] ?? idMatch?.[2];
     const hasExplicitLabel = inputId
-      ? new RegExp(`for\\s*=\\s*(?:"${inputId}"|'${inputId}')`, "i").test(html)
+      ? new RegExp(
+          `for\\s*=\\s*(?:"${escapeRegExp(inputId)}"|'${escapeRegExp(inputId)}')`,
+          "i",
+        ).test(html)
       : false;
     const hasImplicitLabel = isWrappedByLabel(html, inputStart, inputEnd);
 

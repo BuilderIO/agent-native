@@ -110,8 +110,8 @@ negative. Use this two-step pattern:
    `provider-api-catalog(provider: "gong")` and its `corpusRecipes` if you need
    the exact shape. The canonical request is `POST /calls/transcript` with
    `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
-   "callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
-   ["transcript"]`, and `search.idPaths: ["callId"]`. Feed the staged/discovered
+"callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
+["transcript"]`, and `search.idPaths: ["callId"]`. Feed the staged/discovered
    call IDs through `batch.inputDatasetId` + `batch.inputValuePath` or through
    `batch.items`.
 
@@ -126,11 +126,11 @@ matches found. Never turn "I inspected a sample" into "no call mentions X".
 
 ## Limits (Current)
 
-| Parameter | Default | Max |
-|---|---|---|
-| `limit` (calls returned) | 8 | 200 |
-| `transcriptLimit` | 3 | 50 |
-| `transcriptMaxChars` | 8 000 | 100 000 |
+| Parameter                | Default | Max     |
+| ------------------------ | ------- | ------- |
+| `limit` (calls returned) | 8       | 200     |
+| `transcriptLimit`        | 3       | 50      |
+| `transcriptMaxChars`     | 8 000   | 100 000 |
 
 For large account deep-dives or competitive analyses spanning many calls, use
 `limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, the

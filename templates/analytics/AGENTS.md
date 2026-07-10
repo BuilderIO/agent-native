@@ -9,6 +9,10 @@ details live in `.agents/skills/`.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
@@ -84,15 +88,18 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
-- `/agents` is the Analytics home for core agent-admin surfaces. The default
-  Monitoring view embeds the shared observability dashboard for traces,
-  conversations, evals, experiments, and feedback. The Advanced menu opens
-  `/agents?view=database`, where organization owners/admins can connect other
-  agent-native app databases and use the shared database admin tool for table
-  browsing, row editing, and SQL inspection. This surface is for connected
-  target app databases, not broad access to all Analytics data. Keep future
-  agent-admin additions inside this route instead of adding many top-level
-  sidebar tabs.
+- `/agents` is the Analytics home for admin surfaces. The default Monitoring
+  view embeds the shared observability dashboard for traces, conversations,
+  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
+  admins ask about dashboard created/modified dates, owners, last tracked
+  modifier, views, engagements, saved views, or cleanup candidates. The
+  Advanced menu opens `/agents?view=database`, where organization owners/admins
+  can connect other agent-native app databases and use the shared database admin
+  tool for table browsing, row editing, and SQL inspection. This database
+  surface is for connected target app databases, not broad access to all
+  Analytics data. Keep future admin additions inside this route instead of
+  adding many top-level sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -100,6 +107,13 @@ details live in `.agents/skills/`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
+- Dashboard saves keep bounded history in SQL. Use
+  `list-dashboard-revisions` to inspect undo points and
+  `restore-dashboard-revision` to restore one instead of hand-editing history
+  rows.
+- Saved analyses also keep bounded history. Use `list-analysis-revisions` and
+  `restore-analysis-revision` for rollback after a re-run updates the saved
+  findings.
 - Do not count shifting `/panels/<index>` values for ordinary dashboard edit
   requests. Use low-level JSON-pointer edits only when explicitly requested.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
@@ -140,11 +154,15 @@ details live in `.agents/skills/`.
   `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
   Alert notifications use the shared notification channel registry, so
   `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
-  registered channel. Configure Slack with `NOTIFICATIONS_SLACK_WEBHOOK_URL`
-  and optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with
-  `NOTIFICATIONS_EMAIL_CHANNEL=1`, existing `RESEND_API_KEY` or
-  `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule `emailRecipients` or
-  the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  registered channel. Slack/webhook prefer delivery-only
+  `metadata.delivery.slackWebhookUrl` / `metadata.delivery.webhookUrl` (uptime
+  monitors store these on the monitor row), then fall back to
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL`. Configure
+  optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with existing
+  `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule
+  `emailRecipients` or the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`. Saving
+  explicit `emailRecipients` also remembers them as the current user's defaults
+  for the next alert rule created in Settings.
   Netlify builds emit an alert cron trigger plus background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
@@ -157,10 +175,16 @@ details live in `.agents/skills/`.
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
+- Clicking a dashboard chart, table, or extension stages that panel as a chat
+  context chip and writes `selected-object` with `type="dashboard-panel"`.
+  Use its dashboard and panel ids to scope inspection and edits to that panel.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
-  replay, and `view="agents"` / `agentsView="database"` with optional
-  `dbAdminConnectionId` for agent monitoring or connected app database admin.
+  replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
+  `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
+  public status pages, or error triage, and `view="agents"` with
+  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
+  dashboard usage or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -200,6 +224,54 @@ details live in `.agents/skills/`.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.
+
+## Monitoring
+
+- `/monitoring` is the Monitoring tab (`app/routes/monitoring._index.tsx` →
+  `app/pages/monitoring/MonitoringPage.tsx`), a thin shell hosting two
+  independently-owned panels selected by `?view=uptime|errors` (defaults to
+  uptime). `navigation` mirrors it as `view="monitoring"` with `monitoringView`
+  (plus `monitorId`/`errorIssueId` when a row is open); each panel also writes
+  richer selection to the `monitoring` application-state key.
+- Uptime (`app/pages/monitoring/UptimePanel.tsx`,
+  `app/pages/monitoring/uptime/**`) manages synthetic HTTP checks with
+  alerting. Actions: `list-monitors`, `get-monitor`, `save-monitor`,
+  `run-monitor-check`, `delete-monitor`. Checks/alerting run server-side in
+  `server/lib/uptime-monitors.ts` (sweep job `server/jobs/uptime-monitors.ts`,
+  scheduler `server/plugins/uptime-monitor-jobs.ts`) over
+  `server/db/schema-monitoring.ts`. Production serverless/Netlify-style
+  runtimes skip the in-process interval scheduler and rely on the generated
+  scheduled/background worker or external cron instead. Deep links: list
+  `?view=uptime`, detail `?view=uptime&monitor=<id>`, create
+  `?view=uptime&monitor=new`, edit `?view=uptime&monitor=<id>&edit=1`. See
+  `docs/uptime-monitoring.md`.
+- Status pages (`app/pages/monitoring/uptime/status-pages/**`) are a config
+  sub-view under Uptime that bundle chosen monitors under a public
+  `/status/<slug>` page. Actions: `list-status-pages`, `get-status-page`,
+  `save-status-page`, `delete-status-page`, `add-status-page-monitor`,
+  `remove-status-page-monitor`, `reorder-status-page-monitors`, plus the
+  unauthenticated `get-public-status-page`. Owner-scoped CRUD and the sanitized
+  public projection live in `server/lib/status-pages.ts` over
+  `server/db/schema-monitoring.ts`. Deep links: index
+  `?view=uptime&statuspage=list`, create `?view=uptime&statuspage=new`, edit
+  `?view=uptime&statuspage=<id>`.
+- Errors (`app/pages/monitoring/ErrorsPanel.tsx`,
+  `app/pages/monitoring/errors/**`) is Sentry-style exception triage grouped
+  into issues by fingerprint. Actions: `list-error-issues`, `get-error-issue`,
+  `resolve-error-issue`, `capture-test-error`, `match-error-issues`.
+  Ingest/grouping lives in `server/lib/error-capture.ts` over
+  `server/db/schema-errors.ts`. Browser capture uses the SDK from
+  `@agent-native/core/client` (`captureException` / `captureMessage` /
+  `addErrorBreadcrumb`), auto-enabled by `configureTracking` and transported
+  through the first-party analytics ingest as a `$exception` event. Deep link:
+  `?view=errors&issue=<id>`. Issue detail includes recent frequency,
+  parsed/raw stack traces, source code snippets when available, breadcrumbs,
+  tags, occurrence history, and session replay links. See
+  `docs/error-capture.md`.
+- Session replay ↔ Errors: a recording's devtools Console error lines link to
+  the grouped issue at `/monitoring?view=errors&issue=<id>`, resolved by
+  `match-error-issues` (exact fingerprint match, no heuristics); issues link
+  back to the originating recording at `/sessions/<recordingId>`.
 
 ## Dashboard Template Catalog
 

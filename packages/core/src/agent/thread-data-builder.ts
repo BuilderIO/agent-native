@@ -3,6 +3,7 @@ import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
+  type NormalizedCodeAgentThinkingEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
@@ -124,6 +125,15 @@ export function buildAssistantMessage(
     }
   };
 
+  const appendReasoning = (text: string) => {
+    const last = content[content.length - 1];
+    if (last && last.type === "reasoning") {
+      last.text = (last.text ?? "") + text;
+    } else {
+      content.push({ type: "reasoning", text });
+    }
+  };
+
   for (const { event } of events) {
     if (event.type === "clear") {
       clearAssistantDraftContent(content);
@@ -132,6 +142,11 @@ export function buildAssistantMessage(
 
     if (event.type === "text") {
       appendText(event.text ?? "");
+      continue;
+    }
+
+    if (event.type === "thinking") {
+      appendReasoning(event.text ?? "");
       continue;
     }
 
@@ -255,12 +270,18 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
-    if (part.type === "text") {
+    if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      content.splice(index, 1);
+      // Keep materialized in-flight tool cards across retry clears so persisted
+      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      const isEphemeral =
+        (part as { activity?: boolean }).activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
     }
   }
 }
@@ -1062,11 +1083,21 @@ function contentPartForCodeAgentTranscriptItem(
   if (item.type === "tool") {
     return toolContentPartForCodeAgentTranscriptItem(item);
   }
+  if (item.type === "thinking") {
+    return thinkingContentPartForCodeAgentTranscriptItem(item);
+  }
   if (item.type === "status") {
     const text = statusTextForCodeAgentTranscriptItem(item, options);
     return text ? { type: "text", text } : null;
   }
   return null;
+}
+
+function thinkingContentPartForCodeAgentTranscriptItem(
+  item: NormalizedCodeAgentThinkingEvent,
+): ContentPart | null {
+  const text = item.text.trim();
+  return text ? { type: "reasoning", text } : null;
 }
 
 function toolContentPartForCodeAgentTranscriptItem(

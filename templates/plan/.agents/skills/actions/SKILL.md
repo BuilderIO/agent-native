@@ -377,6 +377,11 @@ Most operations should be actions. You only need custom routes in `server/routes
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
 
+When the agent needs a durable image or file URL, call the core `upload-image`
+action or use `uploadFile()` in server code. Do not write base64 into SQL,
+markdown, deck/design JSON, or action results. `_agentImages` on action results
+is for ephemeral vision previews only, not persistence.
+
 If it's a standard CRUD operation, data query, or a wrapper around an action, use the action instead.
 
 ## Legacy Pattern (bare export)

@@ -60,34 +60,66 @@ iframe-backed screens on the infinite canvas.
 
 ## Required Local Bridge
 
-From the target app repo, make sure its dev server is running, then run:
+The live-edit bridge is unlocked by a shared secret (the "bridge token") that
+must match on two sides: the local bridge process, and the user's connection row
+in Design (which the browser reads to authorize `/live-edit-bridge`,
+`/read-file`, `/write-file`). Get them to match by letting the
+**authenticated** `open-visual-edit` action mint the token, then starting the
+bridge with it. This is the only ordering that works for the remote-MCP flow —
+the bridge cannot push its own token to the server without a CLI auth token, so
+the server mints instead and the bridge adopts.
+
+From the target app repo, make sure its dev server is running, then:
+
+**1. Discover routes without starting a durable bridge** (one-shot, exits):
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
 ```
 
-Use the app's real port. The command starts a detached local bridge on
-`http://127.0.0.1:7331` by default, waits for `/health`, prints the
-manifest JSON, and keeps the bridge alive after the agent command exits.
+This prints the manifest (routes + capabilities). Parse it to build
+`routeManifest` for the next step. (Skip this if the user already gave explicit
+paths/URLs to place.)
 
-For a manual health/manifest check:
+**2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
+The server mints one, stores it on the user's connection row, copies it into the
+placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
+
+**3. Start the persistent bridge adopting that token** (single line; prefer the
+env var so the secret does not appear in `ps`):
+
+```bash
+AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --daemon
+```
+
+(Equivalently, pass `--bridge-token <token>`.) This starts a detached bridge on
+`http://127.0.0.1:7331`, adopts the server-minted token — so bridge and row
+agree and live-edit authorizes with no self-registration — and stays alive after
+the command exits.
+
+For a manual health/manifest check on the running bridge:
 
 ```bash
 curl http://127.0.0.1:7331/manifest.json
 ```
 
-Do not use `--json` for an editable session. `--json`, `--once`, and
-`--dry-run` print the manifest and exit, so Design will fall back to a
-non-editable live iframe as soon as it tries to refresh the snapshot.
+Only use `--json` for the step-1 route probe. Never use `--json`, `--once`,
+or `--dry-run` for the durable step-3 bridge: they print the manifest and exit,
+so Design falls back to a non-editable live iframe.
 
 ## Action Flow
 
 Prefer the single authenticated `open-visual-edit` action. It registers or
-refreshes the localhost bridge, creates or reuses a Design project, places
-URL-backed screens, stores the active visual-edit context, and navigates to
-overview mode in one call. This avoids creating a private design under a
-synthetic CLI user and then handing the browser a tokenized URL that may be
-shadowed by an existing session.
+refreshes the localhost bridge connection, mints and stores the bridge token,
+creates or reuses a Design project, places URL-backed screens, stores the active
+visual-edit context, and navigates to overview mode in one call. This avoids
+creating a private design under a synthetic CLI user and then handing the browser
+a tokenized URL that may be shadowed by an existing session.
+
+Call it BEFORE starting the durable bridge (step 3 above): it does not contact
+the bridge, so the bridge need not be running yet, and you need its returned
+`bridgeToken` to start the bridge with a matching secret. Omit `bridgeToken`
+on the call so the server mints one.
 
 ```bash
 pnpm action open-visual-edit '{
@@ -100,8 +132,12 @@ pnpm action open-visual-edit '{
 }'
 ```
 
-The action returns `designId`, `connectionId`, `screens`, `urlPath`, and
-`openUrl`. Keep those IDs in the chat context for follow-ups.
+The action returns `designId`, `connectionId`, `bridgeToken`, `screens`,
+`urlPath`, and `openUrl`. Keep `designId`/`connectionId` in the chat context
+for follow-ups, and pass `bridgeToken` to `design connect` (step 3) to start
+the bridge. On follow-up calls reusing an existing `connectionId`, the same
+token is returned (it is minted once and reused), so the running bridge stays
+valid.
 
 For a numbered flow the user describes in chat, keep the labels and order:
 
@@ -168,6 +204,20 @@ Keep localhost screens as URL files plus `screenMetadata[fileId]`. Do not
 replace them with copied `srcdoc` HTML unless the user explicitly asks for a
 frozen snapshot. To change a state, rerun `add-localhost-screens` with the new
 path/query or duplicate the screen and update the copy's URL metadata.
+
+## React Source Writeback
+
+- Use compiler/debug provenance (project-relative file, line, column,
+  component, and runtime multiplicity) to locate React/TSX source. Treat it as
+  evidence, not as permission for a generic AST structural transform.
+- Reparenting, grouping/ungrouping, wrappers, dynamic expressions, repeated
+  `.map()` instances, shared components, and cross-file changes go through the
+  coding agent with exact subject/target anchors and their runtime
+  relationship.
+- Before each write, read the file and pass its exact `versionHash` to
+  `write-local-file` with `requireExpectedVersionHash: true`; on conflict,
+  re-read and re-plan. Keep the optimistic preview until HMR/runtime confirms
+  the result. Human write consent remains mandatory and agents cannot grant it.
 
 ## Verification
 

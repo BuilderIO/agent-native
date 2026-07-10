@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client";
 import {
+  IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
   IconPlayerPlay,
@@ -14,11 +15,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { Link } from "react-router";
 
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { useErrorsT } from "../monitoring/errors/i18n";
 import {
   type ConsoleLevelFilter,
   consoleLevelBucket,
@@ -34,25 +37,64 @@ import {
   type ReplayNetworkEntry,
 } from "./session-replay-devtools";
 
+/**
+ * A session console error line resolved to its captured, Sentry-style issue.
+ * Keyed by `ReplayConsoleEntry.id`, computed server-side by `match-error-issues`
+ * so the resolution shares one fingerprint implementation with ingest.
+ */
+export type SessionIssueMatch = { issueId: string; status: string };
+
+/** Deep-link from a session error to the Monitoring → Errors issue detail. */
+function issueDetailPath(issueId: string): string {
+  return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
+}
+
 /** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
 const DEVTOOLS_ROW_HEIGHT = 34;
+const DEVTOOLS_EXPANDED_ESTIMATE = 220;
 const DEVTOOLS_OVERSCAN_ROWS = 10;
 const DEVTOOLS_MIN_HEIGHT = 180;
 const DEVTOOLS_MAX_HEIGHT = 620;
+
+/**
+ * Layout offsets for the virtualized Dev Tools list. Expanded rows reserve
+ * extra height so details render inline under the selected line without
+ * disabling virtualization for the rest of the list.
+ */
+export function buildDevToolsRowOffsets(
+  entryCount: number,
+  expandedIndex: number,
+): number[] {
+  const offsets = new Array<number>(entryCount + 1);
+  offsets[0] = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    const height =
+      index === expandedIndex
+        ? DEVTOOLS_EXPANDED_ESTIMATE
+        : DEVTOOLS_ROW_HEIGHT;
+    offsets[index + 1] = offsets[index] + height;
+  }
+  return offsets;
+}
 
 export function SessionDevToolsPanel({
   diagnostics,
   currentTime,
   height,
+  maxHeight = DEVTOOLS_MAX_HEIGHT,
   onHeightChange,
   onSeek,
+  issueMatches,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
   height: number;
+  maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
+  /** Resolved error issues by console entry id, for cross-linking to Errors. */
+  issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
 }) {
   const t = useT();
   const [tab, setTab] = useState<"console" | "network">("console");
@@ -86,11 +128,6 @@ export function SessionDevToolsPanel({
       ? (filteredNetwork[latestEntryIndexAt(filteredNetwork, currentTime)]
           ?.id ?? null)
       : null;
-
-  const selectedConsole =
-    filteredConsole.find((entry) => entry.id === selectedConsoleId) ?? null;
-  const selectedNetwork =
-    filteredNetwork.find((entry) => entry.id === selectedNetworkId) ?? null;
 
   useEffect(() => {
     if (
@@ -130,9 +167,13 @@ export function SessionDevToolsPanel({
   return (
     <div
       className="analytics-session-devtools relative flex min-h-0 shrink-0 flex-col border-t bg-background"
-      style={{ height }}
+      style={{ height: Math.min(height, maxHeight) }}
     >
-      <DevToolsResizeHandle height={height} onHeightChange={onHeightChange} />
+      <DevToolsResizeHandle
+        height={Math.min(height, maxHeight)}
+        maxHeight={maxHeight}
+        onHeightChange={onHeightChange}
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => setTab(value as "console" | "network")}
@@ -212,16 +253,18 @@ export function SessionDevToolsPanel({
           <VirtualizedDevToolsList
             entries={filteredConsole}
             activeEntryId={activeConsoleId}
+            expandedEntryId={selectedConsoleId}
             emptyMessage={
               diagnostics.console.length
                 ? t("sessions.devtoolsNoConsoleMatches")
                 : t("sessions.devtoolsNoConsole")
             }
-            renderRow={(entry) => (
+            renderRow={(entry, expanded) => (
               <ConsoleRow
                 entry={entry}
                 active={entry.id === activeConsoleId}
-                selected={entry.id === selectedConsoleId}
+                selected={expanded}
+                issueMatch={issueMatches?.get(entry.id) ?? null}
                 onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
@@ -231,9 +274,6 @@ export function SessionDevToolsPanel({
               />
             )}
           />
-          {selectedConsole ? (
-            <ConsoleDetailPane entry={selectedConsole} onSeek={onSeek} />
-          ) : null}
         </TabsContent>
 
         <TabsContent
@@ -279,16 +319,17 @@ export function SessionDevToolsPanel({
           <VirtualizedDevToolsList
             entries={filteredNetwork}
             activeEntryId={activeNetworkId}
+            expandedEntryId={selectedNetworkId}
             emptyMessage={
               diagnostics.network.length
                 ? t("sessions.devtoolsNoNetworkMatches")
                 : t("sessions.devtoolsNoNetwork")
             }
-            renderRow={(entry) => (
+            renderRow={(entry, expanded) => (
               <NetworkRow
                 entry={entry}
                 active={entry.id === activeNetworkId}
-                selected={entry.id === selectedNetworkId}
+                selected={expanded}
                 onSelect={() =>
                   setSelectedNetworkId((current) =>
                     current === entry.id ? null : entry.id,
@@ -298,9 +339,6 @@ export function SessionDevToolsPanel({
               />
             )}
           />
-          {selectedNetwork ? (
-            <NetworkDetailPane entry={selectedNetwork} onSeek={onSeek} />
-          ) : null}
         </TabsContent>
       </Tabs>
     </div>
@@ -309,12 +347,15 @@ export function SessionDevToolsPanel({
 
 function DevToolsResizeHandle({
   height,
+  maxHeight,
   onHeightChange,
 }: {
   height: number;
+  maxHeight: number;
   onHeightChange: (height: number) => void;
 }) {
   const t = useT();
+  const cappedMax = Math.max(DEVTOOLS_MIN_HEIGHT, maxHeight);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -325,8 +366,8 @@ function DevToolsResizeHandle({
       onHeightChange(
         clamp(
           startHeight - (moveEvent.clientY - startY),
-          DEVTOOLS_MIN_HEIGHT,
-          DEVTOOLS_MAX_HEIGHT,
+          Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax),
+          cappedMax,
         ),
       );
     }
@@ -345,8 +386,8 @@ function DevToolsResizeHandle({
       role="separator"
       aria-label={t("sessions.devtoolsResize")}
       aria-orientation="horizontal"
-      aria-valuemin={DEVTOOLS_MIN_HEIGHT}
-      aria-valuemax={DEVTOOLS_MAX_HEIGHT}
+      aria-valuemin={Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax)}
+      aria-valuemax={cappedMax}
       aria-valuenow={Math.round(height)}
       className="absolute inset-x-0 -top-1 z-10 flex h-2 cursor-row-resize items-center justify-center"
       onPointerDown={handlePointerDown}
@@ -359,13 +400,15 @@ function DevToolsResizeHandle({
 function VirtualizedDevToolsList<T extends { id: string }>({
   entries,
   activeEntryId,
+  expandedEntryId,
   emptyMessage,
   renderRow,
 }: {
   entries: T[];
   activeEntryId: string | null;
+  expandedEntryId: string | null;
   emptyMessage: string;
-  renderRow: (entry: T) => ReactNode;
+  renderRow: (entry: T, expanded: boolean) => ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastManualScrollAtRef = useRef(0);
@@ -375,6 +418,16 @@ function VirtualizedDevToolsList<T extends { id: string }>({
   const activeIndex = activeEntryId
     ? entries.findIndex((entry) => entry.id === activeEntryId)
     : -1;
+  const expandedIndex = expandedEntryId
+    ? entries.findIndex((entry) => entry.id === expandedEntryId)
+    : -1;
+
+  const rowOffsets = useMemo(
+    () => buildDevToolsRowOffsets(entries.length, expandedIndex),
+    [entries.length, expandedIndex],
+  );
+
+  const totalHeight = rowOffsets[entries.length] ?? 0;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -396,15 +449,16 @@ function VirtualizedDevToolsList<T extends { id: string }>({
     }
     const el = containerRef.current;
     if (!el) return;
-    const rowTop = activeIndex * DEVTOOLS_ROW_HEIGHT;
-    const rowBottom = rowTop + DEVTOOLS_ROW_HEIGHT;
+    const rowTop = rowOffsets[activeIndex] ?? 0;
+    const rowBottom =
+      rowOffsets[activeIndex + 1] ?? rowTop + DEVTOOLS_ROW_HEIGHT;
     if (rowTop >= el.scrollTop && rowBottom <= el.scrollTop + el.clientHeight) {
       return;
     }
     el.scrollTo({
       top: Math.max(0, rowTop - el.clientHeight / 2 + DEVTOOLS_ROW_HEIGHT),
     });
-  }, [activeIndex, entries.length]);
+  }, [activeIndex, entries.length, rowOffsets]);
 
   const markManualScroll = () => {
     lastManualScrollAtRef.current = Date.now();
@@ -419,14 +473,24 @@ function VirtualizedDevToolsList<T extends { id: string }>({
   }
 
   const measuredHeight = viewportHeight || 240;
-  const startIndex = clamp(
-    Math.floor(scrollTop / DEVTOOLS_ROW_HEIGHT) - DEVTOOLS_OVERSCAN_ROWS,
-    0,
-    entries.length,
-  );
-  const endIndex = clamp(
-    Math.ceil((scrollTop + measuredHeight) / DEVTOOLS_ROW_HEIGHT) +
-      DEVTOOLS_OVERSCAN_ROWS,
+  let startIndex = 0;
+  while (
+    startIndex < entries.length &&
+    (rowOffsets[startIndex + 1] ?? 0) < scrollTop
+  ) {
+    startIndex += 1;
+  }
+  startIndex = clamp(startIndex - DEVTOOLS_OVERSCAN_ROWS, 0, entries.length);
+
+  let endIndex = startIndex;
+  while (
+    endIndex < entries.length &&
+    (rowOffsets[endIndex] ?? 0) < scrollTop + measuredHeight
+  ) {
+    endIndex += 1;
+  }
+  endIndex = clamp(
+    endIndex + DEVTOOLS_OVERSCAN_ROWS,
     startIndex,
     entries.length,
   );
@@ -441,22 +505,26 @@ function VirtualizedDevToolsList<T extends { id: string }>({
       onPointerDown={markManualScroll}
       onTouchMove={markManualScroll}
     >
-      <div
-        className="relative"
-        style={{ height: entries.length * DEVTOOLS_ROW_HEIGHT }}
-      >
-        {visibleEntries.map((entry, offset) => (
-          <div
-            key={entry.id}
-            className="absolute inset-x-0"
-            style={{
-              height: DEVTOOLS_ROW_HEIGHT,
-              top: (startIndex + offset) * DEVTOOLS_ROW_HEIGHT,
-            }}
-          >
-            {renderRow(entry)}
-          </div>
-        ))}
+      <div className="relative" style={{ height: totalHeight }}>
+        {visibleEntries.map((entry, offset) => {
+          const index = startIndex + offset;
+          const expanded = entry.id === expandedEntryId;
+          const top = rowOffsets[index] ?? 0;
+          const height =
+            (rowOffsets[index + 1] ?? top + DEVTOOLS_ROW_HEIGHT) - top;
+          return (
+            <div
+              key={entry.id}
+              className="absolute inset-x-0"
+              style={{
+                minHeight: height,
+                top,
+              }}
+            >
+              {renderRow(entry, expanded)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -550,78 +618,148 @@ function JumpToButton({
   );
 }
 
+/**
+ * Compact link from a captured session error to its Errors issue detail. Kept
+ * outside the row's toggle `<button>` (an anchor nested in a button is invalid)
+ * and stops click propagation so following the link never also toggles/seeks.
+ */
+function ViewIssueLink({
+  issueId,
+  className,
+}: {
+  issueId: string;
+  className?: string;
+}) {
+  const et = useErrorsT();
+  return (
+    <Link
+      to={issueDetailPath(issueId)}
+      title={et.viewIssueTooltip}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <IconArrowUpRight className="h-3 w-3" />
+      {et.viewIssue}
+    </Link>
+  );
+}
+
 function ConsoleRow({
   entry,
   active,
   selected,
+  issueMatch,
   onSelect,
   onSeek,
 }: {
   entry: ReplayConsoleEntry;
   active: boolean;
   selected: boolean;
+  issueMatch: SessionIssueMatch | null;
   onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
+  const t = useT();
   const bucket = consoleLevelBucket(entry.level);
 
   return (
     <div
       data-entry-id={entry.id}
       className={cn(
-        "group flex h-full items-center gap-2 border-b px-3 transition-colors hover:bg-muted/50",
-        active && "bg-muted",
-        selected && "bg-muted/80",
+        "group border-b transition-colors hover:bg-muted/50",
+        active && "bg-primary/[0.06] dark:bg-primary/[0.09]",
+        selected && "bg-muted/40",
       )}
     >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        aria-expanded={selected}
-        onClick={onSelect}
-      >
-        <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {formatOffsetClock(entry.offsetMs)}
-        </span>
-        <span
-          className={cn(
-            "h-2 w-2 shrink-0 rounded-full",
-            bucket === "error" && "bg-red-500",
-            bucket === "warn" && "bg-amber-500",
-            bucket === "info" && "bg-sky-500",
-            bucket === "log" && "bg-muted-foreground/50",
-          )}
-          aria-hidden
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate font-mono text-xs",
-            bucket === "error" && "text-red-600 dark:text-red-400",
-            bucket === "warn" && "text-amber-600 dark:text-amber-400",
-            bucket !== "error" && bucket !== "warn" && "text-foreground/80",
-          )}
-          title={entry.message}
+      <div className="flex h-[34px] items-center gap-2 px-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={selected}
+          onClick={onSelect}
         >
-          {entry.message || entry.level}
-        </span>
-        {entry.repeat > 1 ? (
-          <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-            x{entry.repeat}
+          <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {formatOffsetClock(entry.offsetMs)}
           </span>
-        ) : null}
-        {entry.source !== "console" ? (
-          <span className="hidden shrink-0 rounded border px-1 font-mono text-[10px] text-muted-foreground sm:inline-flex">
-            {entry.source}
+          <span
+            className={cn(
+              "h-2 w-2 shrink-0 rounded-full",
+              bucket === "error" && "bg-red-500",
+              bucket === "warn" && "bg-amber-500",
+              bucket === "info" && "bg-sky-500",
+              bucket === "log" && "bg-muted-foreground/50",
+            )}
+            aria-hidden
+          />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate font-mono text-xs",
+              bucket === "error" && "text-red-600 dark:text-red-400",
+              bucket === "warn" && "text-amber-600 dark:text-amber-400",
+              bucket !== "error" && bucket !== "warn" && "text-foreground/80",
+            )}
+            title={entry.message}
+          >
+            {entry.message || entry.level}
           </span>
-        ) : null}
-        <IconChevronRight
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
-            selected && "rotate-90 rtl:scale-x-100",
-          )}
-        />
-      </button>
-      <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+          {entry.repeat > 1 ? (
+            <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+              x{entry.repeat}
+            </span>
+          ) : null}
+          {entry.source !== "console" ? (
+            <span className="hidden shrink-0 rounded border px-1 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+              {entry.source}
+            </span>
+          ) : null}
+          <IconChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
+              selected && "rotate-90 rtl:scale-x-100",
+            )}
+          />
+        </button>
+        {issueMatch ? <ViewIssueLink issueId={issueMatch.issueId} /> : null}
+        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+      </div>
+      {selected ? (
+        <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
+          <DetailField label={t("sessions.devtoolsMessage")}>
+            <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-foreground/85">
+              {entry.message || entry.level}
+            </pre>
+          </DetailField>
+          {entry.url ? (
+            <DetailField label={t("sessions.url")}>
+              <p className="break-all font-mono text-[11px] text-muted-foreground">
+                {entry.url}
+              </p>
+            </DetailField>
+          ) : null}
+          {entry.args.length ? (
+            <DetailField label={t("sessions.devtoolsArgs")}>
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.args.join("\n")}
+              </pre>
+            </DetailField>
+          ) : null}
+          {entry.stack ? (
+            <DetailField label={t("sessions.devtoolsStack")}>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.stack}
+              </pre>
+            </DetailField>
+          ) : null}
+          {issueMatch ? (
+            <div className="pt-1">
+              <ViewIssueLink issueId={issueMatch.issueId} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -646,196 +784,114 @@ function NetworkRow({
     <div
       data-entry-id={entry.id}
       className={cn(
-        "group flex h-full items-center gap-2 border-b px-3 transition-colors hover:bg-muted/50",
-        active && "bg-muted",
-        selected && "bg-muted/80",
+        "group border-b transition-colors hover:bg-muted/50",
+        active && "bg-primary/[0.06] dark:bg-primary/[0.09]",
+        selected && "bg-muted/40",
       )}
     >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        aria-expanded={selected}
-        onClick={onSelect}
-      >
-        <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {formatOffsetClock(entry.offsetMs)}
-        </span>
-        <span
-          className={cn(
-            "w-12 shrink-0 font-mono text-[11px] font-semibold",
-            entry.failed
-              ? "text-red-600 dark:text-red-400"
-              : "text-muted-foreground",
-          )}
-        >
-          {entry.status > 0 ? entry.status : t("sessions.devtoolsFailedStatus")}
-        </span>
-        <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {entry.method}
-        </span>
-        <span className="hidden w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70 sm:inline">
-          {entry.api === "xhr" ? "XHR" : "fetch"}
-        </span>
-        <span
-          className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
-          title={entry.url}
-        >
-          {displayUrl}
-        </span>
-        {entry.error ? (
-          <span
-            className="hidden max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400 lg:inline"
-            title={entry.error}
-          >
-            {entry.error}
-          </span>
-        ) : null}
-        <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
-          {t("sessions.devtoolsDurationMs", {
-            ms: String(entry.durationMs),
-          })}
-        </span>
-        <IconChevronRight
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
-            selected && "rotate-90 rtl:scale-x-100",
-          )}
-        />
-      </button>
-      <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
-    </div>
-  );
-}
-
-function ConsoleDetailPane({
-  entry,
-  onSeek,
-}: {
-  entry: ReplayConsoleEntry;
-  onSeek: (ms: number) => void;
-}) {
-  const t = useT();
-  return (
-    <DevToolsDetailPane
-      title={`${entry.level} at ${formatOffsetClock(entry.offsetMs)}`}
-      onSeek={() => onSeek(entry.offsetMs)}
-    >
-      <DetailField label={t("sessions.devtoolsMessage")}>
-        <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-foreground/85">
-          {entry.message || entry.level}
-        </pre>
-      </DetailField>
-      {entry.url ? (
-        <DetailField label={t("sessions.url")}>
-          <p className="break-all font-mono text-[11px] text-muted-foreground">
-            {entry.url}
-          </p>
-        </DetailField>
-      ) : null}
-      {entry.args.length ? (
-        <DetailField label={t("sessions.devtoolsArgs")}>
-          <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
-            {entry.args.join("\n")}
-          </pre>
-        </DetailField>
-      ) : null}
-      {entry.stack ? (
-        <DetailField label={t("sessions.devtoolsStack")}>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
-            {entry.stack}
-          </pre>
-        </DetailField>
-      ) : null}
-    </DevToolsDetailPane>
-  );
-}
-
-function NetworkDetailPane({
-  entry,
-  onSeek,
-}: {
-  entry: ReplayNetworkEntry;
-  onSeek: (ms: number) => void;
-}) {
-  const t = useT();
-  return (
-    <DevToolsDetailPane
-      title={`${entry.method} ${entry.status > 0 ? entry.status : t("sessions.devtoolsFailedStatus")}`}
-      onSeek={() => onSeek(entry.offsetMs)}
-    >
-      <div className="grid gap-2 sm:grid-cols-2">
-        <DetailValue
-          label={t("sessions.time")}
-          value={formatOffsetClock(entry.offsetMs)}
-        />
-        <DetailValue
-          label="API"
-          value={entry.api === "xhr" ? "XHR" : "fetch"}
-        />
-        <DetailValue
-          label="Status"
-          value={
-            entry.status > 0
-              ? String(entry.status)
-              : t("sessions.devtoolsFailedStatus")
-          }
-        />
-        <DetailValue
-          label="Duration"
-          value={t("sessions.devtoolsDurationMs", {
-            ms: String(entry.durationMs),
-          })}
-        />
-      </div>
-      <DetailField label={t("sessions.url")}>
-        <p className="break-all font-mono text-[11px] text-muted-foreground">
-          {entry.url}
-        </p>
-      </DetailField>
-      {entry.error ? (
-        <DetailField label="Error">
-          <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-red-600 dark:text-red-400">
-            {entry.error}
-          </pre>
-        </DetailField>
-      ) : null}
-      {entry.responseBody ? (
-        <DetailField label={t("sessions.devtoolsResponseBody")}>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
-            {entry.responseBody}
-          </pre>
-        </DetailField>
-      ) : null}
-    </DevToolsDetailPane>
-  );
-}
-
-function DevToolsDetailPane({
-  title,
-  onSeek,
-  children,
-}: {
-  title: string;
-  onSeek: () => void;
-  children: ReactNode;
-}) {
-  const t = useT();
-  return (
-    <div className="max-h-44 shrink-0 overflow-auto border-t bg-muted/25 px-3 py-2">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="truncate text-xs font-semibold text-foreground">
-          {title}
-        </p>
+      <div className="flex h-[34px] items-center gap-2 px-3">
         <button
           type="button"
-          className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onSeek}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={selected}
+          onClick={onSelect}
         >
-          <IconPlayerPlay className="h-3 w-3" />
-          {t("sessions.devtoolsJumpTo")}
+          <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {formatOffsetClock(entry.offsetMs)}
+          </span>
+          <span
+            className={cn(
+              "w-12 shrink-0 font-mono text-[11px] font-semibold",
+              entry.failed
+                ? "text-red-600 dark:text-red-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {entry.status > 0
+              ? entry.status
+              : t("sessions.devtoolsFailedStatus")}
+          </span>
+          <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {entry.method}
+          </span>
+          <span className="hidden w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70 sm:inline">
+            {entry.api === "xhr" ? "XHR" : "fetch"}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
+            title={entry.url}
+          >
+            {displayUrl}
+          </span>
+          {entry.error ? (
+            <span
+              className="hidden max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400 lg:inline"
+              title={entry.error}
+            >
+              {entry.error}
+            </span>
+          ) : null}
+          <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
+            {t("sessions.devtoolsDurationMs", {
+              ms: String(entry.durationMs),
+            })}
+          </span>
+          <IconChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
+              selected && "rotate-90 rtl:scale-x-100",
+            )}
+          />
         </button>
+        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
       </div>
-      <div className="space-y-2">{children}</div>
+      {selected ? (
+        <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <DetailValue
+              label={t("sessions.time")}
+              value={formatOffsetClock(entry.offsetMs)}
+            />
+            <DetailValue
+              label="API"
+              value={entry.api === "xhr" ? "XHR" : "fetch"}
+            />
+            <DetailValue
+              label="Status"
+              value={
+                entry.status > 0
+                  ? String(entry.status)
+                  : t("sessions.devtoolsFailedStatus")
+              }
+            />
+            <DetailValue
+              label="Duration"
+              value={t("sessions.devtoolsDurationMs", {
+                ms: String(entry.durationMs),
+              })}
+            />
+          </div>
+          <DetailField label={t("sessions.url")}>
+            <p className="break-all font-mono text-[11px] text-muted-foreground">
+              {entry.url}
+            </p>
+          </DetailField>
+          {entry.error ? (
+            <DetailField label="Error">
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-red-600 dark:text-red-400">
+                {entry.error}
+              </pre>
+            </DetailField>
+          ) : null}
+          {entry.responseBody ? (
+            <DetailField label={t("sessions.devtoolsResponseBody")}>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.responseBody}
+              </pre>
+            </DetailField>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

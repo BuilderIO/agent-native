@@ -24,7 +24,7 @@ import {
   gradientLineEndpoints,
   gradientStopPoints,
   stopPercentFromDraggedPoint,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/gradient-overlay-geometry";
 
 describe("gradientLineEndpoints", () => {
   it("points straight up-to-down at 0deg spanning the full box height", () => {

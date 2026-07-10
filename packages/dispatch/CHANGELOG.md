@@ -1,5 +1,37 @@
 # @agent-native/dispatch
 
+## 0.13.13
+
+### Patch Changes
+
+- 1d13434: Make framework polling cheaper with durable sync events, remove Dispatch's short app-list polling intervals, preview large DB admin cells by default to avoid accidental blob transfers, and require configured file storage for binary resource uploads instead of storing base64 blobs in SQL.
+
+## 0.13.12
+
+### Patch Changes
+
+- 680b1eb: Keep Dispatch metrics available as an empty state when usage storage bootstrap or reads are unavailable.
+
+## 0.13.11
+
+### Patch Changes
+
+- 823d635: Add a dedicated Automations page with sidebar navigation so scheduled and event-triggered jobs can be reviewed and toggled without restoring the old overview dashboard.
+- 823d635: Surface outbound delivery-queue health on Destinations and add quiet overview shortcuts so cleaned-up overview capabilities stay discoverable without restoring the old dashboard. Localize those overview shortcut and delivery-queue labels across Dispatch locales.
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
+## 0.13.10
+
+### Patch Changes
+
+- e310ac1: Make Telegram dispatch chats require an explicit linked identity and route cross-app messaging requests through the continuation-aware agent delegation path.
+
+## 0.13.9
+
+### Patch Changes
+
+- 3995e4e: Simplify the Dispatch overview to just Ask Dispatch and the apps list.
+
 ## 0.13.8
 
 ### Patch Changes

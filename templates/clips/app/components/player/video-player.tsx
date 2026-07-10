@@ -126,6 +126,14 @@ function applyLoomStartToVideoSrc(src: string, ms: number): string {
   return setUrlSearchParam(src, LOOM_START_MS_QUERY_PARAM, String(ms));
 }
 
+function isPlayerUiTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("[data-player-ui]"))
+  );
+}
+
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
   play: () => Promise<void> | void;
@@ -242,6 +250,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const touchTapCandidateRef = useRef<{
+      pointerId: number;
+      x: number;
+      y: number;
+    } | null>(null);
+    const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
     // Position to restore after `v.load()` resets `currentTime` to 0 while
@@ -465,10 +479,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setPlayError(null);
 
       if (
-        initialVisibleFrameSeekedRef.current &&
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) &&
-        v.currentTime > 0.05
+        ((initialVisibleFrameSeekedRef.current && v.currentTime > 0.05) ||
+          // The WebM duration probe seeks to 1e10. If Chrome never resolves the
+          // durationchange, first play must rewind instead of starting there.
+          v.currentTime > 1e7)
       ) {
         try {
           v.currentTime = 0;
@@ -547,6 +563,72 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
+    const activateVideoSurface = useCallback(
+      (input: "mouse" | "touch") => {
+        // Match native mobile players: touching the video reveals the controls
+        // without unexpectedly pausing or resuming it. Embeds that explicitly
+        // hide their chrome keep surface-tap playback so they remain usable.
+        if (input === "touch" && !hideChrome) {
+          bumpControls();
+          return;
+        }
+
+        togglePlayback();
+        bumpControls();
+      },
+      [bumpControls, hideChrome, togglePlayback],
+    );
+
+    const handlePlayerPointerDown = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (
+          e.pointerType === "mouse" ||
+          e.button !== 0 ||
+          isLoomEmbed ||
+          isPlayerUiTarget(e.target)
+        ) {
+          return;
+        }
+
+        touchTapCandidateRef.current = {
+          pointerId: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+        };
+      },
+      [isLoomEmbed],
+    );
+
+    const handlePlayerPointerUp = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        const candidate = touchTapCandidateRef.current;
+        if (!candidate || candidate.pointerId !== e.pointerId) return;
+        touchTapCandidateRef.current = null;
+
+        if (isLoomEmbed || isPlayerUiTarget(e.target)) return;
+
+        const moved = Math.max(
+          Math.abs(e.clientX - candidate.x),
+          Math.abs(e.clientY - candidate.y),
+        );
+        if (moved > 12) return;
+
+        e.preventDefault();
+        suppressNextClickRef.current = true;
+        activateVideoSurface("touch");
+      },
+      [activateVideoSurface, isLoomEmbed],
+    );
+
+    const handlePlayerPointerCancel = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (touchTapCandidateRef.current?.pointerId === e.pointerId) {
+          touchTapCandidateRef.current = null;
+        }
+      },
+      [],
+    );
+
     const applySpeed = useCallback(
       (rate: number) => {
         const nextSpeed = parsePlaybackSpeed(rate) ?? defaultSpeed;
@@ -610,6 +692,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onTimeUpdate,
         resolvedDurationMs,
       ],
+    );
+
+    const seekByMs = useCallback(
+      (deltaMs: number) => {
+        const v = videoRef.current;
+        const liveMs =
+          v &&
+          Number.isFinite(v.currentTime) &&
+          v.currentTime >= 0 &&
+          v.currentTime < 1e7
+            ? Math.floor(v.currentTime * 1000)
+            : currentMs;
+        seekToVisibleMs(liveMs + deltaMs);
+      },
+      [currentMs, seekToVisibleMs],
     );
 
     // Imperative handle for parent
@@ -1011,12 +1108,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
         onMouseMove={bumpControls}
         onMouseLeave={() => !alwaysShowControls && setShowControls(false)}
+        onPointerDown={handlePlayerPointerDown}
+        onPointerUp={handlePlayerPointerUp}
+        onPointerCancel={handlePlayerPointerCancel}
         onClick={(e) => {
-          // Clicking the video toggles play — but not when clicking controls.
-          const target = e.target as HTMLElement;
-          if (target.closest("[data-player-ui]")) return;
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
+          // Clicking the video surface toggles playback, but actual controls
+          // keep their own behavior.
+          if (isPlayerUiTarget(e.target)) return;
           if (isLoomEmbed) return;
-          togglePlayback();
+          activateVideoSurface("mouse");
         }}
       >
         {isLoomEmbed && loomIframeSrc ? (
@@ -1345,7 +1449,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {/* Controls */}
         {!hideChrome && !isLoomEmbed ? (
           <div
-            data-player-ui
             className={cn(
               "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
               showControls ? "opacity-100" : "opacity-0 pointer-events-none",
@@ -1373,6 +1476,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onSeek={(ms) => {
                 seekToVisibleMs(ms);
               }}
+              onSeekRelative={seekByMs}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
                 if (v) {

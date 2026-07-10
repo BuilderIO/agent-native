@@ -12,6 +12,12 @@ export const designs = table("designs", {
   title: text("title").notNull(),
   description: text("description"),
   data: text("data").notNull(),
+  // Monotonic per-client sequence numbers for path-addressed data writes.
+  // Kept outside `data` so editor/export payloads stay free of transport
+  // bookkeeping while late keepalive requests can be rejected atomically.
+  dataOperationRevisions: text("data_operation_revisions")
+    .notNull()
+    .default("{}"),
   projectType: text("project_type").notNull().default("prototype"),
   designSystemId: text("design_system_id"),
   createdAt: text("created_at").default(now()),
@@ -43,6 +49,12 @@ export const designFiles = table("design_files", {
   designId: text("design_id").notNull(),
   filename: text("filename").notNull(),
   content: text("content").notNull(),
+  // Last accepted browser content-save operation. This transport metadata
+  // stays beside (rather than inside) the document so a late unload
+  // keepalive can be rejected without parsing or rewriting user content.
+  contentOperationSource: text("content_operation_source"),
+  contentOperationRevision: integer("content_operation_revision"),
+  contentOperationResultHash: text("content_operation_result_hash"),
   fileType: text("file_type").notNull().default("html"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
@@ -75,6 +87,10 @@ export const designLocalhostConnections = table(
       .notNull()
       .default("connected"),
     lastSeenAt: text("last_seen_at"),
+    /** Read-only credential used by browser preview/bridge-registration calls.
+     * It is one-way derived from the filesystem token when not supplied by a
+     * newer bridge, so leaking it cannot grant source-file access. */
+    previewToken: text("preview_token"),
     bridgeToken: text("bridge_token"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),

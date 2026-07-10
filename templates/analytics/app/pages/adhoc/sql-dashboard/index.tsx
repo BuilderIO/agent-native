@@ -32,6 +32,7 @@ import {
   IconEye,
   IconEyeOff,
   IconGripVertical,
+  IconHistory,
   IconInfoCircle,
   IconLock,
   IconMail,
@@ -56,6 +57,7 @@ import {
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -90,6 +92,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useDashboardChatContext,
+  type DashboardPanelChatContextArgs,
+  type SelectDashboardPanelOptions,
+} from "@/hooks/use-dashboard-chat-context";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
 import { incrementItemView } from "@/lib/item-popularity";
@@ -255,6 +262,8 @@ const PanelCell = memo(function PanelCell({
   editable,
   eagerLoad,
   isDragSource,
+  selectedForChat,
+  selectPanelForChat,
   onRemovePanel,
   onEditPanel,
   onSavePanel,
@@ -265,6 +274,11 @@ const PanelCell = memo(function PanelCell({
   editable: boolean;
   eagerLoad: boolean;
   isDragSource: boolean;
+  selectedForChat: boolean;
+  selectPanelForChat: (
+    panel: DashboardPanelChatContextArgs,
+    options?: SelectDashboardPanelOptions,
+  ) => void;
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
@@ -285,6 +299,29 @@ const PanelCell = memo(function PanelCell({
   const resolvedSql = useMemo(
     () => interpolate(serializePanelSql(panel.sql), vars),
     [panel.sql, vars],
+  );
+  const handleSelectForChat = useCallback(
+    (options?: SelectDashboardPanelOptions) => {
+      const extensionId =
+        panel.chartType === "extension" ? panel.config?.extensionId : undefined;
+      selectPanelForChat(
+        {
+          panelId: panel.id,
+          panelTitle: panel.title,
+          panelKind:
+            panel.chartType === "table"
+              ? "table"
+              : panel.chartType === "extension"
+                ? "extension"
+                : "chart",
+          chartType: panel.chartType,
+          source: panel.source,
+          extensionId,
+        },
+        options,
+      );
+    },
+    [panel, selectPanelForChat],
   );
 
   return (
@@ -320,6 +357,8 @@ const PanelCell = memo(function PanelCell({
         editable={editable}
         eagerLoad={eagerLoad}
         isDragSource={isDragSource}
+        selectedForChat={selectedForChat}
+        onSelectForChat={handleSelectForChat}
       />
     </div>
   );
@@ -460,6 +499,8 @@ export default function SqlDashboardPage() {
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [emailReportOpen, setEmailReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -472,6 +513,13 @@ export default function SqlDashboardPage() {
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: reportScreenshot ? null : dashboardId,
+    kind: "sql",
+    title: dashboard?.name,
+    panelCount: dashboard?.panels.length,
+    canEdit,
+  });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -1384,7 +1432,10 @@ export default function SqlDashboardPage() {
             </Button>
           </AddPanelPopover>
         ) : null}
-        <DropdownMenu>
+        <DropdownMenu
+          open={dashboardActionsOpen}
+          onOpenChange={setDashboardActionsOpen}
+        >
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -1457,11 +1508,22 @@ export default function SqlDashboardPage() {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
+                    setDashboardActionsOpen(false);
                     setEmailReportOpen(true);
                   }}
                 >
                   <IconMail className="mr-2 h-3.5 w-3.5" />
                   {t("sqlDashboard.emailReports")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setDashboardActionsOpen(false);
+                    setHistoryOpen(true);
+                  }}
+                >
+                  <IconHistory className="mr-2 h-3.5 w-3.5" />
+                  {t("dashboard.historyTitle")}
                 </DropdownMenuItem>
               </>
             ) : null}
@@ -1469,6 +1531,7 @@ export default function SqlDashboardPage() {
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
+                  setDashboardActionsOpen(false);
                   void handleArchive();
                 }}
               >
@@ -1483,6 +1546,7 @@ export default function SqlDashboardPage() {
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
+                  setDashboardActionsOpen(false);
                   setConfirmDeleteOpen(true);
                 }}
                 className="text-destructive focus:text-destructive"
@@ -1500,6 +1564,14 @@ export default function SqlDashboardPage() {
             dashboardId={dashboardId}
             dashboardName={dashboard.name}
             filters={currentReportFilters}
+          />
+        ) : null}
+        {dashboardId ? (
+          <DashboardHistoryPanel
+            dashboardId={dashboardId}
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            canRestore={canEdit && !archivedAt}
           />
         ) : null}
         {canManage ? (
@@ -1823,6 +1895,8 @@ export default function SqlDashboardPage() {
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
+                                selectedForChat={selectedPanelId === panel.id}
+                                selectPanelForChat={selectPanelForChat}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}

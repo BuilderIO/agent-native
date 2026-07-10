@@ -23,7 +23,7 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import { Component, useMemo, useState, type ReactNode } from "react";
+import { Component, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -169,8 +169,27 @@ function ShaderThumbnail({
 export interface ShaderFillsPanelProps {
   /** Currently-applied shader descriptor, if the fill is already a shader. */
   descriptor?: ShaderDescriptor;
-  /** Emits when the user applies/tunes a shader. value = CSS fallback fill. */
+  /**
+   * Cheap live preview — fires on every ShaderControls tuning tick (typing
+   * or dragging a uniform) as well as once for a discrete preset/create-new
+   * pick. Should only update the visual CSS fallback fill; never trigger
+   * expensive persistence work.
+   */
   onApply: (descriptor: ShaderDescriptor, css: string) => void;
+  /**
+   * Fires once per gesture/discrete action with the same final
+   * descriptor+css already reported via `onApply` — mirrors GradientEditor's
+   * `onCommit` convention (see GradientEditor.tsx): `onApply` alone fires on
+   * every tuning tick for live preview, `onCommit` fires exactly once when a
+   * drag/type gesture ends (detected via pointerup/blur bubbling out of the
+   * tuning area below — `ShaderControls` doesn't surface its own ScrubInput
+   * gesture phase upward) or immediately for a discrete preset/create-new
+   * pick, so a caller that persists through undo history and the
+   * `apply-shader` codegen mutation only does so once per edit instead of
+   * once per tick. Optional so an existing caller that only wires `onApply`
+   * keeps that prop as the single source of truth.
+   */
+  onCommit?: (descriptor: ShaderDescriptor, css: string) => void;
   /** Close the shader panel and return to the color picker. */
   onBack: () => void;
   /** Optional design context forwarded to the apply-shader action. */
@@ -186,6 +205,7 @@ export interface ShaderFillsPanelProps {
 export function ShaderFillsPanel({
   descriptor,
   onApply,
+  onCommit,
   onBack,
   applyContext,
   disabled = false,
@@ -195,6 +215,18 @@ export function ShaderFillsPanel({
     descriptor ?? null,
   );
   const applyShader = useActionMutation("apply-shader");
+  // Last descriptor reported to `onApply`, so a bubbled pointerup/blur that
+  // ends a tuning gesture can re-commit that exact value once, without
+  // needing ShaderControls to surface its own gesture-end signal.
+  const lastAppliedRef = useRef<ShaderDescriptor | null>(descriptor ?? null);
+  // Whether `preview()` has applied a new descriptor since the last
+  // `commitNow()`. Any pointerup/blur that bubbles out of the tuning
+  // container — opening a Select, clicking a checkbox, tabbing between
+  // fields — would otherwise re-fire the real apply-shader mutation on an
+  // unchanged descriptor just because `lastAppliedRef` is seeded on mount.
+  // Gate `commitLastPreview` on this flag instead: only a real preview tick
+  // sets it, and every `commitNow` clears it.
+  const dirtyRef = useRef(false);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -206,13 +238,26 @@ export function ShaderFillsPanel({
     );
   }, [search]);
 
-  /** Validate + surface the descriptor for the agent, then emit the CSS fill. */
-  const commit = (next: ShaderDescriptor) => {
+  /**
+   * Cheap live preview: updates the thumbnail/detail state and the caller's
+   * CSS fallback fill. Called on every ShaderControls tick — must never do
+   * the expensive apply-shader codegen mutation (see commitNow below).
+   */
+  const preview = (next: ShaderDescriptor) => {
     setActive(next);
+    lastAppliedRef.current = next;
+    dirtyRef.current = true;
+    onApply(next, shaderDescriptorToCss(next));
+  };
+
+  /** Validate + surface the descriptor for the agent exactly once. */
+  const commitNow = (next: ShaderDescriptor) => {
+    dirtyRef.current = false;
     const css = shaderDescriptorToCss(next);
-    onApply(next, css);
+    onCommit?.(next, css);
     // Fire-and-forget validation/codegen so the agent can write real shader
-    // code. The picker fill is applied immediately above regardless of result.
+    // code. The picker fill is already applied via `preview` above,
+    // regardless of this mutation's result.
     applyShader.mutate(
       {
         surface: SHADER_PRESET_MAP[next.preset]?.isEffect ? "effect" : "fill",
@@ -250,6 +295,25 @@ export function ShaderFillsPanel({
     );
   };
 
+  /** Discrete, one-shot pick (preset thumbnail / create-new tile): preview + commit in the same tick, same as before this change. */
+  const pick = (next: ShaderDescriptor) => {
+    preview(next);
+    commitNow(next);
+  };
+
+  /**
+   * Ends a ShaderControls tuning gesture: pointerup/blur bubbling out of the
+   * tuning area (see the wrapping div below). Gated on `dirtyRef` so any
+   * pointerup/blur that bubbles out without an intervening `preview()` tick —
+   * opening a Select, clicking a checkbox, tabbing between fields — is a
+   * no-op instead of re-committing the unchanged descriptor.
+   */
+  const commitLastPreview = () => {
+    if (dirtyRef.current && lastAppliedRef.current) {
+      commitNow(lastAppliedRef.current);
+    }
+  };
+
   // ── Detail view: a preset is selected → tune it with ShaderControls ───────
   if (active) {
     const preset = SHADER_PRESET_MAP[active.preset];
@@ -277,10 +341,19 @@ export function ShaderFillsPanel({
             <IconX className="size-3" />
           </button>
         </div>
-        <div className="border-t border-border/70 p-2">
+        {/* onPointerUp/onBlur here catch the bubbled event that ends a
+            ShaderControls drag/type gesture (pointer capture redirects the
+            event's target but it still bubbles through this ancestor), so
+            the expensive apply-shader mutation commits exactly once per
+            gesture instead of once per preview tick. */}
+        <div
+          className="border-t border-border/70 p-2"
+          onPointerUp={commitLastPreview}
+          onBlur={commitLastPreview}
+        >
           <ShaderControls
             descriptor={active}
-            onChange={(next) => commit(next)}
+            onChange={(next) => preview(next)}
           />
         </div>
       </div>
@@ -301,7 +374,7 @@ export function ShaderFillsPanel({
               type="button"
               aria-label={"Create new shader" /* i18n-ignore */}
               disabled={disabled}
-              onClick={() => commit(descriptorFromPreset(SHADER_PRESETS[0]))}
+              onClick={() => pick(descriptorFromPreset(SHADER_PRESETS[0]))}
               className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
             >
               <IconPlus className="size-3.5" />
@@ -358,7 +431,7 @@ export function ShaderFillsPanel({
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() => commit(descriptorFromPreset(SHADER_PRESETS[0]))}
+                onClick={() => pick(descriptorFromPreset(SHADER_PRESETS[0]))}
                 className={cn(
                   "group relative flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--design-editor-control-border)] text-muted-foreground transition-colors",
                   "hover:border-foreground/40 hover:text-foreground",
@@ -399,7 +472,7 @@ export function ShaderFillsPanel({
                       type="button"
                       disabled={disabled}
                       aria-label={preset.label}
-                      onClick={() => commit(descriptorFromPreset(preset))}
+                      onClick={() => pick(descriptorFromPreset(preset))}
                       className={cn(
                         "group flex flex-col gap-1 text-left focus-visible:outline-none",
                         disabled && "pointer-events-none opacity-40",

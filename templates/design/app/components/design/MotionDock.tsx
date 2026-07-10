@@ -139,6 +139,21 @@ function formatMsTick(ms: number): string {
   return `${s}s`;
 }
 
+/**
+ * Whether committing on this key should also suppress the blur handler's own
+ * commit. Enter/Escape both trigger an explicit `.blur()` call right after
+ * committing so the field visually defocuses; without this guard, that
+ * synchronous blur re-invokes the (still stale, same-render) commit callback
+ * a second time in the same tick — a harmless-looking no-op for identical
+ * values, but it double-fires side effects like `onPlayheadChange` /
+ * `onDurationChange` and the preview postMessage. Mirrors
+ * `propInputKeyRequiresBlurGuard` in edit-panel/panel-primitives.tsx (the
+ * same bug class, fixed there for style-property fields).
+ */
+export function motionFieldKeyRequiresBlurGuard(key: string): boolean {
+  return key === "Enter" || key === "Escape";
+}
+
 /** Human label for an ease value: preset name when recognised, else raw. */
 function easeLabel(
   ease: MotionEase | undefined,
@@ -330,6 +345,12 @@ export function MotionDock({
 
   // Current-time field draft (null = displaying the live playhead).
   const [timeDraft, setTimeDraft] = useState<string | null>(null);
+  // See motionFieldKeyRequiresBlurGuard: set right before an Enter-triggered
+  // `.blur()` so the blur handler that fires in the same synchronous tick
+  // skips its own commit instead of double-invoking commitTimeDraft.
+  const skipNextTimeBlurCommitRef = useRef(false);
+  // Same guard for the duration field's Enter -> blur -> onBlur-commit path.
+  const skipNextDurationBlurCommitRef = useRef(false);
   /** Internal high-frequency playhead update — does NOT notify the parent. */
   const setPlayheadLocal = useCallback(
     (next: number) => {
@@ -750,6 +771,16 @@ export function MotionDock({
     timeDraft,
   ]);
 
+  // ── Duration field ────────────────────────────────────────────────────────
+  const commitDurationDraft = useCallback(() => {
+    const ms = parseInt(durationInput, 10);
+    if (!isNaN(ms) && ms >= 50) {
+      onDurationChange?.(ms);
+    } else {
+      setDurationInput(String(durationMs));
+    }
+  }, [durationInput, durationMs, onDurationChange]);
+
   // ── Space plays/pauses while the dock has focus (Figma parity) ───────────
   const handleDockKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -947,11 +978,32 @@ export function MotionDock({
                   setTimeDraft(String(Math.round(playhead * durationMs)))
                 }
                 onChange={(e) => setTimeDraft(e.target.value)}
-                onBlur={commitTimeDraft}
+                onBlur={() => {
+                  if (skipNextTimeBlurCommitRef.current) {
+                    skipNextTimeBlurCommitRef.current = false;
+                    return;
+                  }
+                  commitTimeDraft();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     commitTimeDraft();
+                    // Without this, the blur triggered below re-enters
+                    // commitTimeDraft() a second time in the same
+                    // synchronous tick (see motionFieldKeyRequiresBlurGuard).
+                    skipNextTimeBlurCommitRef.current =
+                      motionFieldKeyRequiresBlurGuard(e.key);
+                    (e.target as HTMLInputElement).blur();
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    // Cancel the in-progress edit — revert to displaying the
+                    // live playhead instead of committing the draft.
+                    setTimeDraft(null);
+                    skipNextTimeBlurCommitRef.current =
+                      motionFieldKeyRequiresBlurGuard(e.key);
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
@@ -973,11 +1025,31 @@ export function MotionDock({
                 value={durationInput}
                 onChange={(e) => setDurationInput(e.target.value)}
                 onBlur={() => {
-                  const ms = parseInt(durationInput, 10);
-                  if (!isNaN(ms) && ms >= 50) {
-                    onDurationChange?.(ms);
-                  } else {
+                  if (skipNextDurationBlurCommitRef.current) {
+                    skipNextDurationBlurCommitRef.current = false;
+                    return;
+                  }
+                  commitDurationDraft();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitDurationDraft();
+                    // Same double-commit guard as the current-time field —
+                    // see motionFieldKeyRequiresBlurGuard.
+                    skipNextDurationBlurCommitRef.current =
+                      motionFieldKeyRequiresBlurGuard(e.key);
+                    (e.target as HTMLInputElement).blur();
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    // Cancel the in-progress edit — revert to the last
+                    // committed duration instead of persisting the draft.
                     setDurationInput(String(durationMs));
+                    skipNextDurationBlurCommitRef.current =
+                      motionFieldKeyRequiresBlurGuard(e.key);
+                    (e.target as HTMLInputElement).blur();
                   }
                 }}
                 className="h-5 w-16 px-1 !text-[11px] md:!text-[11px]"
@@ -2106,6 +2178,68 @@ interface CurveEditorProps {
   onChange: (value: [number, number, number, number]) => void;
 }
 
+/** Format a bezier control-point axis value for display (2 decimal places). */
+export function formatCurveAxisValue(n: number): string {
+  return String(Math.round(n * 100) / 100);
+}
+
+interface CurveNumberFieldProps {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+}
+
+/**
+ * One x1/y1/x2/y2 control-point number field in the bezier CurveEditor.
+ * Keeps its own draft string instead of being fully controlled by
+ * `formatCurveAxisValue(value)` so a user can type an in-progress value
+ * ("-", "0.", "1.5") without the field snapping back to the last-committed,
+ * rounded value on every keystroke. A prior version bound `value` directly to
+ * the rounded prop: typing "0" then "." called onChange(0) (parseFloat("0.")
+ * is a finite 0), which re-rendered the field back to "0" and silently
+ * dropped the "." the instant it was typed — decimals (and a bare "-" before
+ * a negative number) could never be entered. Mirrors the `focusedRef` resync
+ * guard in edit-panel/panel-primitives.tsx's LengthField (same "mid-edit prop
+ * stomp" bug class fixed there for style-property fields).
+ */
+function CurveNumberField({ label, value, onChange }: CurveNumberFieldProps) {
+  const [draft, setDraft] = useState(() => formatCurveAxisValue(value));
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(formatCurveAxisValue(value));
+  }, [value]);
+
+  return (
+    <label className="flex flex-col items-stretch gap-0.5">
+      <span className="text-center text-[9px] text-muted-foreground">
+        {label}
+      </span>
+      <Input
+        type="number"
+        step={0.01}
+        value={draft}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = parseFloat(e.target.value);
+          if (Number.isFinite(n)) onChange(n);
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          // Snap back to the canonical rounded string — clears any
+          // unparsed/partial trailing input ("-", "1.") left over from typing.
+          setDraft(formatCurveAxisValue(value));
+        }}
+        className="h-5 px-1 !text-[10px] md:!text-[10px]"
+        aria-label={label}
+      />
+    </label>
+  );
+}
+
 function CurveEditor({ value, onChange }: CurveEditorProps) {
   const t = useT();
   const [x1, y1, x2, y2] = value;
@@ -2151,22 +2285,11 @@ function CurveEditor({ value, onChange }: CurveEditorProps) {
     fieldValue: number,
     apply: (n: number) => [number, number, number, number],
   ) => (
-    <label className="flex flex-col items-stretch gap-0.5">
-      <span className="text-center text-[9px] text-muted-foreground">
-        {label}
-      </span>
-      <Input
-        type="number"
-        step={0.01}
-        value={String(Math.round(fieldValue * 100) / 100)}
-        onChange={(e) => {
-          const n = parseFloat(e.target.value);
-          if (Number.isFinite(n)) onChange(apply(n));
-        }}
-        className="h-5 px-1 !text-[10px] md:!text-[10px]"
-        aria-label={label}
-      />
-    </label>
+    <CurveNumberField
+      label={label}
+      value={fieldValue}
+      onChange={(n) => onChange(apply(n))}
+    />
   );
 
   return (

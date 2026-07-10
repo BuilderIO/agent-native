@@ -26,13 +26,13 @@
     }
   },
   "scripts": {
-    "build": "tsgo",
-    "dev": "tsgo --watch --preserveWatchOutput",
-    "typecheck": "tsgo --noEmit",
-    "prepare": "tsgo"
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc"
   },
   "devDependencies": {
-    "@typescript/native-preview": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript": "catalog:",
+    "typescript-7": "catalog:"
   }
 }

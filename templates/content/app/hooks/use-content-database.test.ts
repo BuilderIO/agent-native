@@ -6,6 +6,8 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyDocumentPropertiesToDatabaseResponse,
+  applyDocumentPropertyValueToDatabaseResponse,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
@@ -13,6 +15,7 @@ import {
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
   readCachedContentDatabaseResponse,
+  removeDocumentPropertyFromDatabaseResponse,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
@@ -272,6 +275,98 @@ describe("applySourceFieldPropertyToDatabaseResponse", () => {
     expect(applySourceFieldPropertyToDatabaseResponse(current, patch)).toBe(
       current,
     );
+  });
+});
+
+describe("applyDocumentPropertyValueToDatabaseResponse", () => {
+  it("updates a row property in the cached database response", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Published",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status" },
+      value: "Published",
+    });
+    expect(updated?.items[1]).toBe(current.items[1]);
+  });
+
+  it("inserts a visible row property when the row was falling back to the database property", () => {
+    const current = databaseResponse();
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Agent Native",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Status" },
+      value: "Agent Native",
+      editable: true,
+    });
+  });
+});
+
+describe("applyDocumentPropertiesToDatabaseResponse", () => {
+  it("updates definitions while preserving each row's stored value", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+    const renamed = {
+      ...current.properties[0]!,
+      definition: {
+        ...current.properties[0]!.definition,
+        name: "Workflow",
+      },
+    };
+
+    const updated = applyDocumentPropertiesToDatabaseResponse(current, {
+      databaseId: "database",
+      properties: [renamed],
+    });
+
+    expect(updated?.properties[0]?.definition.name).toBe("Workflow");
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Workflow" },
+      value: "Draft",
+    });
+  });
+
+  it("does not patch a cache entry for another database", () => {
+    const current = databaseResponse();
+
+    expect(
+      applyDocumentPropertiesToDatabaseResponse(current, {
+        databaseId: "other-database",
+        properties: [],
+      }),
+    ).toBe(current);
+  });
+});
+
+describe("removeDocumentPropertyFromDatabaseResponse", () => {
+  it("removes a property from the schema and every cached row", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = removeDocumentPropertyFromDatabaseResponse(
+      current,
+      "status",
+    );
+
+    expect(updated?.properties).toEqual([]);
+    expect(updated?.items[0]?.properties).toEqual([]);
   });
 });
 

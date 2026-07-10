@@ -3,7 +3,10 @@ import { useEffect } from "react";
 import { modelRegistry } from "../model-registry";
 import { useWorkbench, type BufferLoadedEvent } from "../store";
 import { providerKindFromKey } from "../workspace/types";
+import { shouldApplyFormatResult } from "./format-on-open-guard";
 import { formatWithPrettier, isFormattablePath } from "./prettier-format";
+
+export { shouldApplyFormatResult } from "./format-on-open-guard";
 
 /**
  * Auto-format-on-first-open policy: the design's SQL-backed (inline) files
@@ -42,10 +45,25 @@ export function useFormatOnFirstOpen({ enabled }: { enabled: boolean }): void {
       void (async () => {
         const result = await formatWithPrettier(event.read.content, event.path);
         if ("error" in result) return;
-        if (result.formatted === event.read.content) return;
 
         const entry = modelRegistry.get(event.uri);
         if (!entry || entry.model.isDisposed()) return;
+        // Formatting is async (dynamic plugin imports + Prettier itself), so
+        // the user may have started typing in the buffer while we were
+        // awaiting the result. Applying `result.formatted` — derived from the
+        // pre-format snapshot — over the model unconditionally would silently
+        // clobber those in-progress edits. Bail out if the live model no
+        // longer matches the snapshot that was formatted; a later save or
+        // manual format can pick it up.
+        if (
+          !shouldApplyFormatResult(
+            entry.model.getValue(),
+            event.read.content,
+            result.formatted,
+          )
+        ) {
+          return;
+        }
         // Push the formatted text without touching savedAltVersionId, so the
         // buffer becomes dirty (matches the "formatted but unsaved" state a
         // real edit would produce) — then save silently.

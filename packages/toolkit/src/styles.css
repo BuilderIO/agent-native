@@ -1,9 +1,9 @@
 /*
- * Registers @agent-native/toolkit's compiled components with Tailwind so apps
- * that render toolkit UI (dropdowns, dialogs, popovers, etc.) generate the
- * classes those components use. Without this, classes that appear ONLY inside
- * toolkit components (e.g. the dropdown content's `z-[250]` and enter/exit
- * animations) are never generated, and the components render unstyled/invisible.
+ * Registers @agent-native/toolkit components with Tailwind so apps that render
+ * toolkit UI (dropdowns, dialogs, popovers, etc.) generate the classes those
+ * components use. Without this, classes that appear ONLY inside toolkit
+ * components (e.g. the dropdown content's `z-[250]` and enter/exit animations)
+ * are never generated, and menus/overlays stack under raised app surfaces.
  *
  * Import in an app's `app/global.css` AFTER `@import "tailwindcss";`, alongside
  * the core stylesheet:
@@ -12,8 +12,10 @@
  *   @import "@agent-native/core/styles/agent-native.css";
  *   @import "@agent-native/toolkit/styles.css";
  *
- * The @source path is self-relative to this file's shipped location in `dist/`,
- * so it is robust to install layout — mirroring @agent-native/core's
- * agent-native.css. Do NOT reach into node_modules from app CSS instead.
+ * Paths are self-relative to this file:
+ *   - Monorepo / Vite workspace alias: this file is served from `src/`, so scan
+ *     sibling TypeScript sources (dist/ is gitignored and skipped by Tailwind).
+ *   - Published package: this file ships at `dist/styles.css`, so also scan
+ *     compiled `.js` next to it for consumers that only install `dist/`.
  */
-@source "./**/*.js";
+@source "./**/*.{js,ts,tsx}";

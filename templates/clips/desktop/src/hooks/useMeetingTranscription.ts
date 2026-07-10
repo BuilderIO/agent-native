@@ -245,6 +245,14 @@ export function useMeetingTranscription({
       const existing = sessionRef.current;
       if (existing) {
         if (!existing.stopping && existing.meetingId === meetingId) {
+          await invoke("recording_pill_show", {
+            meetingId: existing.meetingId,
+            mode: "meeting",
+          }).catch(() => {});
+          emit("clips:pill-context", {
+            meetingId: existing.meetingId,
+            mode: "meeting",
+          }).catch(() => {});
           emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
@@ -282,7 +290,13 @@ export function useMeetingTranscription({
         };
         sessionRef.current = session;
         await invoke("set_recording_state", { active: true }).catch(() => {});
-        await invoke("set_meeting_active", { active: true }).catch(() => {});
+        await invoke("set_meeting_active", {
+          active: true,
+          meetingId: resolvedMeetingId,
+        }).catch(() => {});
+        emit("meetings:transcription-started", {
+          meetingId: resolvedMeetingId,
+        }).catch(() => {});
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -363,12 +377,19 @@ export function useMeetingTranscription({
         };
 
         // Resume the engine that initial start settled on (no fallback here —
-        // the engine choice was already made below).
+        // the engine choice was already made below). Never add a second
+        // VoiceProcessingIO stack beside the meeting app: it can alter the
+        // microphone level that remote participants receive.
         const startAudio = async () => {
-          await restartTranscriptionEngine(session.engine, {
-            deviceId: selectedMicId,
-            label: selectedMicLabel,
-          });
+          await restartTranscriptionEngine(
+            session.engine,
+            {
+              deviceId: selectedMicId,
+              label: selectedMicLabel,
+            },
+            true,
+            false,
+          );
         };
 
         // Pause/resume state machine — see app.tsx for full explanation.
@@ -538,6 +559,10 @@ export function useMeetingTranscription({
 
         session.engine = await startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
+          // macOS 15+ uses ScreenCaptureKit's independent microphone output.
+          // The legacy fallback must also remain a raw tap so Zoom/Meet/Teams
+          // stay in sole control of their live-call voice processing.
+          voiceProcessing: false,
         });
 
         await invoke("silence_detector_start", {

@@ -22,6 +22,13 @@ interface QueryClient {
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 15_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
+/**
+ * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
+ * that arrive within this window of the first one in a burst are merged into
+ * a single `invalidateForEvents` call instead of one call per event — see the
+ * `queueInvalidateBatch` comment at the call site.
+ */
+const INVALIDATE_COALESCE_MS = 250;
 
 class HttpStatusError extends Error {
   status: number;
@@ -91,6 +98,46 @@ function isAuthFailure(error: unknown): boolean {
     "status" in error &&
     ((error as { status?: unknown }).status === 401 ||
       (error as { status?: unknown }).status === 403)
+  );
+}
+
+/**
+ * App-state keys that drive immediate UI navigation/interaction and must
+ * never sit behind the invalidation coalesce window (see
+ * `isInteractionCriticalSyncEvent`).
+ */
+const INTERACTION_CRITICAL_APP_STATE_KEYS = [
+  "navigate",
+  "show-questions",
+  "__set_url__",
+];
+
+/**
+ * True for sync events that drive immediate, agent-initiated UI navigation
+ * or interaction rather than passive data invalidation — app-state writes in
+ * general (they back `["app-state"]` queries directly), and specifically the
+ * `navigate` / `show-questions` / `__set_url__` app-state keys that
+ * `invalidateForEvents` special-cases into their own query keys below.
+ *
+ * `useDbSync` batches ordinary invalidation-driving events (action/collab/db
+ * change events) into one flush per `INVALIDATE_COALESCE_MS` so a chatty doc
+ * doesn't refetch on every keystroke. That trade-off is wrong for these
+ * events: agent-driven navigation, `set-url`, and guided-questions prompts
+ * must land as close to instantly as possible, so any batch containing one
+ * of these bypasses the coalesce window and flushes immediately instead.
+ *
+ * Exported as a small pure predicate so this classification is unit-testable
+ * independent of the transport/timer plumbing around it.
+ */
+export function isInteractionCriticalSyncEvent(event: SyncEvent): boolean {
+  return (
+    event.source === "app-state" &&
+    (event.key === "*" ||
+      INTERACTION_CRITICAL_APP_STATE_KEYS.some(
+        (key) =>
+          event.key === key ||
+          (typeof event.key === "string" && event.key.startsWith(`${key}:`)),
+      ))
   );
 }
 
@@ -615,6 +662,51 @@ export function useDbSync(
     // processed by THIS subscriber so stale poll re-deliveries are ignored.
     let subscriberVersion = 0;
 
+    // Coalesce bursts of SSE-driven invalidation into at most one flush per
+    // INVALIDATE_COALESCE_MS. A chatty doc (many small agent edits, several
+    // peers editing at once) can otherwise deliver a handful of `action`/
+    // `collab` events within a few hundred ms, each independently calling
+    // `queryClient.invalidateQueries` and firing `onEvent` — every one of
+    // those touches whatever query subscribers are mounted (e.g. a
+    // full-page editor) even though the end state only needs to be
+    // refreshed once. Version bookkeeping stays synchronous (below) so
+    // freshness filtering for the NEXT batch is unaffected by the delay.
+    //
+    // This coalesce window is wrong for interaction-critical events (agent
+    // navigation, `set-url`, guided questions — see
+    // `isInteractionCriticalSyncEvent`): those must reach the UI immediately,
+    // not up to INVALIDATE_COALESCE_MS late. So a fresh batch containing one
+    // of those flushes synchronously (queued + new events together,
+    // canceling any pending timer) instead of joining the coalesce window.
+    // Pure invalidation bursts with no interaction-critical members keep the
+    // coalesced behavior.
+    let pendingInvalidateEvents: SyncEvent[] = [];
+    let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function flushInvalidateBatch() {
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        invalidateTimer = null;
+      }
+      if (pendingInvalidateEvents.length === 0) return;
+      const batch = pendingInvalidateEvents;
+      pendingInvalidateEvents = [];
+      invalidateForEvents(batch);
+    }
+
+    function queueInvalidateBatch(events: SyncEvent[]) {
+      pendingInvalidateEvents.push(...events);
+      if (events.some(isInteractionCriticalSyncEvent)) {
+        flushInvalidateBatch();
+        return;
+      }
+      if (invalidateTimer) return;
+      invalidateTimer = setTimeout(
+        flushInvalidateBatch,
+        INVALIDATE_COALESCE_MS,
+      );
+    }
+
     function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
       return events.some(
         (event) =>
@@ -685,16 +777,38 @@ export function useDbSync(
         // Suppressed-action-only batches skip this whole list (their
         // mutations perform their own narrow invalidation) — but events must
         // STILL reach the onEvent forwarding below, so guard, don't return.
+        //
+        // Invalidation is scoped by source. Data-query prefixes (action,
+        // extension, tool) refetch only when the batch carries an event that
+        // can actually change action/extension-backed data — action
+        // mutations, settings, extension, collab, screen-refresh, etc.
+        // `app-state` events (agent/UI navigation, selection, and the
+        // set-url/questions command channel) drive their OWN keys below and
+        // must NEVER fan out into "refetch every action query": an active
+        // agent session mirrors navigation + selection into application_state
+        // continuously, and the serverless poll path replays those writes
+        // back to the originating tab (the DB-scan fallback cannot preserve
+        // `requestSource`, so `ignoreSource` can't filter them). Fanning each
+        // one into a full `["action"]` refetch turned a normal session into a
+        // client fetch storm that exhausted the DB connection pool — which in
+        // turn starved run heartbeat writes and surfaced as `stale_run`.
         if (!suppressesWholeBatch) {
-          queryClient.invalidateQueries({ queryKey: ["action"] });
-          queryClient.invalidateQueries({ queryKey: ["extension"] });
-          queryClient.invalidateQueries({ queryKey: ["extensions"] });
-          queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-          queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-          queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-          queryClient.invalidateQueries({ queryKey: ["tool"] });
-          queryClient.invalidateQueries({ queryKey: ["tools"] });
-          queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          const hasDataChangingEvent = invalidating.some(
+            (evt) => evt.source !== "app-state",
+          );
+          if (hasDataChangingEvent) {
+            queryClient.invalidateQueries({ queryKey: ["action"] });
+            queryClient.invalidateQueries({ queryKey: ["extension"] });
+            queryClient.invalidateQueries({ queryKey: ["extensions"] });
+            queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+            queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+            queryClient.invalidateQueries({ queryKey: ["tool"] });
+            queryClient.invalidateQueries({ queryKey: ["tools"] });
+          }
+          if (invalidating.some((evt) => evt.source === "app-state")) {
+            queryClient.invalidateQueries({ queryKey: ["app-state"] });
+          }
           if (hasAppStateEvent(invalidating, "navigate")) {
             queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
           }
@@ -722,7 +836,7 @@ export function useDbSync(
       });
 
       if (freshEvents.length > 0) {
-        invalidateForEvents(freshEvents);
+        queueInvalidateBatch(freshEvents);
       }
 
       const maxEventVersion = freshEvents.reduce(
@@ -746,6 +860,12 @@ export function useDbSync(
     });
 
     return () => {
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        // Flush synchronously on unmount so a pending batch isn't silently
+        // dropped (e.g. a route change right after an agent edit lands).
+        flushInvalidateBatch();
+      }
       transport.remove(id);
       // If the registry still holds this transport, and the transport is now
       // empty, evict it so the next mount gets a fresh instance rather than a

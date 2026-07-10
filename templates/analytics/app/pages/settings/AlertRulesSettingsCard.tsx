@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client";
 import {
   IconBell,
-  IconBellRinging,
+  IconChevronDown,
   IconLoader2,
   IconPencil,
   IconPlayerPlay,
@@ -37,6 +37,11 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -54,14 +59,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +89,8 @@ interface AnalyticsAlertRule {
   severity: AlertSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   enabled: boolean;
   lastEvaluatedAt: string | null;
   lastTriggeredAt: string | null;
@@ -106,6 +105,10 @@ interface RunAlertsResult {
   triggered: number;
   failed: number;
   remaining: number;
+}
+
+interface AlertRuleDefaults {
+  emailRecipients: string[];
 }
 
 interface AlertRuleFormState {
@@ -124,11 +127,16 @@ interface AlertRuleFormState {
   channels: Record<KnownChannel, boolean>;
   customChannels: string;
   emailRecipients: string;
+  slackWebhookUrl: string;
+  webhookUrl: string;
 }
 
 const KNOWN_CHANNELS = ["inbox", "email", "slack", "webhook"] as const;
 
-function emptyAlertForm(): AlertRuleFormState {
+function emptyAlertForm(
+  defaults?: AlertRuleDefaults | null,
+): AlertRuleFormState {
+  const emailRecipients = defaults?.emailRecipients ?? [];
   return {
     name: "",
     description: "",
@@ -143,12 +151,14 @@ function emptyAlertForm(): AlertRuleFormState {
     enabled: true,
     channels: {
       inbox: true,
-      email: false,
+      email: emailRecipients.length > 0,
       slack: false,
       webhook: false,
     },
     customChannels: "",
-    emailRecipients: "",
+    emailRecipients: emailRecipients.join("\n"),
+    slackWebhookUrl: "",
+    webhookUrl: "",
   };
 }
 
@@ -180,6 +190,8 @@ function formFromRule(rule: AnalyticsAlertRule): AlertRuleFormState {
     },
     customChannels: customChannels.join(", "),
     emailRecipients: rule.emailRecipients.join("\n"),
+    slackWebhookUrl: rule.slackWebhookUrl ?? "",
+    webhookUrl: rule.webhookUrl ?? "",
   };
 }
 
@@ -193,6 +205,15 @@ function splitList(value: string): string[] {
 function parseInteger(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function formatDate(value: string | null, fallback: string): string {
@@ -237,6 +258,8 @@ function payloadFromRule(
     severity: rule.severity,
     channels: rule.channels,
     emailRecipients: rule.emailRecipients,
+    slackWebhookUrl: rule.slackWebhookUrl,
+    webhookUrl: rule.webhookUrl,
     enabled: rule.enabled,
     ...overrides,
   };
@@ -256,12 +279,20 @@ export function AlertRulesSettingsCard() {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<AlertRuleFormState | null>(null);
+  const [expandedRuleIds, setExpandedRuleIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [ruleToDelete, setRuleToDelete] = useState<AnalyticsAlertRule | null>(
     null,
   );
 
   const { data, isLoading, refetch } = useActionQuery<AnalyticsAlertRule[]>(
     "list-analytics-alert-rules",
+    undefined,
+    { staleTime: 10_000 },
+  );
+  const { data: alertDefaults } = useActionQuery<AlertRuleDefaults>(
+    "get-analytics-alert-rule-defaults",
     undefined,
     { staleTime: 10_000 },
   );
@@ -276,7 +307,26 @@ export function AlertRulesSettingsCard() {
     await queryClient.invalidateQueries({
       queryKey: ["action", "list-analytics-alert-rules"],
     });
+    await queryClient.invalidateQueries({
+      queryKey: ["action", "get-analytics-alert-rule-defaults"],
+    });
     await refetch();
+  }
+
+  function startCreateAlert() {
+    setEditing(emptyAlertForm(alertDefaults));
+  }
+
+  function setRuleExpanded(ruleId: string, expanded: boolean) {
+    setExpandedRuleIds((current) => {
+      const next = new Set(current);
+      if (expanded) {
+        next.add(ruleId);
+      } else {
+        next.delete(ruleId);
+      }
+      return next;
+    });
   }
 
   async function handleSave() {
@@ -304,6 +354,22 @@ export function AlertRulesSettingsCard() {
       toast.error(t("settings.alertChannelRequired"));
       return;
     }
+    if (
+      editing.channels.slack &&
+      editing.slackWebhookUrl.trim() &&
+      !isHttpUrl(editing.slackWebhookUrl.trim())
+    ) {
+      toast.error(t("settings.alertSlackWebhookUrlInvalid"));
+      return;
+    }
+    if (
+      editing.channels.webhook &&
+      editing.webhookUrl.trim() &&
+      !isHttpUrl(editing.webhookUrl.trim())
+    ) {
+      toast.error(t("settings.alertWebhookUrlInvalid"));
+      return;
+    }
 
     try {
       await saveRule.mutateAsync({
@@ -323,6 +389,10 @@ export function AlertRulesSettingsCard() {
         severity: editing.severity,
         channels,
         emailRecipients: splitList(editing.emailRecipients),
+        slackWebhookUrl: editing.channels.slack
+          ? editing.slackWebhookUrl.trim()
+          : null,
+        webhookUrl: editing.channels.webhook ? editing.webhookUrl.trim() : null,
         enabled: editing.enabled,
       });
       setEditing(null);
@@ -422,11 +492,7 @@ export function AlertRulesSettingsCard() {
                 )}
                 {t("settings.alertRunNow")}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setEditing(emptyAlertForm())}
-              >
+              <Button type="button" size="sm" onClick={startCreateAlert}>
                 <IconPlus className="size-3.5" />
                 {t("settings.alertNew")}
               </Button>
@@ -455,30 +521,25 @@ export function AlertRulesSettingsCard() {
                 type="button"
                 size="sm"
                 className="mt-4"
-                onClick={() => setEditing(emptyAlertForm())}
+                onClick={startCreateAlert}
               >
                 <IconPlus className="size-3.5" />
                 {t("settings.alertNew")}
               </Button>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("settings.alertRuleColumn")}</TableHead>
-                  <TableHead>{t("settings.alertConditionColumn")}</TableHead>
-                  <TableHead>{t("settings.alertDeliveryColumn")}</TableHead>
-                  <TableHead>{t("settings.alertStatusColumn")}</TableHead>
-                  <TableHead className="w-[116px] text-end">
-                    {t("settings.alertActionsColumn")}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id}>
-                    <TableCell className="min-w-[190px]">
-                      <div className="flex items-start gap-3">
+            <div className="space-y-2">
+              {rules.map((rule) => {
+                const expanded = expandedRuleIds.has(rule.id);
+                return (
+                  <Collapsible
+                    key={rule.id}
+                    open={expanded}
+                    onOpenChange={(open) => setRuleExpanded(rule.id, open)}
+                    className="rounded-lg border border-border/60 bg-background/40"
+                  >
+                    <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
                         <Switch
                           checked={rule.enabled}
                           onCheckedChange={(enabled) =>
@@ -487,10 +548,11 @@ export function AlertRulesSettingsCard() {
                           aria-label={t("settings.alertToggleLabel", {
                             name: rule.name,
                           })}
+                          className="mt-0.5 shrink-0"
                         />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <span className="truncate font-medium">
+                            <span className="truncate text-sm font-medium">
                               {rule.name}
                             </span>
                             <Badge
@@ -506,79 +568,114 @@ export function AlertRulesSettingsCard() {
                                 : t("settings.alertSeverityWarning")}
                             </Badge>
                           </div>
-                          {rule.description ? (
-                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                              {rule.description}
-                            </p>
-                          ) : null}
+                          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                            {rule.description || formatScope(rule, t)}
+                          </p>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="min-w-[180px] text-xs">
-                      <div className="font-medium">
-                        {formatThreshold(rule, t)}
-                      </div>
-                      <div className="mt-1 text-muted-foreground">
-                        {formatScope(rule, t)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="min-w-[140px] text-xs">
-                      <div className="flex flex-wrap gap-1">
-                        {rule.channels.map((channel) => (
-                          <Badge
-                            key={channel}
-                            variant="secondary"
-                            className="text-[10px]"
+
+                      <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                        <div className="min-w-0 text-xs sm:w-40">
+                          <div className="truncate font-medium">
+                            {formatThreshold(rule, t)}
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                            <span
+                              className={cn(
+                                "size-1.5 rounded-full",
+                                statusDotClass(rule.lastStatus),
+                              )}
+                            />
+                            <span>{statusLabel(rule.lastStatus, t)}</span>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditing(formFromRule(rule))}
+                            aria-label={t("settings.alertEditLabel", {
+                              name: rule.name,
+                            })}
                           >
-                            {knownChannelLabel(channel, t)}
-                          </Badge>
-                        ))}
-                      </div>
-                      {rule.emailRecipients.length > 0 ? (
-                        <div className="mt-1 truncate text-muted-foreground">
-                          {rule.emailRecipients.join(", ")}
+                            <IconPencil className="size-3.5" />
+                            {t("sidebar.edit")}
+                          </Button>
+                          <CollapsibleTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              aria-label={t("sessions.devtoolsToggleDetails")}
+                            >
+                              {t("sqlDashboard.details")}
+                              <IconChevronDown
+                                className={cn(
+                                  "size-3.5 transition-transform",
+                                  expanded && "rotate-180",
+                                )}
+                              />
+                            </Button>
+                          </CollapsibleTrigger>
                         </div>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="min-w-[150px] text-xs">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            statusDotClass(rule.lastStatus),
+                      </div>
+                    </div>
+
+                    <CollapsibleContent className="border-t border-border/60 px-3 py-3">
+                      <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                        <AlertRuleDetail
+                          label={t("settings.alertConditionColumn")}
+                          value={formatThreshold(rule, t)}
+                          detail={formatScope(rule, t)}
+                        />
+                        <AlertRuleDetail
+                          label={t("settings.alertDeliveryColumn")}
+                          value={rule.channels
+                            .map((channel) => knownChannelLabel(channel, t))
+                            .join(", ")}
+                          detail={
+                            rule.emailRecipients.length > 0
+                              ? rule.emailRecipients.join(", ")
+                              : undefined
+                          }
+                        />
+                        <AlertRuleDetail
+                          label={t("settings.alertStatusColumn")}
+                          value={statusLabel(rule.lastStatus, t)}
+                          detail={t("settings.alertLastChecked", {
+                            date: formatDate(
+                              rule.lastEvaluatedAt,
+                              t("settings.alertNever"),
+                            ),
+                          })}
+                        />
+                        <AlertRuleDetail
+                          label={t("settings.alertEventName")}
+                          value={rule.eventName || t("settings.alertAllEvents")}
+                        />
+                        <AlertRuleDetail
+                          label={t("settings.alertFilters")}
+                          value={
+                            rule.filters.length > 0
+                              ? JSON.stringify(rule.filters)
+                              : "[]"
+                          }
+                        />
+                        <AlertRuleDetail
+                          label={t("settings.alertStatusTriggered")}
+                          value={formatDate(
+                            rule.lastTriggeredAt,
+                            t("settings.alertNever"),
                           )}
                         />
-                        <span className="font-medium">
-                          {statusLabel(rule.lastStatus, t)}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-muted-foreground">
-                        {t("settings.alertLastChecked", {
-                          date: formatDate(
-                            rule.lastEvaluatedAt,
-                            t("settings.alertNever"),
-                          ),
-                        })}
                       </div>
                       {rule.lastError ? (
-                        <div className="mt-1 max-w-[220px] truncate text-destructive">
+                        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                           {rule.lastError}
                         </div>
                       ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditing(formFromRule(rule))}
-                          aria-label={t("settings.alertEditLabel", {
-                            name: rule.name,
-                          })}
-                        >
-                          <IconPencil className="size-3.5" />
-                        </Button>
+                      <div className="mt-3 flex justify-end">
                         <Button
                           type="button"
                           variant="ghost"
@@ -590,13 +687,14 @@ export function AlertRulesSettingsCard() {
                           })}
                         >
                           <IconTrash className="size-3.5" />
+                          {t("sidebar.delete")}
                         </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </CollapsibleContent>
+                  </Collapsible>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -639,6 +737,28 @@ export function AlertRulesSettingsCard() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function AlertRuleDetail({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-muted/25 px-3 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 truncate font-medium">{value}</div>
+      {detail ? (
+        <div className="mt-0.5 truncate text-muted-foreground">{detail}</div>
+      ) : null}
+    </div>
   );
 }
 
@@ -852,6 +972,44 @@ function AlertRuleDialog({
               ))}
             </div>
           </div>
+
+          {form.channels.slack ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="alert-slack-webhook-url">
+                {t("settings.alertSlackWebhookUrl")}
+              </Label>
+              <Input
+                id="alert-slack-webhook-url"
+                type="url"
+                value={form.slackWebhookUrl}
+                onChange={(event) =>
+                  setField("slackWebhookUrl", event.target.value)
+                }
+                placeholder={t("settings.alertSlackWebhookUrlPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.alertSlackWebhookUrlHint")}
+              </p>
+            </div>
+          ) : null}
+
+          {form.channels.webhook ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="alert-webhook-url">
+                {t("settings.alertWebhookUrl")}
+              </Label>
+              <Input
+                id="alert-webhook-url"
+                type="url"
+                value={form.webhookUrl}
+                onChange={(event) => setField("webhookUrl", event.target.value)}
+                placeholder={t("settings.alertWebhookUrlPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.alertWebhookUrlHint")}
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="alert-custom-channels">

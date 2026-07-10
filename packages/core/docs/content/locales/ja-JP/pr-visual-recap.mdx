@@ -138,11 +138,11 @@ npx @agent-native/core@latest recap doctor
 
 バックエンドを超えて、2 つのリポジトリ変数がエージェントの実行方法を調整します。
 
-- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.5`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
+- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.6-sol`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
 - **`VISUAL_RECAP_REASONING`** は推論の深さを設定します: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。これは Codex バックエンドに適用されます。 Claude の推論はモデル駆動型であるため、この変数は無視されます。
 - **`VISUAL_RECAP_SKILL_SOURCE`** はプロンプトの鮮度を制御します。`auto`/unset は最新のバンドルされたスキル ガイダンスを使用しますが、`repo` はコミットされたリポジトリのローカル `visual-recap` スキル フォルダーに固定されます。
 
-たとえば、GPT-5.5 を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.5`、および `VISUAL_RECAP_REASONING=high` を設定します。
+たとえば、GPT-5.6 Sol を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol`、および `VISUAL_RECAP_REASONING=high` を設定します。
 
 ## シークレットと変数
 
@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                             |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                  |
-| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.5`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                               |
+| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.6-sol`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                           |
 | `VISUAL_RECAP_REASONING` | 各モデルのデフォルト            | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                      |
 | `RECAP_CLI_VERSION`      | `latest`                        | 変数。ワークフローがインストールする `@agent-native/core` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。 |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                            |

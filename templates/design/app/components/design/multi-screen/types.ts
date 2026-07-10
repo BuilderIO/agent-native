@@ -10,7 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
-} from "../DesignCanvas";
+} from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
   ElementInfo,
@@ -34,6 +34,8 @@ export interface ScreenFile {
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Read-only localhost preview credential. Never a filesystem token. */
+  previewToken?: string;
   /**
    * When set, renders multiple side-by-side breakpoint frames (mobile-first,
    * §6.4). Each entry is a pixel width; the active breakpoint determines the
@@ -93,12 +95,14 @@ export interface ScreenMetadata {
   sourceType?: string;
   lod?: string;
   previewState?: string;
+  status?: string;
   title?: string;
   width?: number;
   height?: number;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  previewToken?: string;
 }
 
 export interface DuplicateRequest {
@@ -114,6 +118,12 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Hidden screen/file rows retain geometry but do not render or participate
+   * in overview hit testing, fit, or selection until shown again. */
+  hiddenScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Locked screen/file rows remain visible but cannot be selected or
+   * transformed directly from the overview canvas. */
+  lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
@@ -145,9 +155,22 @@ export interface MultiScreenCanvasProps {
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
+    /**
+     * The moveNode/moveNodeBetweenDocuments anchor: the containing primitive
+     * itself when `placement` is "inside" (append), or a sibling child of
+     * that container when `placement` is "before"/"after" (flow-insert at a
+     * specific index) — see PrimitiveDropTarget.anchorNodeId in
+     * primitive-drop-target.ts, which resolves which one to pass.
+     */
     targetNodeId: string;
     targetScreenId: string;
-    placement: "inside";
+    /**
+     * "inside" appends into the target container (absolute-drop parity with
+     * the historic behavior). "before"/"after" flow-inserts next to
+     * `targetNodeId` at the resolved auto-layout index, mirroring
+     * onCrossScreenElementDrop's targetAnchorPlacement contract.
+     */
+    placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
@@ -222,6 +245,12 @@ export interface MultiScreenCanvasProps {
     /** data-agent-native-node-id of the deepest container at the drop point
      *  inside the target screen iframe (undefined when hit-test timed out). */
     targetAnchorNodeId?: string;
+    /** Pending node id minted by the hit-test bridge for an id-less anchor —
+     *  see CrossScreenHitTestResult.pendingNodeId's doc for the handshake. */
+    targetAnchorPendingNodeId?: string;
+    /** Source-equivalent structural selector locating the pending anchor in
+     *  the persisted dest document (CrossScreenHitTestResult.anchorSelector). */
+    targetAnchorSelector?: string;
     /** DOM insertion placement relative to the anchor node. */
     targetAnchorPlacement?: "before" | "after" | "inside";
     /** Whether the target should receive an in-flow insert or an absolute child. */
@@ -793,6 +822,23 @@ export interface CrossScreenHitTestAnchorRect {
 
 export interface CrossScreenHitTestResult {
   anchorNodeId?: string;
+  /**
+   * Minted by the hit-test bridge when the resolved anchor has no stable id
+   * (AI-generated screens): the anchor's live DOM carries it as
+   * `data-an-pending-node-id`, and `anchorSelector` (below) locates the same
+   * element in the PERSISTED source so a host can stamp the pending id as
+   * the real `data-agent-native-node-id` before resolving the drop — the
+   * two-step id-on-demand handshake mirroring editor-chrome's selection
+   * contract. Without passing these through, drops into id-less screens
+   * silently degrade to absolute placement.
+   */
+  pendingNodeId?: string;
+  /**
+   * Body-rooted source-equivalent structural path for the pending anchor
+   * (skips Alpine-generated runtime nodes + editor overlays). Absent when
+   * the anchor is itself an Alpine-generated instance with no source node.
+   */
+  anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;

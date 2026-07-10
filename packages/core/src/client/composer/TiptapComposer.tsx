@@ -761,8 +761,6 @@ function ModeSelector({
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
   "claude-fable-5": "Fable 5",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
@@ -837,7 +835,7 @@ function latestModelsOnly(models: string[]): string[] {
       seen.add(claude[1]);
       return true;
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.4 and gpt-5.4-mini are different)
+    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
     // OpenAI reasoning: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);

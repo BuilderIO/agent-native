@@ -7,6 +7,7 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const readAppStateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -21,6 +22,10 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: readPrivateBlobMock,
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: readAppStateMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -195,6 +200,7 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
+    readAppStateMock.mockReset();
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -714,6 +720,178 @@ describe("session replay ingest parsing", () => {
     expect(listCondition).not.toContain("nullif(trim(coalesce");
   });
 
+  it("filters demo-mode session lists to builder emails and anonymizes identities", async () => {
+    readAppStateMock.mockResolvedValue({ enabled: true });
+    const listDb = createSessionReplayListDbMock([
+      {
+        id: "sr_builder_one",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
+        userId: "alice@builder.io",
+        anonymousId: "anon_1",
+        userKey: "alice@builder.io",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: JSON.stringify({
+          accountEmail: "alice@builder.io",
+          note: "Viewed by alice@builder.io",
+        }),
+        ownerEmail: "owner@builder.io",
+        orgId: "org_123",
+        visibility: "private",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "sr_external",
+        clientRecordingId: "recording_2",
+        sessionId: "session_2",
+        userId: "customer@example.com",
+        anonymousId: "anon_2",
+        userKey: "customer@example.com",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@builder.io",
+        orgId: "org_123",
+        visibility: "private",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "sr_builder_two",
+        clientRecordingId: "recording_3",
+        sessionId: "session_3",
+        userId: "bob@builder.io",
+        anonymousId: "anon_3",
+        userKey: "bob@builder.io",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@builder.io",
+        orgId: "org_123",
+        visibility: "private",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    getDbMock.mockReturnValue(listDb.db);
+
+    const rows = await listSessionRecordings({
+      userEmail: "owner@builder.io",
+      orgId: "org_123",
+    });
+
+    expect(rows.map((row) => row.id)).toEqual([
+      "sr_builder_one",
+      "sr_builder_two",
+    ]);
+    expect(rows[0]).toMatchObject({
+      userId: "anonymized-1@builder.io",
+      userKey: "anonymized-1@builder.io",
+      ownerEmail: "anonymized-2@builder.io",
+      metadata: {
+        accountEmail: "anonymized-1@builder.io",
+        note: "Viewed by anonymized-1@builder.io",
+      },
+    });
+    expect(rows[1]).toMatchObject({
+      userId: "anonymized-3@builder.io",
+      userKey: "anonymized-3@builder.io",
+      ownerEmail: "anonymized-2@builder.io",
+    });
+    expect(JSON.stringify(rows)).not.toContain("alice@builder.io");
+    expect(JSON.stringify(rows)).not.toContain("customer@example.com");
+    const listCondition = conditionText(listDb.whereCondition);
+    expect(listCondition).toContain("%@builder.io");
+  });
+
+  it("anonymizes demo-mode direct summaries used by detail and action surfaces", async () => {
+    readAppStateMock.mockResolvedValue({ enabled: true });
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        ...playableRecordingResource("sr_builder_detail"),
+        userId: "detail@builder.io",
+        userKey: "detail@builder.io",
+        metadata: JSON.stringify({ actorEmail: "detail@builder.io" }),
+        ownerEmail: "owner@builder.io",
+      },
+    });
+
+    const summary = await getSessionReplaySummary("sr_builder_detail", {
+      userEmail: "owner@builder.io",
+      orgId: "org_123",
+    });
+    const compact = compactSessionRecordingSummary(summary);
+
+    expect(summary).toMatchObject({
+      userId: "anonymized-1@builder.io",
+      userKey: "anonymized-1@builder.io",
+      ownerEmail: "anonymized-2@builder.io",
+      metadata: { actorEmail: "anonymized-1@builder.io" },
+    });
+    expect(compact).toMatchObject({
+      userId: "anonymized-1@builder.io",
+      userKey: "anonymized-1@builder.io",
+    });
+    expect(JSON.stringify({ summary, compact })).not.toContain(
+      "detail@builder.io",
+    );
+  });
+
+  it("hides non-builder sessions from demo-mode direct summary reads", async () => {
+    readAppStateMock.mockResolvedValue({ enabled: true });
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        ...playableRecordingResource("sr_external_detail"),
+        userId: "customer@example.com",
+        userKey: "customer@example.com",
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_external_detail", {
+        userEmail: "owner@builder.io",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
+  });
+
   it("derives replay timing from rrweb event timestamps", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
@@ -827,7 +1005,7 @@ describe("session replay ingest parsing", () => {
     const originalNodeEnv = process.env.NODE_ENV;
     const originalFallback = process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
     process.env.NODE_ENV = "production";
-    delete process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK;
+    process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK = "1";
     putPrivateBlobMock.mockResolvedValue(null);
     const recording = {
       id: "sr_empty",

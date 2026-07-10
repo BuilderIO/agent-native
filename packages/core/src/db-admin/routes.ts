@@ -106,6 +106,7 @@ export function mountDbAdminRoutes(
               pageSize: Number(body.pageSize) || 50,
               sort: body.sort,
               filters: body.filters,
+              includeLargeCells: body.includeLargeCells === true,
             });
             return { ok: true, ...result };
           }

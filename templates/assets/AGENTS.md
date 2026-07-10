@@ -10,6 +10,10 @@ Detailed library, generation, image, embed, and engine rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for asset lifecycle, generation, library organization, uploads,
   embeds, notifications, progress, sharing, and collaboration. Do not bypass
@@ -20,6 +24,8 @@ Detailed library, generation, image, embed, and engine rules live in
 - Use the configured generation/engine path for image and asset work. Do not add
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
+- Ingest external brand or blog imagery with `import-asset-from-url`, then pin
+  the returned asset to preset reference boards or set it as the canonical logo.
 - Use `view-screen` when the active library, selected asset, picker, generation,
   or embed target is unclear. The human Library surface is `/library` for
   cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
@@ -55,6 +61,17 @@ prompt, aspectRatio }`.
   composition, mood, lighting, and subject — then pass the `presetId` to
   `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
   apply automatically. Do not restate those as ad-hoc args.
+- Image requests without a tagged preset are preset-first: the user may not know
+  presets exist. Call `list-generation-presets` for the library before
+  generating and compare the request against each preset's title, description,
+  and category. If one matches the use case (e.g. "livestream poster" -> a
+  Livestream Announcement preset), generate with its `presetId` instead of
+  ad-hoc settings. Only generate presetless when nothing plausibly matches.
+- Presets may declare a reference board with fixed or variable named entries
+  such as a host, guest speaker, product, backdrop, or style. Fixed entries
+  attach automatically; collect images for required variable entries and pass
+  them via `presetReferenceFills` on `generate-image` /
+  `generate-image-batch`. See the `image-generation` skill for fill semantics.
 - For exact visible copy inside a generated image, pass `embeddedText` and
   optional `textPlacement` to `generate-image` or each `generate-image-batch`
   slot. Keep the general `prompt` for creative direction; the structured text

@@ -108,6 +108,13 @@ instructions, and application state.
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
   alter tables or columns in migrations or startup code.
+- SQL stores structured app state, metadata, references, and searchable text. Do
+  not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
+  screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
+  bodies — in SQL tables, `application_state`, `settings`, or `resources`. Use
+  configured file/blob storage (`uploadFile`, `putPrivateBlob`, provider object
+  storage) and persist only URLs, ids, or opaque handles. In hosted or persistent
+  DB mode, fail closed with setup guidance instead of falling back to SQL blobs.
 - Never use `drizzle-kit push` against production databases.
 - Tables with `ownableColumns()` require scoped reads and writes through
   `accessFilter`, `resolveAccess`, or `assertAccess`. Custom Nitro routes must
@@ -211,6 +218,10 @@ Read the relevant skill before making changes in that area:
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.
 - `self-modifying-code` for source edits by the agent.
+- `upgrade-agent-native` for bringing an older app/workspace to current
+  `@agent-native/*` packages without patching core/dispatch.
+- `upgrade-agent-native` for bringing an older app/workspace to current
+  `@agent-native/*` packages without patching core/dispatch.
 - `server-plugins` for `/_agent-native/*` routes and plugins.
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
 - `automations`, `recurring-jobs`, `integration-webhooks` for background work.

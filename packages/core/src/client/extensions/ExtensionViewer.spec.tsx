@@ -127,7 +127,9 @@ describe("ExtensionViewer MCP embeds", () => {
       "/_agent-native/extensions/ext-1/render",
     );
     expect(iframe.getAttribute("srcdoc")).toBeNull();
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
@@ -139,7 +141,9 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(iframe.getAttribute("srcdoc")).toContain(
       "agent-native-extension-binding",
     );
-    expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
   });
 
   it("does not flash not-found while a cached null extension is refetching", async () => {
@@ -171,6 +175,79 @@ describe("ExtensionViewer MCP embeds", () => {
     await vi.waitFor(() => {
       expect(container.querySelector("iframe")).toBeTruthy();
     });
+  });
+
+  it("shows a clear unavailable state when the extension is not shared", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Forbidden" }, { status: 403 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is not shared");
+    });
+    expect(container.textContent).toContain(
+      "Ask the owner to share it with your organization",
+    );
+    expect(container.textContent).toContain("Back to extensions");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("does not keep rendering cached extension data after latest fetch denies access", async () => {
+    queryClient.setQueryData(["extension", "ext-1"], extensionResponse, {
+      updatedAt: 0,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Not found" }, { status: 404 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is unavailable");
+    });
+    expect(container.textContent).not.toContain("GitHub Stars Over Time");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("shows expired-session copy separately from no-access responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Unauthorized" }, { status: 401 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Session expired");
+    });
+    expect(container.textContent).toContain("Sign in again");
+    expect(container.textContent).not.toContain("Extension is not shared");
+    expect(container.querySelector("iframe")).toBeFalsy();
   });
 
   it("places the more menu before Share and omits the notifications bell", async () => {

@@ -202,7 +202,7 @@ A new **${kind}** integration. ${kindGuidance}
 
 ## Verify
 
-1. \`agent-native typecheck\` (or \`tsgo --noEmit\`) passes.
+1. \`agent-native typecheck\` (or \`tsc --noEmit\`) passes.
 2. Add a focused \`*.spec.ts\` for the new surface and run it.
 3. Exercise the real workflow end to end: invoke the new action from the agent
    chat (and the UI if applicable), and confirm the external call round-trips

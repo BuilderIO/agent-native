@@ -41,6 +41,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 interface Extension {
   id: string;
@@ -54,6 +55,9 @@ interface Extension {
     permissions?: BridgePolicyContext["permissions"];
   };
 }
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 // Read the host app's *actual* computed theme values for the shared token set
 // (THEME_VAR_NAMES). The iframe ships with a generic baked palette
@@ -78,6 +82,31 @@ function serializeChatValue(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+}
+
+/**
+ * Slot contexts (e.g. Design's `DesignExtensionSlotContext`) commonly carry
+ * live callback functions alongside plain data — the host component uses
+ * those callbacks itself, but `window.postMessage` uses the structured clone
+ * algorithm, which throws a `DataCloneError` on any function-valued property
+ * (see MDN's postMessage docs). Round-tripping through JSON drops functions
+ * (and other non-cloneable values like symbols) the same way
+ * `JSON.stringify` already silently omits them, producing a payload that's
+ * safe to post. Exported so a test can verify functions never reach the
+ * iframe instead of only reading the code.
+ */
+export function sanitizeSlotContextForPostMessage(
+  context: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(context ?? {}));
+  } catch {
+    // Circular reference or other non-serializable shape — fail safe to an
+    // empty context rather than letting postMessage throw and skip every
+    // other message this handler sends in the same tick (theme update,
+    // ready signal).
+    return {};
   }
 }
 
@@ -239,8 +268,16 @@ export function EmbeddedExtension({
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
+    // Post the JSON-round-tripped context, not the raw `context` object —
+    // slot contexts (e.g. Design's DesignExtensionSlotContext) carry live
+    // callback functions the host uses internally, and postMessage's
+    // structured clone throws a DataCloneError on any function-valued
+    // property. See sanitizeSlotContextForPostMessage's docblock.
     win.postMessage(
-      { type: "agent-native-slot-context", context: context ?? {} },
+      {
+        type: "agent-native-slot-context",
+        context: sanitizeSlotContextForPostMessage(context),
+      },
       "*",
     );
   }, [contextJson]);
@@ -392,11 +429,14 @@ export function EmbeddedExtension({
         key={`${extensionId}-${extension.updatedAt ?? ""}`}
         src={iframeSrc}
         title={extension.name}
-        sandbox="allow-scripts allow-forms"
+        sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}
         onLoad={() => {
           iframeRef.current?.contentWindow?.postMessage(
-            { type: "agent-native-slot-context", context: context ?? {} },
+            {
+              type: "agent-native-slot-context",
+              context: sanitizeSlotContextForPostMessage(context),
+            },
             "*",
           );
           // Re-assert theme once the iframe document is live. The src bakes in

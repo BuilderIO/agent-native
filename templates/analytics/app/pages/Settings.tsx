@@ -7,9 +7,12 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
   useT,
+  type SettingsSearchEntry,
+  type SettingsTabItem,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  IconBell,
   IconCheck,
   IconChevronDown,
   IconCloud,
@@ -18,7 +21,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -188,14 +191,75 @@ export default function Settings() {
     }
   }
 
+  const extraTabs = useMemo<SettingsTabItem[]>(
+    () => [
+      {
+        id: "alerts",
+        label: t("settings.alertsTitle"),
+        icon: IconBell,
+        keywords: "alerts rules notifications thresholds triggers monitoring",
+        content: (
+          <div className="mx-auto w-full max-w-5xl">
+            <AlertRulesSettingsCard />
+          </div>
+        ),
+      },
+      ...agentSettingsTabs,
+    ],
+    [agentSettingsTabs, t],
+  );
+
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "analytics-account",
+        label: t("settings.account"),
+        keywords: "profile email signed in identity",
+        hash: "account",
+      },
+      {
+        id: "analytics-credentials",
+        label: t("settings.credentials"),
+        keywords: "data sources api keys manage credentials",
+        hash: "credentials",
+      },
+      {
+        id: "analytics-replay-storage",
+        label: t("settings.replayStorage"),
+        keywords: "storage s3 builder replay bucket cloud",
+        hash: "replay-storage",
+      },
+      {
+        id: "analytics-dashboard-templates",
+        label: t("settings.dashboardTemplates"),
+        keywords: "templates catalog dashboards",
+        hash: "dashboard-templates",
+      },
+      {
+        id: "analytics-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "analytics-about",
+        label: t("settings.about"),
+        keywords: "about version info usage",
+        hash: "about",
+      },
+    ],
+    [t],
+  );
+
   return (
     <SettingsTabsPage
       teamLabel={t("navigation.team")}
       whatsNewLabel={t("root.whatsNew")}
-      extraTabs={agentSettingsTabs}
+      extraTabs={extraTabs}
+      generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
-          <Card className="bg-card border-border/50">
+          <Card id="account" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.account")}
@@ -213,7 +277,10 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border/50">
+          <Card
+            id="credentials"
+            className="bg-card border-border/50 scroll-mt-16"
+          >
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.credentials")}
@@ -403,7 +470,10 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border/50">
+          <Card
+            id="dashboard-templates"
+            className="bg-card border-border/50 scroll-mt-16"
+          >
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.dashboardTemplates")}
@@ -421,9 +491,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <AlertRulesSettingsCard />
-
-          <Card className="bg-card border-border/50">
+          <Card id="language" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.languageTitle")}
@@ -435,7 +503,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border/50">
+          <Card id="about" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">{t("settings.about")}</CardTitle>
             </CardHeader>
@@ -447,10 +515,11 @@ export default function Settings() {
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-5xl">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share dashboards and data sources with your colleagues."
+            className="max-w-5xl"
           />
         </div>
       }

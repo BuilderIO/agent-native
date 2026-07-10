@@ -16,10 +16,13 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-const NOTIFICATION_W_LOGICAL: u32 = 420;
-const NOTIFICATION_H_LOGICAL: u32 = 148;
+// Window is wider than the 440px card so the card's drop shadow (~32px each
+// side) renders inside the transparent window instead of being clipped. The
+// right margin is pulled in to keep the card near the top-right corner.
+const NOTIFICATION_W_LOGICAL: u32 = 504;
+const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
-const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
 
 #[derive(Default)]
 pub struct MeetingNotificationState(pub Mutex<Option<Value>>);
@@ -109,6 +112,38 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
     Ok(pending.take())
 }
 
+fn format_time_range_subtitle(
+    scheduled_start: Option<&str>,
+    scheduled_end: Option<&str>,
+    starts_in_secs: i64,
+) -> String {
+    let Some(start_str) = scheduled_start else {
+        return fallback_starts_subtitle(starts_in_secs);
+    };
+    let Ok(start) = chrono::DateTime::parse_from_rfc3339(start_str) else {
+        return fallback_starts_subtitle(starts_in_secs);
+    };
+    let local_start = start.with_timezone(&chrono::Local);
+    let start_label = local_start.format("%-I:%M %p").to_string();
+    if let Some(end_str) = scheduled_end {
+        if let Ok(end) = chrono::DateTime::parse_from_rfc3339(end_str) {
+            let end_label = end.with_timezone(&chrono::Local).format("%-I:%M %p");
+            return format!("{start_label} - {end_label}");
+        }
+    }
+    start_label
+}
+
+fn fallback_starts_subtitle(starts_in_secs: i64) -> String {
+    if starts_in_secs <= 0 {
+        "Started".to_string()
+    } else if starts_in_secs < 90 {
+        format!("Starts in {}s", starts_in_secs)
+    } else {
+        format!("Starts in {} min", (starts_in_secs / 60).max(1))
+    }
+}
+
 #[tauri::command]
 pub async fn notify_meeting_starting(
     app: AppHandle,
@@ -116,18 +151,30 @@ pub async fn notify_meeting_starting(
     title: String,
     starts_in_secs: i64,
     join_url: Option<String>,
+    scheduled_start: Option<String>,
+    scheduled_end: Option<String>,
+    platform: Option<String>,
     auto_start: Option<bool>,
+    notification_type: Option<String>,
 ) -> Result<(), String> {
-    let pretty_in = if starts_in_secs <= 0 {
-        "now".to_string()
-    } else if starts_in_secs < 90 {
-        format!("in {}s", starts_in_secs)
+    let kind = notification_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("calendar");
+    let is_adhoc = kind == "adhoc";
+    let body = if is_adhoc {
+        "Take notes?".to_string()
     } else {
-        format!("in {} min", (starts_in_secs / 60).max(1))
+        format_time_range_subtitle(
+            scheduled_start.as_deref(),
+            scheduled_end.as_deref(),
+            starts_in_secs,
+        )
     };
-    let body = format!("Starts {}", pretty_in);
     dlog!(
-        "[clips-tray] notify_meeting_starting id={} title={} body={}",
+        "[clips-tray] notify_meeting_starting type={} id={} title={} body={}",
+        kind,
         meeting_id,
         title,
         body
@@ -136,15 +183,23 @@ pub async fn notify_meeting_starting(
     // Keep the latest payload available for cold overlay windows, then emit
     // for already-mounted listeners.
     let payload = serde_json::json!({
-        "type": "calendar",
+        "type": kind,
         "title": title,
         "subtitle": body,
         "meetingId": meeting_id,
         "joinUrl": join_url,
+        "platform": platform,
+        "scheduledStart": scheduled_start,
+        "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
     });
     store_pending_meeting_notification(&app, &payload);
     let _ = app.emit("meetings:show-notification", payload.clone());
+
+    // Ensure the overlay window exists / is visible for cold starts.
+    if let Err(err) = show_meeting_notification_window(&app) {
+        eprintln!("[clips-tray] show meeting notification failed: {err}");
+    }
 
     Ok(())
 }

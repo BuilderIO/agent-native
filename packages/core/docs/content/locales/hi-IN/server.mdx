@@ -125,6 +125,41 @@ export default defineEventHandler(() => ({
 
 कस्टम `/api/*` रूट का उपयोग केवल तभी करें जब आपको रूट-आकार वाले प्रोटोकॉल या बाइनरी/स्ट्रीमिंग व्यवहार की आवश्यकता हो। [Actions](/docs/actions) देखें.
 
+### केवल API ऐप्स {#api-only-apps}
+
+सिर्फ इसलिए कि ऐप केवल API है, आपको Express सर्वर की आवश्यकता नहीं है। Agent Native ऐप में पहले से Nitro/H3 सर्वर शामिल होता है, और `defineAction()` डिफ़ॉल्ट API सतह है। संचालन को `actions/` में परिभाषित करें; फ़्रेमवर्क हर action को schema validation और request context के साथ `/_agent-native/actions/<name>` पर माउंट करता है।
+
+सीधे HTTP access का आकार देने के लिए action के `http` विकल्प का उपयोग करें: actions डिफ़ॉल्ट रूप से `POST` होते हैं, `http: { method: "GET" | "PUT" | "DELETE" }` verb बदलता है, और `http: false` action को HTTP से हटा देता है। `server/routes/api/*` का उपयोग केवल route-shaped या protocol चिंताओं के लिए करें: file uploads, streaming/SSE, webhooks, OAuth callbacks, public pages, या ऐसा external REST shape जिसे action के रूप में साफ़ तरीके से व्यक्त नहीं किया जा सकता। ऐसे `/api/*` routes न बनाएं जो अधिकतर actions को wrap या re-export करते हों।
+
+रीड-ओनली status endpoint के लिए, इसे action ही रखें:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+इसे सीधे HTTP पर कॉल करें:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+`POST` और अन्य write actions के लिए, उसी action path पर JSON body भेजें.
+
 ## एक-शॉट पाठ समापन {#complete-text}
 
 अधिकांश AI कार्य एजेंट चैट के माध्यम से होना चाहिए ताकि उपयोगकर्ता देख सकें, संचालन कर सकें और ऑडिट कर सकें

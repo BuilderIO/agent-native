@@ -113,6 +113,8 @@ const CHART_LEGEND_PROPS = {
 const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
 const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
+const TABLE_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
+const TABLE_PANEL_SKELETON_ROWS = 10;
 
 function formatYValue(
   value: number,
@@ -153,6 +155,24 @@ export function formatMetricValue(
   return numericRaw !== null
     ? formatYValue(numericRaw, formatter)
     : String(raw ?? "-");
+}
+
+function isNumericLikeValue(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    Number.isFinite(Number(value))
+  );
+}
+
+export function detectMetricValueColumn(
+  row: Record<string, unknown>,
+  configuredKey?: string,
+): string {
+  const cols = Object.keys(row);
+  if (configuredKey && cols.includes(configuredKey)) return configuredKey;
+  return cols.find((key) => isNumericLikeValue(row[key])) || cols[0] || "";
 }
 
 function parsePrometheusSeriesLabel(label: string): {
@@ -470,7 +490,7 @@ function SeriesLegend({
   if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
-    <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+    <div className="mt-2 min-h-16 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {keys.map((key, i) => {
           const hidden = hiddenKeys?.has(key) ?? false;
@@ -564,6 +584,113 @@ function ChartFrame({
         hiddenKeys={hiddenKeys}
         onToggleKey={onToggleLegendKey}
       />
+    </div>
+  );
+}
+
+function isTableLikeChartType(type: ChartType): boolean {
+  return type === "table" || type === "heatmap";
+}
+
+function chartTypeReservesLegend(panel: SqlPanel): boolean {
+  if (panel.config?.legend === false) return false;
+  const chartUsesFrame =
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    panel.chartType === "pie";
+  if (!chartUsesFrame) return false;
+  return (
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    usesPrometheusPresentation(panel)
+  );
+}
+
+function TableLoadingSkeleton() {
+  const columnWidths = ["w-24", "w-32", "w-20", "w-28"];
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`w-full flex-1 space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+    >
+      <div className="relative overflow-x-auto">
+        <div className="min-w-[480px]">
+          <div className="grid h-8 grid-cols-4 items-center border-b border-border px-2">
+            {columnWidths.map((width, index) => (
+              <Skeleton key={index} className={`h-3 ${width}`} />
+            ))}
+          </div>
+          {Array.from({ length: TABLE_PANEL_SKELETON_ROWS }).map((_, row) => (
+            <div
+              key={row}
+              className="grid h-8 grid-cols-4 items-center border-b border-border/50 px-2"
+            >
+              {columnWidths.map((width, col) => (
+                <Skeleton
+                  key={col}
+                  className={`h-3 ${
+                    col === 0 ? "w-36" : col === 2 ? "ml-auto w-16" : width
+                  }`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex h-8 items-center justify-between border-t border-border px-1 text-xs">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
+  );
+}
+
+function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
+  const fill = useContext(ChartFillHeightContext);
+
+  if (panel.chartType === "metric") {
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className="w-full flex-1 min-h-12"
+      />
+    );
+  }
+
+  if (isTableLikeChartType(panel.chartType)) {
+    return <TableLoadingSkeleton />;
+  }
+
+  const reserveLegend = chartTypeReservesLegend(panel);
+
+  if (!reserveLegend) {
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${fill ? "h-full min-h-[250px]" : "min-h-[250px]"}`}
+      />
+    );
+  }
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`flex w-full flex-1 flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <Skeleton
+        className={`w-full ${fill ? "h-full min-h-[250px] flex-1" : "h-[250px]"}`}
+      />
+      <div className="mt-2 grid min-h-16 grid-cols-2 gap-x-3 gap-y-1 overflow-hidden pr-1 sm:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-1.5">
+            <Skeleton className="h-2.5 w-3 shrink-0 rounded-sm" />
+            <Skeleton className="h-3 w-20 min-w-0" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -804,7 +931,7 @@ function detectKeys(
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
-      if (typeof sample[c] === "number") yKeys.push(c);
+      if (isNumericLikeValue(sample[c])) yKeys.push(c);
     }
   }
   if (yKeys.length === 0 && cols.length > 1) {
@@ -944,16 +1071,16 @@ export function SqlChart({
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
-  const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
+  const isTableLike = isTableLikeChartType(panel.chartType);
+  const placeholderMinH = isMetric
+    ? "min-h-12"
+    : isTableLike
+      ? TABLE_PANEL_MIN_HEIGHT_CLASS
+      : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
   if (!loadData || isLoading) {
-    return (
-      <Skeleton
-        data-dashboard-report-loading="true"
-        className={`w-full flex-1 ${placeholderMinH}`}
-      />
-    );
+    return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
   if (error) {
@@ -1120,14 +1247,10 @@ function MetricRenderer({
   panel: SqlPanel;
 }) {
   const row = rows[0];
-  const cols = Object.keys(row);
-  const valueCol =
-    panel.config?.yKey ||
-    cols.find((c) => typeof row[c] === "number") ||
-    cols[0];
+  const valueCol = detectMetricValueColumn(row, panel.config?.yKey);
 
   let raw: unknown;
-  if (rows.length > 1 && typeof row[valueCol] === "number") {
+  if (rows.length > 1 && isNumericLikeValue(row[valueCol])) {
     raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
   } else {
     raw = row[valueCol];
@@ -1352,7 +1475,7 @@ function TableRenderer({
   }, [handleExportCsv, onExportCsvChange]);
 
   return (
-    <div className="space-y-1">
+    <div className={`space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}>
       <div className="relative overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -1975,7 +2098,9 @@ function HeatmapRenderer({
 
   if (rows.length === 0 || !valueKey) {
     return (
-      <div className="flex min-h-[250px] items-center justify-center py-8">
+      <div
+        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+      >
         <p className="text-sm text-muted-foreground text-center">
           {t("common.noData")}
         </p>
@@ -1996,7 +2121,7 @@ function HeatmapRenderer({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div className={`${TABLE_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

@@ -822,6 +822,28 @@ export function shouldSeedCollaborativeContent({
   return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
 }
 
+/**
+ * Parse authoritative Content NFM with Content's exact NFM parser before the
+ * shared reconcile computes its top-level surgical diff.
+ *
+ * Falling back to the shared CommonMark parser is lossy here: canonical NFM
+ * stores one Notion block per line without blank paragraph separators, while
+ * CommonMark merges those consecutive lines into one paragraph. That made
+ * external replacements such as Notion conflict resolution and version
+ * restores look correct in the non-collaborative history preview, then collapse
+ * into one wrapped paragraph when reconciled into the live Y.Doc.
+ */
+export function parseNfmForCollabReconcile(
+  editor: CoreEditor,
+  value: string,
+): ProseMirrorNode | null {
+  try {
+    return editor.schema.nodeFromJSON(nfmToDoc(value) as any);
+  } catch {
+    return null;
+  }
+}
+
 export function shouldApplyExternalContentSync({
   docChanged,
   content,
@@ -1669,10 +1691,14 @@ export function VisualEditor({
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      localAwareness?.setLocalState(null);
+      // Only the fallback instance is owned by this editor. A provided
+      // awareness belongs to the shared useCollaborativeDoc connection; clearing
+      // it here races StrictMode/remounts and can erase the tab's durable
+      // presence while the shared connection is still active.
+      fallbackAwareness?.setLocalState(null);
       fallbackAwareness?.destroy();
     };
-  }, [fallbackAwareness, localAwareness]);
+  }, [fallbackAwareness]);
 
   const extensions = useMemo(
     () =>
@@ -1941,6 +1967,10 @@ export function VisualEditor({
       e.commands.setContent(doc);
     },
     normalizeValue: canonicalizeNfm,
+    // The shared fallback parser is CommonMark. Content stores canonical NFM,
+    // whose adjacent lines are separate Notion blocks, so always provide the
+    // exact NFM parser for the surgical reconcile path.
+    parseValue: parseNfmForCollabReconcile,
     shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
       editable &&
       shouldSeedCollaborativeContent({

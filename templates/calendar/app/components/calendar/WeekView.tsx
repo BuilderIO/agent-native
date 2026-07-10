@@ -32,7 +32,10 @@ import {
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import {
+  shouldSuppressAfterPopoverClose,
+  shouldSuppressCreatePointerDown,
+} from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
 
@@ -1143,6 +1146,7 @@ export const WeekView = memo(function WeekView({
             return (
               <div
                 key={day.toISOString()}
+                data-calendar-create-surface="true"
                 className={cn(
                   "relative flex-1 border-r border-border last:border-r-0",
                   isCurrentDay && "bg-primary/[0.02]",
@@ -1150,7 +1154,12 @@ export const WeekView = memo(function WeekView({
                 onPointerDown={(e) => {
                   // Only start a create-drag from empty space, not on an event or its resize handles
                   if ((e.target as HTMLElement).closest("button")) return;
-                  if (!onClickTimeSlot || e.button !== 0) return;
+                  if (
+                    !onClickTimeSlot ||
+                    e.button !== 0 ||
+                    shouldSuppressCreatePointerDown()
+                  )
+                    return;
                   startCreateDrag(e, dayIndex);
                 }}
                 onClick={(e) => {

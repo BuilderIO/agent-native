@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   designEditorCommandKeysForTab,
+  designSelectionCleanupKeysForTab,
   designSelectionStateKeysForTab,
   editorCommandFromNavigate,
   editorPathFromCommand,
@@ -118,5 +119,12 @@ describe("design navigation state", () => {
       "design-selection",
     ]);
     expect(designSelectionStateKeysForTab()).toEqual(["design-selection"]);
+  });
+
+  it("limits route cleanup to the active tab so another editor keeps the global fallback", () => {
+    expect(designSelectionCleanupKeysForTab("tab-123")).toEqual([
+      "design-selection:tab-123",
+    ]);
+    expect(designSelectionCleanupKeysForTab()).toEqual(["design-selection"]);
   });
 });

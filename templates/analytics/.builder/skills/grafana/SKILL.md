@@ -45,13 +45,13 @@ description: >
 Use `grafana` for agent-facing Grafana work. Do not call `/api/grafana/*`
 directly from the agent.
 
-| Mode | Args | Description |
-| --- | --- | --- |
-| `dashboards` | `search` | Search dashboards |
-| `dashboard` | `uid` | Full dashboard JSON |
-| `datasources` | | List datasources |
-| `alerts` | | Alert rules and firing instances |
-| `query` | `datasourceUid`, `queries`, `from`, `to` | Query a datasource |
+| Mode          | Args                                     | Description                      |
+| ------------- | ---------------------------------------- | -------------------------------- |
+| `dashboards`  | `search`                                 | Search dashboards                |
+| `dashboard`   | `uid`                                    | Full dashboard JSON              |
+| `datasources` |                                          | List datasources                 |
+| `alerts`      |                                          | Alert rules and firing instances |
+| `query`       | `datasourceUid`, `queries`, `from`, `to` | Query a datasource               |
 
 ### Dashboard
 

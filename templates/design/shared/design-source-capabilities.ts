@@ -7,7 +7,8 @@
  *
  * Relation to `source-mode.ts`:
  * - `DesignBridgeOperation` ("select" | "resolveNodeToFile" | "readFile" |
- *   "applyEdit" | "writeFile" | "captureSnapshot" | "captureState") describes
+ *   "applyEdit" | "writeFile" | "captureSnapshot" | "captureState" |
+ *   "listFiles") describes
  *   the low-level bridge RPC surface.
  * - `DesignCapabilityName` below is the *higher-level* capability vocabulary
  *   that UI panels and agent actions read.  Several capabilities build on one

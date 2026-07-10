@@ -18,10 +18,10 @@ import {
   IconSearch,
   IconServer,
 } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -65,11 +65,19 @@ type SessionRecordingSummary = {
   referrer: string | null;
   app: string | null;
   template: string | null;
+  metadata?: Record<string, unknown>;
   status: "active" | "completed";
   createdAt: string;
   updatedAt: string;
   lastIngestedAt: string | null;
 };
+
+type SessionRecordingIdentity = Pick<
+  SessionRecordingSummary,
+  "id" | "userId" | "userKey" | "anonymousId" | "sessionId"
+>;
+
+type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 
@@ -225,6 +233,7 @@ export default function SessionsPage() {
                     recording.endedAt ??
                     recording.lastIngestedAt ??
                     recording.startedAt;
+                  const deviceLabel = sessionDeviceLabel(recording);
                   return (
                     <button
                       key={recording.id}
@@ -260,35 +269,28 @@ export default function SessionsPage() {
                         </span>
                       </span>
                       <span className="analytics-session-app-meta min-w-0 text-left">
-                        <span className="block truncate text-sm text-muted-foreground">
-                          {recording.app ||
-                            recording.template ||
-                            t("sessions.unknownApp")}
-                        </span>
-                        <span className="analytics-session-badges mt-1 flex flex-wrap gap-1.5">
+                        <span className="analytics-session-badges flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                          <span>{formatPageCount(recording.pageCount, t)}</span>
                           {recording.errorCount > 0 ? (
-                            <Badge variant="destructive">
+                            <span className="font-medium text-destructive">
                               {t("sessions.errorCount", {
                                 count: String(recording.errorCount),
                               })}
-                            </Badge>
+                            </span>
                           ) : null}
                           {recording.rageClickCount > 0 ? (
-                            <Badge variant="secondary">
+                            <span>
                               {t("sessions.rageClicks", {
                                 count: String(recording.rageClickCount),
-                              })}
-                            </Badge>
-                          ) : null}
-                          {recording.errorCount === 0 &&
-                          recording.rageClickCount === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              {t("sessions.pageCountCompact", {
-                                count: formatNumber(recording.pageCount),
                               })}
                             </span>
                           ) : null}
                         </span>
+                        {deviceLabel ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {deviceLabel}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   );
@@ -472,7 +474,7 @@ function rangeLabel(value: ReplayRange, t: ReturnType<typeof useT>): string {
 }
 
 function visitorLabel(
-  recording: SessionRecordingSummary,
+  recording: SessionRecordingIdentity,
   t: ReturnType<typeof useT>,
 ): string {
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
@@ -512,6 +514,81 @@ function safePathFromUrl(value: string): string {
   }
 }
 
+export function sessionDeviceLabel(
+  recording: SessionRecordingDevice,
+): string | null {
+  const metadata = recordValue(recording.metadata);
+  const device = recordValue(metadata.device);
+  const browser = recordValue(metadata.browser);
+  const client = recordValue(metadata.client);
+  const os = osLabelFromValue(
+    metadata.os ??
+      metadata.operatingSystem ??
+      metadata.operating_system ??
+      metadata.deviceOs ??
+      metadata.device_os ??
+      device.os ??
+      device.operatingSystem ??
+      browser.os ??
+      client.os,
+  );
+  if (os) return os;
+  const platform = stringValue(
+    metadata.platform ?? device.platform ?? client.platform,
+  );
+  const platformLabel = inferOsLabel(platform);
+  if (platformLabel) return platformLabel;
+  const userAgent = stringValue(
+    metadata.userAgent ??
+      metadata.user_agent ??
+      device.userAgent ??
+      device.user_agent ??
+      client.userAgent ??
+      client.user_agent,
+  );
+  return inferOsLabel(userAgent);
+}
+
+function osLabelFromValue(value: unknown): string | null {
+  const record = recordValue(value);
+  if (record) {
+    const name = stringValue(record.name ?? record.family ?? record.os);
+    const version = stringValue(record.version ?? record.release);
+    if (name && version) return `${normalizeOsName(name)} ${version}`;
+    if (name) return normalizeOsName(name);
+  }
+  const label = stringValue(value);
+  if (!label) return null;
+  return inferOsLabel(label) ?? label;
+}
+
+function inferOsLabel(value: string | null): string | null {
+  if (!value) return null;
+  if (/cros|chrome os/i.test(value)) return "ChromeOS";
+  if (/iphone|ipad|ipod|ios/i.test(value)) return "iOS";
+  if (/mac os x|macintosh|macintel|darwin|macos/i.test(value)) return "macOS";
+  if (/windows|win32|win64/i.test(value)) return "Windows";
+  if (/android/i.test(value)) return "Android";
+  if (/linux/i.test(value)) return "Linux";
+  return null;
+}
+
+function normalizeOsName(value: string): string {
+  return inferOsLabel(value) ?? value;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function formatDateTime(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
@@ -537,6 +614,16 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
+  const count = Math.max(0, Math.round(value || 0));
+  if (count === 1) {
+    return t("sessions.pageCountCompactSingular", {
+      count: formatNumber(count),
+    });
+  }
+  return t("sessions.pageCountCompact", { count: formatNumber(count) });
+}
+
 const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client";
 
@@ -546,7 +633,7 @@ configureTracking({
   sessionReplay: {
     enabled: true,
     requireSignedInUser: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,

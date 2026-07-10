@@ -31,6 +31,16 @@ function monacoUriFor(uri: string): monaco.Uri {
 
 class WorkbenchModelRegistry {
   private entries = new Map<string, WorkbenchModelEntry>();
+  /**
+   * Uris currently inside an `applyExternalContent`/`reloadContent` call.
+   * Monaco fires `onDidChangeContent` synchronously from inside
+   * `pushEditOperations`, before this class can update `savedAltVersionId` to
+   * the post-edit version — so a dirty-tracking subscriber reading
+   * `isDirty()` from that callback would see a stale "dirty" result for an
+   * edit nobody typed. Callers (store.tsx's dirty-tracking subscription) use
+   * `isApplyingExternalContent` to skip acting on that spurious notification.
+   */
+  private externalContentUris = new Set<string>();
 
   get(uri: string): WorkbenchModelEntry | undefined {
     return this.entries.get(uri);
@@ -76,6 +86,15 @@ class WorkbenchModelRegistry {
   }
 
   /**
+   * True while `uri`'s content is being replaced by `applyExternalContent`.
+   * Dirty-tracking subscribers must ignore `onDidChangeContent` notifications
+   * that fire while this is true — see the field comment above.
+   */
+  isApplyingExternalContent(uri: string): boolean {
+    return this.externalContentUris.has(uri);
+  }
+
+  /**
    * Replace buffer content from an external change (agent edit, canvas edit)
    * while preserving the undo stack.
    */
@@ -87,12 +106,31 @@ class WorkbenchModelRegistry {
       entry.savedAltVersionId = model.getAlternativeVersionId();
       return;
     }
-    model.pushEditOperations(
-      null,
-      [{ range: model.getFullModelRange(), text: content }],
-      () => null,
-    );
+    this.externalContentUris.add(uri);
+    try {
+      model.pushEditOperations(
+        null,
+        [{ range: model.getFullModelRange(), text: content }],
+        () => null,
+      );
+    } finally {
+      this.externalContentUris.delete(uri);
+    }
     entry.savedAltVersionId = model.getAlternativeVersionId();
+  }
+
+  /**
+   * Force an already-open buffer to match freshly read content + language,
+   * discarding any local edits. Used only for explicit user-initiated reload
+   * (e.g. the "File changed elsewhere — reload latest" conflict action) —
+   * the caller has already decided to discard unsaved edits, so unlike
+   * `applyExternalContent`'s callers this does not gate on dirty state.
+   */
+  reloadContent(uri: string, content: string, language: string) {
+    const entry = this.entries.get(uri);
+    if (!entry || entry.model.isDisposed()) return;
+    monaco.editor.setModelLanguage(entry.model, language);
+    this.applyExternalContent(uri, content);
   }
 
   /** Mark the buffer clean as of the given alternative version id. */

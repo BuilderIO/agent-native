@@ -41,6 +41,32 @@ test.describe.serial("layers menu structure operations", () => {
       "aria-selected",
       "true",
     );
+
+    // Cmd/Ctrl toggles membership back off without disturbing the other row.
+    await additiveSelectLayerRow(page, "Beta Button");
+    await expect.poll(() => selectedRowCount(page)).toBe(1);
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+
+    // Shift selects the visible range from the plain-click anchor. The
+    // mirrored iframe selection echo must not collapse the range to Beta.
+    await clickLayerRow(page, "Alpha Button");
+    await rangeSelectLayerRow(page, "Beta Button");
+    await expect.poll(() => selectedRowCount(page)).toBe(2);
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   test("dragging a sibling row reorders it before its peer", async ({
@@ -49,22 +75,8 @@ test.describe.serial("layers menu structure operations", () => {
     const before = await visibleLayerNames(page);
     expect(before.indexOf("Alpha Button")).toBeGreaterThanOrEqual(0);
     expect(before.indexOf("Beta Button")).toBeGreaterThanOrEqual(0);
-
-    await layerRow(page, "Beta Button").dragTo(layerRow(page, "Alpha Button"), {
-      targetPosition: { x: 24, y: 2 },
-    });
-
-    await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return names.indexOf("Beta Button") < names.indexOf("Alpha Button");
-      })
-      .toBe(true);
-
-    await clickLayerRow(page, "Alpha Button");
-    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
+    expect(before.indexOf("Beta Button")).toBeLessThan(
+      before.indexOf("Alpha Button"),
     );
 
     await layerRow(page, "Alpha Button").dragTo(layerRow(page, "Beta Button"), {
@@ -75,6 +87,23 @@ test.describe.serial("layers menu structure operations", () => {
       .poll(async () => {
         const names = await visibleLayerNames(page);
         return names.indexOf("Alpha Button") < names.indexOf("Beta Button");
+      })
+      .toBe(true);
+
+    await clickLayerRow(page, "Beta Button");
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await layerRow(page, "Beta Button").dragTo(layerRow(page, "Alpha Button"), {
+      targetPosition: { x: 24, y: 2 },
+    });
+
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return names.indexOf("Beta Button") < names.indexOf("Alpha Button");
       })
       .toBe(true);
   });
@@ -98,10 +127,10 @@ test.describe.serial("layers menu structure operations", () => {
         .poll(async () => {
           const names = await visibleLayerNames(page);
           return (
-            names.indexOf("Fixture Card Title") <
+            names.indexOf("Alpha Button") <
               names.indexOf("Card body text inside a nested container.") &&
             names.indexOf("Card body text inside a nested container.") <
-              names.indexOf("Alpha Button")
+              names.indexOf("Fixture Card Title")
           );
         })
         .toBe(true);
@@ -331,6 +360,12 @@ async function additiveSelectLayerRow(page: Page, name: string): Promise<void> {
   await button.click({
     modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
   });
+  await expect(button).toBeFocused();
+}
+
+async function rangeSelectLayerRow(page: Page, name: string): Promise<void> {
+  const button = layerRowButton(page, name);
+  await button.click({ modifiers: ["Shift"] });
   await expect(button).toBeFocused();
 }
 

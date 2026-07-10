@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import http, {
   type IncomingMessage,
   type Server,
@@ -33,6 +34,16 @@ const BRIDGE_OPERATIONS = [
 
 type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
 
+const SERVER_REGISTRATION_BRIDGE_OPERATIONS = new Set<BridgeOperation>([
+  "select",
+  "resolveNodeToFile",
+  "readFile",
+  "applyEdit",
+  "writeFile",
+  "captureSnapshot",
+  "captureState",
+]);
+
 /** Additive manifest capability flags advertised alongside the operation list. */
 const MANIFEST_CAPABILITIES = {
   listFiles: true,
@@ -50,6 +61,15 @@ export interface DesignConnectArgs {
    *  are present) the CLI POSTs to `/_agent-native/actions/connect-localhost`
    *  with the real bridge token so the server can store it for grant minting. */
   appUrl?: string;
+  /** Server-minted bridge token to adopt instead of minting one, so the bridge
+   *  matches the token already stored on the user's connection row (no
+   *  self-registration). Also read from AGENT_NATIVE_BRIDGE_TOKEN. */
+  bridgeToken?: string;
+  /** Read-only token used by Design browser previews. This is deliberately
+   *  distinct from `bridgeToken`, which unlocks local filesystem reads/writes.
+   *  When omitted it is derived one-way from bridgeToken for compatibility
+   *  with existing /visual-edit launch commands. */
+  previewToken?: string;
   json: boolean;
   once: boolean;
   dryRun: boolean;
@@ -63,6 +83,8 @@ export interface DesignConnectRoute {
   title: string;
   sourceFile?: string;
   sourceKind: "react-router" | "html" | "manual";
+  screenshotUrl?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DesignConnectManifest {
@@ -98,6 +120,40 @@ export interface DesignConnectBridge {
    *  the manifest JSON so it is not exposed over the network via GET /manifest.
    *  The server-side grant action reads it from the running bridge instance. */
   bridgeToken: string;
+  /** Read-only token accepted by manifest, route, snapshot, proxy, and editor
+   *  bridge-registration endpoints. Safe to hand to the Design browser, but
+   *  never accepted by filesystem endpoints. */
+  previewToken: string;
+  /** Random id minted fresh each time this bridge process boots. Also
+   *  returned by `/health`, `/live-edit-bridge`, and the "unknown bridge key"
+   *  409 from `/live-edit` — a client can compare it across those responses
+   *  to tell a restarted bridge process apart from a genuine registration
+   *  bug. See the `bridgeInstanceId` doc comment in startDesignConnectBridge. */
+  bridgeInstanceId: string;
+}
+
+export interface DesignConnectBridgeOptions {
+  bridgeToken?: string;
+  previewToken?: string;
+  /** Extra exact browser origins allowed to make CORS requests to the bridge.
+   *  The production Design origin and loopback development origins are always
+   *  recognized; custom deployments should pass their app origin here. */
+  allowedOrigins?: string[];
+}
+
+const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+
+/**
+ * Derive a read-only preview credential from the stronger filesystem token.
+ * The one-way hash keeps old `--bridge-token` launch commands compatible while
+ * ensuring a leaked preview credential cannot be promoted into write access.
+ */
+export function deriveDesignPreviewToken(bridgeToken: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(PREVIEW_TOKEN_DOMAIN)
+    .update(bridgeToken)
+    .digest("hex");
 }
 
 function stringFlagValue(argv: string[], index: number, flag: string) {
@@ -164,6 +220,16 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
       index += 1;
     } else if (arg.startsWith("--app-url=")) {
       parsed.appUrl = arg.slice("--app-url=".length);
+    } else if (arg === "--bridge-token") {
+      parsed.bridgeToken = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--bridge-token=")) {
+      parsed.bridgeToken = arg.slice("--bridge-token=".length);
+    } else if (arg === "--preview-token") {
+      parsed.previewToken = stringFlagValue(args, index, arg);
+      index += 1;
+    } else if (arg.startsWith("--preview-token=")) {
+      parsed.previewToken = arg.slice("--preview-token=".length);
     } else if (arg === "--json") {
       parsed.json = true;
       parsed.once = true;
@@ -195,13 +261,36 @@ export function parseDesignConnectArgs(argv: string[]): DesignConnectArgs {
 }
 
 function routeId(routePath: string): string {
-  if (routePath === "/") return "route-root";
-  const slug = routePath
+  const normalized = routePath.trim() || "/";
+  const slug = normalized
     .replace(/^\/+/, "")
+    .replace(/\*/g, "w")
+    .replace(/:/g, "p")
+    .replace(/[[\]]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return slug ? `route-${slug}` : "route-wildcard";
+  // Slugs are intentionally readable but necessarily lossy: `/foo/bar`,
+  // `/foo-bar`, and `/foo_bar` all collapse to the same text, while `/` and
+  // `/*` can collide with literal `/root` and `/wildcard` paths. Suffix every
+  // route with a stable hash of its normalized path so URL/query states and
+  // router patterns can never silently replace one another in the manifest.
+  const readable =
+    normalized === "/"
+      ? "root"
+      : /^\/\*+$/.test(normalized) || !slug
+        ? "wildcard"
+        : slug;
+  return `route-${readable}-${stableRoutePathHash(normalized)}`;
+}
+
+function stableRoutePathHash(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const character of value) {
+    hash ^= BigInt(character.codePointAt(0)!);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(36);
 }
 
 function titleFromRoutePath(routePath: string): string {
@@ -365,8 +454,12 @@ function isDesignConnectManifest(
 
 async function fetchRunningBridgeManifest(
   bridgeUrl: string,
+  previewToken?: string,
 ): Promise<DesignConnectManifest | null> {
-  const manifestUrl = new URL("/manifest.json", bridgeUrl).toString();
+  const manifestUrl = new URL("/manifest.json", bridgeUrl);
+  if (previewToken) {
+    manifestUrl.searchParams.set("previewToken", previewToken);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 800);
   try {
@@ -402,6 +495,48 @@ export function designConnectManifestsTargetSameApp(
   );
 }
 
+/** Non-sensitive stable identifier used by /health so daemon reruns can detect
+ * an already-running bridge for the same app without exposing its root path or
+ * route manifest. */
+export function designConnectAppFingerprint(
+  manifest: Pick<DesignConnectManifest, "devServerUrl" | "rootPath">,
+): string {
+  let devServerUrl = manifest.devServerUrl;
+  try {
+    devServerUrl = normalizeHttpUrl(devServerUrl);
+  } catch {
+    // Hash the original string for malformed legacy manifests.
+  }
+  return crypto
+    .createHash("sha256")
+    .update(`${devServerUrl}\n${path.resolve(manifest.rootPath)}`)
+    .digest("base64url")
+    .slice(0, 24);
+}
+
+async function fetchRunningBridgeFingerprint(
+  bridgeUrl: string,
+): Promise<string | null> {
+  const healthUrl = new URL("/health", bridgeUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 800);
+  try {
+    const response = await fetch(healthUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as Record<string, unknown>;
+    return typeof body["appFingerprint"] === "string"
+      ? body["appFingerprint"]
+      : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function resolveDevServerUrl(url?: string): Promise<string> {
   if (url) return normalizeHttpUrl(url);
   for (const candidate of DEFAULT_DEV_SERVER_CANDIDATES) {
@@ -416,12 +551,76 @@ async function ensureRouteManifest(options: {
   routes: DesignConnectRoute[];
   devServerUrl: string;
   dryRun: boolean;
-}): Promise<{ path: string; created: boolean }> {
+}): Promise<{ path: string; created: boolean; routes: DesignConnectRoute[] }> {
   const manifestPath = path.isAbsolute(options.routeManifestPath)
     ? options.routeManifestPath
     : path.join(options.root, options.routeManifestPath);
   if (fsSync.existsSync(manifestPath)) {
-    return { path: manifestPath, created: false };
+    try {
+      const parsed = JSON.parse(
+        await fs.readFile(manifestPath, "utf8"),
+      ) as Record<string, unknown>;
+      const savedRoutes = Array.isArray(parsed.routes)
+        ? parsed.routes.flatMap((value): DesignConnectRoute[] => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              return [];
+            }
+            const route = value as Record<string, unknown>;
+            if (typeof route.path !== "string" || !route.path.trim()) return [];
+            const sourceKind =
+              route.sourceKind === "react-router" ||
+              route.sourceKind === "html" ||
+              route.sourceKind === "manual"
+                ? route.sourceKind
+                : "manual";
+            return [
+              {
+                id:
+                  typeof route.id === "string" && route.id.trim()
+                    ? route.id
+                    : routeId(route.path),
+                path: route.path,
+                title:
+                  typeof route.title === "string" && route.title.trim()
+                    ? route.title
+                    : titleFromRoutePath(route.path),
+                sourceFile:
+                  typeof route.sourceFile === "string"
+                    ? route.sourceFile
+                    : undefined,
+                sourceKind,
+                screenshotUrl:
+                  typeof route.screenshotUrl === "string"
+                    ? route.screenshotUrl
+                    : undefined,
+                metadata:
+                  route.metadata &&
+                  typeof route.metadata === "object" &&
+                  !Array.isArray(route.metadata)
+                    ? (route.metadata as Record<string, unknown>)
+                    : undefined,
+              },
+            ];
+          })
+        : [];
+      if (savedRoutes.length > 0) {
+        const savedPaths = new Set(savedRoutes.map((route) => route.path));
+        return {
+          path: manifestPath,
+          created: false,
+          // Keep manual/custom route order and metadata while still surfacing
+          // newly discovered routes on subsequent bridge starts.
+          routes: [
+            ...savedRoutes,
+            ...options.routes.filter((route) => !savedPaths.has(route.path)),
+          ],
+        };
+      }
+    } catch {
+      // Never overwrite a malformed/custom file. Route discovery remains a
+      // safe runtime fallback and the user can repair the manifest in place.
+    }
+    return { path: manifestPath, created: false, routes: options.routes };
   }
   if (!options.dryRun) {
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
@@ -442,7 +641,11 @@ async function ensureRouteManifest(options: {
       "utf8",
     );
   }
-  return { path: manifestPath, created: !options.dryRun };
+  return {
+    path: manifestPath,
+    created: !options.dryRun,
+    routes: options.routes,
+  };
 }
 
 export async function prepareDesignConnectManifest(
@@ -452,15 +655,16 @@ export async function prepareDesignConnectManifest(
   const port = options.port ?? DEFAULT_BRIDGE_PORT;
   const devServerUrl = await resolveDevServerUrl(options.url);
   const bridgeUrl = `http://127.0.0.1:${port}`;
-  const routes = discoverDesignRoutes(root);
+  const discoveredRoutes = discoverDesignRoutes(root);
   const routeManifest = await ensureRouteManifest({
     root,
     routeManifestPath: options.routeManifest ?? ROUTE_MANIFEST_FILE,
-    routes,
+    routes: discoveredRoutes,
     devServerUrl,
     dryRun: Boolean(options.dryRun),
   });
   const generatedAt = new Date().toISOString();
+  const routes = routeManifest.routes;
 
   return {
     version: 1,
@@ -482,14 +686,81 @@ export async function prepareDesignConnectManifest(
       reason:
         operation === "resolveNodeToFile"
           ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
-            // 'select' payload) to { file, line, component } provenance.  The
-            // bridge endpoint exists; per-element provenance data must be
-            // emitted by the connected app at build time — see the provenance
-            // note in the help text below.
-            "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
+            // 'select' payload) to { file, line, component } provenance.
+            // React development builds expose jsxDEV call sites through the
+            // Fiber debug stack; other runtimes/builds can emit explicit DOM
+            // provenance attributes — see the help text below.
+            "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
           : undefined,
     })),
   };
+}
+
+const BRIDGE_CORS_HEADERS = Symbol("agent-native-design-bridge-cors");
+
+type CorsAwareResponse = ServerResponse & {
+  [BRIDGE_CORS_HEADERS]?: Record<string, string>;
+};
+
+function isLoopbackOrigin(parsed: URL): boolean {
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  );
+}
+
+function isApprovedDesignOrigin(
+  rawOrigin: string,
+  configuredOrigins: ReadonlySet<string>,
+): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawOrigin);
+  } catch {
+    return false;
+  }
+  if (parsed.origin !== rawOrigin) return false;
+  if (configuredOrigins.has(parsed.origin)) return true;
+  if (
+    (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+    isLoopbackOrigin(parsed)
+  ) {
+    return true;
+  }
+  return (
+    parsed.protocol === "https:" &&
+    (parsed.hostname === "design.agent-native.com" ||
+      parsed.hostname.endsWith(".design.agent-native.com"))
+  );
+}
+
+function configureBridgeCors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  configuredOrigins: ReadonlySet<string>,
+): boolean {
+  const origin =
+    typeof req.headers.origin === "string" ? req.headers.origin : "";
+  const approved = origin
+    ? isApprovedDesignOrigin(origin, configuredOrigins)
+    : false;
+  (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] = approved
+    ? {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
+        "access-control-allow-headers":
+          "content-type, x-bridge-token, x-design-preview-token",
+        "access-control-allow-private-network": "true",
+        vary: "Origin",
+      }
+    : {};
+  return approved;
+}
+
+function bridgeCorsHeaders(res: ServerResponse): Record<string, string> {
+  return (res as CorsAwareResponse)[BRIDGE_CORS_HEADERS] ?? {};
 }
 
 function sendJson(
@@ -499,10 +770,7 @@ function sendJson(
 ) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
   });
   res.end(`${JSON.stringify(body, null, 2)}\n`);
 }
@@ -515,10 +783,7 @@ function sendText(
 ) {
   res.writeHead(statusCode, {
     "content-type": contentType,
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
   });
   res.end(body);
 }
@@ -528,12 +793,11 @@ function sendBytes(
   statusCode: number,
   body: Buffer,
   headers: Headers,
+  contentLength = body.length,
 ) {
   const responseHeaders: Record<string, string> = {
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
-    "access-control-allow-headers": "content-type, x-bridge-token",
-    "access-control-allow-private-network": "true",
+    ...bridgeCorsHeaders(res),
+    "content-length": String(contentLength),
   };
   for (const name of [
     "content-type",
@@ -554,6 +818,47 @@ function sameOrigin(a: string, b: string): boolean {
   } catch {
     return false;
   }
+}
+
+function constantTimeTokenMatches(
+  providedToken: string,
+  expectedToken: string,
+): boolean {
+  try {
+    return (
+      providedToken.length === expectedToken.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(providedToken, "utf8"),
+        Buffer.from(expectedToken, "utf8"),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readHeader(req: IncomingMessage, name: string): string {
+  const value = req.headers[name];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Preserve only the browser request metadata a local dev server needs to
+ * classify Vite source-module and stylesheet requests. Agent Native's dev
+ * gateway intentionally varies source-file handling by `Sec-Fetch-Dest`; if
+ * the bridge drops it, React Router module URLs such as `/app/root.tsx` fall
+ * through to Nitro and 404. Keep this allowlist narrow: cookies, authorization,
+ * bridge tokens, origins, and referrers must never be forwarded upstream.
+ */
+function previewProxyRequestHeaders(
+  req: IncomingMessage,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of ["accept", "sec-fetch-dest"] as const) {
+    const value = readHeader(req, name);
+    if (value) headers[name] = value;
+  }
+  return headers;
 }
 
 function resolvePreviewSnapshotUrl(
@@ -640,6 +945,7 @@ async function fetchPreviewSnapshot(
 async function fetchPreviewProxyResource(
   devServerUrl: string,
   targetUrl: string,
+  requestHeaders: Record<string, string> = {},
   redirects = 0,
 ): Promise<{
   url: string;
@@ -657,6 +963,7 @@ async function fetchPreviewProxyResource(
       method: "GET",
       redirect: "manual",
       signal: controller.signal,
+      headers: requestHeaders,
     });
     const location = response.headers.get("location");
     if (location && response.status >= 300 && response.status < 400) {
@@ -668,6 +975,7 @@ async function fetchPreviewProxyResource(
       return fetchPreviewProxyResource(
         devServerUrl,
         redirected.toString(),
+        requestHeaders,
         redirects + 1,
       );
     }
@@ -698,8 +1006,42 @@ function addLiveEditBaseHref(html: string, href: string): string {
   return `<!DOCTYPE html><html><head>${baseTag}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
 }
 
-function injectLiveEditBridge(html: string, targetUrl: string, script: string) {
-  const withBase = addLiveEditBaseHref(html, targetUrl);
+/**
+ * Rewrite the iframe path to the real target route before the proxied app's
+ * bundle runs. The bridge serves snapshots from its own `/live-edit` path, so a
+ * client-side-routed SPA would otherwise boot at "/live-edit", match no route,
+ * and render its 404. A synchronous inline script in `<head>` runs during parse
+ * (before deferred module bundles), so `history.replaceState` lands the SPA on
+ * the intended route. Assets still resolve via the injected `<base href>`.
+ */
+function injectPreBootLocationShim(html: string, targetPath: string): string {
+  const path = targetPath.trim();
+  if (!path || path === "/live-edit") return html;
+  const shim = `<script data-agent-native-live-edit-location>
+(function(){try{var p=${JSON.stringify(path)};if(p&&(location.pathname+location.search)!==p){history.replaceState(null,"",p);}}catch(e){}})();
+</script>`;
+  if (/<head\b[^>]*>/i.test(html)) {
+    return html.replace(/<head\b[^>]*>/i, (match) => `${match}${shim}`);
+  }
+  if (/<html\b[^>]*>/i.test(html)) {
+    return html.replace(
+      /<html\b[^>]*>/i,
+      (match) => `${match}<head>${shim}</head>`,
+    );
+  }
+  return `${shim}${html}`;
+}
+
+function injectLiveEditBridge(
+  html: string,
+  baseHref: string,
+  script: string,
+  targetPath: string,
+) {
+  const withBase = injectPreBootLocationShim(
+    addLiveEditBaseHref(html, baseHref),
+    targetPath,
+  );
   if (!script) return withBase;
   if (withBase.includes("</body>")) {
     return withBase.replace("</body>", `${script}</body>`);
@@ -790,6 +1132,236 @@ async function assertPathInside(
   }
 }
 
+interface SafeBridgeFileTarget {
+  absolutePath: string;
+  canonicalPath: string;
+}
+
+/**
+ * Resolve a bridge file to a stable lock key without following a leaf
+ * symlink. Missing parent directories are represented beneath their nearest
+ * existing real ancestor, so aliases through in-root directory symlinks share
+ * one mutex while first-time file creation remains supported.
+ */
+async function resolveSafeBridgeFileTarget(
+  rootPath: string,
+  targetPath: string,
+): Promise<SafeBridgeFileTarget> {
+  await assertPathInside(rootPath, targetPath);
+  const resolvedRoot = await fs.realpath(rootPath);
+  const absolutePath = path.resolve(rootPath, targetPath);
+  let existingAncestor = path.dirname(absolutePath);
+  let resolvedAncestor: string | null = null;
+  for (let depth = 0; depth < 32; depth += 1) {
+    try {
+      resolvedAncestor = await fs.realpath(existingAncestor);
+      break;
+    } catch {
+      const parent = path.dirname(existingAncestor);
+      if (parent === existingAncestor) break;
+      existingAncestor = parent;
+    }
+  }
+  if (!resolvedAncestor) {
+    throw new Error(`Cannot resolve parent directory: ${absolutePath}`);
+  }
+  // Existing regular files get their own realpath as the lock key. Besides
+  // resolving in-root directory aliases, this canonicalizes case on the
+  // default macOS filesystem so `Button.tsx` and `button.tsx` cannot acquire
+  // separate mutexes for the same inode. assertPathInside already rejected a
+  // symlink leaf before this point.
+  const canonicalPath =
+    (await fs.realpath(absolutePath).catch(() => null)) ??
+    path.resolve(
+      resolvedAncestor,
+      path.relative(existingAncestor, absolutePath),
+    );
+  if (
+    canonicalPath !== resolvedRoot &&
+    !canonicalPath.startsWith(resolvedRoot + path.sep)
+  ) {
+    throw new Error("Path traversal detected: resolved target is outside root");
+  }
+  return { absolutePath, canonicalPath };
+}
+
+const bridgeWriteLocks = new Map<string, Promise<void>>();
+
+/** Serialize read-check-write sequences for one canonical local file. */
+async function withBridgeWriteLock<T>(
+  canonicalPath: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const previous = bridgeWriteLocks.get(canonicalPath) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => gate);
+  bridgeWriteLocks.set(canonicalPath, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await work();
+  } finally {
+    release();
+    if (bridgeWriteLocks.get(canonicalPath) === queued) {
+      bridgeWriteLocks.delete(canonicalPath);
+    }
+  }
+}
+
+interface BridgeFileSnapshot {
+  content: string;
+  versionHash: string;
+  mode: number;
+}
+
+function contentVersionHash(content: string | Buffer): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/** Read an existing regular file without ever following a leaf symlink. */
+async function readBridgeFileSnapshot(
+  absolutePath: string,
+): Promise<BridgeFileSnapshot | null> {
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  let handle: FileHandle | null = null;
+  try {
+    handle = await fs.open(absolutePath, fsSync.constants.O_RDONLY | noFollow);
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(`Bridge target is not a regular file: ${absolutePath}`);
+    }
+    const bytes = await handle.readFile();
+    return {
+      content: bytes.toString("utf8"),
+      versionHash: contentVersionHash(bytes),
+      mode: stat.mode & 0o777,
+    };
+  } catch (error: unknown) {
+    const code =
+      error instanceof Error && "code" in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+    if (code === "ENOENT") return null;
+    throw error;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+class BridgeVersionConflictError extends Error {
+  constructor(readonly currentVersionHash?: string) {
+    super("version conflict");
+  }
+}
+
+class BridgePreconditionRequiredError extends Error {
+  constructor() {
+    super("expectedVersionHash is required");
+  }
+}
+
+function assertExpectedBridgeVersion(
+  expectedVersionHash: string | undefined,
+  currentVersionHash: string | undefined,
+  requireExpectedVersionHash = false,
+): void {
+  // Preserve compatibility: callers that omit a hash retain the existing
+  // last-write-wins behavior, including creation. Compiled-source callers opt
+  // into exact compare-and-swap by sending the hash returned by read-file.
+  if (requireExpectedVersionHash && expectedVersionHash === undefined) {
+    throw new BridgePreconditionRequiredError();
+  }
+  if (
+    expectedVersionHash !== undefined &&
+    (currentVersionHash !== undefined
+      ? currentVersionHash !== expectedVersionHash
+      : requireExpectedVersionHash)
+  ) {
+    throw new BridgeVersionConflictError(currentVersionHash);
+  }
+}
+
+/**
+ * Replace a file durably without exposing a partial write: create an
+ * O_EXCL/O_NOFOLLOW temp sibling, fsync it, revalidate confinement and the
+ * expected content hash, rename atomically, then fsync the parent directory.
+ */
+async function atomicWriteBridgeFile(args: {
+  rootPath: string;
+  relPath: string;
+  lockedCanonicalPath: string;
+  content: string;
+  expectedVersionHash?: string;
+  requireExpectedVersionHash?: boolean;
+  originalMode?: number;
+}): Promise<string> {
+  const parent = path.dirname(path.resolve(args.rootPath, args.relPath));
+  await fs.mkdir(parent, { recursive: true });
+  const revalidated = await resolveSafeBridgeFileTarget(
+    args.rootPath,
+    args.relPath,
+  );
+  if (revalidated.canonicalPath !== args.lockedCanonicalPath) {
+    throw new Error("Bridge target changed while waiting for the write lock");
+  }
+
+  const basename = path.basename(revalidated.absolutePath);
+  const tempPath = path.join(
+    parent,
+    `.${basename}.agent-native-${process.pid}-${crypto.randomBytes(8).toString("hex")}.tmp`,
+  );
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  let tempHandle: FileHandle | null = null;
+  try {
+    tempHandle = await fs.open(
+      tempPath,
+      fsSync.constants.O_CREAT |
+        fsSync.constants.O_EXCL |
+        fsSync.constants.O_WRONLY |
+        noFollow,
+      args.originalMode ?? 0o666,
+    );
+    await tempHandle.writeFile(args.content, "utf8");
+    await tempHandle.sync();
+    await tempHandle.close();
+    tempHandle = null;
+
+    // Re-check after the potentially slow temp write/fsync. This catches a
+    // parent/leaf symlink swap and an external content edit before rename.
+    const beforeRenameTarget = await resolveSafeBridgeFileTarget(
+      args.rootPath,
+      args.relPath,
+    );
+    if (beforeRenameTarget.canonicalPath !== args.lockedCanonicalPath) {
+      throw new Error("Bridge target changed during atomic write");
+    }
+    const current = await readBridgeFileSnapshot(
+      beforeRenameTarget.absolutePath,
+    );
+    assertExpectedBridgeVersion(
+      args.expectedVersionHash,
+      current?.versionHash,
+      args.requireExpectedVersionHash,
+    );
+
+    await fs.rename(tempPath, beforeRenameTarget.absolutePath);
+    const directoryHandle = await fs.open(parent, "r").catch(() => null);
+    if (directoryHandle) {
+      try {
+        await directoryHandle.sync();
+      } finally {
+        await directoryHandle.close();
+      }
+    }
+    return contentVersionHash(args.content);
+  } finally {
+    await tempHandle?.close().catch(() => undefined);
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+  }
+}
+
 /** Allowed file extensions for write/apply-edit operations. */
 const ALLOWED_WRITE_EXTENSIONS = new Set([
   ".html",
@@ -853,21 +1425,6 @@ function assertNotBlockedSecretPath(relPath: string): void {
       `Access rejected: "${relPath}" matches a blocked secret-file pattern.`,
     );
   }
-}
-
-/**
- * Compute a cheap, stable version identifier for a file from its stat: mtime
- * plus size. Not a content hash — it is only meant to detect "did this file
- * change on disk since the caller last read it", the same tradeoff the inline
- * (SQL-backed) workspace provider's versionHash already makes. Returns
- * undefined when the file does not exist (new-file case).
- */
-async function computeVersionHash(
-  absolutePath: string,
-): Promise<string | undefined> {
-  const stat = await fs.stat(absolutePath).catch(() => null);
-  if (!stat) return undefined;
-  return `${stat.mtimeMs}-${stat.size}`;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -1171,30 +1728,95 @@ async function walkBridgeFiles(rootPath: string): Promise<ListFilesResult> {
 
 export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
+  seedOrOptions?: string | DesignConnectBridgeOptions,
 ): Promise<DesignConnectBridge> {
-  // Mint a cryptographically random per-rootPath bridge token.  This token is
-  // kept in-process only and is never emitted via the public GET routes so that
-  // an unauthenticated caller cannot read it.  The server-side grant action
-  // obtains it out-of-band (via the exported bridge reference).
-  const bridgeToken = crypto.randomBytes(32).toString("hex");
+  // Shared secret the browser sends (x-bridge-token) to unlock live-edit/read/
+  // write. Bridge and the user's connection row must agree on it. Adopt a
+  // server-minted seed when given (MCP flow); otherwise mint one and rely on
+  // --app-url self-registration to push it up. Kept in-process, never served.
+  const options: DesignConnectBridgeOptions =
+    typeof seedOrOptions === "string"
+      ? { bridgeToken: seedOrOptions }
+      : (seedOrOptions ?? {});
+  const bridgeToken =
+    options.bridgeToken ||
+    process.env["AGENT_NATIVE_BRIDGE_TOKEN"] ||
+    crypto.randomBytes(32).toString("hex");
+  const previewToken =
+    options.previewToken ||
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
+    deriveDesignPreviewToken(bridgeToken);
+  const configuredOrigins = new Set(
+    (options.allowedOrigins ?? []).flatMap((raw): string[] => {
+      try {
+        return [new URL(raw).origin];
+      } catch {
+        return [];
+      }
+    }),
+  );
   let liveEditBridgeScript = "";
+  // One bridge process serves every URL-backed screen in an overview. The
+  // editor script carries screen-specific state (notably screenId), so a
+  // single global slot lets parallel iframe registrations overwrite each
+  // other and boot a frame with another frame's identity. Keep keyed scripts
+  // for modern clients while retaining the unkeyed slot for older clients.
+  const liveEditBridgeScripts = new Map<string, string>();
+  // Identifies THIS bridge process's in-memory registry, minted fresh every
+  // time the bridge boots. `liveEditBridgeScripts` above only lives in
+  // process memory, so a bridge restart (crash, machine sleep/wake, manual
+  // restart) silently empties it: any screen that registered a bridgeKey
+  // before the restart now gets a 409 "unknown bridge key" from `/live-edit`
+  // even though nothing about that screen actually changed. Echoing this id
+  // on both the registration response and the 409 lets a client tell the two
+  // cases apart — "this exact process never saw my key" (stale/typo, id
+  // matches what it already has cached) vs. "the process restarted since I
+  // registered" (id changed, safe to transparently re-POST `/live-edit-bridge`
+  // and retry) — instead of guessing from the error text or retrying forever.
+  const bridgeInstanceId = crypto.randomBytes(16).toString("hex");
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
+      const corsApproved = configureBridgeCors(req, res, configuredOrigins);
       if (req.method === "OPTIONS") {
-        sendJson(res, 204, {});
+        sendJson(
+          res,
+          corsApproved ? 204 : 403,
+          corsApproved
+            ? {}
+            : { ok: false, error: "origin is not allowed by this bridge" },
+        );
         return;
       }
 
-      const pathname = new URL(req.url ?? "/", manifest.bridgeUrl).pathname;
+      const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
+      const pathname = requestUrl.pathname;
+      const providedPreviewToken =
+        readHeader(req, "x-design-preview-token") ||
+        requestUrl.searchParams.get("previewToken") ||
+        "";
+      const previewTokenValid = constantTimeTokenMatches(
+        providedPreviewToken,
+        previewToken,
+      );
+      const rejectInvalidPreviewToken = (): boolean => {
+        if (previewTokenValid) return false;
+        sendJson(res, 401, {
+          ok: false,
+          error: "invalid or missing preview token",
+        });
+        return true;
+      };
 
-      // ── Public read-only routes (no token required) ──────────────────────
+      // ── Read-only preview routes (preview token required) ────────────────
 
       if (pathname === "/" || pathname === "/manifest.json") {
+        if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
         return;
       }
       if (pathname === "/routes.json") {
+        if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, {
           version: 1,
           sourceType: "localhost",
@@ -1206,7 +1828,12 @@ export async function startDesignConnectBridge(
         return;
       }
       if (pathname === "/health") {
-        sendJson(res, 200, { ok: true, source: manifest.source });
+        sendJson(res, 200, {
+          ok: true,
+          source: manifest.source,
+          appFingerprint: designConnectAppFingerprint(manifest),
+          bridgeInstanceId,
+        });
         return;
       }
       if (pathname === "/live-edit-bridge") {
@@ -1214,42 +1841,55 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
-        const tokenHeader = req.headers["x-bridge-token"];
-        const providedToken =
-          typeof tokenHeader === "string" ? tokenHeader : "";
-        let tokenValid = false;
-        try {
-          tokenValid =
-            providedToken.length === bridgeToken.length &&
-            crypto.timingSafeEqual(
-              Buffer.from(providedToken, "utf8"),
-              Buffer.from(bridgeToken, "utf8"),
-            );
-        } catch {
-          tokenValid = false;
-        }
-        if (!tokenValid) {
-          sendJson(res, 401, {
-            ok: false,
-            error: "invalid or missing bridge token",
-          });
-          return;
-        }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
             const raw = await readRequestBody(req);
             const body = JSON.parse(raw) as Record<string, unknown>;
             const script =
               typeof body["script"] === "string" ? body["script"] : "";
-            if (!script.includes("agent-native:editor-chrome-ready")) {
+            const bridgeKey =
+              typeof body["bridgeKey"] === "string"
+                ? body["bridgeKey"].trim()
+                : "";
+            const installsSupportedDesignBridge =
+              script.includes("agent-native:editor-chrome-ready") ||
+              script.includes("embedded-canvas-pan");
+            if (!installsSupportedDesignBridge) {
               sendJson(res, 400, {
                 ok: false,
-                error: "script must install the Agent Native editor bridge",
+                error:
+                  "script must install an approved Agent Native editor or canvas-pan bridge",
+              });
+              return;
+            }
+            if (
+              bridgeKey &&
+              (!/^[a-zA-Z0-9:._-]+$/.test(bridgeKey) || bridgeKey.length > 128)
+            ) {
+              sendJson(res, 400, {
+                ok: false,
+                error: "bridgeKey must be 1-128 safe identifier characters",
               });
               return;
             }
             liveEditBridgeScript = script;
-            sendJson(res, 200, { ok: true });
+            if (bridgeKey) {
+              liveEditBridgeScripts.delete(bridgeKey);
+              liveEditBridgeScripts.set(bridgeKey, script);
+              // Bound the in-memory cache. Normal editor usage has one key per
+              // visible screen; 128 also leaves ample room for mode changes.
+              while (liveEditBridgeScripts.size > 128) {
+                const oldest = liveEditBridgeScripts.keys().next().value;
+                if (typeof oldest !== "string") break;
+                liveEditBridgeScripts.delete(oldest);
+              }
+            }
+            sendJson(res, 200, {
+              ok: true,
+              bridgeInstanceId,
+              ...(bridgeKey ? { bridgeKey } : {}),
+            });
           } catch (err: unknown) {
             sendJson(res, 400, {
               ok: false,
@@ -1264,9 +1904,9 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
-            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
             const targetUrl = resolvePreviewSnapshotUrl(
               manifest.devServerUrl,
               requestUrl.searchParams.get("url") ??
@@ -1276,10 +1916,45 @@ export async function startDesignConnectBridge(
               manifest.devServerUrl,
               targetUrl,
             );
+            const includeEditorBridge =
+              requestUrl.searchParams.get("bridge") !== "0";
+            const requestedBridgeKey =
+              requestUrl.searchParams.get("bridgeKey")?.trim() ?? "";
+            const editorBridgeScript = requestedBridgeKey
+              ? (liveEditBridgeScripts.get(requestedBridgeKey) ?? "")
+              : liveEditBridgeScript;
+            if (
+              includeEditorBridge &&
+              requestedBridgeKey &&
+              !editorBridgeScript
+            ) {
+              // Machine-readable `code` + echoed `bridgeKey`/`bridgeInstanceId`
+              // let a client distinguish "this bridge process restarted since
+              // I last registered — safe to silently re-POST
+              // /live-edit-bridge and retry" from a genuine caller bug,
+              // instead of string-matching `error` (see bridgeInstanceId's
+              // doc comment above for the full rationale).
+              sendJson(res, 409, {
+                ok: false,
+                code: "unknown-bridge-key",
+                bridgeKey: requestedBridgeKey,
+                bridgeInstanceId,
+                error:
+                  "The requested live-edit bridge script is not registered. Reload the Design frame to register it again.",
+              });
+              return;
+            }
+            // The dev server route the SPA must boot on (e.g. "/todo"), taken
+            // from the resolved snapshot target rather than the bridge's own
+            // "/live-edit" request path.
+            const targetParsed = new URL(targetUrl);
+            const targetPath =
+              `${targetParsed.pathname}${targetParsed.search}` || "/";
             const html = injectLiveEditBridge(
               snapshot.html,
               new URL("/", manifest.bridgeUrl).toString(),
-              liveEditBridgeScript,
+              includeEditorBridge ? editorBridgeScript : "",
+              targetPath,
             );
             sendText(
               res,
@@ -1303,9 +1978,9 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        if (rejectInvalidPreviewToken()) return;
         void (async () => {
           try {
-            const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
             const targetUrl = resolvePreviewSnapshotUrl(
               manifest.devServerUrl,
               requestUrl.searchParams.get("url") ??
@@ -1347,20 +2022,8 @@ export async function startDesignConnectBridge(
         }
 
         // Authenticate with constant-time comparison to prevent timing attacks.
-        const tokenHeader = req.headers["x-bridge-token"];
-        const providedToken =
-          typeof tokenHeader === "string" ? tokenHeader : "";
-        let tokenValid = false;
-        try {
-          tokenValid =
-            providedToken.length === bridgeToken.length &&
-            crypto.timingSafeEqual(
-              Buffer.from(providedToken, "utf8"),
-              Buffer.from(bridgeToken, "utf8"),
-            );
-        } catch {
-          tokenValid = false;
-        }
+        const providedToken = readHeader(req, "x-bridge-token");
+        const tokenValid = constantTimeTokenMatches(providedToken, bridgeToken);
         if (!tokenValid) {
           sendJson(res, 401, {
             ok: false,
@@ -1400,174 +2063,185 @@ export async function startDesignConnectBridge(
               return;
             }
 
-            await assertPathInside(manifest.rootPath, relPath);
             assertNotBlockedSecretPath(relPath);
-            const absolutePath = path.resolve(manifest.rootPath, relPath);
+            const initialTarget = await resolveSafeBridgeFileTarget(
+              manifest.rootPath,
+              relPath,
+            );
 
             if (pathname === "/read-file") {
               // Read-file: no extension restriction (agents need to read any
               // non-secret file), but the secret-path blocklist above still
               // applies to .env*, *.pem, *.key, id_rsa*, and anything under .git/.
-              let content: string;
-              try {
-                content = await fs.readFile(absolutePath, "utf8");
-              } catch (err: unknown) {
-                const code =
-                  err instanceof Error &&
-                  "code" in err &&
-                  (err as NodeJS.ErrnoException).code;
-                if (code === "ENOENT") {
-                  sendJson(res, 404, { ok: false, error: "file not found" });
-                } else {
-                  sendJson(res, 500, {
-                    ok: false,
-                    error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
-                  });
-                }
+              const snapshot = await readBridgeFileSnapshot(
+                initialTarget.absolutePath,
+              );
+              if (!snapshot) {
+                sendJson(res, 404, { ok: false, error: "file not found" });
                 return;
               }
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, { ok: true, content, versionHash });
+              sendJson(res, 200, {
+                ok: true,
+                content: snapshot.content,
+                versionHash: snapshot.versionHash,
+              });
               return;
             }
 
             // write-file and apply-edit only allow known text/code extensions.
             assertAllowedExtension(relPath);
 
-            // Optional optimistic-concurrency check: when the caller supplies
-            // expectedVersionHash, compare it against the file's CURRENT hash
-            // before writing. A missing file is treated as no-conflict (new
-            // file case) so first-time writes always succeed.
             const expectedVersionHash =
               typeof body["expectedVersionHash"] === "string"
                 ? body["expectedVersionHash"]
                 : undefined;
-            if (expectedVersionHash !== undefined) {
-              const currentVersionHash = await computeVersionHash(absolutePath);
-              if (
-                currentVersionHash !== undefined &&
-                currentVersionHash !== expectedVersionHash
-              ) {
-                sendJson(res, 409, {
-                  ok: false,
-                  error: "version conflict",
-                  currentVersionHash,
+            const requireExpectedVersionHash =
+              body["requireExpectedVersionHash"] === true;
+            await withBridgeWriteLock(initialTarget.canonicalPath, async () => {
+              const lockedTarget = await resolveSafeBridgeFileTarget(
+                manifest.rootPath,
+                relPath,
+              );
+              if (lockedTarget.canonicalPath !== initialTarget.canonicalPath) {
+                throw new Error(
+                  "Bridge target changed while waiting for the write lock",
+                );
+              }
+              const existing = await readBridgeFileSnapshot(
+                lockedTarget.absolutePath,
+              );
+              assertExpectedBridgeVersion(
+                expectedVersionHash,
+                existing?.versionHash,
+                requireExpectedVersionHash,
+              );
+
+              if (pathname === "/write-file") {
+                const content =
+                  typeof body["content"] === "string"
+                    ? body["content"]
+                    : undefined;
+                if (content === undefined) {
+                  sendJson(res, 400, {
+                    ok: false,
+                    error: "content is required for write-file",
+                  });
+                  return;
+                }
+                const versionHash = await atomicWriteBridgeFile({
+                  rootPath: manifest.rootPath,
+                  relPath,
+                  lockedCanonicalPath: initialTarget.canonicalPath,
+                  content,
+                  expectedVersionHash,
+                  requireExpectedVersionHash,
+                  originalMode: existing?.mode,
+                });
+                sendJson(res, 200, { ok: true, relPath, versionHash });
+                return;
+              }
+
+              // /apply-edit supports either full replace ({content}) or one
+              // exact search-and-replace. Both stay within this file's lock.
+              if (typeof body["content"] === "string") {
+                const versionHash = await atomicWriteBridgeFile({
+                  rootPath: manifest.rootPath,
+                  relPath,
+                  lockedCanonicalPath: initialTarget.canonicalPath,
+                  content: body["content"],
+                  expectedVersionHash,
+                  requireExpectedVersionHash,
+                  originalMode: existing?.mode,
+                });
+                sendJson(res, 200, {
+                  ok: true,
+                  relPath,
+                  method: "replace",
+                  versionHash,
                 });
                 return;
               }
-            }
 
-            if (pathname === "/write-file") {
-              const content =
-                typeof body["content"] === "string"
-                  ? body["content"]
+              const search =
+                typeof body["search"] === "string" ? body["search"] : undefined;
+              const replace =
+                typeof body["replace"] === "string"
+                  ? body["replace"]
                   : undefined;
-              if (content === undefined) {
+              if (search === undefined || replace === undefined) {
                 sendJson(res, 400, {
                   ok: false,
-                  error: "content is required for write-file",
+                  error:
+                    "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
                 });
                 return;
               }
-              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-              await fs.writeFile(absolutePath, content, "utf8");
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, { ok: true, relPath, versionHash });
-              return;
-            }
-
-            // /apply-edit: supports either full replace ({content}) or
-            // search-and-replace ({search, replace}).
-            if (typeof body["content"] === "string") {
-              // Full-file replace via apply-edit — same as write-file but keeps
-              // the endpoint semantically separate for callers that want to
-              // distinguish intent.
-              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-              await fs.writeFile(
-                absolutePath,
-                body["content"] as string,
-                "utf8",
-              );
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, {
-                ok: true,
-                relPath,
-                method: "replace",
-                versionHash,
-              });
-              return;
-            }
-
-            const search =
-              typeof body["search"] === "string" ? body["search"] : undefined;
-            const replace =
-              typeof body["replace"] === "string" ? body["replace"] : undefined;
-            if (search === undefined || replace === undefined) {
-              sendJson(res, 400, {
-                ok: false,
-                error:
-                  "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
-              });
-              return;
-            }
-
-            let existing: string;
-            try {
-              existing = await fs.readFile(absolutePath, "utf8");
-            } catch (err: unknown) {
-              const code =
-                err instanceof Error &&
-                "code" in err &&
-                (err as NodeJS.ErrnoException).code;
-              if (code === "ENOENT") {
+              if (!existing) {
                 sendJson(res, 404, {
                   ok: false,
                   error: "file not found — use write-file to create new files",
                 });
-              } else {
-                sendJson(res, 500, {
-                  ok: false,
-                  error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
-                });
+                return;
               }
-              return;
-            }
-
-            if (search.length === 0) {
-              sendJson(res, 400, {
-                ok: false,
-                error: "search string must not be empty",
+              if (search.length === 0) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error: "search string must not be empty",
+                });
+                return;
+              }
+              const occurrenceCount = countOccurrences(
+                existing.content,
+                search,
+              );
+              if (occurrenceCount === 0) {
+                sendJson(res, 422, {
+                  ok: false,
+                  error: "search string not found in file",
+                });
+                return;
+              }
+              if (occurrenceCount > 1) {
+                sendJson(res, 422, {
+                  ok: false,
+                  error:
+                    "search string is ambiguous; it appears more than once in the file",
+                });
+                return;
+              }
+              const updated = existing.content.replace(search, replace);
+              const versionHash = await atomicWriteBridgeFile({
+                rootPath: manifest.rootPath,
+                relPath,
+                lockedCanonicalPath: initialTarget.canonicalPath,
+                content: updated,
+                expectedVersionHash,
+                requireExpectedVersionHash,
+                originalMode: existing.mode,
               });
-              return;
-            }
-
-            const occurrenceCount = countOccurrences(existing, search);
-            if (occurrenceCount === 0) {
-              sendJson(res, 422, {
-                ok: false,
-                error: "search string not found in file",
+              sendJson(res, 200, {
+                ok: true,
+                relPath,
+                method: "patch",
+                versionHash,
               });
-              return;
-            }
-            if (occurrenceCount > 1) {
-              sendJson(res, 422, {
-                ok: false,
-                error:
-                  "search string is ambiguous; it appears more than once in the file",
-              });
-              return;
-            }
-
-            const updated = existing.replace(search, replace);
-            await fs.writeFile(absolutePath, updated, "utf8");
-            const versionHash = await computeVersionHash(absolutePath);
-            sendJson(res, 200, {
-              ok: true,
-              relPath,
-              method: "patch",
-              versionHash,
             });
           } catch (err: unknown) {
+            if (err instanceof BridgePreconditionRequiredError) {
+              sendJson(res, 428, {
+                ok: false,
+                error: "expectedVersionHash is required",
+              });
+              return;
+            }
+            if (err instanceof BridgeVersionConflictError) {
+              sendJson(res, 409, {
+                ok: false,
+                error: "version conflict",
+                currentVersionHash: err.currentVersionHash,
+              });
+              return;
+            }
             sendJson(res, 500, {
               ok: false,
               error: err instanceof Error ? err.message : String(err),
@@ -1578,6 +2252,15 @@ export async function startDesignConnectBridge(
       }
 
       if (req.method === "GET" || req.method === "HEAD") {
+        const sameOriginPreviewSubresource =
+          readHeader(req, "sec-fetch-site") === "same-origin";
+        if (!previewTokenValid && !sameOriginPreviewSubresource) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "invalid or missing preview token",
+          });
+          return;
+        }
         void (async () => {
           try {
             const targetUrl = resolvePreviewProxyUrl(
@@ -1587,12 +2270,14 @@ export async function startDesignConnectBridge(
             const proxied = await fetchPreviewProxyResource(
               manifest.devServerUrl,
               targetUrl,
+              previewProxyRequestHeaders(req),
             );
             sendBytes(
               res,
               proxied.status >= 400 ? proxied.status : 200,
               req.method === "HEAD" ? Buffer.alloc(0) : proxied.body,
               proxied.headers,
+              proxied.body.length,
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -1616,7 +2301,7 @@ export async function startDesignConnectBridge(
     });
   });
 
-  return { server, manifest, bridgeToken };
+  return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
 }
 
 /**
@@ -1675,12 +2360,14 @@ export async function registerConnectionWithServer(
   authToken?: string,
 ): Promise<void> {
   const endpoint = `${appUrl}/_agent-native/actions/connect-localhost`;
-  const { manifest, bridgeToken } = bridge;
+  const { manifest, bridgeToken, previewToken } = bridge;
   const payload = {
     devServerUrl: manifest.devServerUrl,
     bridgeUrl: manifest.bridgeUrl,
     rootPath: manifest.rootPath,
-    capabilities: manifest.capabilities,
+    capabilities: manifest.capabilities.filter((capability) =>
+      SERVER_REGISTRATION_BRIDGE_OPERATIONS.has(capability.operation),
+    ),
     routeManifest: {
       version: 1 as const,
       sourceType: "localhost" as const,
@@ -1693,6 +2380,7 @@ export async function registerConnectionWithServer(
     // row.  grant-localhost-write-consent then reads it from the row instead of
     // minting its own unrelated token, which would always produce a 401.
     bridgeToken,
+    previewToken,
     status: "connected" as const,
   };
 
@@ -1740,6 +2428,16 @@ Options:
   --route-manifest <path> Non-destructive route manifest output path
   --app-url <url>         Deployed design app URL for self-registration
                           (also reads AGENT_NATIVE_URL / DESIGN_APP_URL env)
+  --bridge-token <token>  Adopt a bridge token minted server-side by the
+                          authenticated connect-localhost / open-visual-edit
+                          action instead of minting one. Used by the remote-MCP
+                          /visual-edit flow so the bridge and the user's stored
+                          connection token match with no self-registration.
+                          (also reads AGENT_NATIVE_BRIDGE_TOKEN env)
+  --preview-token <token> Adopt the paired read-only browser preview token.
+                          Optional when --bridge-token is present: compatible
+                          clients derive the same one-way token automatically.
+                          (also reads AGENT_NATIVE_PREVIEW_TOKEN env)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -1747,12 +2445,11 @@ Options:
 
 Element provenance (resolveNodeToFile):
   The design editor can map a selected DOM element back to its source file,
-  line, and React component name when the connected app emits provenance
-  attributes at build time.  Add one of the following to your app's build:
+  line, and component name using one of these provenance sources:
 
-  • @vitejs/plugin-react with jsxDEV enabled (development mode default):
-      Sets data-source-file and data-source-line on each JSX element
-      automatically when using the Babel transform.
+  • React development builds with jsxDEV enabled (the default):
+      Design reads the selected element's development-only Fiber debug stack.
+      React does not emit data-source-* DOM attributes automatically.
 
   • A Babel source plugin (e.g. babel-plugin-react-source or a custom plugin):
       Emits data-source-file="src/Button.tsx" data-source-line="12"
@@ -1761,7 +2458,8 @@ Element provenance (resolveNodeToFile):
   • data-loc="src/Button.tsx:12:4" shorthand attribute (Babel source convention):
       The bridge parses this as { sourceFile, line, column } automatically.
 
-  Without these attributes the editor still works; provenance is simply absent.
+  In production React builds and other runtimes without explicit attributes,
+  the editor still works but exact element provenance may be absent.
   Cross-origin localhost iframes cannot be read regardless of attributes (CSP).`);
 }
 
@@ -1795,19 +2493,24 @@ function resolveCurrentCliInvocation(argv: string[]): {
 async function startDetachedDesignBridge(
   argv: string[],
   manifest: DesignConnectManifest,
+  previewToken?: string,
 ): Promise<number> {
   if (await waitForBridgeHealth(manifest.bridgeUrl, 800)) {
-    const runningManifest = await fetchRunningBridgeManifest(
-      manifest.bridgeUrl,
-    );
+    const [runningManifest, runningFingerprint] = await Promise.all([
+      fetchRunningBridgeManifest(manifest.bridgeUrl, previewToken),
+      fetchRunningBridgeFingerprint(manifest.bridgeUrl),
+    ]);
+    const fingerprintMatches =
+      runningFingerprint === designConnectAppFingerprint(manifest);
     if (
-      runningManifest &&
-      designConnectManifestsTargetSameApp(runningManifest, manifest)
+      (runningManifest &&
+        designConnectManifestsTargetSameApp(runningManifest, manifest)) ||
+      fingerprintMatches
     ) {
       console.error(
         `Design localhost bridge already running at ${manifest.bridgeUrl}`,
       );
-      console.log(JSON.stringify(runningManifest, null, 2));
+      console.log(JSON.stringify(runningManifest ?? manifest, null, 2));
       return 0;
     }
 
@@ -1868,30 +2571,49 @@ export async function runDesign(argv: string[]) {
   }
 
   const manifest = await prepareDesignConnectManifest(parsed);
+  const seedBridgeToken =
+    parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
+  const seedPreviewToken =
+    parsed.previewToken ||
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
+    (seedBridgeToken ? deriveDesignPreviewToken(seedBridgeToken) : undefined);
+  const appUrl = resolveAppUrl(parsed.appUrl);
   if (parsed.daemon) {
-    return startDetachedDesignBridge(argv, manifest);
+    return startDetachedDesignBridge(argv, manifest, seedPreviewToken);
   }
   if (parsed.json || parsed.once || parsed.dryRun) {
     console.log(JSON.stringify(manifest, null, 2));
     return 0;
   }
 
-  const bridge = await startDesignConnectBridge(manifest);
+  const bridge = await startDesignConnectBridge(manifest, {
+    bridgeToken: seedBridgeToken,
+    previewToken: seedPreviewToken,
+    allowedOrigins: appUrl ? [appUrl] : [],
+  });
   console.error("Design localhost bridge running");
   console.error(`Bridge:   ${manifest.bridgeUrl}`);
   console.error(`Manifest: ${manifest.bridgeUrl}/manifest.json`);
   console.error(`Routes:   ${manifest.routeCount}`);
   console.error(`Dev URL:  ${manifest.devServerUrl}`);
 
-  // Self-register with the design app server (best-effort).  When an app URL
-  // is available (via --app-url or env var) the CLI POSTs the bridge token to
-  // connect-localhost so the server row stores the real token.  Without this
-  // step grant-localhost-write-consent would mint a different token, causing
-  // every bridge write to return 401.
-  const appUrl = resolveAppUrl(parsed.appUrl);
-  if (appUrl) {
-    const authToken = resolveAuthToken();
-    void registerConnectionWithServer(appUrl, bridge, authToken);
+  if (seedBridgeToken) {
+    // Server already stored this token on the row; bridge matches it, so no
+    // self-registration needed. Zero-config path for the remote-MCP flow.
+    console.error(
+      "[design connect] Using server-provided bridge token; skipping self-registration.",
+    );
+  } else {
+    // No seed: fall back to self-registration — POST the minted token to
+    // connect-localhost. Needs an auth token in env or it 401s (the old gap).
+    if (appUrl) {
+      void registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
+    } else {
+      // No token source at all — warn rather than 401 silently at edit time.
+      console.error(
+        "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
+      );
+    }
   }
 
   return await new Promise<number>((resolve) => {

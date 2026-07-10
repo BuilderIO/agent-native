@@ -10,8 +10,8 @@ use crate::clips::{remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
-    hide_voice_wake_popover, is_dictation_active, is_recording_active, set_dictation_active,
-    show_without_activation,
+    hide_voice_wake_popover, is_dictation_active, is_meeting_active, is_recording_active,
+    set_dictation_active, show_without_activation,
 };
 
 fn escape_shortcut() -> Shortcut {
@@ -513,7 +513,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             // global shortcut stops it rather than re-opening the
             // popover. Keeps parity with the tray-icon click
             // behaviour in `on_tray_icon_event`.
-            if is_recording_active(app) {
+            if is_recording_active(app) && !is_meeting_active(app) {
                 let _ = app.emit("clips:recorder-stop", ());
             } else {
                 toggle_popover(app);
@@ -625,13 +625,41 @@ fn ensure_fn_event_tap(app: tauri::AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
+fn fn_event_tap_is_enabled(tap: &core_graphics::event::CGEventTap<'static>) -> bool {
+    use core_foundation::base::TCFType;
+
+    extern "C" {
+        fn CGEventTapIsEnabled(tap: core_foundation::mach_port::CFMachPortRef) -> bool;
+    }
+
+    unsafe { CGEventTapIsEnabled(tap.mach_port().as_concrete_TypeRef()) }
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_fn_event_tap_restart(app: tauri::AppHandle, reason: &'static str, delay: Duration) {
+    eprintln!("[clips-tray][fn-tap] restarting Fn event tap: {reason}");
+    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
+    if !FN_TAP_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    thread::spawn(move || {
+        thread::sleep(delay);
+        if FN_TAP_ENABLED.load(Ordering::SeqCst) {
+            ensure_fn_event_tap(app);
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
 fn install_fn_event_tap(app: tauri::AppHandle) {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
-    use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
+    use core_foundation::runloop::{
+        kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop, CFRunLoopRunResult,
+    };
     use core_graphics::event::{
         CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
         CGEventType, CallbackResult,
@@ -836,13 +864,17 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     t
                 }
                 Err(()) => {
-                    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
                     eprintln!(
                         "[clips-tray][fn-tap] CGEventTapCreate returned NULL. Most likely cause: \
                          Input Monitoring is not granted to Clips. Open System Settings → \
                          Privacy & Security → Input Monitoring and enable Clips (or the \
                          terminal running `tauri dev`). Note: Accessibility is a separate \
                          permission and is not sufficient for ListenOnly taps."
+                    );
+                    schedule_fn_event_tap_restart(
+                        app,
+                        "CGEventTapCreate returned NULL",
+                        Duration::from_secs(5),
                     );
                     return;
                 }
@@ -853,8 +885,12 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     s
                 }
                 Err(()) => {
-                    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
                     eprintln!("[clips-tray][fn-tap] CFMachPortCreateRunLoopSource failed");
+                    schedule_fn_event_tap_restart(
+                        app,
+                        "CFMachPortCreateRunLoopSource failed",
+                        Duration::from_secs(2),
+                    );
                     return;
                 }
             };
@@ -865,29 +901,63 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 "[clips-tray][fn-tap] tap enabled; entering runloop — press Fn now to test"
             );
 
-            // Run the runloop in repeated short bursts so we can re-enable
-            // the tap if the OS disables it. We use run_current (blocks
-            // until something stops the loop) and re-enter on exit. The
-            // disable callbacks above call CFRunLoop::stop, which makes
-            // run_current return; we then call tap.enable() and re-enter.
-            // This is the handy-keys / linespeed pattern.
+            // Run the runloop in short slices instead of `run_current()`.
+            // macOS can leave a tap created but disabled/inert after TCC or
+            // user-input churn; periodic health checks let us re-enable or
+            // rebuild it even when no further callback arrives.
+            let mut consecutive_reenable_failures = 0_u8;
             loop {
-                if needs_reenable.swap(false, Ordering::SeqCst) {
-                    dlog!("[clips-tray] re-enabling Fn event tap");
-                    tap.enable();
+                if !FN_TAP_ENABLED.load(Ordering::SeqCst) {
+                    FN_TAP_INSTALL_STARTED.store(false, Ordering::SeqCst);
+                    return;
                 }
-                CFRunLoop::run_current();
-                // run_current returned — either we asked it to (a disable
-                // event flagged needs_reenable above), or something else
-                // removed our source. In the latter case avoid a tight
-                // spin, then re-call enable() defensively (it's idempotent
-                // — calling on an already-enabled tap is a no-op).
-                if !needs_reenable.load(Ordering::SeqCst) {
-                    thread::sleep(Duration::from_millis(50));
-                    dlog!(
-                        "[clips-tray] Fn runloop exited unexpectedly — re-enabling tap"
-                    );
-                    needs_reenable.store(true, Ordering::SeqCst);
+
+                let reenable_reason = if needs_reenable.swap(false, Ordering::SeqCst) {
+                    Some("disabled callback")
+                } else if !fn_event_tap_is_enabled(&tap) {
+                    Some("health check")
+                } else {
+                    None
+                };
+
+                if let Some(reason) = reenable_reason {
+                    eprintln!("[clips-tray][fn-tap] re-enabling Fn event tap ({reason})");
+                    tap.enable();
+                    thread::sleep(Duration::from_millis(20));
+                    if fn_event_tap_is_enabled(&tap) {
+                        consecutive_reenable_failures = 0;
+                    } else {
+                        consecutive_reenable_failures =
+                            consecutive_reenable_failures.saturating_add(1);
+                        if consecutive_reenable_failures >= 2 {
+                            schedule_fn_event_tap_restart(
+                                app.clone(),
+                                "tapEnable did not stick",
+                                Duration::from_millis(750),
+                            );
+                            return;
+                        }
+                    }
+                }
+
+                match unsafe {
+                    CFRunLoop::run_in_mode(
+                        kCFRunLoopDefaultMode,
+                        Duration::from_millis(500),
+                        true,
+                    )
+                } {
+                    CFRunLoopRunResult::Finished => {
+                        schedule_fn_event_tap_restart(
+                            app.clone(),
+                            "runloop finished",
+                            Duration::from_millis(750),
+                        );
+                        return;
+                    }
+                    CFRunLoopRunResult::Stopped
+                    | CFRunLoopRunResult::TimedOut
+                    | CFRunLoopRunResult::HandledSource => {}
                 }
             }
         })

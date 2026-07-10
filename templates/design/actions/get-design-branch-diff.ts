@@ -33,7 +33,7 @@ import type {
   VisualDiffChangeKind,
 } from "../shared/design-review.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -209,8 +209,7 @@ export default defineAction({
 
     // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
-    const sourceType =
-      normalizeDesignSourceType(designData["sourceType"]) ?? "inline";
+    const sourceType = designSourceTypeFromData(designData);
     const caps = resolveSourceCapabilities(sourceType);
 
     // For inline/localhost without branch capability, return a CTA.

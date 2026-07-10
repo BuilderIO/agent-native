@@ -231,7 +231,7 @@ export function SnippetsSection() {
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-[16px] font-semibold text-foreground">

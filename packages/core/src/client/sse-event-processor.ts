@@ -16,6 +16,16 @@ import {
 export type ContentPart =
   | { type: "text"; text: string }
   | {
+      /**
+       * Model chain-of-thought / extended-thinking prose. Streamed from
+       * server `thinking` SSE events (and code-agent thinking transcript
+       * items). Rendered as a collapsible plain-English cell — not a tool
+       * call.
+       */
+      type: "reasoning";
+      text: string;
+    }
+  | {
       type: "tool-call";
       toolCallId: string;
       toolName: string;
@@ -567,6 +577,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   if (
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_timeout" ||
+    code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
@@ -669,7 +680,7 @@ function pendingToolNames(content: ContentPart[]): {
 
 function contentSnapshot(content: ContentPart[]): ContentPart[] {
   return content.map((part) => {
-    if (part.type === "text") return { ...part };
+    if (part.type === "text" || part.type === "reasoning") return { ...part };
     return {
       ...part,
       args: { ...part.args },
@@ -952,6 +963,23 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "thinking" || ev.type === "reasoning") {
+    // Model chain-of-thought. Coalesce consecutive deltas into one reasoning
+    // part so the UI can render a single collapsible "Thinking" cell.
+    const delta = ev.text ?? "";
+    if (!delta) return { action: "continue" };
+    const lastPart = content[content.length - 1];
+    if (lastPart && lastPart.type === "reasoning") {
+      lastPart.text += delta;
+    } else {
+      content.push({ type: "reasoning", text: delta });
+    }
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "stream_keepalive") {
     return { action: "continue" };
   }
@@ -974,14 +1002,27 @@ export function processEvent(
 
     const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
     if (pendingToolCallIndex === -1) {
-      content.push({
-        type: "tool-call",
-        toolCallId: `tc_${++toolCallCounter.value}`,
-        toolName: tool,
-        argsText: "",
-        args: {},
-        activity: true,
-      });
+      // Only surface a placeholder spinner when this tool has no card yet. A
+      // trailing activity heartbeat that arrives after the matching tool_done
+      // (e.g. reordered reconnect replay) must NOT resurrect a spinner for an
+      // already-completed call — that is the "pop back to an older state"
+      // flicker. The real card reappears on the next tool_start regardless.
+      const hasCompletedSameTool = content.some(
+        (part) =>
+          part.type === "tool-call" &&
+          part.toolName === tool &&
+          part.result !== undefined,
+      );
+      if (!hasCompletedSameTool) {
+        content.push({
+          type: "tool-call",
+          toolCallId: `tc_${++toolCallCounter.value}`,
+          toolName: tool,
+          argsText: "",
+          args: {},
+          activity: true,
+        });
+      }
     }
     return {
       action: "yield",
@@ -1016,17 +1057,28 @@ export function processEvent(
     const pendingToolCallIndex = findPendingToolCallIndex(content, tool, ev.id);
     const pendingToolCall =
       pendingToolCallIndex >= 0 ? content[pendingToolCallIndex] : undefined;
+    const pendingIsActivityPlaceholder =
+      pendingToolCall?.type === "tool-call" &&
+      pendingToolCall.activity === true &&
+      pendingToolCall.argsText === "" &&
+      Object.keys(pendingToolCall.args).length === 0;
+    // A re-emitted start for the SAME id — a retry/auto-continue clear that
+    // keeps the in-flight card mounted, or a reconnect replay — must update the
+    // existing card in place instead of pushing a duplicate. Matching on id
+    // keeps genuinely parallel same-name calls, which carry distinct ids,
+    // separate.
+    const pendingIsSameIdReplay =
+      pendingToolCall?.type === "tool-call" &&
+      ev.id !== undefined &&
+      pendingToolCall.toolCallId === ev.id;
     if (
       pendingToolCall &&
       pendingToolCall.type === "tool-call" &&
-      pendingToolCall.activity === true &&
-      pendingToolCall.argsText === "" &&
-      Object.keys(pendingToolCall.args).length === 0
+      (pendingIsActivityPlaceholder || pendingIsSameIdReplay)
     ) {
-      // Upgrade the pending activity card in place. Prefer the server-assigned
-      // id so the subsequent tool_done can match it precisely (parallel
-      // same-name calls each carry their own id). Fall back to the
-      // locally-generated id already on the card.
+      // Upgrade the pending card in place. Prefer the server-assigned id so the
+      // subsequent tool_done can match it precisely (parallel same-name calls
+      // each carry their own id). Fall back to the locally-generated id.
       content[pendingToolCallIndex] = {
         type: "tool-call",
         toolCallId: ev.id ?? pendingToolCall.toolCallId,
@@ -1400,12 +1452,19 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
-    if (part.type === "text") {
+    if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      content.splice(index, 1);
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
+      const isEphemeral =
+        part.activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
     }
   }
 }

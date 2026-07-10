@@ -39,29 +39,39 @@ export function builderBodyHydrationDisplayHydratedCount(args: {
 export function databaseItemBodyHydrationIsPending(
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
 ) {
+  const hydration =
+    item.bodyHydration ?? item.document.databaseMembership?.bodyHydration;
   if (
-    item.document.databaseMembership?.sourceId &&
-    !item.bodyHydration &&
-    !item.document.databaseMembership.bodyHydration
+    sourceBackedEmptyBodyNeedsHydration({
+      sourceId: item.document.databaseMembership?.sourceId,
+      content: item.document.content,
+      hydration,
+    })
   ) {
     return true;
   }
-  return builderBodyHydrationIsPending(
-    item.bodyHydration ?? item.document.databaseMembership?.bodyHydration,
-  );
+  return builderBodyHydrationIsPending(hydration);
 }
 
 export function documentBodyHydrationIsPending(
-  document: Pick<Document, "databaseMembership">,
+  document: Pick<Document, "content" | "databaseMembership">,
 ) {
-  return builderBodyHydrationIsPending(
-    document.databaseMembership?.bodyHydration,
-  );
+  const hydration = document.databaseMembership?.bodyHydration;
+  if (
+    sourceBackedEmptyBodyNeedsHydration({
+      sourceId: document.databaseMembership?.sourceId,
+      content: document.content,
+      hydration,
+    })
+  ) {
+    return true;
+  }
+  return builderBodyHydrationIsPending(hydration);
 }
 
 export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document: Pick<Document, "databaseMembership"> | null | undefined;
+  document: Pick<Document, "content" | "databaseMembership"> | null | undefined;
 }) {
   const membership =
     args.document?.databaseMembership ?? args.item.document.databaseMembership;
@@ -99,6 +109,20 @@ export function isEffectivelyEmptyDocumentContent(
 ) {
   const normalized = (content ?? "").trim();
   return normalized === "" || normalized === "<empty-block/>";
+}
+
+function sourceBackedEmptyBodyNeedsHydration(args: {
+  sourceId: string | null | undefined;
+  content: string | null | undefined;
+  hydration: ContentDatabaseBodyHydration | null | undefined;
+}) {
+  if (!args.sourceId || !isEffectivelyEmptyDocumentContent(args.content)) {
+    return false;
+  }
+  if (!args.hydration) return true;
+  if (builderBodyHydrationIsPending(args.hydration)) return true;
+  if (args.hydration.status === "error") return false;
+  return args.hydration.status === "hydrated" && !args.hydration.version;
 }
 
 export function shouldIgnorePreviewEmptyNormalization(args: {

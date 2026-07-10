@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
@@ -19,6 +22,7 @@ import {
   cliBoolean,
   eventTypeInput,
   googleColorIdInput,
+  ensureOrganizerInAttendees,
   normalizeAttendees,
   reminderMethodInput,
   reminderMinutesInput,
@@ -140,7 +144,10 @@ export default defineAction({
       acctEmail = args.accountEmail;
     }
 
-    const attendees = normalizeAttendees(args.attendees);
+    const attendees = ensureOrganizerInAttendees(
+      normalizeAttendees(args.attendees),
+      acctEmail,
+    );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,
@@ -187,7 +194,10 @@ export default defineAction({
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: args.addGoogleMeet,
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet: args.addGoogleMeet,
+        addZoom: args.addZoom,
+      }),
       sendUpdates: args.sendUpdates ?? (attendees?.length ? "all" : undefined),
     });
     if (result.id) {

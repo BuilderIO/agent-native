@@ -40,6 +40,9 @@ import type {
 // ---------------------------------------------------------------------------
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const LARGE_CELL_PREVIEW_CHARS = 16 * 1024;
+const LARGE_CELL_SUFFIX =
+  "\n...[db-admin truncated large cell; request includeLargeCells=true for the full value]";
 
 export interface DbAdminRuntime {
   db?: DbExec;
@@ -70,6 +73,103 @@ function dialect(runtime?: DbAdminRuntime): DbAdminDialect {
 
 function isPostgresRuntime(runtime?: DbAdminRuntime): boolean {
   return dialect(runtime) === "postgres";
+}
+
+function isPreviewableLargeColumn(column: DbAdminColumn): boolean {
+  const type = column.type.toLowerCase();
+  return /\b(text|char|varchar|character|jsonb?|xml|clob)\b/.test(type);
+}
+
+function markLargeValuePreviewColumns(
+  columns: DbAdminColumn[],
+  includeLargeCells: boolean,
+): DbAdminColumn[] {
+  if (includeLargeCells) return columns;
+  return columns.map((column) =>
+    isPreviewableLargeColumn(column)
+      ? { ...column, largeValuePreview: true }
+      : column,
+  );
+}
+
+function buildRowsSelectList(
+  columns: DbAdminColumn[],
+  includeLargeCells: boolean,
+): string {
+  if (includeLargeCells) {
+    return columns.map((column) => quoteIdent(column.name)).join(", ");
+  }
+
+  return columns
+    .map((column) => {
+      const quoted = quoteIdent(column.name);
+      if (!isPreviewableLargeColumn(column)) return quoted;
+      const textValue = `CAST(${quoted} AS TEXT)`;
+      return `CASE WHEN length(${textValue}) > ${LARGE_CELL_PREVIEW_CHARS} THEN substr(${textValue}, 1, ${LARGE_CELL_PREVIEW_CHARS}) || '${LARGE_CELL_SUFFIX.replace(/'/g, "''")}' ELSE ${textValue} END AS ${quoted}`;
+    })
+    .join(", ");
+}
+
+function truncateLargeResultCells(rows: Record<string, unknown>[]): {
+  rows: Record<string, unknown>[];
+  truncatedCells: number;
+} {
+  let truncatedCells = 0;
+  const mapped = rows.map((row) => {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (
+        typeof value === "string" &&
+        value.length > LARGE_CELL_PREVIEW_CHARS
+      ) {
+        next[key] =
+          `${value.slice(0, LARGE_CELL_PREVIEW_CHARS)}${LARGE_CELL_SUFFIX}`;
+        truncatedCells += 1;
+        changed = true;
+      } else {
+        next[key] = value;
+      }
+    }
+    return changed ? next : row;
+  });
+  return { rows: mapped, truncatedCells };
+}
+
+function countTruncatedResultCells(rows: Record<string, unknown>[]): number {
+  let truncatedCells = 0;
+  for (const row of rows) {
+    for (const value of Object.values(row)) {
+      if (typeof value === "string" && value.endsWith(LARGE_CELL_SUFFIX)) {
+        truncatedCells += 1;
+      }
+    }
+  }
+  return truncatedCells;
+}
+
+function containsLargeCellPreview(value: unknown): boolean {
+  if (typeof value === "string") return value.endsWith(LARGE_CELL_SUFFIX);
+  if (Array.isArray(value)) return value.some(containsLargeCellPreview);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(
+      containsLargeCellPreview,
+    );
+  }
+  return false;
+}
+
+function assertNoLargeCellPreviewMutation(
+  row: Record<string, unknown>,
+  context: string,
+): void {
+  for (const [column, value] of Object.entries(row)) {
+    if (containsLargeCellPreview(value)) {
+      throw new Error(
+        `Refusing to ${context} with previewed large-cell value in column "${column}". Reload the row with includeLargeCells=true before saving.`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +569,8 @@ export async function getRows(
   const where = buildWhere(req.filters, runtime);
   const orderBy = buildOrderBy(req.sort);
   const quoted = quoteIdent(table);
+  const includeLargeCells = req.includeLargeCells === true;
+  const selectList = buildRowsSelectList(schema.columns, includeLargeCells);
 
   const countRes = await client.execute({
     sql: `SELECT COUNT(*) AS c FROM ${quoted}${where.clause}`,
@@ -477,16 +579,18 @@ export async function getRows(
   const total = Number((countRes.rows[0] as any)?.c ?? 0) || 0;
 
   const rowsRes = await client.execute({
-    sql: `SELECT * FROM ${quoted}${where.clause}${orderBy} LIMIT ? OFFSET ?`,
+    sql: `SELECT ${selectList} FROM ${quoted}${where.clause}${orderBy} LIMIT ? OFFSET ?`,
     args: [...where.args, pageSize, offset],
   });
+  const rows = rowsRes.rows as Record<string, unknown>[];
 
   return {
-    columns: schema.columns,
-    rows: rowsRes.rows as Record<string, unknown>[],
+    columns: markLargeValuePreviewColumns(schema.columns, includeLargeCells),
+    rows,
     total,
     page,
     pageSize,
+    truncatedCells: includeLargeCells ? 0 : countTruncatedResultCells(rows),
   };
 }
 
@@ -502,6 +606,7 @@ function buildInsert(
   if (cols.length === 0) {
     throw new Error("Cannot insert an empty row");
   }
+  assertNoLargeCellPreviewMutation(row, "insert");
   cols.forEach((c) => assertIdent(c, "column name"));
   const sql = `INSERT INTO ${quoteIdent(table)} (${cols
     .map(quoteIdent)
@@ -520,6 +625,8 @@ function buildUpdate(
   if (whereCols.length === 0) {
     throw new Error("Update requires a non-empty where clause");
   }
+  assertNoLargeCellPreviewMutation(set, "update");
+  assertNoLargeCellPreviewMutation(where, "match rows");
   setCols.forEach((c) => assertIdent(c, "column name"));
   whereCols.forEach((c) => assertIdent(c, "column name"));
   const setSql = setCols.map((c) => `${quoteIdent(c)} = ?`).join(", ");
@@ -539,6 +646,7 @@ function buildDelete(
   if (whereCols.length === 0) {
     throw new Error("Delete requires a non-empty where clause");
   }
+  assertNoLargeCellPreviewMutation(where, "delete");
   whereCols.forEach((c) => assertIdent(c, "column name"));
   const whereSql = whereCols.map((c) => `${quoteIdent(c)} = ?`).join(" AND ");
   const sql = `DELETE FROM ${quoteIdent(table)} WHERE ${whereSql}`;
@@ -674,7 +782,10 @@ export async function runSql(
   );
   const durationMs = Date.now() - started;
 
-  const rows = (res.rows ?? []) as Record<string, unknown>[];
+  const truncation = truncateLargeResultCells(
+    (res.rows ?? []) as Record<string, unknown>[],
+  );
+  const rows = truncation.rows;
   const columns =
     rows.length > 0 && rows[0] && typeof rows[0] === "object"
       ? Object.keys(rows[0])
@@ -687,5 +798,6 @@ export async function runSql(
     rows,
     rowsAffected: res.rowsAffected ?? 0,
     durationMs,
+    truncatedCells: truncation.truncatedCells,
   };
 }

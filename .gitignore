@@ -73,6 +73,7 @@ test-results/
 e2e/.auth/
 **/.auth/
 **/.auth-debug/
+**/.auth-*/
 
 # Wrangler local state
 .wrangler

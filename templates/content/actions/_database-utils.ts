@@ -16,6 +16,7 @@ import {
   federateSources,
 } from "./_federation-join.js";
 import {
+  listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -123,12 +124,13 @@ export function normalizeContentDatabasePageOptions(options: {
 function serializeDocument(
   doc: typeof schema.documents.$inferSelect,
   membership?: DatabaseMembershipRow,
+  options: { includeContent?: boolean } = {},
 ) {
   return {
     id: doc.id,
     parentId: doc.parentId,
     title: doc.title,
-    content: doc.content,
+    content: options.includeContent === true ? doc.content : "",
     icon: doc.icon,
     position: doc.position,
     isFavorite: parseDocumentFavorite(doc.isFavorite),
@@ -196,6 +198,10 @@ export async function getContentDatabaseResponse(
           )
       : [];
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
+  const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
+    databaseId,
+    documents,
+  );
   const queuedBodyHydrationItemIds =
     items.length > 0
       ? new Set(
@@ -233,7 +239,7 @@ export async function getContentDatabaseResponse(
       bodyHydration: serializeBodyHydration(item, {
         queued: bodyHydrationQueued,
       }),
-      properties: await listPropertiesForDatabase(databaseId, document),
+      properties: propertiesByDocumentId.get(document.id) ?? [],
     });
   }
 

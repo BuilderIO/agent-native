@@ -90,6 +90,25 @@ Reference images and generated images live in the **same** `image_assets` table,
 
 The unified table simplifies access control (one `library_id`, one access check) and makes "use a saved generation as a reference for a future generation" a first-class operation — just bump its `role` to `prior-candidate` (planned for v2; v1 just selects from any non-archived asset).
 
+## Importing external references
+
+Use `import-asset-from-url` when the agent has found a public HTTPS image that
+belongs in a brand kit, such as a blog hero, product shot, logo, campaign image,
+or diagram. Choose the narrowest reference `role` (`style_reference`,
+`subject_reference`, `product_reference`, `background_reference`,
+`logo_reference`, or `diagram_reference`) and preserve a useful title or
+description when known. The deliverable `category` defaults to match the role
+(logo → `logo`, product → `product`, diagram → `diagram`); pass an explicit
+`category` such as `hero` or `campaign` when the image belongs in one of those
+filtered views.
+
+For a blog-to-brand-kit workflow: inspect the page, pick the strongest image
+URLs, import each URL into the target `libraryId`, then wire the returned
+`assetId`s into generation preset reference fills or call `set-canonical-logo`
+for the exact logo. Imported assets are stored as `status: "reference"` with
+`sourceUrl` provenance, so downstream generation, preset boards, and logo
+compositing can use them like uploaded reference assets.
+
 ## When to add a collection
 
 Collections are optional. Most users won't create them. Use them when:

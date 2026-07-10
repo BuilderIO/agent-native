@@ -11,7 +11,11 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineStreamOptions,
+} from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
@@ -24,6 +28,7 @@ import {
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  filterInitialEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -40,7 +45,7 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
-import { attachToolSearch } from "./tool-search.js";
+import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
 function actionEntry(opts: {
@@ -547,7 +552,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("builds a plan-mode registry with only read-only tools", async () => {
+  it("builds a plan-mode registry with read-only tools and blocked stubs", async () => {
     const registry = attachToolSearch({
       read: actionEntry({ readOnly: true }),
       "read-but-act-only": actionEntry({
@@ -564,12 +569,25 @@ describe("buildUserContentWithAttachments", () => {
 
     const planRegistry = createPlanModeActionRegistry(registry);
 
-    expect(Object.keys(planRegistry).sort()).toEqual([
+    expect(
+      actionsToEngineTools(planRegistry)
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual([
       "bash",
       "read",
+      "read-but-act-only",
       "resources",
+      "set-url-path",
       "tool-search",
+      "write",
     ]);
+    await expect(planRegistry.write.run({})).resolves.toContain(
+      "Plan mode blocked `write`",
+    );
+    await expect(planRegistry["read-but-act-only"].run({})).resolves.toContain(
+      "Plan mode blocked `read-but-act-only`",
+    );
     expect(
       planRegistry.resources.tool.parameters?.properties.action.enum,
     ).toEqual(["list", "read"]);
@@ -592,12 +610,128 @@ describe("buildUserContentWithAttachments", () => {
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
     } as any);
-    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
+    expect(searchResult.results.map((tool: any) => tool.name)).toContain(
       "write",
     );
-    expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
-      "read-but-act-only",
+    const writeTool = searchResult.results.find(
+      (tool: any) => tool.name === "write",
     );
+    expect(writeTool.description).toContain("Plan mode blocked");
+  });
+
+  it("promotes common provider tools into lean initial catalogs when available", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({
+        starter: actionEntry({ readOnly: true }),
+        "provider-api-request": actionEntry({ readOnly: true }),
+        "provider-api-docs": actionEntry({ readOnly: true }),
+        "run-code": actionEntry({ readOnly: true }),
+        "get-extension": actionEntry({ readOnly: true }),
+        "update-extension": actionEntry({ readOnly: false }),
+        "account-deep-dive": actionEntry({ readOnly: true }),
+        "hubspot-deals": actionEntry({ readOnly: true }),
+        "hubspot-metrics": actionEntry({ readOnly: true }),
+        "gong-calls": actionEntry({ readOnly: true }),
+        gcloud: actionEntry({ readOnly: true }),
+        "ordinary-rare-tool": actionEntry({ readOnly: true }),
+      }),
+    );
+
+    const initialTools = filterInitialEngineTools(tools, ["starter"]).map(
+      (tool) => tool.name,
+    );
+
+    expect(initialTools).toContain("starter");
+    expect(initialTools).toContain("tool-search");
+    expect(initialTools).toContain("provider-api-request");
+    expect(initialTools).toContain("provider-api-docs");
+    expect(initialTools).toContain("run-code");
+    expect(initialTools).toContain("get-extension");
+    expect(initialTools).toContain("update-extension");
+    expect(initialTools).toContain("account-deep-dive");
+    expect(initialTools).toContain("hubspot-deals");
+    expect(initialTools).toContain("hubspot-metrics");
+    expect(initialTools).toContain("gong-calls");
+    expect(initialTools).toContain("gcloud");
+    expect(initialTools).not.toContain("ordinary-rare-tool");
+  });
+
+  it("compacts repeated identical tool-search calls within one agent run", async () => {
+    const registry = attachToolSearch({
+      "hubspot-deals": actionEntry({
+        readOnly: true,
+        description: "Search HubSpot deals",
+      }),
+      "hubspot-records": actionEntry({
+        readOnly: true,
+        description: "Read HubSpot records",
+      }),
+    });
+
+    await runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      () => {
+        const first = searchToolRegistry(registry, {
+          query: "hubspot",
+        } as any);
+        const second = searchToolRegistry(registry, {
+          query: "hubspot",
+        } as any) as any;
+
+        expect(first.results.map((result) => result.name)).toEqual([
+          "hubspot-deals",
+          "hubspot-records",
+        ]);
+        expect(second.repeated).toBe(true);
+        expect(second.message).toContain("already ran");
+        expect(second.results.map((result: any) => result.name)).toEqual([
+          "hubspot-deals",
+          "hubspot-records",
+        ]);
+      },
+    );
+  });
+
+  it("does not compact repeated includeSchemas tool-search calls", async () => {
+    const registry = attachToolSearch({
+      "hubspot-deals": actionEntry({
+        readOnly: true,
+        description: "Search HubSpot deals",
+      }),
+    });
+
+    await runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      () => {
+        const first = searchToolRegistry(registry, {
+          query: "hubspot",
+          includeSchemas: true,
+        } as any) as any;
+        const second = searchToolRegistry(registry, {
+          query: "hubspot",
+          includeSchemas: true,
+        } as any) as any;
+
+        expect(first.repeated).toBeUndefined();
+        expect(second.repeated).toBeUndefined();
+        expect(second.results[0].inputSchema).toBeDefined();
+      },
+    );
+  });
+
+  it("warns that no-query tool-search menu results do not load schemas", () => {
+    const registry = attachToolSearch({
+      "hubspot-deals": actionEntry({
+        readOnly: true,
+        description: "Search HubSpot deals",
+      }),
+    });
+
+    const result = searchToolRegistry(registry, {});
+
+    expect(result.results.map((tool) => tool.name)).toContain("hubspot-deals");
+    expect(result.message).toContain("does not load schemas");
+    expect(result.message).toContain("tool-search again with a specific query");
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -666,6 +800,81 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("does not expand the active tool list after no-query tool-search menu results", async () => {
+    const actions = attachToolSearch({
+      starter: actionEntry({
+        description: "Starter tool",
+        readOnly: true,
+      }),
+      "hidden-tool": {
+        ...actionEntry({
+          description: "Hidden forms sharing tool",
+          readOnly: true,
+        }),
+        run: async () => "hidden ran",
+      },
+    });
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = allTools.filter((tool) =>
+      ["starter", "tool-search"].includes(tool.name),
+    );
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-search-menu",
+                name: "tool-search",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenTools[0]).toEqual(["starter", "tool-search"]);
+    expect(seenTools[1]).toEqual(["starter", "tool-search"]);
+  });
+
   it("expands the provider tool list after tool-search returns matches", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({
@@ -3110,6 +3319,178 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("coerces scalar raw JSON Schema parameters before running a tool", async () => {
+    const run = vi.fn(async (args) => `includeContent=${args.includeContent}`);
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-schema-coerce",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "true" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-extension": {
+          tool: {
+            description: "Get extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                includeContent: { type: "boolean" },
+              },
+              required: ["id"],
+            },
+          },
+          readOnly: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ includeContent: true }),
+      expect.anything(),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-extension",
+        result: "includeContent=true",
+      }),
+    );
+  });
+
+  it("does not seed read-only duplicate cache from invalid parameter results", async () => {
+    const run = vi.fn(async () => "should not run");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "tool-schema-repeat",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "yes" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "fix extension" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "prior-invalid",
+              name: "get-extension",
+              input: { id: "ext-1", includeContent: "yes" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "prior-invalid",
+              toolName: "get-extension",
+              toolInput: '{"id":"ext-1","includeContent":"yes"}',
+              content:
+                "Invalid action parameters for get-extension: input/includeContent must be boolean.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "get-extension": {
+          tool: {
+            description: "Get extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                includeContent: { type: "boolean" },
+              },
+              required: ["id"],
+            },
+          },
+          readOnly: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-extension",
+        result: expect.stringContaining(
+          "Invalid action parameters for get-extension",
+        ),
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -4958,11 +5339,66 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("surfaces a fallback message when the engine ends with no text or tool calls", async () => {
+  it("continues once when the engine ends with no text or tool calls", async () => {
     // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
     // zero `output_text` items: the engine still emits a clean `end_turn`
-    // stop, but parts contains only thinking. Without the fallback the run
-    // would render as a silent empty assistant bubble.
+    // stop, but parts contains only thinking. Retry once so a transient
+    // reasoning-budget miss does not surface as a manual retry prompt.
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(JSON.stringify(opts.messages));
+        if (streamCalls > 1) {
+          yield { type: "text-delta", text: "Recovered answer." };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "Recovered answer." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "thinking-delta", text: "thinking out loud..." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "thinking out loud..." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(seenMessages.at(-1)).toContain("output-token cap");
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toBe("Recovered answer.");
+  });
+
+  it("surfaces a fallback message after an empty-response retry also ends empty", async () => {
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -5001,6 +5437,70 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
+  });
+
+  it("adapts each empty-response retry: raises maxOutputTokens and steps reasoning effort down a tier", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "thinking-delta", text: "thinking out loud..." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "thinking out loud..." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxOutputTokens: 8_000,
+      reasoningEffort: "high",
+    });
+
+    // Initial attempt + 2 retries: EMPTY_FINAL_RESPONSE_RETRY_LIMIT is 2 now
+    // that each retry actually adapts instead of repeating the same request.
+    expect(seenOpts).toHaveLength(3);
+
+    // First attempt uses exactly what the caller asked for.
+    expect(seenOpts[0].maxOutputTokens).toBe(8_000);
+    expect(seenOpts[0].reasoningEffort).toBe("high");
+
+    // First retry: tokens raised well above the first attempt, effort down
+    // one tier (high -> medium).
+    expect(seenOpts[1].maxOutputTokens).toBeGreaterThan(
+      seenOpts[0].maxOutputTokens!,
+    );
+    expect(seenOpts[1].reasoningEffort).toBe("medium");
+
+    // Second retry: effort steps down again (medium -> low); tokens stay at
+    // the raised ceiling rather than climbing indefinitely.
+    expect(seenOpts[2].reasoningEffort).toBe("low");
+    expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
+
+    const textEvents = events.filter((e) => e.type === "text");
+    expect(textEvents).toHaveLength(1);
+    expect(textEvents[0].text).toMatch(/empty response/i);
   });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {
@@ -5442,6 +5942,19 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(true);
   });
 
+  it("retries on the http_429 errorCode", () => {
+    const err = new EngineError("429 status code (no body)", {
+      errorCode: "http_429",
+    });
+    expect(isRetryableError(err)).toBe(true);
+  });
+
+  it("retries on a bare '429 status code (no body)' message with no structured status", () => {
+    // The Anthropic/AI-SDK empty-body rate-limit format historically slipped
+    // past retries because the keyword list matched "529"/"502" but not 429.
+    expect(isRetryableError(new Error("429 status code (no body)"))).toBe(true);
+  });
+
   it("retries on HTTP 529 (Anthropic overloaded) from statusCode field", () => {
     const err = new EngineError("overloaded", { statusCode: 529 });
     expect(isRetryableError(err)).toBe(true);
@@ -5467,6 +5980,21 @@ describe("isRetryableError", () => {
   it("does not retry when providerRetryable is false and no other signals", () => {
     const err = new EngineError("not retryable", { providerRetryable: false });
     expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("retries on Anthropic bare 'Connection error.' transport failures", () => {
+    // Anthropic SDK APIConnectionError defaults to this exact message with no
+    // HTTP status. Slides prod was dying in ~3s on this and storming client
+    // POSTs because neither in-run retry nor run-level resume recognized it.
+    expect(isRetryableError(new Error("Connection error."))).toBe(true);
+    expect(
+      isRetryableError(
+        new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("retries on Anthropic 'overloaded' message keyword", () => {
@@ -5754,13 +6282,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── Opt-in foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ──────
-  // Default-OFF: with the eligibility flag omitted/false, a foreground run
-  // must behave exactly as before (never chains; the client's auto_continue
-  // re-POST is the only continuation path). The first test in this describe
-  // ("does NOT chain a foreground run") pins the omitted-flag default.
+  // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
+  // The boolean passed to shouldChainBackgroundContinuation is the already
+  // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
 
-  it("does NOT chain a foreground run when the self-chain flag is explicitly false (default)", () => {
+  it("does NOT chain a foreground run when the resolved self-chain gate is false", () => {
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: false,

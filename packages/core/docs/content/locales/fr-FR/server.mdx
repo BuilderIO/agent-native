@@ -129,6 +129,41 @@ Si le UI et l'agent doivent tous deux faire quelque chose, définissez une actio
 
 Utilisez des routes `/api/*` personnalisées uniquement lorsque vous avez besoin d'un protocole en forme de route ou d'un comportement binaire/streaming. Voir [Actions](/docs/actions).
 
+### Applications API uniquement {#api-only-apps}
+
+Vous n'avez pas besoin d'un serveur Express simplement parce que l'application expose uniquement une API. Une application Agent Native inclut déjà un serveur Nitro/H3, et `defineAction()` est la surface API par défaut. Définissez les opérations dans `actions/` ; le framework monte chaque action sur `/_agent-native/actions/<name>` avec validation de schéma et contexte de requête.
+
+Utilisez l'option `http` de l'action pour façonner l'accès HTTP direct : les actions sont en `POST` par défaut, `http: { method: "GET" | "PUT" | "DELETE" }` change le verbe, et `http: false` désactive l'endpoint HTTP d'une action. Utilisez `server/routes/api/*` uniquement pour les besoins en forme de route ou de protocole : téléversements de fichiers, streaming/SSE, webhooks, rappels OAuth, pages publiques, ou une forme REST externe qui ne peut pas être représentée proprement par une action. Ne créez pas de routes `/api/*` qui se contentent surtout d'envelopper ou de réexporter des actions.
+
+Pour un endpoint de statut en lecture seule, gardez-le comme une action :
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Appelez-la directement via HTTP :
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+Pour `POST` et les autres actions d'écriture, envoyez un corps JSON au même chemin d'action.
+
 ## Achèvement du texte en une seule fois {#complete-text}
 
 La plupart des travaux d'IA doivent passer par le chat de l'agent afin que les utilisateurs puissent voir, piloter et auditer

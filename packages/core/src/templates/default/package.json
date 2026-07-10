@@ -9,7 +9,8 @@
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
     "script": "agent-native script",
-    "skills:update": "agent-native skills update scaffold --project"
+    "skills:update": "agent-native skills update scaffold --project",
+    "upgrade:agent-native": "agent-native upgrade"
   },
   "dependencies": {
     "@agent-native/core": "latest",
@@ -31,7 +32,6 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next-themes": "^0.4.6",
@@ -43,7 +43,8 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.20.3",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "^8.0.0"
   }
 }

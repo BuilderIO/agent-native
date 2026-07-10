@@ -51,7 +51,7 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "whisper-1";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_CLEANUP_MODEL = "gpt-5.4-mini";
+const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
 // Hard cap for the dictation-cleanup text path (`sanitizeTranscriptText`
 // below). This endpoint has no `task` field — it's always the Hold-Fn

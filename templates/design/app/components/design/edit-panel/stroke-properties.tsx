@@ -33,10 +33,13 @@ import {
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
+  resolveRestoredStrokeStyle,
   resolveTextStrokeColor,
   roundToOneDecimal,
   strokeHiddenByColor,
   strokeIsVisible,
+  strokeShowPatch,
+  textStrokeAddPatch,
   textStrokeIsVisible,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
@@ -179,22 +182,21 @@ function StrokeLayerControl({
             // "none"/"solid". Writing "none" would lose a dashed/dotted
             // style permanently, since there is no round-trippable "unset"
             // for that keyword once it's overwritten.
-            const parsed = parseCssColor(color);
             if (visible) {
+              const parsed = parseCssColor(color);
               onStyleChange(
                 `${prefix}Color`,
                 parsed ? rgbaToCss(withColorOpacity(parsed, 0)) : "transparent",
               );
               return;
             }
-            const restoredColor = parsed
-              ? rgbaToCss(withColorOpacity(parsed, 100))
-              : "#000000";
-            onStyleChange(`${prefix}Color`, restoredColor);
-            if (styleValue === "none") onStyleChange(`${prefix}Style`, "solid");
-            onStyleChange(
-              `${prefix}Width`,
-              width === "0px" ? "1px" : width || "1px",
+            // Restore color/width/style as ONE commit (single undo step)
+            // rather than three sequential onStyleChange calls — see
+            // strokeShowPatch's doc comment.
+            commitStylePatch(
+              strokeShowPatch(prefix, color, width, styleValue),
+              onStyleChange,
+              onStylesChange,
             );
           }}
         >
@@ -383,7 +385,12 @@ export function StrokeProperties({
               commitStylePatch(
                 {
                   borderWidth: "1px",
-                  borderStyle: "solid",
+                  // Preserve a real style (dashed/dotted/etc) that survived
+                  // on a hidden-via-alpha border — only the outline branch
+                  // below used to do this; the border branch hardcoded
+                  // "solid" unconditionally, silently discarding it. See
+                  // resolveRestoredStrokeStyle's doc comment.
+                  borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
                   borderColor,
                 },
                 onStyleChange,
@@ -395,10 +402,9 @@ export function StrokeProperties({
               const outlineWidth = `${
                 Math.max(1, cssLengthNumber(styles.outlineWidth, 1)) + 1
               }px`;
-              const outlineStyle =
-                styles.outlineStyle === "none"
-                  ? "solid"
-                  : styles.outlineStyle || "solid";
+              const outlineStyle = resolveRestoredStrokeStyle(
+                styles.outlineStyle,
+              );
               const outlineColor = cssColorOrFallback(
                 styles.outlineColor || styles.borderColor,
                 "#000000",
@@ -533,11 +539,11 @@ function TextStrokeProperties({
         <SectionIconButton
           label={t("editPanel.labels.addLayer")}
           onClick={() => {
+            // Kebab-case keys required: camelCase webkit props get mangled by
+            // normalizeStyleProperty (camel→kebab drops the leading dash) and
+            // silently fail the persist allow-list — see textStrokeAddPatch.
             commitStylePatch(
-              {
-                webkitTextStrokeWidth: "1px",
-                webkitTextStrokeColor: resolveTextStrokeColor(color),
-              },
+              textStrokeAddPatch(color),
               onStyleChange,
               onStylesChange,
             );

@@ -30,6 +30,34 @@ export default defineAction({
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
     });
+    // The board overlay file is a reserved canvas-model document, not a
+    // source file the code workbench edits — resolveSourceWorkspace already
+    // excludes it from `files`. Asking for "the board's source" (e.g. a UI
+    // surface that follows setActiveFileId to whatever screen a cross-screen
+    // drop just landed on, including the board) is a legitimate no-op query,
+    // not an error: return an empty/readonly placeholder instead of letting
+    // findSourceWorkspaceFile throw a 404-as-500 for every such request.
+    if (fileId && workspace.boardFileId && fileId === workspace.boardFileId) {
+      return {
+        designId,
+        path: "__board__.html",
+        displayName: "__board__.html",
+        fileId,
+        sourceType: workspace.sourceType,
+        backendKind: "virtual-inline",
+        readonly: true,
+        language: "html",
+        content: "",
+        versionHash: "",
+        updatedAt: null,
+        provenance: {
+          kind: "design-file" as const,
+          designId,
+          fileId,
+          filename: "__board__.html",
+        },
+      };
+    }
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
     const live = await readLiveSourceFile(file);
     return {

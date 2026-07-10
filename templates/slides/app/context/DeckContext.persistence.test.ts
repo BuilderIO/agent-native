@@ -3,20 +3,57 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DeckProvider, useDecks, type Deck, type Slide } from "./DeckContext";
+import {
+  DeckProvider,
+  hasUncommittedDeckChanges,
+  mergeServerAddedSlides,
+  useDecks,
+  type Deck,
+  type Slide,
+} from "./DeckContext";
 
 class MockEventSource {
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  close = vi.fn();
+  static lastInstance: MockEventSource | null = null;
+  static instances: MockEventSource[] = [];
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
 
-  constructor(public url: string) {}
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onopen: (() => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  readyState: number = MockEventSource.CONNECTING;
+  close = vi.fn(() => {
+    this.readyState = MockEventSource.CLOSED;
+  });
+
+  constructor(public url: string) {
+    MockEventSource.lastInstance = this;
+    MockEventSource.instances.push(this);
+  }
+
+  /** Simulate the browser successfully (re)establishing the connection. */
+  simulateOpen() {
+    this.readyState = MockEventSource.OPEN;
+    this.onopen?.();
+  }
+
+  /**
+   * Simulate a FATAL SSE error: a non-2xx HTTP response (or bad
+   * content-type). Per the EventSource spec this closes the connection and
+   * the browser does NOT retry on its own — readyState becomes CLOSED.
+   */
+  simulateFatalError() {
+    this.readyState = MockEventSource.CLOSED;
+    this.onerror?.(new Event("error"));
+  }
 }
 
 function wrapper({ children }: { children: ReactNode }) {
   return createElement(DeckProvider, null, children);
 }
 
-function setupFetch() {
+function setupFetch(options?: { hangPut?: boolean }) {
   let resolveCreate: (response: Response) => void = () => {};
   let accessibleDeck: Deck | null = null;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
@@ -27,6 +64,28 @@ function setupFetch() {
           ? url.toString()
           : url.url;
 
+    // Legacy full-replace PUT. When `hangPut` is set, the request never
+    // resolves on its own — it only rejects when its AbortSignal fires, which
+    // is exactly what `fetchWithTimeout` does after the timeout. This lets a
+    // test prove the timeout drains `inFlightSaves` instead of wedging it.
+    if (init?.method === "PUT" && href.includes("/api/decks/")) {
+      if (options?.hangPut) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal) {
+            signal.addEventListener("abort", () => {
+              reject(
+                Object.assign(new Error("Aborted"), { name: "AbortError" }),
+              );
+            });
+          }
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+    }
+
     if (init?.method === "POST" && href.endsWith("/api/decks")) {
       return new Promise<Response>((resolve) => {
         resolveCreate = resolve;
@@ -34,8 +93,9 @@ function setupFetch() {
     }
 
     if (href.includes("/_agent-native/actions/list-decks")) {
+      const decks = accessibleDeck ? [accessibleDeck] : [];
       return Promise.resolve(
-        new Response(JSON.stringify({ count: 0, decks: [] }), {
+        new Response(JSON.stringify({ count: decks.length, decks }), {
           status: 200,
         }),
       );
@@ -98,6 +158,8 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    MockEventSource.lastInstance = null;
+    MockEventSource.instances = [];
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -646,5 +708,480 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.getDeck("first-deck")).toBeUndefined();
+  });
+
+  it("records undo for agent/SSE deck updates so Undo is available after chat edits", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const initial: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+
+    const agentUpdated: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>After agent edit</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(agentUpdated);
+
+    const source = MockEventSource.lastInstance;
+    expect(source?.onmessage).toBeTruthy();
+
+    await act(async () => {
+      source!.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: "shared-deck",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<h1>After agent edit</h1>",
+      ),
+    );
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+      "<h1>Before</h1>",
+    );
+  });
+
+  describe("SSE reconnect and resync", () => {
+    it("reconnects after a fatal SSE error and closes the old connection (no leak)", async () => {
+      window.history.pushState({}, "", "/");
+      setupFetch();
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const first = MockEventSource.lastInstance;
+      expect(first).toBeTruthy();
+
+      vi.useFakeTimers();
+      act(() => {
+        first!.simulateFatalError();
+      });
+
+      // A fatal error (readyState CLOSED) is not retried by the browser —
+      // our own reconnect must close the dead connection immediately...
+      expect(first!.close).toHaveBeenCalled();
+      // ...but must not hammer a new connection into existence right away.
+      expect(MockEventSource.instances.length).toBe(1);
+
+      // Just under the first backoff delay: still no reconnect.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(999);
+      });
+      expect(MockEventSource.instances.length).toBe(1);
+
+      // Crossing the delay reconnects with a brand-new EventSource instance.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(MockEventSource.instances.length).toBe(2);
+      expect(MockEventSource.instances[1]).not.toBe(first);
+    });
+
+    it("bounds SSE reconnect backoff at a maximum delay across repeated failures", async () => {
+      window.history.pushState({}, "", "/");
+      setupFetch();
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      vi.useFakeTimers();
+      let current = MockEventSource.lastInstance!;
+      // Base 1s, doubling, capped at 30s — the last two deltas repeat the cap.
+      const expectedDelays = [1000, 2000, 4000, 8000, 16000, 30000, 30000];
+      for (const delay of expectedDelays) {
+        act(() => {
+          current.simulateFatalError();
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay - 1);
+        });
+        const countBeforeCap = MockEventSource.instances.length;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(MockEventSource.instances.length).toBe(countBeforeCap + 1);
+        current = MockEventSource.instances.at(-1)!;
+      }
+    });
+
+    it("stops reconnect attempts after unmount", async () => {
+      window.history.pushState({}, "", "/");
+      setupFetch();
+      const { result, unmount } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const first = MockEventSource.lastInstance!;
+      vi.useFakeTimers();
+      act(() => {
+        first.simulateFatalError();
+      });
+      expect(first.close).toHaveBeenCalled();
+
+      unmount();
+
+      // Advance well past the reconnect delay and the backoff cap.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      // The pending reconnect timer was cleared by the effect's cleanup, so
+      // no new connection was created after unmount.
+      expect(MockEventSource.instances.length).toBe(1);
+    });
+
+    it("issues a full resync on reconnect, so slides added while disconnected appear in state", async () => {
+      window.history.pushState({}, "", "/deck/resync-deck");
+      const initial: Deck = {
+        id: "resync-deck",
+        title: "Resync Deck",
+        createdAt: "2026-07-09T00:00:00.000Z",
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>One</h1>",
+            notes: "",
+            layout: "title",
+          },
+        ],
+      };
+      const { setAccessibleDeck } = setupFetch();
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      setAccessibleDeck(initial);
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck("resync-deck")?.slides.length).toBe(1),
+      );
+
+      const source = MockEventSource.lastInstance!;
+      act(() => {
+        source.simulateOpen();
+      });
+
+      // The agent adds a slide server-side WHILE this tab is about to lose
+      // its SSE connection. notifyClients() is fire-and-forget with no
+      // backlog, so no event for this write will ever reach a client that
+      // reconnects after it was broadcast — only a resync recovers it.
+      const withNewSlide: Deck = {
+        ...initial,
+        updatedAt: "2026-07-09T00:05:00.000Z",
+        slides: [
+          ...initial.slides,
+          {
+            id: "slide-2",
+            content: "<h1>Added while disconnected</h1>",
+            notes: "",
+            layout: "content",
+          },
+        ],
+      };
+      setAccessibleDeck(withNewSlide);
+
+      vi.useFakeTimers();
+      act(() => {
+        source.simulateFatalError();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const reconnected = MockEventSource.instances.at(-1)!;
+      expect(reconnected).not.toBe(source);
+
+      // Switch back to real timers before using testing-library's `waitFor`,
+      // which polls on its own timer and does not advance fake timers itself.
+      vi.useRealTimers();
+
+      act(() => {
+        reconnected.simulateOpen();
+      });
+
+      await waitFor(() =>
+        expect(result.current.getDeck("resync-deck")?.slides.length).toBe(2),
+      );
+      expect(result.current.getDeck("resync-deck")?.slides[1]?.content).toBe(
+        "<h1>Added while disconnected</h1>",
+      );
+    });
+
+    it("resync surfaces agent-added slides even when the deck is dirty, without clobbering local edits", async () => {
+      // This is the regression test for the real production incident: the poll
+      // and the resync used to bail entirely on `hasUncommittedDeckChanges`, so
+      // a dirty (or wedged-save) deck stayed permanently blind to agent-added
+      // slides. Here the deck is dirty at reconnect AND the server has both an
+      // added slide and a conflicting edit to the existing slide.
+      window.history.pushState({}, "", "/deck/dirty-deck");
+      const initial: Deck = {
+        id: "dirty-deck",
+        title: "Dirty Deck",
+        createdAt: "2026-07-09T00:00:00.000Z",
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>Local one</h1>",
+            notes: "",
+            layout: "title",
+          },
+        ],
+      };
+      const { setAccessibleDeck } = setupFetch();
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      setAccessibleDeck(initial);
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(1),
+      );
+
+      // Human is mid-edit: the exact state that used to suppress the refetch.
+      act(() => {
+        result.current.markDeckDirty("dirty-deck");
+      });
+
+      const source = MockEventSource.lastInstance!;
+      act(() => {
+        source.simulateOpen();
+      });
+
+      // Agent adds slide-2 AND rewrites slide-1 server-side while we're dirty.
+      const serverVersion: Deck = {
+        ...initial,
+        updatedAt: "2026-07-09T00:05:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>SERVER rewrote one</h1>",
+            notes: "",
+            layout: "title",
+          },
+          {
+            id: "slide-2",
+            content: "<h1>Agent added</h1>",
+            notes: "",
+            layout: "content",
+          },
+        ],
+      };
+      setAccessibleDeck(serverVersion);
+
+      vi.useFakeTimers();
+      act(() => {
+        source.simulateFatalError();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const reconnected = MockEventSource.instances.at(-1)!;
+      vi.useRealTimers();
+
+      act(() => {
+        reconnected.simulateOpen();
+      });
+
+      await waitFor(() =>
+        expect(result.current.getDeck("dirty-deck")?.slides.length).toBe(2),
+      );
+      const deck = result.current.getDeck("dirty-deck")!;
+      // Agent addition surfaced despite the dirty deck...
+      expect(deck.slides[1]?.content).toBe("<h1>Agent added</h1>");
+      // ...but the locally-edited slide-1 was NOT clobbered by server content.
+      expect(deck.slides[0]?.content).toBe("<h1>Local one</h1>");
+    });
+  });
+
+  describe("save-hang timeout drains inFlightSaves", () => {
+    it("aborts a stalled full-replace PUT so inFlightSaves drains and the open deck refetches", async () => {
+      window.history.pushState({}, "", "/deck/hang-deck");
+      const initial: Deck = {
+        id: "hang-deck",
+        title: "Hang Deck",
+        createdAt: "2026-07-09T00:00:00.000Z",
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>One</h1>",
+            notes: "",
+            layout: "title",
+          },
+        ],
+      };
+      const { setAccessibleDeck } = setupFetch({ hangPut: true });
+      const { result } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      setAccessibleDeck(initial);
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck("hang-deck")?.slides.length).toBe(1),
+      );
+
+      // Establish the initial SSE connection so a later reconnect is treated as
+      // a RE-connect (which resyncs), not the first connect (which does not).
+      const firstSource = MockEventSource.lastInstance!;
+      act(() => {
+        firstSource.simulateOpen();
+      });
+
+      vi.useFakeTimers();
+      // A local edit via setDeckSlides enqueues the legacy full-replace PUT.
+      // After the 500ms debounce it moves into inFlightSaves — then hangs.
+      act(() => {
+        result.current.setDeckSlides("hang-deck", [
+          {
+            id: "slide-1",
+            content: "<h1>Edited locally</h1>",
+            notes: "",
+            layout: "title",
+          },
+        ]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      // In flight and hanging. Probe the pendingSaves/inFlightSaves branch of
+      // hasUncommittedDeckChanges directly by passing an EMPTY dirty set.
+      expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(true);
+
+      // Advance past the 60s raw-fetch timeout: the AbortController fires, the
+      // PUT rejects, and the save's `finally` deletes the inFlightSaves entry.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(false);
+
+      // With the leak drained, an agent-added slide must now reach the open
+      // deck (it was permanently suppressed while inFlightSaves was wedged).
+      const agentVersion: Deck = {
+        ...initial,
+        updatedAt: "2026-07-09T00:10:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<h1>Edited locally</h1>",
+            notes: "",
+            layout: "title",
+          },
+          {
+            id: "slide-2",
+            content: "<h1>Agent added post-hang</h1>",
+            notes: "",
+            layout: "content",
+          },
+        ],
+      };
+      setAccessibleDeck(agentVersion);
+
+      act(() => {
+        firstSource.simulateFatalError();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const reconnected = MockEventSource.instances.at(-1)!;
+      vi.useRealTimers();
+
+      act(() => {
+        reconnected.simulateOpen();
+      });
+
+      await waitFor(() =>
+        expect(result.current.getDeck("hang-deck")?.slides.length).toBe(2),
+      );
+      expect(result.current.getDeck("hang-deck")?.slides[1]?.content).toBe(
+        "<h1>Agent added post-hang</h1>",
+      );
+    });
+  });
+
+  describe("mergeServerAddedSlides", () => {
+    const slide = (id: string, content: string): Slide => ({
+      id,
+      content,
+      notes: "",
+      layout: "content",
+    });
+    const deckOf = (slides: Slide[]): Deck => ({
+      id: "d",
+      title: "t",
+      createdAt: "",
+      updatedAt: "",
+      slides,
+    });
+
+    it("adds server-only slides in server order without touching local content", () => {
+      const local = deckOf([slide("a", "LOCAL a")]);
+      const server = deckOf([slide("a", "SERVER a"), slide("b", "b")]);
+      const merged = mergeServerAddedSlides(local, server);
+      expect(merged.slides.map((s) => s.id)).toEqual(["a", "b"]);
+      expect(merged.slides[0]?.content).toBe("LOCAL a"); // local preserved
+      expect(merged.slides[1]?.content).toBe("b");
+    });
+
+    it("returns the same local reference when nothing was added", () => {
+      const local = deckOf([slide("a", "a")]);
+      const server = deckOf([slide("a", "SERVER a")]);
+      expect(mergeServerAddedSlides(local, server)).toBe(local);
+    });
+
+    it("never drops a local-only (unsaved) slide", () => {
+      const local = deckOf([slide("a", "a"), slide("local-only", "x")]);
+      const server = deckOf([slide("a", "a"), slide("b", "b")]);
+      const merged = mergeServerAddedSlides(local, server);
+      expect([...merged.slides.map((s) => s.id)].sort()).toEqual(
+        ["a", "b", "local-only"].sort(),
+      );
+    });
   });
 });

@@ -45,6 +45,7 @@ import {
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -110,6 +111,7 @@ type TranscriptionProvider = {
 type RecordingMediaRow = {
   videoUrl: string | null;
   videoFormat?: "webm" | "mp4" | null;
+  videoSizeBytes?: number | null;
   hasAudio?: boolean | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -127,6 +129,11 @@ const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
 const BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
 const BUILDER_TRANSCRIPTION_PER_MINUTE_MS = 3_000;
+const MEDIA_FETCH_MIN_TIMEOUT_MS = 45_000;
+const MEDIA_FETCH_MAX_TIMEOUT_MS = 120_000;
+const MEDIA_FETCH_BASE_TIMEOUT_MS = 30_000;
+const MEDIA_FETCH_PER_50MB_MS = 10_000;
+const ESTIMATED_VIDEO_BYTES_PER_MINUTE = 5 * 1024 * 1024;
 
 function clampTimeoutMs(value: number): number {
   return Math.max(
@@ -151,6 +158,38 @@ export function builderTranscriptionTimeoutMs(
   return clampTimeoutMs(
     BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS +
       durationMinutes * BUILDER_TRANSCRIPTION_PER_MINUTE_MS,
+  );
+}
+
+export function recordingMediaFetchTimeoutMs(
+  videoSizeBytes: number | null | undefined,
+  durationMs: number | null | undefined,
+): number {
+  const override = Number(
+    process.env.CLIPS_TRANSCRIPTION_MEDIA_FETCH_TIMEOUT_MS,
+  );
+  if (Number.isFinite(override) && override > 0) {
+    return Math.max(
+      MEDIA_FETCH_MIN_TIMEOUT_MS,
+      Math.min(MEDIA_FETCH_MAX_TIMEOUT_MS, Math.floor(override)),
+    );
+  }
+
+  const estimatedBytes =
+    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
+      ? videoSizeBytes
+      : durationMs && Number.isFinite(durationMs) && durationMs > 0
+        ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
+        : 0;
+  if (!estimatedBytes) return MEDIA_FETCH_MIN_TIMEOUT_MS;
+
+  const fiftyMbUnits = Math.ceil(estimatedBytes / (50 * 1024 * 1024));
+  return Math.max(
+    MEDIA_FETCH_MIN_TIMEOUT_MS,
+    Math.min(
+      MEDIA_FETCH_MAX_TIMEOUT_MS,
+      MEDIA_FETCH_BASE_TIMEOUT_MS + fiftyMbUnits * MEDIA_FETCH_PER_50MB_MS,
+    ),
   );
 }
 
@@ -301,10 +340,12 @@ async function loadRecordingMediaBlob({
   recordingId,
   videoUrl,
   fallbackMimeType,
+  timeoutMs,
 }: {
   recordingId: string;
   videoUrl: string;
   fallbackMimeType: string;
+  timeoutMs: number;
 }): Promise<{ blob: Blob; sourceMimeType: string }> {
   const isLocalBlob =
     videoUrl.startsWith("/api/video/") ||
@@ -334,10 +375,10 @@ async function loadRecordingMediaBlob({
     resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
   }
   const vidRes = isAppRelativeUrl
-    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(timeoutMs) })
     : await ssrfSafeFetch(
         resolvedVideoUrl,
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(timeoutMs) },
         { maxRedirects: 3 },
       );
   if (!vidRes.ok) {
@@ -899,7 +940,7 @@ async function pickProvider(
 
 const requestTranscriptAction = defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
+    "Ensure a recording has a transcript, or explicitly regenerate it from the recording media. Preserves native Web Speech/macOS Speech transcripts unless regenerate is true, then uses Builder.io managed transcription or the configured Groq fallback.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     force: z
@@ -907,6 +948,12 @@ const requestTranscriptAction = defineAction({
       .optional()
       .describe(
         "Bypass the recent pending guard for explicit retries or the finalize-recording background worker.",
+      ),
+    regenerate: z
+      .boolean()
+      .optional()
+      .describe(
+        "Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails.",
       ),
     retryAttempt: z
       .number()
@@ -918,6 +965,8 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
+
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
@@ -944,6 +993,10 @@ const requestTranscriptAction = defineAction({
           recordingId: args.recordingId,
           videoUrl,
           fallbackMimeType,
+          timeoutMs: recordingMediaFetchTimeoutMs(
+            rec.videoSizeBytes,
+            rec.durationMs,
+          ),
         });
         return prepareAudioOnlyTranscriptionMedia({
           blob: media.blob,
@@ -980,6 +1033,11 @@ const requestTranscriptAction = defineAction({
     // manual retry can still top the budget back up for one more bounded
     // automatic pass if it fails transiently again.
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
+    const regeneratingReadyTranscript = Boolean(
+      args.regenerate &&
+      existingNativeTranscript?.status === "ready" &&
+      existingNativeTranscript.fullText?.trim(),
+    );
     if (args.retryAttempt !== undefined) {
       console.log(
         `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
@@ -987,6 +1045,7 @@ const requestTranscriptAction = defineAction({
     }
 
     if (
+      !args.regenerate &&
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim()
     ) {
@@ -1032,19 +1091,22 @@ const requestTranscriptAction = defineAction({
     // is set at the deployment level. Use the per-user-aware resolver so
     // a sidebar OAuth connection actually wires through to transcription.
     if (await resolveHasBuilderPrivateKey()) {
-      await upsertTranscriptRow(db, {
-        recordingId: args.recordingId,
-        ownerEmail,
-        status: "pending",
-        failureReason: null,
-        now,
-      });
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      if (!regeneratingReadyTranscript) {
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "pending",
+          failureReason: null,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
 
       const [rec] = await db
         .select({
           videoUrl: schema.recordings.videoUrl,
           videoFormat: schema.recordings.videoFormat,
+          videoSizeBytes: schema.recordings.videoSizeBytes,
           hasAudio: schema.recordings.hasAudio,
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
@@ -1121,13 +1183,15 @@ const requestTranscriptAction = defineAction({
         );
         const fullText = normalizedTranscript.fullText;
 
-        const preserved = await preserveReadyTranscriptIfAvailable({
-          db,
-          recordingId: args.recordingId,
-          ownerEmail,
-          allowLikelyLanguageMismatch: false,
-        });
-        if (preserved) return preserved;
+        if (!regeneratingReadyTranscript) {
+          const preserved = await preserveReadyTranscriptIfAvailable({
+            db,
+            recordingId: args.recordingId,
+            ownerEmail,
+            allowLikelyLanguageMismatch: false,
+          });
+          if (preserved) return preserved;
+        }
 
         if (!fullText) {
           return failEmptyProviderTranscript({
@@ -1251,15 +1315,17 @@ const requestTranscriptAction = defineAction({
     }
 
     // Upsert a pending row so the UI can show "Transcribing…".
-    await upsertTranscriptRow(db, {
-      recordingId: args.recordingId,
-      ownerEmail,
-      status: "pending",
-      failureReason: null,
-      now,
-    });
+    if (!regeneratingReadyTranscript) {
+      await upsertTranscriptRow(db, {
+        recordingId: args.recordingId,
+        ownerEmail,
+        status: "pending",
+        failureReason: null,
+        now,
+      });
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    }
 
     // Load the recording's media URL and prepare audio-only bytes. We never
     // send video frames to a transcription provider; screen-only recordings
@@ -1269,6 +1335,7 @@ const requestTranscriptAction = defineAction({
       .select({
         videoUrl: schema.recordings.videoUrl,
         videoFormat: schema.recordings.videoFormat,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
         hasAudio: schema.recordings.hasAudio,
         sourceAppName: schema.recordings.sourceAppName,
         sourceWindowTitle: schema.recordings.sourceWindowTitle,
@@ -1369,13 +1436,15 @@ const requestTranscriptAction = defineAction({
       );
       const fullText = normalizedTranscript.fullText;
 
-      const preserved = await preserveReadyTranscriptIfAvailable({
-        db,
-        recordingId: args.recordingId,
-        ownerEmail,
-        allowLikelyLanguageMismatch: false,
-      });
-      if (preserved) return preserved;
+      if (!regeneratingReadyTranscript) {
+        const preserved = await preserveReadyTranscriptIfAvailable({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          allowLikelyLanguageMismatch: false,
+        });
+        if (preserved) return preserved;
+      }
 
       if (!fullText) {
         return failEmptyProviderTranscript({

@@ -50,9 +50,12 @@ describe("portable extension runtime", () => {
       normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-same-origin allow-popups",
       ),
-    ).toBe("allow-scripts allow-popups");
+    ).toBe("allow-scripts allow-popups allow-downloads");
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
       "allow-scripts",
+    );
+    expect(normalizeAgentNativeExtensionSandbox("allow-forms")).toContain(
+      "allow-downloads",
     );
   });
 

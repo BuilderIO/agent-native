@@ -40,6 +40,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
     if (!enabled) return;
 
     function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (shouldIgnore(e.target)) return;
       const player = playerRef.current;
       if (!player) return;

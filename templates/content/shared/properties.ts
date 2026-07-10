@@ -551,6 +551,48 @@ export function normalizePropertyValue(
   }
 }
 
+function optionMatchKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+export function normalizePropertyValueWithOptions(
+  type: DocumentPropertyType,
+  value: unknown,
+  options?: DocumentPropertyOptions,
+): DocumentPropertyValue {
+  const normalized = normalizePropertyValue(type, value);
+  const optionList = options?.options ?? [];
+  if (
+    normalized === null ||
+    optionList.length === 0 ||
+    (type !== "select" && type !== "status" && type !== "multi_select")
+  ) {
+    return normalized;
+  }
+
+  const optionIdByName = new Map(
+    optionList.map((option) => [optionMatchKey(option.name), option.id]),
+  );
+  const optionIds = new Set(optionList.map((option) => option.id));
+  const resolveOptionId = (candidate: string) =>
+    optionIds.has(candidate)
+      ? candidate
+      : (optionIdByName.get(optionMatchKey(candidate)) ?? candidate);
+
+  if (type === "multi_select") {
+    const resolved = new Set<string>();
+    for (const item of Array.isArray(normalized) ? normalized : []) {
+      const optionId = resolveOptionId(item);
+      if (optionId.trim()) resolved.add(optionId);
+    }
+    return Array.from(resolved);
+  }
+
+  return typeof normalized === "string"
+    ? resolveOptionId(normalized)
+    : normalized;
+}
+
 export function formulaValueText(value: DocumentPropertyValue): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.join(", ");

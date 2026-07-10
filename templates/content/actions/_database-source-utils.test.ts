@@ -15,6 +15,7 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
+  bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   buildMockBodyChange,
   buildMockFieldChange,
@@ -24,6 +25,9 @@ import {
   normalizeSourceFederation,
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceMetadataRecord,
+  sourceSnapshotValuesJsonProjectionSql,
+  sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
   sourceChangeSetSummary,
@@ -75,6 +79,14 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("sizes bulk chunks from the D1 parameter budget and column count", () => {
+    expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
+    expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
+    expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
+    expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
+    expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
+  });
+
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
     expect(
       serializeBodyHydration(
@@ -93,6 +105,45 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("omits heavy Builder body payloads from read snapshots", () => {
+    const values = {
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated body",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "<BuilderText />",
+      [BUILDER_CMS_BODY_READABLE_MAP_KEY]: '{"blocks":[]}',
+      [BUILDER_CMS_BODY_SIDECARS_KEY]: '{"huge":"sidecar"}',
+    };
+
+    expect(sourceValuesForSnapshot(values)).toEqual({
+      "data.title": "Readable title",
+      "data.tags": ["AI", "CMS"],
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "hash-1",
+    });
+    expect(
+      sourceValuesForSnapshot(values, { includeHeavyBuilderBodyValues: true }),
+    ).toBe(values);
+  });
+
+  it("strips heavy Builder bodies in the database snapshot projection", () => {
+    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
+    const postgresProjection =
+      sourceSnapshotValuesJsonProjectionSql("postgres");
+
+    expect(sqliteProjection).toContain("json_remove");
+    expect(postgresProjection).toContain("::jsonb");
+    for (const key of [
+      BUILDER_CMS_BODY_CONTENT_KEY,
+      BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+      BUILDER_CMS_BODY_READABLE_MAP_KEY,
+      BUILDER_CMS_BODY_SIDECARS_KEY,
+    ]) {
+      expect(sqliteProjection).toContain(key);
+      expect(postgresProjection).toContain(key);
+    }
   });
 
   it("drops stored federation metadata with unsafe regex formulas", () => {
@@ -145,6 +196,72 @@ describe("database source helpers", () => {
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
     });
+  });
+
+  it("records suspicious empty Builder reads without calling them healthy", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 0,
+          matchedRowCount: 0,
+          suspiciousEmpty: true,
+          sourceFetchState: "error",
+        }),
+      ),
+    ).toMatchObject({
+      liveReadConfigured: true,
+      lastReadEntryCount: 0,
+      lastReadSuspiciousEmpty: true,
+      sourceFetchState: "error",
+      activeReadSourceRowIds: [],
+    });
+  });
+
+  it("preserves existing Builder model fields during metadata rewrites", () => {
+    const existingMetadataJson = JSON.stringify({
+      builderModelFields: [
+        {
+          name: "topics",
+          label: "Topics",
+          type: "list",
+          inputType: "tags",
+          required: false,
+          options: ["Headless CMS"],
+        },
+      ],
+    });
+
+    expect(
+      JSON.parse(
+        serializeSourceMetadataRecord({
+          sourceType: "builder-cms",
+          sourceTable: "blog-article",
+          existingMetadataJson,
+        }),
+      ).builderModelFields,
+    ).toEqual([
+      {
+        name: "topics",
+        label: "Topics",
+        type: "list",
+        inputType: "tags",
+        required: false,
+        options: ["Headless CMS"],
+      },
+    ]);
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 1,
+          matchedRowCount: 1,
+          existingMetadataJson,
+        }),
+      ).builderModelFields?.[0]?.name,
+    ).toBe("topics");
   });
 
   it("creates a mock field change for text properties", () => {

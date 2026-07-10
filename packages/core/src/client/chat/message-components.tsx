@@ -10,6 +10,7 @@ import {
   ActionBarPrimitive,
   BranchPickerPrimitive,
   ComposerPrimitive,
+  useMessagePartReasoning,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
 import {
@@ -66,6 +67,8 @@ import {
   ToolCallFallback,
   FilesChangedSummary,
   ChatRunningContext,
+  ReasoningCell,
+  WorkedForSummary,
 } from "./tool-call-display.js";
 
 // ─── Pending selection context key ───────────────────────────────────────────
@@ -80,6 +83,22 @@ export function displayableUserMessageText(text: string): string {
     .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
     .replace(/<\/context>/gi, "")
     .trim();
+}
+
+export function isHiddenUserMessage(message: unknown): boolean {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: {
+          agentNativeHiddenUserMessage?: unknown;
+          agentNativeRecoveryAction?: unknown;
+        };
+      }
+    | undefined;
+  return (
+    meta?.custom?.agentNativeHiddenUserMessage === true ||
+    meta?.custom?.agentNativeRecoveryAction === "continue" ||
+    meta?.custom?.agentNativeRecoveryAction === "retry"
+  );
 }
 
 // ─── Message timestamp helpers ────────────────────────────────────────────────
@@ -634,13 +653,15 @@ export function UserMessage() {
   const timestamp = formatMessageTimestamp(message.createdAt);
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
+  const hidden = isHiddenUserMessage(message);
   const hasDisplayableText =
-    message.content
+    !hidden &&
+    (message.content
       ?.filter((part): part is { type: "text"; text: string } => {
         return part.type === "text" && typeof part.text === "string";
       })
       .some((part) => displayableUserMessageText(part.text).length > 0) ??
-    false;
+      false);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -655,6 +676,8 @@ export function UserMessage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasDisplayableText]);
+
+  if (hidden) return null;
 
   // When in edit mode, show the inline edit composer instead of the message bubble.
   if (isEditing) {
@@ -773,7 +796,7 @@ function assistantMessageHasRenderableContent(message: {
   return content.some((part) => {
     if (!part || typeof part !== "object") return false;
     const type = (part as { type?: unknown }).type;
-    if (type === "text") {
+    if (type === "text" || type === "reasoning") {
       const text = (part as { text?: unknown }).text;
       return typeof text === "string" && text.trim().length > 0;
     }
@@ -817,6 +840,21 @@ export function shouldShowAssistantMessageFooter({
   return !chatRunning && statusIsTerminal;
 }
 
+function ReasoningMessagePart() {
+  const part = useMessagePartReasoning();
+  const isStreaming = part.status?.type === "running";
+  return <ReasoningCell text={part.text} isStreaming={isStreaming} />;
+}
+
+function groupAssistantWorkParts(part: {
+  type?: string;
+}): ["group-work"] | null {
+  if (part.type === "reasoning" || part.type === "tool-call") {
+    return ["group-work"];
+  }
+  return null;
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring"
@@ -839,6 +877,39 @@ export function AssistantMessage() {
     hasUnresolvedTool,
   });
   const cpCtx = React.useContext(CheckpointContext);
+
+  // Capture live run duration when this message finishes streaming.
+  const runStartedAtRef = useRef<number | null>(null);
+  const [capturedDurationMs, setCapturedDurationMs] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    if (chatRunning && isLast) {
+      if (runStartedAtRef.current == null) {
+        runStartedAtRef.current = Date.now();
+      }
+      return;
+    }
+    if (
+      !chatRunning &&
+      isLast &&
+      runStartedAtRef.current != null &&
+      capturedDurationMs == null
+    ) {
+      setCapturedDurationMs(Date.now() - runStartedAtRef.current);
+      runStartedAtRef.current = null;
+    }
+  }, [chatRunning, isLast, capturedDurationMs]);
+
+  // Animate collapse only when this message just finished running in-session.
+  const wasRunningRef = useRef(false);
+  const [animateCollapse, setAnimateCollapse] = useState(false);
+  useEffect(() => {
+    if (wasRunningRef.current && !chatRunning && isComplete && isLast) {
+      setAnimateCollapse(true);
+    }
+    wasRunningRef.current = chatRunning && isLast;
+  }, [chatRunning, isComplete, isLast]);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle") {
@@ -906,6 +977,13 @@ export function AssistantMessage() {
         (p.structuredMeta.toolKind === "edit" ||
           p.structuredMeta.toolKind === "write"),
     );
+  const hasCollapsibleWork =
+    Array.isArray(msgContent) &&
+    msgContent.some(
+      (p) =>
+        p.type === "reasoning" ||
+        (p.type === "tool-call" && p.activity !== true),
+    );
 
   if (!hasRenderableContent) return null;
 
@@ -915,14 +993,33 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            tools: {
-              Fallback: ToolCallFallback,
-            },
+        <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-work": {
+                const showSummary =
+                  isComplete && !chatRunning && hasCollapsibleWork;
+                if (!showSummary) return <>{children}</>;
+                return (
+                  <WorkedForSummary
+                    durationMs={capturedDurationMs}
+                    autoCollapse={animateCollapse}
+                  >
+                    {children}
+                  </WorkedForSummary>
+                );
+              }
+              case "text":
+                return <MarkdownText />;
+              case "reasoning":
+                return <ReasoningMessagePart />;
+              case "tool-call":
+                return part.toolUI ?? <ToolCallFallback {...part} />;
+              default:
+                return null;
+            }
           }}
-        />
+        </MessagePrimitive.GroupedParts>
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}

@@ -9,13 +9,17 @@ import {
   type H3Event,
 } from "h3";
 
+import { ensureOrganizerInAttendees } from "../../actions/event-action-helpers.js";
 import type { CalendarEvent } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../lib/event-guest-notifications.js";
-import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../lib/event-video-conferencing.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -271,6 +275,9 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       id: "",
       source: "google",
       accountEmail: acctEmail,
+      // Match Google Calendar UI: when inviting guests, include the
+      // organizer/self email in attendees so they appear in Guests.
+      attendees: ensureOrganizerInAttendees(eventBody.attendees, acctEmail),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -283,7 +290,11 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: addGoogleMeet === true,
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet:
+          typeof addGoogleMeet === "boolean" ? addGoogleMeet : undefined,
+        addZoom: addZoom === true,
+      }),
     });
     if (result.id) {
       calEvent.id = `google-${result.id}`;
@@ -302,7 +313,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
           title: calEvent.title || eventBody.title || "",
           startTime: calEvent.start,
           endTime: calEvent.end,
-          attendees: eventBody.attendees ?? [],
+          attendees: calEvent.attendees ?? [],
           createdBy: email,
         },
         { owner: email },

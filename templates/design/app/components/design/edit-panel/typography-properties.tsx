@@ -10,9 +10,15 @@ import {
   IconLayoutAlignMiddle,
   IconLayoutAlignTop,
   IconLetterCase,
+  IconLetterCaseLower,
+  IconLetterCaseToggle,
+  IconLetterCaseUpper,
   IconLetterSpacing,
   IconLineHeight,
   IconSquare,
+  IconStrikethrough,
+  IconTextSize,
+  IconUnderline,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -45,12 +51,22 @@ import { PanelSection } from "./panel-primitives";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type { StyleChangeHandler } from "./style-change-types";
-import { parseNumericValue, resolveLineHeight } from "./style-options";
+import {
+  optionValue,
+  parseNumericValue,
+  resolveLineHeight,
+} from "./style-options";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   FONT_WEIGHT_OPTIONS,
-  resolveFontFamilySelectValue,
+  isKnownFontWeight,
+  isTextDecorationLineActive,
+  nextTextDecorationLineValue,
+  resolveFixedResizeDimension,
+  resolveFontFamilyFieldValue,
+  TEXT_CASE_OPTIONS,
+  type TextDecorationLineToken,
   type TextResizeMode,
 } from "./typography-helpers";
 
@@ -90,14 +106,76 @@ function TextResizeControls({
   );
 }
 
+type TypographyDetailsTab = "basics" | "details";
+
+/**
+ * The tab bar's "Basics"/"Details" buttons are a real tab list (not the
+ * static, non-interactive spans this replaced) — see the module-level note
+ * near `TypographyDetailsPopover` for why the third "Variable" tab was
+ * dropped instead of wired up.
+ */
+function TypographyDetailsTabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "cursor-pointer rounded px-2.5 py-1 !text-[11px] font-medium text-muted-foreground",
+        active &&
+          "bg-[var(--design-editor-panel-raised-bg)] font-semibold text-foreground",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Text decoration (underline/strikethrough) and case (none/uppercase/
+ * lowercase/capitalize) live here, in the popover's "Details" tab, rather
+ * than as a 5th always-visible row in the compact panel above — matching
+ * Figma, which tucks these into the same type-details flyout instead of the
+ * always-on compact type row. Deliberately NOT duplicating line-height /
+ * letter-spacing here even though Figma's flyout also shows them: this
+ * panel's compact row (see TypographyProperties below) already exposes both
+ * as always-visible, directly-editable fields, so a second live-editable
+ * copy of the exact same property here would be redundant clutter and an
+ * easy source of two-inputs-fighting-the-same-value bugs, not a feature.
+ */
 function TypographyDetailsPopover({
   resizeMode,
   onResizeModeChange,
+  underlineActive,
+  strikethroughActive,
+  onToggleUnderline,
+  onToggleStrikethrough,
+  textCase,
+  textCaseIsMixed,
+  onTextCaseChange,
 }: {
   resizeMode: TextResizeMode;
   onResizeModeChange: (mode: TextResizeMode) => void;
+  underlineActive: boolean;
+  strikethroughActive: boolean;
+  onToggleUnderline: () => void;
+  onToggleStrikethrough: () => void;
+  textCase: string;
+  textCaseIsMixed: boolean;
+  onTextCaseChange: (value: string) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TypographyDetailsTab>("basics");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -131,32 +209,99 @@ function TypographyDetailsPopover({
         className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
-          <div className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
-            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 !text-[11px] font-semibold text-foreground">
-              {"Basics" /* i18n-ignore design typography details tab */}
-            </span>
-            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
-              {"Details" /* i18n-ignore design typography details tab */}
-            </span>
-            <span className="px-2.5 py-1 !text-[11px] font-medium text-muted-foreground">
-              {"Variable" /* i18n-ignore design typography details tab */}
-            </span>
-          </div>
-        </div>
-        <div className="space-y-3 p-4 !text-[11px]">
-          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
-            {"Preview" /* i18n-ignore design typography details preview */}
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="!text-[11px] font-medium text-muted-foreground">
-              {"Text box" /* i18n-ignore design typography details label */}
-            </span>
-            <TextResizeControls
-              resizeMode={resizeMode}
-              onResizeModeChange={onResizeModeChange}
+          <div
+            role="tablist"
+            className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5"
+          >
+            <TypographyDetailsTabButton
+              label={t("editPanel.typographyDetails.basicsTab")}
+              active={activeTab === "basics"}
+              onClick={() => setActiveTab("basics")}
+            />
+            <TypographyDetailsTabButton
+              label={t("editPanel.typographyDetails.detailsTab")}
+              active={activeTab === "details"}
+              onClick={() => setActiveTab("details")}
             />
           </div>
         </div>
+        {activeTab === "basics" ? (
+          <div className="space-y-3 p-4 !text-[11px]">
+            <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
+              {"Preview" /* i18n-ignore design typography details preview */}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="!text-[11px] font-medium text-muted-foreground">
+                {"Text box" /* i18n-ignore design typography details label */}
+              </span>
+              <TextResizeControls
+                resizeMode={resizeMode}
+                onResizeModeChange={onResizeModeChange}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 p-4 !text-[11px]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="!text-[11px] font-medium text-muted-foreground">
+                {t("editPanel.typographyDetails.decorationLabel")}
+              </span>
+              <InspectorSegment>
+                <InspectorIconButton
+                  label={t("editPanel.textDecorations.underline")}
+                  shortcut="⌘U"
+                  active={underlineActive}
+                  onClick={onToggleUnderline}
+                >
+                  <IconUnderline className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.textDecorations.strikethrough")}
+                  shortcut="⌘⇧X"
+                  active={strikethroughActive}
+                  onClick={onToggleStrikethrough}
+                >
+                  <IconStrikethrough className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="!text-[11px] font-medium text-muted-foreground">
+                {t("editPanel.typographyDetails.caseLabel")}
+              </span>
+              <InspectorSegment>
+                <InspectorIconButton
+                  label={t("editPanel.textCases.none")}
+                  active={!textCaseIsMixed && textCase === "none"}
+                  onClick={() => onTextCaseChange("none")}
+                >
+                  <IconLetterCase className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.textCases.uppercase")}
+                  active={!textCaseIsMixed && textCase === "uppercase"}
+                  onClick={() => onTextCaseChange("uppercase")}
+                >
+                  <IconLetterCaseUpper className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.textCases.lowercase")}
+                  active={!textCaseIsMixed && textCase === "lowercase"}
+                  onClick={() => onTextCaseChange("lowercase")}
+                >
+                  <IconLetterCaseLower className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.textCases.capitalize")}
+                  active={!textCaseIsMixed && textCase === "capitalize"}
+                  onClick={() => onTextCaseChange("capitalize")}
+                >
+                  <IconLetterCaseToggle className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -176,24 +321,6 @@ export function TypographyProperties({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
-  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
-    ? baseFontFamilyOptions
-    : [
-        {
-          value: fontFamily,
-          label: displayFontFamilyName(styles.fontFamily || fontFamily),
-        },
-        ...baseFontFamilyOptions,
-      ];
-  const fontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontWeights.${option.key}`),
-  }));
-  const textAlign = styles.textAlign || "left";
-
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -202,10 +329,75 @@ export function TypographyProperties({
   // fabricated 0 (size), 1.2 (line-height), or blank (tracking) rather than
   // the Mixed state ScrubInput already knows how to render — same pattern as
   // the rotation field above.
+  const fontFamilyIsMixed = isMixedValue(styles.fontFamily);
   const fontWeightIsMixed = isMixedValue(styles.fontWeight);
   const fontSizeIsMixed = isMixedValue(styles.fontSize);
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
+  const textTransformIsMixed = isMixedValue(styles.textTransform);
+
+  // Text decoration (underline/strikethrough) reads through the bridge's
+  // clean `textDecorationLine` computed longhand (never the composite
+  // `textDecoration` shorthand string, which also carries style/color) but
+  // WRITES commit through the "textDecoration" property name — see
+  // nextTextDecorationLineValue's doc comment in typography-helpers.ts for
+  // why the longhand isn't on the persisted-source style allow-list.
+  const underlineActive = isTextDecorationLineActive(
+    styles.textDecorationLine,
+    "underline",
+  );
+  const strikethroughActive = isTextDecorationLineActive(
+    styles.textDecorationLine,
+    "line-through",
+  );
+  const toggleTextDecorationLine = (line: TextDecorationLineToken) => {
+    onStyleChange(
+      "textDecoration",
+      nextTextDecorationLineValue(styles.textDecorationLine, line),
+    );
+  };
+  // Mixed-selection guard mirrors fontWeight/fontFamily above: an
+  // indeterminate case across the selection renders with none of the four
+  // options highlighted rather than guessing one element's value.
+  const textCase = textTransformIsMixed
+    ? "none"
+    : optionValue(TEXT_CASE_OPTIONS, styles.textTransform, "none");
+  const setTextCase = (value: string) => onStyleChange("textTransform", value);
+
+  // resolveFontFamilyFieldValue returns the MIXED_VALUE sentinel unchanged
+  // when the selection differs so the Select below can render it as an
+  // explicit disabled placeholder (matching fontWeight's pattern just below)
+  // instead of a normal, clickable option that could commit the literal
+  // string "Mixed" as a font-family value.
+  const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
+  const fontFamilyOptions = fontFamilyIsMixed
+    ? baseFontFamilyOptions
+    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(styles.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ];
+  const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.fontWeights.${option.key}`),
+  }));
+  // Non-mixed but not one of the nine standard notches (e.g. a variable-font
+  // weight like "550") needs the same synthesized-option treatment as an
+  // unknown font family — otherwise the Select's value matches no item and
+  // renders blank even though the real weight is still applied.
+  const currentFontWeight = styles.fontWeight || "400";
+  const fontWeightOptions =
+    fontWeightIsMixed || isKnownFontWeight(currentFontWeight)
+      ? baseFontWeightOptions
+      : [
+          { value: currentFontWeight, label: currentFontWeight },
+          ...baseFontWeightOptions,
+        ];
+  const textAlign = styles.textAlign || "left";
 
   // M1 · Text resizing mode (auto-width / auto-height / fixed). the design
   // editor's text nodes always expose this segment. Read authored
@@ -240,8 +432,20 @@ export function TypographyProperties({
       : !heightIsAuto && !widthIsAuto
         ? "fixed"
         : "auto-height";
-  const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
-  const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
+  // Fall back to the element's actual current on-screen size (not an
+  // arbitrary constant) when there's no real authored size yet — converting
+  // auto-width/auto-height text to "fixed" must preserve its current
+  // rendered size instead of visibly snapping it to a hardcoded default.
+  const currentWidth = resolveFixedResizeDimension(
+    styles.width,
+    widthIsAuto,
+    element.boundingRect.width,
+  );
+  const currentHeight = resolveFixedResizeDimension(
+    styles.height,
+    heightIsAuto,
+    element.boundingRect.height,
+  );
   const setResizeMode = (mode: TextResizeMode) => {
     if (mode === "auto-width") {
       onStyleChange("width", "max-content");
@@ -318,6 +522,15 @@ export function TypographyProperties({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {fontFamilyIsMixed ? (
+              <SelectItem
+                value={MIXED_VALUE}
+                disabled
+                className="!text-[11px] text-muted-foreground"
+              >
+                {MIXED_VALUE}
+              </SelectItem>
+            ) : null}
             {fontFamilyOptions.map((opt) => (
               <SelectItem
                 key={opt.value}
@@ -334,7 +547,7 @@ export function TypographyProperties({
       {/* Row 2: weight + size side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select
-          value={fontWeightIsMixed ? MIXED_VALUE : styles.fontWeight || "400"}
+          value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
           <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
@@ -364,7 +577,7 @@ export function TypographyProperties({
         <ScrubInput
           label={t("editPanel.labels.size")}
           ariaLabel={t("editPanel.labels.size")}
-          icon={IconLetterCase}
+          icon={IconTextSize}
           value={
             fontSizeIsMixed
               ? 0
@@ -493,6 +706,15 @@ export function TypographyProperties({
           <TypographyDetailsPopover
             resizeMode={resizeMode}
             onResizeModeChange={setResizeMode}
+            underlineActive={underlineActive}
+            strikethroughActive={strikethroughActive}
+            onToggleUnderline={() => toggleTextDecorationLine("underline")}
+            onToggleStrikethrough={() =>
+              toggleTextDecorationLine("line-through")
+            }
+            textCase={textCase}
+            textCaseIsMixed={textTransformIsMixed}
+            onTextCaseChange={setTextCase}
           />
         </div>
       </div>

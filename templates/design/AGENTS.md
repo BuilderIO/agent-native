@@ -9,6 +9,10 @@ patterns live in `.agents/skills/`.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
@@ -63,6 +67,17 @@ patterns live in `.agents/skills/`.
   or pass it as an action parameter. Figma styles and variables are design-system
   inputs, not draggable media assets; route full file/design-system extraction
   through Builder-backed indexing.
+- To import a Figma frame/screen as a real, editable Design screen (not a
+  rendered image), use `import-figma-frame` with a `figmaUrl` (or
+  `fileKey`/`nodeId`) — it maps position, auto-layout, text, fills/gradients,
+  strokes, corner radii, effects, opacity, and blend modes pixel-accurately,
+  falling back to an exact PNG only for vector networks/boolean ops/unsupported
+  node types, and saves the result as a new screen. Read the returned
+  `fidelityReport` (`approximated`, `imageFallbacks`) back to the user when
+  non-trivial. Use `get-figma-styles` for a file's published style names (not
+  the Enterprise Variables API; full token extraction still routes through
+  Builder-backed indexing). See the `design-systems` skill's "Import from
+  Figma" section.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
 - Navigate between prototype screens with Alpine state (`x-show`), a
@@ -108,9 +123,14 @@ patterns live in `.agents/skills/`.
   workflow.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
-- For non-trivial new design prompts, ask before generating: create/open the
-  design shell, call `show-design-questions`, stop while the main canvas shows
-  the questions, then continue from the user's answers.
+- For a brief or ambiguous _new_ design prompt, ask before generating:
+  create/open the design shell, call `show-design-questions` with a small
+  tailored set, stop while the main canvas shows the questions, then continue
+  from the user's answers. Skip asking when the prompt is already specific,
+  it's a tweak/edit to an existing design, the user already answered a
+  question set for this design and is now iterating, or they say "decide for
+  me"/"surprise me"/"just build it" — see the `design-generation` skill for
+  how to size and word the questions.
 - For multiple screens/states, call `generate-screens` first. It opens the
   infinite screen overview and returns target filenames plus `canvasFrame`
   placements. Then call `generate-design` with those files and pass the matching
@@ -198,12 +218,27 @@ patterns live in `.agents/skills/`.
   layers: text, classes, styles, attributes, source order, and small structural
   changes. Use it for selected-element edits before falling back to full
   `update-design` / `generate-design` rewrites.
+- For localhost React/TSX screens, treat compiler/debug metadata (project-relative
+  source file, line, column, component, and runtime multiplicity) as evidence
+  for locating source, not as permission to run a generic AST transform.
+  Compiler tooling may verify an anchor, classify a literal edit, and validate
+  syntax. Reparenting, grouping/ungrouping, wrappers, dynamic expressions,
+  repeated `.map()` instances, shared components, and cross-file changes must
+  be handed to the coding agent with both runtime relationships and exact
+  source anchors so it can inspect the surrounding program semantics.
+- A localhost React handoff must read each source file first, write with the
+  exact returned `versionHash` as `expectedVersionHash` with
+  `requireExpectedVersionHash: true`, re-read and re-plan on conflict, and leave the
+  optimistic canvas preview in place until the dev server/HMR confirms the
+  runtime result. Never report a semantic canvas change as persisted merely
+  because it was submitted to the coding agent.
 - Prefer `data-agent-native-layer-name="Readable name"` on meaningful elements.
   The projection uses it before semantic/text fallbacks, and layer renames should
   persist by updating that attribute.
-- Current limitation: visual code-layer edits are HTML-only. Localhost source
-  mode can list and resolve local routes now, but file reads/writes remain a
-  bridge contract until explicit permission controls are hardened.
+- Inline/Alpine screens continue to use deterministic HTML code-layer edits.
+  Localhost React/TSX screens use the semantic coding-agent handoff above;
+  deterministic direct React writes remain intentionally limited to narrowly
+  proven literal edits and never include generic structural transforms.
 
 ## Code Workspace
 
@@ -246,6 +281,15 @@ patterns live in `.agents/skills/`.
   the latest localhost connection or a specific `connectionId`. Pass `routes`
   with `path`/`url` when visualizing a flow; pass `paths` for a concise route
   list. Then call `navigate --view editor --designId <id> --editorView overview`.
+- `write-local-file`: writes/patches a local file through the bridge, but only
+  when a user-approved write-consent grant exists. Granting is human-only
+  (`grant-localhost-write-consent` is hidden from agents), so you cannot approve
+  it yourself.
+- `request-localhost-write-consent`: call this when `write-local-file` fails
+  with "no write-consent grant". It opens the write-consent dialog in the
+  editor (or reports `alreadyGranted`). Tell the user to click "Allow writes",
+  then retry `write-local-file`. Do not keep retrying blindly — the write stays
+  blocked until the user approves.
 
 ## Review, Breakpoints, Screen States & Components
 
@@ -269,12 +313,16 @@ patterns live in `.agents/skills/`.
   and live app captures. See the same skill section.
 - **Components**: `create-component` promotes a selected element into a
   recognised reusable component; `index-components` scans a design's HTML for
-  existing component annotations; `get-component-details`,
+  existing component annotations; `list-design-components` scans all HTML
+  screens for swap targets; `get-component-details`,
   `preview-component-prop-edit`, `apply-component-prop-edit`, and
   `open-component-source` inspect, preview, persist, and navigate to a
-  component instance. See the `design-generation` skill's "Component reuse"
-  section — promote a 3+ times repeated pattern instead of inventing another
-  near-duplicate.
+  component instance. Use `go-to-main-component` to select the earliest known
+  instance, `swap-component-instance` to replace an inline/Alpine instance
+  while preserving same-named prop overrides, and
+  `detach-component-instance` to turn an instance into plain editable markup.
+  See the `design-generation` skill's "Component reuse" section — promote a
+  3+ times repeated pattern instead of inventing another near-duplicate.
 
 ## Full App Building
 

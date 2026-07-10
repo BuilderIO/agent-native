@@ -1,4 +1,4 @@
-// tsgo compiles TypeScript only; it does not emit non-TS assets. Copy the CSS
+// tsc compiles TypeScript only; it does not emit non-TS assets. Copy the CSS
 // entrypoint(s) from src into dist so the published package ships them, mirroring
 // @agent-native/core's finalize-build step.
 import { copyFileSync, existsSync, readdirSync, statSync } from "node:fs";

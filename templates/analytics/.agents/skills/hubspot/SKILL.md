@@ -54,6 +54,7 @@ To discover stage IDs, call `hubspot-pipelines` first and read the `stageId`
 fields in the returned pipeline structure.
 
 Example use: to count deals that reached "Qualified Opportunity" stage in Q1:
+
 ```
 provider-api-request(
   provider: "hubspot",

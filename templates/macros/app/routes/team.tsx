@@ -7,5 +7,5 @@ export function meta() {
 }
 
 export default function TeamRoute() {
-  return <Navigate to="/settings#team" replace />;
+  return <Navigate to="/settings#organization" replace />;
 }

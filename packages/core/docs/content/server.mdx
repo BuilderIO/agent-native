@@ -129,6 +129,41 @@ If the UI and agent both need to do something, define an action instead of a cus
 
 Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. See [Actions](/docs/actions).
 
+### API-Only Apps {#api-only-apps}
+
+You do not need an Express server just because the app is API-only. An agent-native app already ships with a Nitro/H3 server, and `defineAction()` is the default API surface. Define operations in `actions/`; the framework mounts each action at `/_agent-native/actions/<name>` with schema validation and request context.
+
+Use the action `http` option to shape direct HTTP access: actions are `POST` by default, `http: { method: "GET" | "PUT" | "DELETE" }` changes the verb, and `http: false` keeps an action off HTTP. Reach for `server/routes/api/*` only for route-shaped or protocol concerns: file uploads, streaming/SSE, webhooks, OAuth callbacks, public pages, or an external REST shape that cannot be represented cleanly as an action. Do not create `/api/*` routes that mostly wrap or re-export actions.
+
+For a read-only status endpoint, keep it as an action:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Call it directly over HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+For `POST` and other write actions, send a JSON body to the same action path.
+
 ## One-Shot Text Completion {#complete-text}
 
 Most AI work should go through the agent chat so users can see, steer, and audit

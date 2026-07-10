@@ -27,7 +27,7 @@ import {
  * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
  * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -44,6 +44,7 @@ export interface DashboardRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  updatedBy: string | null;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
   /** ISO timestamp set when the dashboard is hidden from default navigation. */
@@ -53,6 +54,16 @@ export interface DashboardRecord {
   role?: AccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+}
+
+export interface DashboardRevisionRecord {
+  id: string;
+  dashboardId: string;
+  kind: DashboardKind;
+  title: string;
+  config: Record<string, unknown>;
+  createdAt: string;
+  createdBy: string | null;
 }
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
@@ -82,6 +93,20 @@ export interface AnalysisRecord {
   canManage?: boolean;
 }
 
+export interface AnalysisRevisionRecord {
+  id: string;
+  analysisId: string;
+  name: string;
+  description: string;
+  question: string;
+  instructions: string;
+  dataSources: string[];
+  resultMarkdown: string;
+  resultData: Record<string, unknown> | null;
+  createdAt: string;
+  createdBy: string | null;
+}
+
 interface AccessCtx {
   email: string;
   orgId: string | null;
@@ -90,6 +115,8 @@ interface AccessCtx {
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
 const ANALYSIS_PREFIX = "adhoc-analysis-";
+const DASHBOARD_REVISION_LIMIT = 50;
+const ANALYSIS_REVISION_LIMIT = 30;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -157,10 +184,24 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
     hiddenBy: row.hiddenBy ?? null,
     ...accessFields(role),
+  };
+}
+
+function rowToDashboardRevision(row: any): DashboardRevisionRecord {
+  return {
+    id: row.id,
+    dashboardId: row.dashboardId,
+    kind: row.kind,
+    title: row.title,
+    config:
+      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
   };
 }
 
@@ -208,6 +249,7 @@ async function migrateDashboardFromSettings(
       visibility,
       createdAt,
       updatedAt,
+      updatedBy: ownerEmail,
     })
     .onConflictDoNothing();
   // guard:allow-unscoped — read-after-write of the row just inserted above
@@ -384,6 +426,42 @@ export async function listDashboards(
   return out;
 }
 
+async function pruneDashboardRevisions(
+  db: any,
+  dashboardId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ id: schema.dashboardRevisions.id })
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
+    .orderBy(desc(schema.dashboardRevisions.createdAt));
+  const stale = rows.slice(DASHBOARD_REVISION_LIMIT);
+  for (const row of stale) {
+    await db
+      .delete(schema.dashboardRevisions)
+      .where(eq(schema.dashboardRevisions.id, row.id));
+  }
+}
+
+async function snapshotDashboardRevision(
+  db: any,
+  dashboard: DashboardRecord,
+  ctx: AccessCtx,
+): Promise<void> {
+  await db.insert(schema.dashboardRevisions).values({
+    id: `dashrev-${Date.now()}-${nanoidFallback()}`,
+    dashboardId: dashboard.id,
+    kind: dashboard.kind,
+    title: dashboard.title,
+    config: JSON.stringify(dashboard.config),
+    createdAt: nowIso(),
+    createdBy: ctx.email,
+    ownerEmail: dashboard.ownerEmail,
+    orgId: dashboard.orgId,
+  });
+  await pruneDashboardRevisions(db, dashboard.id);
+}
+
 /**
  * Upsert a dashboard. On create, caller becomes owner and visibility defaults
  * to `private`; users explicitly promote useful dashboards to org/public via
@@ -399,18 +477,25 @@ export async function upsertDashboard(
   const existing = await getDashboard(id, ctx);
   const db = getDb() as any;
   const { title, config } = configFromSettings(body);
+  const configJson = JSON.stringify(config);
   if (existing) {
     await assertAccess("dashboard", id, "editor", {
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
+    const changed =
+      existing.kind !== kind ||
+      existing.title !== title ||
+      JSON.stringify(existing.config) !== configJson;
+    if (changed) await snapshotDashboardRevision(db, existing, ctx);
     await db
       .update(schema.dashboards)
       .set({
         kind,
         title,
-        config: JSON.stringify(config),
+        config: configJson,
         updatedAt: nowIso(),
+        updatedBy: ctx.email,
       })
       .where(eq(schema.dashboards.id, id));
   } else {
@@ -422,6 +507,7 @@ export async function upsertDashboard(
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
       visibility: "private",
+      updatedBy: ctx.email,
     });
   }
   const [row] = await db
@@ -430,6 +516,77 @@ export async function upsertDashboard(
     .where(eq(schema.dashboards.id, id));
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.
+  const dashboard = rowToDashboard(row);
+  recordScopedChange(
+    "dashboards",
+    "change",
+    dashboard.id,
+    dashboard.ownerEmail,
+    dashboard.orgId,
+    dashboard.visibility,
+  );
+  return dashboard;
+}
+
+export async function listDashboardRevisions(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<DashboardRevisionRecord[]> {
+  const existing = await getDashboard(dashboardId, ctx);
+  if (!existing) return [];
+  await assertAccess("dashboard", dashboardId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select()
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .limit(DASHBOARD_REVISION_LIMIT);
+  return rows.map(rowToDashboardRevision);
+}
+
+export async function restoreDashboardRevision(
+  dashboardId: string,
+  revisionId: string,
+  ctx: AccessCtx,
+): Promise<DashboardRecord | null> {
+  const existing = await getDashboard(dashboardId, ctx);
+  if (!existing) return null;
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const [revisionRow] = await db
+    .select()
+    .from(schema.dashboardRevisions)
+    .where(
+      and(
+        eq(schema.dashboardRevisions.id, revisionId),
+        eq(schema.dashboardRevisions.dashboardId, dashboardId),
+      ),
+    )
+    .limit(1);
+  if (!revisionRow) return null;
+  const revision = rowToDashboardRevision(revisionRow);
+  await snapshotDashboardRevision(db, existing, ctx);
+  await db
+    .update(schema.dashboards)
+    .set({
+      kind: revision.kind,
+      title: revision.title,
+      config: JSON.stringify(revision.config),
+      updatedAt: nowIso(),
+      updatedBy: ctx.email,
+    })
+    .where(eq(schema.dashboards.id, dashboardId));
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, dashboardId));
   const dashboard = rowToDashboard(row);
   recordScopedChange(
     "dashboards",
@@ -462,7 +619,7 @@ export async function archiveDashboard(
   const now = nowIso();
   await db
     .update(schema.dashboards)
-    .set({ archivedAt: now, updatedAt: now })
+    .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.email })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -495,7 +652,7 @@ export async function unarchiveDashboard(
   const db = getDb() as any;
   await db
     .update(schema.dashboards)
-    .set({ archivedAt: null, updatedAt: nowIso() })
+    .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -533,7 +690,12 @@ export async function hideDashboard(
   const now = nowIso();
   await db
     .update(schema.dashboards)
-    .set({ hiddenAt: now, hiddenBy: ctx.email, updatedAt: now })
+    .set({
+      hiddenAt: now,
+      hiddenBy: ctx.email,
+      updatedAt: now,
+      updatedBy: ctx.email,
+    })
     .where(eq(schema.dashboards.id, id));
   const [row] = await db
     .select()
@@ -572,6 +734,7 @@ export async function unhideDashboard(
     hiddenAt: null,
     hiddenBy: null,
     updatedAt: now,
+    updatedBy: ctx.email,
   };
   if (!existing.ownerEmail) {
     patch.ownerEmail = ctx.email;
@@ -609,6 +772,9 @@ export async function removeDashboard(
   });
   const db = getDb() as any;
   await db.delete(schema.dashboards).where(eq(schema.dashboards.id, id));
+  await db
+    .delete(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, id));
   await db
     .delete(schema.dashboardShares)
     .where(eq(schema.dashboardShares.resourceId, id));
@@ -655,6 +821,22 @@ function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
     hiddenAt: row.hiddenAt ?? null,
     hiddenBy: row.hiddenBy ?? null,
     ...accessFields(role),
+  };
+}
+
+function rowToAnalysisRevision(row: any): AnalysisRevisionRecord {
+  return {
+    id: row.id,
+    analysisId: row.analysisId,
+    name: row.name,
+    description: row.description,
+    question: row.question,
+    instructions: row.instructions,
+    dataSources: safeJsonParse(row.dataSources, []),
+    resultMarkdown: row.resultMarkdown,
+    resultData: row.resultData ? safeJsonParse(row.resultData, null) : null,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
   };
 }
 
@@ -880,6 +1062,48 @@ export async function listAnalyses(
   return out;
 }
 
+async function pruneAnalysisRevisions(
+  db: any,
+  analysisId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ id: schema.analysisRevisions.id })
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysisId))
+    .orderBy(desc(schema.analysisRevisions.createdAt));
+  const stale = rows.slice(ANALYSIS_REVISION_LIMIT);
+  for (const row of stale) {
+    await db
+      .delete(schema.analysisRevisions)
+      .where(eq(schema.analysisRevisions.id, row.id));
+  }
+}
+
+async function snapshotAnalysisRevision(
+  db: any,
+  analysis: AnalysisRecord,
+  ctx: AccessCtx,
+): Promise<void> {
+  await db.insert(schema.analysisRevisions).values({
+    id: `analysisrev-${Date.now()}-${nanoidFallback()}`,
+    analysisId: analysis.id,
+    name: analysis.name,
+    description: analysis.description,
+    question: analysis.question,
+    instructions: analysis.instructions,
+    dataSources: JSON.stringify(analysis.dataSources),
+    resultMarkdown: analysis.resultMarkdown,
+    resultData: analysis.resultData
+      ? JSON.stringify(analysis.resultData)
+      : null,
+    createdAt: nowIso(),
+    createdBy: ctx.email,
+    ownerEmail: analysis.ownerEmail,
+    orgId: analysis.orgId,
+  });
+  await pruneAnalysisRevisions(db, analysis.id);
+}
+
 export async function upsertAnalysis(
   id: string,
   body: {
@@ -913,6 +1137,32 @@ export async function upsertAnalysis(
       patch.resultData = body.resultData
         ? JSON.stringify(body.resultData)
         : null;
+    const next = {
+      name: (patch.name as string | undefined) ?? existing.name,
+      description:
+        (patch.description as string | undefined) ?? existing.description,
+      question: (patch.question as string | undefined) ?? existing.question,
+      instructions:
+        (patch.instructions as string | undefined) ?? existing.instructions,
+      dataSources:
+        body.dataSources !== undefined
+          ? body.dataSources
+          : existing.dataSources,
+      resultMarkdown:
+        (patch.resultMarkdown as string | undefined) ?? existing.resultMarkdown,
+      resultData:
+        body.resultData !== undefined ? body.resultData : existing.resultData,
+    };
+    const changed =
+      next.name !== existing.name ||
+      next.description !== existing.description ||
+      next.question !== existing.question ||
+      next.instructions !== existing.instructions ||
+      JSON.stringify(next.dataSources) !==
+        JSON.stringify(existing.dataSources) ||
+      next.resultMarkdown !== existing.resultMarkdown ||
+      JSON.stringify(next.resultData) !== JSON.stringify(existing.resultData);
+    if (changed) await snapshotAnalysisRevision(db, existing, ctx);
     await db
       .update(schema.analyses)
       .set(patch)
@@ -944,6 +1194,82 @@ export async function upsertAnalysis(
   return rowToAnalysis(row);
 }
 
+export async function listAnalysisRevisions(
+  analysisId: string,
+  ctx: AccessCtx,
+): Promise<AnalysisRevisionRecord[]> {
+  const existing = await getAnalysis(analysisId, ctx);
+  if (!existing) return [];
+  await assertAccess("analysis", analysisId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select()
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysisId))
+    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .limit(ANALYSIS_REVISION_LIMIT);
+  return rows.map(rowToAnalysisRevision);
+}
+
+export async function restoreAnalysisRevision(
+  analysisId: string,
+  revisionId: string,
+  ctx: AccessCtx,
+): Promise<AnalysisRecord | null> {
+  const existing = await getAnalysis(analysisId, ctx);
+  if (!existing) return null;
+  await assertAccess("analysis", analysisId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const [revisionRow] = await db
+    .select()
+    .from(schema.analysisRevisions)
+    .where(
+      and(
+        eq(schema.analysisRevisions.id, revisionId),
+        eq(schema.analysisRevisions.analysisId, analysisId),
+      ),
+    )
+    .limit(1);
+  if (!revisionRow) return null;
+  const revision = rowToAnalysisRevision(revisionRow);
+  await snapshotAnalysisRevision(db, existing, ctx);
+  await db
+    .update(schema.analyses)
+    .set({
+      name: revision.name,
+      description: revision.description,
+      question: revision.question,
+      instructions: revision.instructions,
+      dataSources: JSON.stringify(revision.dataSources),
+      resultMarkdown: revision.resultMarkdown,
+      resultData: revision.resultData
+        ? JSON.stringify(revision.resultData)
+        : null,
+      updatedAt: nowIso(),
+    })
+    .where(eq(schema.analyses.id, analysisId));
+  const [row] = await db
+    .select()
+    .from(schema.analyses)
+    .where(eq(schema.analyses.id, analysisId));
+  const analysis = rowToAnalysis(row);
+  recordScopedChange(
+    "analyses",
+    "change",
+    analysis.id,
+    analysis.ownerEmail,
+    analysis.orgId,
+    analysis.visibility,
+  );
+  return analysis;
+}
+
 export async function removeAnalysis(
   id: string,
   ctx: AccessCtx,
@@ -956,6 +1282,9 @@ export async function removeAnalysis(
   });
   const db = getDb() as any;
   await db.delete(schema.analyses).where(eq(schema.analyses.id, id));
+  await db
+    .delete(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, id));
   await db
     .delete(schema.analysisShares)
     .where(eq(schema.analysisShares.resourceId, id));

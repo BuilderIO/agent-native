@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   _findCorePackageRoot,
@@ -395,6 +396,7 @@ describe("agentNative Vite plugin preset", () => {
 
     expect(pluginNames[0]).toBe("agent-native-config");
     expect(pluginNames).toContain("agent-native-ssr-stub-heavy-libs");
+    expect(pluginNames).toContain("agent-native-app-changelog-raw");
     expect(pluginNames).toContain("agent-native-action-types");
     expect(pluginNames).toContain("agent-native-agents-bundle");
     expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
@@ -464,7 +466,7 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("externalizes native sqlite deps for production SSR builds", async () => {
+  it("externalizes singleton and native deps for production SSR builds", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
@@ -477,6 +479,7 @@ describe("agentNative Vite plugin preset", () => {
       { command: "build", mode: "production" },
     )) as any;
 
+    expect(config.ssr.external).toContain("yjs");
     expect(config.ssr.external).toContain("better-sqlite3");
     expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
@@ -491,6 +494,82 @@ describe("agentNative Vite plugin preset", () => {
       pluginNames.indexOf("agent-native-action-types"),
     );
     expect(pluginNames).not.toContain("@vitejs/plugin-react-swc");
+  });
+});
+
+describe("app changelog raw imports", () => {
+  it("merges pending app changelog entries into CHANGELOG.md?raw", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const appDir = path.join(tmpDir, "app");
+    const pendingDir = path.join(tmpDir, "changelog");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(pendingDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "CHANGELOG.md"),
+      "# Changelog\n\n## 2026-06-23\n\n### Added\n\n- Seed entry.\n",
+    );
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-07-01-new-thing.md"),
+      "---\ntype: added\ndate: 2026-07-01\n---\n\nNew visible thing.\n",
+    );
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-06-23-same-day.md"),
+      "---\ntype: fixed\ndate: 2026-06-23\n---\n\nSame-day fix.\n",
+    );
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const importer = path.join(appDir, "root.tsx");
+      const resolved = await plugin.resolveId("../CHANGELOG.md?raw", importer);
+      expect(resolved).toBe(`${path.join(tmpDir, "CHANGELOG.md")}?raw`);
+
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        resolved,
+      );
+      const markdown = JSON.parse(
+        String(code)
+          .replace(/^export default /, "")
+          .replace(/;$/, ""),
+      );
+      const entries = parseChangelog(markdown);
+
+      expect(watched).toContain(path.join(tmpDir, "CHANGELOG.md"));
+      // Watch the individual pending files, never the directory itself: Vite's
+      // import-analysis would try to resolve a watched directory as a module
+      // and fail ("Failed to resolve import .../changelog"), breaking
+      // hydration. New/removed files are still caught by the root dev watcher.
+      expect(watched).toContain(
+        path.join(pendingDir, "2026-07-01-new-thing.md"),
+      );
+      expect(watched).toContain(
+        path.join(pendingDir, "2026-06-23-same-day.md"),
+      );
+      expect(watched).not.toContain(pendingDir);
+      expect(entries.map((entry) => entry.title)).toEqual([
+        "2026-07-01",
+        "2026-06-23",
+      ]);
+      expect(entries[0].body).toContain("New visible thing.");
+      expect(entries[1].body).toContain("Same-day fix.");
+      expect(entries[1].body).toContain("Seed entry.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps changelog directories visible to the dev watcher", () => {
+    const ignored =
+      (
+        (
+          defineConfig().server as
+            | { watch?: { ignored?: string[] } }
+            | undefined
+        )?.watch ?? {}
+      ).ignored ?? [];
+
+    expect(ignored).not.toContain("**/changelog/**");
   });
 });
 
@@ -867,6 +946,8 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@paper-design/shaders-react": "0.0.76",
+          html2canvas: "^1.4.1",
           "react-router": "^8.0.1",
         },
       }),
@@ -875,10 +956,26 @@ describe("local-core dev aliases and router dedupe", () => {
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
     expect(deps).not.toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@assistant-ui/react");
-    expect(deps).toContain("@tiptap/react");
-    expect(deps).toContain("@xterm/xterm");
-    expect(deps).toContain("shiki/core");
+    expect(deps).toContain("@agent-native/core > @assistant-ui/react");
+    expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
+    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).toContain(
+      "@agent-native/core > @shadcn/react/message-scroller",
+    );
+    expect(deps).toContain("@agent-native/core > @tiptap/react");
+    expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
+    expect(deps).toContain("@agent-native/core > @xterm/xterm");
+    expect(deps).toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/core > shiki/core");
+    expect(deps).toContain("@paper-design/shaders-react");
+    expect(deps).not.toContain(
+      "@agent-native/core > @paper-design/shaders-react",
+    );
+    expect(deps).toContain("html2canvas");
+    expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-router");
+    expect(deps).not.toContain("@agent-native/core > react-router");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -892,12 +989,15 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": "^0.88.0",
+          "@agent-native/toolkit": "^0.4.0",
         },
       }),
     );
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).toContain("@agent-native/core/client/i18n");
+    expect(deps).toContain("@agent-native/toolkit/collab-ui");
+    expect(deps).toContain("@agent-native/toolkit/sharing");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -1057,6 +1157,104 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(_findCorePackageRoot(tmpDir)).toBe(coreRoot);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("aliases file:@agent-native/toolkit conditional exports to source", () => {
+    const previousCwd = process.cwd();
+    const toolkitRoot = path.resolve(
+      import.meta.dirname,
+      "../../..",
+      "toolkit",
+    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-toolkit-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/toolkit": pathToFileURL(toolkitRoot).href,
+        },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const aliases =
+        (
+          defineConfig().resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+      const collabAlias = aliases.find((alias) =>
+        alias.find.test("@agent-native/toolkit/collab-ui"),
+      );
+      const buttonAlias = aliases.find((alias) =>
+        alias.find.test("@agent-native/toolkit/ui/button"),
+      );
+
+      expect(collabAlias?.replacement).toBe(
+        path.join(toolkitRoot, "src/collab-ui/index.ts"),
+      );
+      expect(buttonAlias?.replacement).toBe(
+        path.join(toolkitRoot, "src/ui/$1"),
+      );
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("source-aliases workspace package dependencies during app builds", () => {
+    const previousCwd = process.cwd();
+    const toolkitRoot = path.resolve(
+      import.meta.dirname,
+      "../../..",
+      "toolkit",
+    );
+    const workspaceRoot = path.resolve(import.meta.dirname, "../../../..");
+    const tmpDir = fs.mkdtempSync(
+      path.join(workspaceRoot, ".tmp-an-vite-workspace-"),
+    );
+    const appDir = path.join(tmpDir, "test-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/pinpoint": "workspace:*",
+          "@agent-native/toolkit": "workspace:*",
+        },
+      }),
+    );
+
+    try {
+      process.chdir(appDir);
+      const aliases =
+        (
+          defineConfig().resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+
+      const popoverAlias = aliases.find((alias) =>
+        alias.find instanceof RegExp
+          ? alias.find.test("@agent-native/toolkit/ui/popover")
+          : alias.find === "@agent-native/toolkit/ui/popover",
+      );
+
+      expect(popoverAlias?.replacement).toBe(
+        path.join(toolkitRoot, "src/ui/$1"),
+      );
+      expect(
+        aliases.some((alias) =>
+          alias.find instanceof RegExp
+            ? alias.find.test("@agent-native/pinpoint/react")
+            : alias.find === "@agent-native/pinpoint/react",
+        ),
+      ).toBe(false);
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("aliases react-router to the consuming app install", () => {

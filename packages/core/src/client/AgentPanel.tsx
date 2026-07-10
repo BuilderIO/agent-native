@@ -68,6 +68,7 @@ import {
 import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
+import { ShareButton } from "./sharing/ShareButton.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
@@ -90,7 +91,7 @@ import {
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { agentNativePath, appPath } from "./api-path.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
@@ -1080,10 +1081,31 @@ function AgentPanelInner({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  const getChatThreadShareUrl = useCallback(
+    (threadId: string) => {
+      if (typeof window === "undefined") return undefined;
+      if (
+        threadUrlSync &&
+        typeof threadUrlSync === "object" &&
+        typeof threadUrlSync.getPath === "function"
+      ) {
+        return new URL(
+          appPath(threadUrlSync.getPath(threadId)),
+          window.location.origin,
+        ).toString();
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("thread", threadId);
+      return url.toString();
+    },
+    [threadUrlSync],
+  );
+
   const renderHeaderActions = useCallback(
     ({
       activeChatSessionId,
       activeTabId,
+      activeTabMessageCount,
       addTab,
       clearActiveTab,
       closeAllTabs,
@@ -1095,6 +1117,7 @@ function AgentPanelInner({
     }: Pick<
       MultiTabAssistantChatHeaderProps,
       | "activeTabId"
+      | "activeTabMessageCount"
       | "addTab"
       | "clearActiveTab"
       | "closeAllTabs"
@@ -1110,6 +1133,28 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
+        {(() => {
+          const activeTab =
+            mode === "chat" && activeChatSessionId
+              ? tabs.find((tab) => tab.id === activeChatSessionId)
+              : undefined;
+          if (
+            !activeTab ||
+            (activeTabMessageCount <= 0 && activeTab.status === "idle")
+          ) {
+            return null;
+          }
+          return (
+            <ShareButton
+              resourceType="chat_thread"
+              resourceId={activeTab.id}
+              resourceTitle={activeTab.label || "Chat"}
+              shareUrl={getChatThreadShareUrl(activeTab.id)}
+              trigger="icon"
+              triggerClassName="h-7 w-7"
+            />
+          );
+        })()}
         <FeedbackButton
           variant="icon"
           side="bottom"
@@ -1229,7 +1274,14 @@ function AgentPanelInner({
                 {t("agentPanel.settings")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
+            <DropdownMenuItem
+              onSelect={() => {
+                // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
+                // teardown, otherwise it can immediately dismiss the Popover we're
+                // opening in the same tick (Radix nested-overlay race).
+                setTimeout(() => setFeedbackOpen(true), 0);
+              }}
+            >
               <IconMessageDots size={14} className="shrink-0" />
               {t("agentPanel.feedback")}
             </DropdownMenuItem>
@@ -1331,6 +1383,7 @@ function AgentPanelInner({
       closeOtherCliTabs,
       closeTabHint,
       feedbackOpen,
+      getChatThreadShareUrl,
       headerMenuOpen,
       isFullscreen,
       mode,
@@ -1361,25 +1414,42 @@ function AgentPanelInner({
       ) {
         return null;
       }
+      const activeTab = activeTabId
+        ? tabs.find((tab) => tab.id === activeTabId)
+        : undefined;
+      const canShareActiveTab =
+        activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
 
       return (
         <div className="pointer-events-none absolute inset-x-0 top-3 z-[60] flex justify-end px-3 sm:top-4 sm:px-4">
-          <button
-            type="button"
-            data-agent-page-new-chat=""
-            aria-label={t("agentPanel.newChat")}
-            onClick={() => {
-              addTab();
-            }}
-            className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <IconPlus size={14} />
-            <span>{t("agentPanel.newChat")}</span>
-          </button>
+          <div className="pointer-events-auto flex items-center gap-1">
+            {canShareActiveTab ? (
+              <ShareButton
+                resourceType="chat_thread"
+                resourceId={activeTab.id}
+                resourceTitle={activeTab.label || "Chat"}
+                shareUrl={getChatThreadShareUrl(activeTab.id)}
+                trigger="icon"
+                triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+              />
+            ) : null}
+            <button
+              type="button"
+              data-agent-page-new-chat=""
+              aria-label={t("agentPanel.newChat")}
+              onClick={() => {
+                addTab();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <IconPlus size={14} />
+              <span>{t("agentPanel.newChat")}</span>
+            </button>
+          </div>
         </div>
       );
     },
-    [t],
+    [getChatThreadShareUrl, t],
   );
 
   // Ref callback: scroll the active tab into view in the overflow container.
@@ -1404,6 +1474,7 @@ function AgentPanelInner({
     ({
       tabs,
       activeTabId,
+      activeTabMessageCount,
       setActiveTabId,
       addTab,
       clearActiveTab,
@@ -1432,6 +1503,7 @@ function AgentPanelInner({
             {renderHeaderActions({
               activeChatSessionId: activeTabId,
               activeTabId,
+              activeTabMessageCount,
               addTab,
               clearActiveTab,
               closeAllTabs,

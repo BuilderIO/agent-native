@@ -1,9 +1,48 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { organizations } from "../../org/schema.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+
+async function loadOrgDisplayNames(
+  db: any,
+  shares: Array<{ principalType: string; principalId: string }>,
+): Promise<Map<string, string>> {
+  const orgIds = Array.from(
+    new Set(
+      shares
+        .filter((s) => s.principalType === "org" && s.principalId)
+        .map((s) => s.principalId),
+    ),
+  );
+  if (!orgIds.length) return new Map();
+
+  try {
+    const rows = await db
+      .select({ id: organizations.id, name: organizations.name })
+      .from(organizations)
+      .where(inArray(organizations.id, orgIds));
+    return new Map(
+      rows.flatMap(
+        (row: {
+          id?: string | null;
+          name?: string | null;
+        }): Array<[string, string]> => {
+          if (typeof row.id !== "string" || typeof row.name !== "string") {
+            return [];
+          }
+          const name = row.name.trim();
+          return name ? [[row.id, name]] : [];
+        },
+      ),
+    );
+  } catch {
+    // Some templates or older local databases may not have org tables yet.
+    return new Map();
+  }
+}
 
 export default defineAction({
   description:
@@ -30,6 +69,7 @@ export default defineAction({
       .select()
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
+    const orgDisplayNames = await loadOrgDisplayNames(db, shares);
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
@@ -40,6 +80,10 @@ export default defineAction({
         id: s.id,
         principalType: s.principalType,
         principalId: s.principalId,
+        displayName:
+          s.principalType === "org"
+            ? orgDisplayNames.get(s.principalId)
+            : undefined,
         role: s.role,
         createdAt: s.createdAt,
       })),

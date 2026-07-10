@@ -1,4 +1,5 @@
 import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import type {
   CalendarEvent,
   FindTimeSlot,
@@ -90,11 +91,37 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
-import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
+import {
+  createEventDetailPopoverToken,
+  markPopoverInteractOutside,
+  setEventDetailPopoverOpen,
+} from "@/lib/popover-click-guard";
 import { shortcutModifierLabel } from "@/lib/utils";
 
 const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
 const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
+
+function buildEventDetailSlotContext(event: CalendarEvent) {
+  return {
+    eventId: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    startTimeZone: event.startTimeZone,
+    endTimeZone: event.endTimeZone,
+    location: event.location,
+    accountEmail: event.accountEmail,
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      email: attendee.email,
+      displayName: attendee.displayName,
+      responseStatus: attendee.responseStatus,
+      organizer: attendee.organizer,
+      optional: attendee.optional,
+      timeZone: attendee.timeZone,
+      self: attendee.self,
+    })),
+  };
+}
 
 function getStoredZoomAfterConnectEventId(): string | null {
   if (typeof window === "undefined") return null;
@@ -408,6 +435,10 @@ export function EventDetailPopover({
   const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
   const isNewEventRef = useRef(defaultOpen);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const popoverTokenRef = useRef<symbol | null>(null);
+  if (!popoverTokenRef.current) {
+    popoverTokenRef.current = createEventDetailPopoverToken();
+  }
   const {
     eventDetailSidebar,
     setEventDetailSidebar,
@@ -1195,13 +1226,18 @@ export function EventDetailPopover({
     ],
   );
 
+  const popoverOpen =
+    eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
+
+  useEffect(() => {
+    const token = popoverTokenRef.current;
+    if (!token) return;
+    setEventDetailPopoverOpen(token, popoverOpen);
+    return () => setEventDetailPopoverOpen(token, false);
+  }, [popoverOpen]);
+
   return (
-    <Popover
-      open={
-        eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open
-      }
-      onOpenChange={handleOpenChange}
-    >
+    <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild onClick={handleTriggerClick}>
         {children}
       </PopoverTrigger>
@@ -1233,7 +1269,7 @@ export function EventDetailPopover({
             return;
           }
           // Mark that a popover was dismissed so the grid suppresses time-slot creation
-          markPopoverInteractOutside();
+          markPopoverInteractOutside(e.target);
         }}
       >
         <TooltipProvider>
@@ -1680,6 +1716,15 @@ export function EventDetailPopover({
                 </div>
               </>
             )}
+
+            <div className="mx-4 my-2 border-t border-border/50" />
+            <div className="px-4 py-1">
+              <ExtensionSlot
+                id="calendar.event-detail.bottom"
+                context={buildEventDetailSlotContext(event)}
+                showEmptyAffordance
+              />
+            </div>
 
             {/* Meeting link */}
             {meetingLink ? (

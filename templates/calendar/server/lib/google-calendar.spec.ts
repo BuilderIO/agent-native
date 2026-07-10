@@ -10,6 +10,7 @@ const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
+const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
@@ -47,7 +48,7 @@ vi.mock("./google-api.js", () => ({
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
-  calendarInsertEvent: vi.fn(),
+  calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: vi.fn(),
   calendarPatchEvent: calendarPatchEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
@@ -60,6 +61,7 @@ import {
   getClientsWithErrors,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
+  createEvent,
   listEvents,
   listOverlayEvents,
   rsvpEvent,
@@ -462,6 +464,71 @@ describe("calendar event listing", () => {
         displayName: "Host Person",
       },
     });
+  });
+});
+
+describe("calendar event creation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarInsertEventMock.mockResolvedValue({
+      id: "event-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("sends attendee RSVP statuses when creating an event", async () => {
+    await createEvent({
+      id: "",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-09T16:00:00.000Z",
+      end: "2026-07-09T16:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "steve@example.com",
+      attendees: [
+        {
+          email: "steve@example.com",
+          organizer: true,
+          self: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          responseStatus: "needsAction",
+        },
+      ],
+      createdAt: "2026-07-09T15:00:00.000Z",
+      updatedAt: "2026-07-09T15:00:00.000Z",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+          },
+          {
+            email: "guest@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+      }),
+      undefined,
+    );
   });
 });
 

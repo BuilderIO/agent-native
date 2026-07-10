@@ -1,3 +1,9 @@
+import {
+  attachLocalizedKeyboardShortcuts,
+  keyboardKeyLabels,
+  keyboardShortcutLabels,
+} from "../i18n-keyboard-shortcuts";
+
 const messages = {
   root: {
     commandActions: "操作",
@@ -256,6 +262,22 @@ const messages = {
       right: "正確的",
       justify: "證明合法",
     },
+    textDecorations: {
+      underline: "底線",
+      strikethrough: "刪除線",
+    },
+    textCases: {
+      none: "無",
+      uppercase: "大寫",
+      lowercase: "小寫",
+      capitalize: "單字首字母大寫",
+    },
+    typographyDetails: {
+      basicsTab: "基本",
+      detailsTab: "詳細資料",
+      decorationLabel: "文字裝飾",
+      caseLabel: "大小寫",
+    },
     flexDirections: {
       row: "排",
       column: "柱子",
@@ -322,6 +344,41 @@ const messages = {
   },
   designEditor: {
     askAgent: "詢問代理",
+    componentInstances: {
+      selectLayer: "選取圖層",
+      goToMain: "前往主要元件",
+      swap: "交換實例",
+      detach: "卸離實例",
+      searchComponents: "搜尋元件…",
+      loading: "載入中…",
+      noOtherComponents: "找不到其他元件",
+      goToMainUnavailable: "目前無法前往主要元件。",
+      onlyKnownInstance: "這是此元件唯一已知的實例。",
+      resolveMainFailed: "無法解析主要元件。",
+      detachFailed: "無法卸離此實例。",
+      detached: "實例已卸離。",
+      swapFailed: "無法交換此實例。",
+      swappedFor: "已交換為「{{name}}」。",
+      openPanelNudge: "請使用「元件」面板中的「交換實例」選擇器。",
+      openPanelFailed: "無法開啟元件面板。",
+    },
+    makeItRealCard: {
+      open: "開啟",
+      choose: "選擇",
+      connect: "連接",
+      generating: "生成中",
+      generate: "生成",
+      migrationFailed: "遷移失敗，請再試一次。",
+    },
+    componentProps: {
+      alpineTooComplexToEdit:
+        "無法安全地就地編輯此屬性——此元件的 Alpine 狀態過於複雜。請改為編輯原始碼。",
+      label: "屬性",
+    },
+    componentSource: {
+      editSource: "編輯元件原始碼",
+      needsConnectedApp: "跳轉原始碼需要連接應用程式",
+    },
     breakpointBar: {
       base: "基礎",
       editBaseWidth: "編輯基礎寬度",
@@ -427,6 +484,11 @@ const messages = {
       figmaPasteDescription:
         "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
       figmaPasteTarget: "貼到畫布",
+      figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
+      figmaPasteMatchGuidance:
+        "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+      figmaPasteRestLabel: "透過 Figma API 匯入",
+      figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
         "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -620,8 +682,11 @@ const messages = {
       "agent-structural-edit": "結構移動需要代理",
     },
     toasts: {
+      annotationSendError: "無法傳送註解。你的繪圖仍保留在這裡，請再試一次。",
       componentCreated: "元件已建立",
       componentCreateFailed: "無法建立元件",
+      tweakConflict: "調整已在其他地方變更。請重新整理設計後再試一次。",
+      tweakSaveNotDurable: "調整尚未儲存。請保持此分頁開啟並再試一次。",
       codingHandoffError: "無法建立編碼交接",
       codingHandoffCopied: "編碼交接已複製",
       clipboardBlocked: "剪貼簿被阻止",
@@ -634,11 +699,23 @@ const messages = {
       openScreenPng: "匯出 PNG 前請先開啟一個螢幕",
       pngCreateError: "無法建立 PNG 下載",
       pngDownloaded: "PNG 已下載",
+      pngCopied: "PNG 已複製到剪貼簿",
+      pngClipboardUnsupported: "此瀏覽器無法將 PNG 圖像複製到剪貼簿",
+      pngClipboardBlocked: "請允許存取剪貼簿以複製此 PNG",
+      pngClipboardWriteError: "無法將 PNG 複製到剪貼簿",
+      pngLivePreviewUnavailable: "URL 支援的畫面暫不支援 PNG 擷取",
+      pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
       svgExportError: "無法匯出 SVG",
+      figmaSvgCopied: "已複製為 Figma SVG",
+      figmaSvgUnsupported: "此瀏覽器無法將 SVG 圖像複製到剪貼簿",
+      figmaSvgBlocked: "請允許存取剪貼簿以複製此 SVG",
+      figmaSvgWriteError: "無法將 SVG 複製到剪貼簿",
+      figmaSvgRenderError: "無法建立 Figma SVG",
+      figmaSvgExportError: "無法匯出 Figma SVG",
       screenDuplicated: "畫面已複製",
       screenDuplicateError: "無法複製畫面",
       copied: "已複製",
@@ -648,6 +725,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      layerMoveRedirected: "已移至原位置附近——精確的放置目標無法編輯",
       duplicateElementFailed: "無法複製該元素",
       eyedropperUnsupported: "此瀏覽器不支援取色器",
       saveCopyError: "無法儲存這個設計的副本",
@@ -655,6 +733,8 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
+      reactSourceAnchorsLoading:
+        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
     },
   },
   layersPanel: {
@@ -691,6 +771,14 @@ const messages = {
     frameSelection: "將選取範圍建立畫框",
     flipHorizontal: "水平翻轉",
     flipVertical: "垂直翻轉",
+    dragGhostCount: "{{count}} 個圖層",
+  },
+  designCanvas: {
+    localBridge: {
+      confirmationRetryExhausted: "多次嘗試後，即時編輯器橋接器仍未確認連線。",
+      connectionNotConfirmed:
+        "即時編輯器橋接器未確認連線。本機開發伺服器是否仍在執行？",
+    },
   },
   multiScreenCanvas: {
     duplicate: "複製",
@@ -746,6 +834,8 @@ const messages = {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    failedToSubmitPrompt: "無法提交提示",
+    skipPrompt: "略過提示",
     designSystem: "Design系統",
     noDesignSystem: "沒有設計系統",
     newDesignSystem: "新",
@@ -774,8 +864,11 @@ const messages = {
     offline: "離線",
     saving: "儲存...",
     clearedAllAnnotations: "已清除所有批注",
+    annotationsDiscardedOnViewChange:
+      "離開此檢視畫面時，{{count}} 則未傳送的批注已被捨棄。",
     undo: "復原",
     send: "傳送",
+    sendingDrawing: "正在傳送…",
     commentSent: "評論已傳送",
     comment: "評論",
     annotationQueue: "註記佇列",
@@ -789,6 +882,9 @@ const messages = {
     nearText: "靠近「{{text}}」",
     submitShortcut: "{{mod}}+Enter 送出",
     queue: "排隊",
+    queuedCommentsDiscarded:
+      "{{count}} 個未傳送的評論草稿已在你離開此檢視時捨棄。",
+    staleAnchorDetail: "在畫布上已找不到原始元素。",
     pinStatus: {
       deterministic: {
         label: "確定性",
@@ -1075,4 +1171,8 @@ const messages = {
   },
 };
 
-export default messages;
+export default attachLocalizedKeyboardShortcuts(
+  messages,
+  keyboardShortcutLabels["zh-TW"],
+  keyboardKeyLabels["zh-TW"],
+);

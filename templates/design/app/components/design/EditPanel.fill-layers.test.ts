@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addFillLayerPatch,
+  removeBaseFillPatch,
+} from "./edit-panel/fill-gradient-helpers";
+import {
+  averageGradientOpacity,
+  defaultGradientStops,
   joinCssLayers,
+  parseGradientLayer,
   removeFillLayerAtIndex,
+  solidToGradientPatch,
   splitCssLayers,
 } from "./EditPanel";
 
@@ -125,6 +133,48 @@ describe("removeFillLayerAtIndex", () => {
   });
 });
 
+describe("solidToGradientPatch", () => {
+  it("solid to gradient converts instead of stacking", () => {
+    const patch = solidToGradientPatch("#FFFFFF", [], "linear");
+
+    // One real fill after the switch: the gradient replaces the solid
+    // (backgroundColor cleared) instead of stacking on top of it, which
+    // used to leave a phantom second row in the Fill panel.
+    expect(patch.backgroundColor).toBe("transparent");
+    expect(splitCssLayers(patch.backgroundImage)).toHaveLength(1);
+  });
+
+  it("prepends the gradient while preserving existing background layers", () => {
+    const patch = solidToGradientPatch("#FFFFFF", ["url(a.png)"], "linear");
+    const layers = splitCssLayers(patch.backgroundImage);
+
+    expect(layers).toHaveLength(2);
+    expect(layers[0]).toContain("linear-gradient(");
+    expect(layers[1]).toBe("url(a.png)");
+  });
+
+  it("phantom 50% fingerprint documented", () => {
+    // The default gradient fades the source color to alpha-0, so the fill
+    // row's average stop opacity reads (100 + 0) / 2 = 50%. That "Linear
+    // gradient 1  50%" row next to the still-alive solid row was the visible
+    // fingerprint of the stacking bug this patch converts away.
+    expect(averageGradientOpacity(defaultGradientStops("#FFFFFF"))).toBe(50);
+  });
+
+  it("round-trips the original color out of the gradient's first stop", () => {
+    const patch = solidToGradientPatch("#FF0000", [], "linear");
+    const [gradientLayer] = splitCssLayers(patch.backgroundImage);
+    const gradient = parseGradientLayer(gradientLayer || "");
+
+    // Switching back to solid recovers the pre-gradient color from the
+    // first stop (the panel's solid branch prefers it over the now-
+    // "transparent" backgroundColor, which would otherwise fall back to
+    // black).
+    expect(gradient?.stops[0]?.color).toBe("#ff0000");
+    expect(gradient?.stops[0]?.opacity).toBe(100);
+  });
+});
+
 describe("splitCssLayers / joinCssLayers round-trip (sanity for the arrays above)", () => {
   it("splits comma-separated layers while respecting parens", () => {
     expect(
@@ -140,5 +190,81 @@ describe("splitCssLayers / joinCssLayers round-trip (sanity for the arrays above
 
   it("joins an empty array back to the CSS 'none' sentinel", () => {
     expect(joinCssLayers([])).toBe("none");
+  });
+});
+
+describe("addFillLayerPatch", () => {
+  it("reveals the hidden base solid when there is truly no fill at all", () => {
+    const patch = addFillLayerPatch({
+      backgroundColor: "transparent",
+      backgroundLayers: [],
+      backgroundSizeLayers: [],
+      backgroundRepeatLayers: [],
+      backgroundPositionLayers: [],
+    });
+
+    expect(patch).toEqual({ backgroundColor: "#ffffff" });
+  });
+
+  it("adds a new layer instead of un-hiding the base solid when layers already exist", () => {
+    // Regression: after switching solid -> gradient (solidToGradientPatch
+    // clears backgroundColor to "transparent"), clicking "+" again used to
+    // just un-hide the base solid instead of stacking a new layer — the
+    // opposite of "+", and it reintroduced the exact phantom-fill problem
+    // solidToGradientPatch exists to avoid.
+    const patch = addFillLayerPatch({
+      backgroundColor: "transparent",
+      backgroundLayers: ["linear-gradient(90deg, red, blue)"],
+      backgroundSizeLayers: ["auto"],
+      backgroundRepeatLayers: ["no-repeat"],
+      backgroundPositionLayers: ["0% 0%"],
+    });
+
+    expect(patch.backgroundColor).toBeUndefined();
+    const layers = splitCssLayers(patch.backgroundImage ?? "");
+    expect(layers).toHaveLength(2);
+    expect(layers[1]).toBe("linear-gradient(90deg, red, blue)");
+    expect(splitCssLayers(patch.backgroundSize ?? "")).toEqual([
+      "auto",
+      "auto",
+    ]);
+    expect(splitCssLayers(patch.backgroundRepeat ?? "")).toEqual([
+      "no-repeat",
+      "no-repeat",
+    ]);
+    expect(splitCssLayers(patch.backgroundPosition ?? "")).toEqual([
+      "0% 0%",
+      "0% 0%",
+    ]);
+  });
+
+  it("adds a layer on top of a visible base solid, keeping the solid", () => {
+    const patch = addFillLayerPatch({
+      backgroundColor: "#ff0000",
+      backgroundLayers: [],
+      backgroundSizeLayers: [],
+      backgroundRepeatLayers: [],
+      backgroundPositionLayers: [],
+    });
+
+    expect(patch.backgroundColor).toBeUndefined();
+    expect(splitCssLayers(patch.backgroundImage ?? "")).toHaveLength(1);
+  });
+});
+
+describe("removeBaseFillPatch", () => {
+  it("clears only the base color, never backgroundImage", () => {
+    // Regression: this used to also set backgroundImage: "none" whenever
+    // onStylesChange was available, silently deleting every other stacked
+    // gradient/image layer just from clicking the base fill row's remove
+    // button.
+    const patch = removeBaseFillPatch("backgroundColor");
+
+    expect(patch).toEqual({ backgroundColor: "transparent" });
+    expect(patch.backgroundImage).toBeUndefined();
+  });
+
+  it("clears the text color property for text fills", () => {
+    expect(removeBaseFillPatch("color")).toEqual({ color: "transparent" });
   });
 });

@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
@@ -12,7 +13,7 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
@@ -33,6 +34,28 @@ import {
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { cn } from "@/lib/utils";
+
+function buildEventDetailSlotContext(event: CalendarEvent) {
+  return {
+    eventId: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    startTimeZone: event.startTimeZone,
+    endTimeZone: event.endTimeZone,
+    location: event.location,
+    accountEmail: event.accountEmail,
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      email: attendee.email,
+      displayName: attendee.displayName,
+      responseStatus: attendee.responseStatus,
+      organizer: attendee.organizer,
+      optional: attendee.optional,
+      timeZone: attendee.timeZone,
+      self: attendee.self,
+    })),
+  };
+}
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -105,6 +128,10 @@ export function EventDetailPanel({
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
   const ownerLabel = event?.ownerName || event?.overlayEmail;
+  const eventDetailSlotContext = useMemo(
+    () => (event ? buildEventDetailSlotContext(event) : null),
+    [event],
+  );
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -459,6 +486,14 @@ export function EventDetailPanel({
                 {/* Research Meeting */}
                 {event.attendees && event.attendees.length > 0 && (
                   <ResearchMeetingButton event={event} />
+                )}
+
+                {eventDetailSlotContext && (
+                  <ExtensionSlot
+                    id="calendar.event-detail.bottom"
+                    context={eventDetailSlotContext}
+                    showEmptyAffordance
+                  />
                 )}
               </div>
 

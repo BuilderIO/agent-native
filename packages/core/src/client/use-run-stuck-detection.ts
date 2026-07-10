@@ -26,7 +26,7 @@ export interface RunStuckState {
   heartbeatAt: number | null;
   /** Milliseconds since `heartbeatAt`, computed against the server clock. */
   heartbeatSinceMs: number | null;
-  /** How the run was dispatched, e.g. foreground or background-processing. */
+  /** How the run was dispatched/continued, e.g. foreground-self-chain or background-processing. */
   dispatchMode: string | null;
 }
 
@@ -133,10 +133,13 @@ export function useRunStuckDetection({
             heartbeatAt != null ? nowMs - heartbeatAt : null;
           const dispatchMode =
             typeof data.dispatchMode === "string" ? data.dispatchMode : null;
-          // Background-dispatched runs get the wider threshold: the server's
-          // own recovery (150s no-progress backstop + chained continuations)
-          // must get its chance before the user sees a "stuck" affordance.
-          const effectiveThresholdMs = dispatchMode?.startsWith("background")
+          // Server-continued runs get the wider threshold: the server's own
+          // recovery (150s no-progress backstop + chained continuations) must
+          // get its chance before the user sees a "stuck" affordance.
+          const serverContinued =
+            dispatchMode === "foreground-self-chain" ||
+            dispatchMode?.startsWith("background") === true;
+          const effectiveThresholdMs = serverContinued
             ? backgroundStuckThresholdMs
             : stuckThresholdMs;
           const isStuck = Boolean(

@@ -33,7 +33,12 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "react-router",
   "vite",
 ] as const;
-const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
+const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@typescript/*"',
+  '"@sentry/*"',
+  "typescript",
+  "typescript-7",
+];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -1100,7 +1105,7 @@ function postProcessStandalone(
     updated = mergeWorkspaceYamlListItems(
       updated,
       "minimumReleaseAgeExclude",
-      SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES,
+      MINIMUM_RELEASE_AGE_EXCLUDES,
     );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
@@ -1159,7 +1164,7 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
       paths["@shared/*"] ??= ["./shared/*"];
     }
     // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
-    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
     // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
     // so never emit baseUrl into scaffolds.
     delete tsconfig.compilerOptions.baseUrl;

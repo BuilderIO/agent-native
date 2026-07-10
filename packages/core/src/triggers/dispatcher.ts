@@ -414,7 +414,7 @@ async function dispatchAgentic(
           (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
           engine.defaultModel;
         const model = normalizeModelForEngine(engine, modelCandidate);
-        await createThread(jobUserEmail, {
+        const thread = await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });
 
@@ -448,9 +448,11 @@ ${body}`;
         const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
         const events: AgentChatEvent[] = [];
+        let triggerUsage: Awaited<ReturnType<typeof runAgentLoop>> | null =
+          null;
 
         try {
-          await runAgentLoop({
+          triggerUsage = await runAgentLoop({
             engine,
             model,
             systemPrompt,
@@ -459,9 +461,35 @@ ${body}`;
             actions,
             send: (event) => events.push(event),
             signal: controller.signal,
+            threadId: thread.id,
           });
         } finally {
           clearTimeout(timeout);
+        }
+
+        if (
+          triggerUsage &&
+          (triggerUsage.inputTokens > 0 ||
+            triggerUsage.outputTokens > 0 ||
+            triggerUsage.cacheReadTokens > 0 ||
+            triggerUsage.cacheWriteTokens > 0)
+        ) {
+          try {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail: jobUserEmail,
+              inputTokens: triggerUsage.inputTokens,
+              outputTokens: triggerUsage.outputTokens,
+              cacheReadTokens: triggerUsage.cacheReadTokens,
+              cacheWriteTokens: triggerUsage.cacheWriteTokens,
+              model: triggerUsage.model,
+              label: `automation:${triggerName}`,
+              app: _deps!.appId,
+              refId: eventMeta.eventId,
+            });
+          } catch {
+            // Usage attribution must not break automation dispatch.
+          }
         }
 
         meta.lastStatus = "success";

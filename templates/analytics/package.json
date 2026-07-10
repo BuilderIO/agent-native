@@ -73,7 +73,6 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/three": "^0.176.0",
-    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
@@ -101,7 +100,8 @@
     "tailwindcss": "catalog:",
     "three": "^0.176.0",
     "tsx": "^4.20.3",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "vitest": "catalog:"
