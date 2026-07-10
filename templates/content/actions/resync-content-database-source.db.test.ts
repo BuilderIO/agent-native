@@ -73,9 +73,26 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         }
         if (
           model !== "collection-open-hydration-live" &&
-          model !== "collection-metadata-only"
+          model !== "collection-metadata-only" &&
+          model !== "collection-large-597"
         ) {
           return null;
+        }
+        if (model === "collection-large-597") {
+          const index = Number(entryId.replace("entry-large-", ""));
+          return {
+            id: entryId,
+            model,
+            title: `Large entry ${index}`,
+            urlPath: `/large-entry-${index}`,
+            updatedAt: "2026-02-01T00:00:00.000Z",
+            sourceValues: {
+              "data.title": `Large entry ${index}`,
+              "data.url": `/large-entry-${index}`,
+              [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index}`,
+              [BUILDER_CMS_BODY_CONTENT_KEY]: `Persisted body ${index}`,
+            },
+          };
         }
         const title =
           model === "collection-metadata-only"
@@ -172,6 +189,42 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               fetchedEntryCount: startOffset,
               hasMore: false,
               partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-large-597") {
+          const allEntries = Array.from({ length: 597 }, (_, index) => ({
+            id: `entry-large-${index + 1}`,
+            model,
+            title: `Large entry ${index + 1}`,
+            urlPath: `/large-entry-${index + 1}`,
+            updatedAt: "2026-02-01T00:00:00.000Z",
+            sourceValues: {
+              "data.title": `Large entry ${index + 1}`,
+              "data.url": `/large-entry-${index + 1}`,
+              [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index + 1}`,
+            },
+          }));
+          const startOffset = offset ?? 0;
+          const pageEntries = maxPages
+            ? allEntries.slice(startOffset, startOffset + 100)
+            : allEntries.slice(startOffset);
+          const nextOffset = startOffset + pageEntries.length;
+          const hasMore = nextOffset < allEntries.length;
+          return {
+            state: "live",
+            entries: pageEntries,
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: maxPages ? 500 : 10_000,
+              pageSize: 100,
+              startOffset,
+              nextOffset,
+              fetchedEntryCount: nextOffset,
+              hasMore,
+              partial: hasMore,
               readMode: "builder-api",
             },
           };
@@ -500,7 +553,7 @@ it("preserves an established source snapshot when Builder unexpectedly returns z
     ownerEmail: OWNER,
     databaseId: "db-suspicious-empty",
     documentId: "doc-suspicious-row",
-    bodyHydrationStatus: "hydrated",
+    bodyHydrationStatus: "hydrated" as const,
     createdAt,
     updatedAt: createdAt,
   });
@@ -852,6 +905,12 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       databaseId: "db-mapped-fields",
       name: "Topics",
       type: "multi_select",
+      optionsJson: JSON.stringify({
+        options: [
+          { id: "ai", name: "AI", color: "blue" },
+          { id: "cms", name: "CMS", color: "green" },
+        ],
+      }),
       createdAt: now,
       updatedAt: now,
     },
@@ -861,6 +920,12 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       databaseId: "db-mapped-fields",
       name: "Tags",
       type: "multi_select",
+      optionsJson: JSON.stringify({
+        options: [
+          { id: "agents", name: "Agents", color: "blue" },
+          { id: "content", name: "Content", color: "green" },
+        ],
+      }),
       createdAt: now,
       updatedAt: now,
     },
@@ -1012,12 +1077,44 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       ]),
     ),
   ).toMatchObject({
-    "prop-topics": ["AI", "CMS"],
-    "prop-tags": ["Agents", "Content"],
+    "prop-topics": ["ai", "cms"],
+    "prop-tags": ["agents", "content"],
     "prop-custom": "Arbitrary value",
     "prop-status-upper": "Editorial",
     "prop-status-lower": "published",
   });
+  const unchangedSnapshot = await getSnapshot(database, source.id);
+  expect(
+    unchangedSnapshot?.changeSets.filter(
+      (changeSet) => changeSet.direction === "outbound",
+    ),
+  ).toHaveLength(0);
+
+  await db
+    .update(schema.documentPropertyValues)
+    .set({ valueJson: JSON.stringify(["agents", "content", "local-edit"]) })
+    .where(
+      and(
+        eq(schema.documentPropertyValues.documentId, sourceRow.documentId),
+        eq(schema.documentPropertyValues.propertyId, "prop-tags"),
+      ),
+    );
+  const editedSnapshot = await getSnapshot(database, source.id);
+  expect(
+    editedSnapshot?.changeSets.filter(
+      (changeSet) => changeSet.direction === "outbound",
+    ),
+  ).toMatchObject([
+    {
+      fieldChanges: [
+        {
+          propertyId: "prop-tags",
+          currentValue: ["agents", "content"],
+          proposedValue: ["agents", "content", "local-edit"],
+        },
+      ],
+    },
+  ]);
   const statusFieldMappings = await db
     .select({
       id: schema.contentDatabaseSourceFields.id,
@@ -1751,6 +1848,155 @@ it("finishes a Builder continuation when optional model field metadata fails", a
   });
 
   builderReadMock.modelFieldsErrorFor = null;
+});
+
+it("continues a 597-row snapshot past offset 500 without pruning or restarting", async () => {
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = "2026-07-10T12:00:00.000Z";
+  const databaseId = "db-large-597";
+  const databaseDocumentId = "doc-db-large-597";
+  const sourceId = "source-large-597";
+  await db.insert(schema.documents).values({
+    id: databaseDocumentId,
+    ownerEmail: OWNER,
+    title: "Large database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocumentId,
+    title: "Large database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "Large Builder source",
+    sourceTable: "collection-large-597",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const persistedDocuments = Array.from({ length: 597 }, (_, index) => ({
+    id: `doc-large-${index + 1}`,
+    ownerEmail: OWNER,
+    parentId: databaseDocumentId,
+    title: `Large entry ${index + 1}`,
+    content: `Persisted body ${index + 1}`,
+    position: index,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const persistedItems = persistedDocuments.map((document, index) => ({
+    id: `item-large-${index + 1}`,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: document.id,
+    position: index,
+    bodyHydrationStatus: "hydrated" as const,
+    bodyHydrationVersion: `large-hash-${index + 1}:readable-native-images-v5`,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const persistedRows = persistedDocuments.map((document, index) => ({
+    id: `row-large-${index + 1}`,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: persistedItems[index]!.id,
+    documentId: document.id,
+    sourceRowId: `entry-large-${index + 1}`,
+    sourceQualifiedId: `builder-cms://collection-large-597/entry-large-${index + 1}`,
+    sourceDisplayKey: document.title,
+    sourceValuesJson: JSON.stringify({
+      "data.title": document.title,
+      "data.url": `/large-entry-${index + 1}`,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index + 1}`,
+    }),
+    provenance: "Builder CMS read adapter",
+    lastSourceUpdatedAt: "2026-02-01T00:00:00.000Z",
+    createdAt: now,
+    updatedAt: now,
+  }));
+  for (let start = 0; start < persistedDocuments.length; start += 100) {
+    await db
+      .insert(schema.documents)
+      .values(persistedDocuments.slice(start, start + 100));
+    await db
+      .insert(schema.contentDatabaseItems)
+      .values(persistedItems.slice(start, start + 100));
+    await db
+      .insert(schema.contentDatabaseSourceRows)
+      .values(persistedRows.slice(start, start + 100));
+  }
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const partialRowCounts: number[] = [];
+  for (let page = 0; page < 6; page += 1) {
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sourceId));
+    await resync({
+      database,
+      source,
+      now: `2026-07-10T12:0${page}:00.000Z`,
+    });
+    for (let drain = 0; drain < 4; drain += 1) {
+      const queuedBodies = await db
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+      if (queuedBodies.length === 0) break;
+      await hydrateQueuedBodies({ sourceId, limit: 50 });
+    }
+    const rows = await db
+      .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+    partialRowCounts.push(rows.length);
+    expect(rows.some((row) => row.sourceRowId === "entry-large-1")).toBe(true);
+    const queuedBodies = await db
+      .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+      .from(schema.contentDatabaseBodyHydrationQueue)
+      .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+    expect(queuedBodies).toHaveLength(0);
+  }
+
+  expect(partialRowCounts).toEqual([597, 597, 597, 597, 597, 597]);
+  expect(
+    builderReadMock.calls
+      .filter((call) => call.model === "collection-large-597")
+      .map((call) => call.offset),
+  ).toEqual([0, 100, 200, 300, 400, 500]);
+  const [finishedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  const metadata = JSON.parse(finishedSource.metadataJson ?? "{}");
+  expect(finishedSource.syncState).toBe("idle");
+  expect(finishedSource.lastError).toBeNull();
+  expect(metadata).toMatchObject({
+    lastReadFetchedEntryCount: 597,
+    lastReadNextOffset: 597,
+    lastReadHasMore: false,
+    lastReadPartial: false,
+    lastReadSuspiciousEmpty: false,
+    sourceFetchState: "idle",
+  });
+  expect(metadata.activeReadSourceRowIds).toBeUndefined();
+  const persistedChangeSets = await db
+    .select({ id: schema.contentDatabaseSourceChangeSets.id })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
+  expect(persistedChangeSets).toHaveLength(0);
 });
 
 it("materializes duplicate source rows with last value winning for new property values", async () => {

@@ -56,7 +56,7 @@ type BuilderMcpToolResult = {
 };
 
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
-const BUILDER_CMS_MAX_READ_LIMIT = 1000;
+const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
@@ -537,12 +537,10 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + contentEntries.length < limit;
+    contentEntries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
-    const pageLimit = readPageLimit(
-      limit - startOffset - contentEntries.length,
-    );
+    const pageLimit = readPageLimit(limit - contentEntries.length);
     const contentResult = await postBuilderMcp({
       endpoint,
       privateKey: args.privateKey,
@@ -575,10 +573,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageEntries,
     );
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit &&
-      appended > 0 &&
-      contentEntries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -595,7 +590,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         nextOffset: startOffset + contentEntries.length,
         fetchedEntryCount: startOffset + contentEntries.length,
         hasMore,
-        partial: hasMore && Boolean(args.maxPages),
+        partial: hasMore,
         readMode: "mcp",
       },
     };
@@ -617,7 +612,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         pageSize: BUILDER_CMS_PAGE_SIZE,
         startOffset,
         nextOffset: startOffset,
-        fetchedEntryCount: 0,
+        fetchedEntryCount: startOffset,
         hasMore: false,
         partial: false,
         readMode: "mcp",
@@ -732,11 +727,11 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + entries.length < limit;
+    entries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
     const pageUrl = new URL(url);
-    const pageLimit = readPageLimit(limit - startOffset - entries.length);
+    const pageLimit = readPageLimit(limit - entries.length);
     pageUrl.searchParams.set("limit", String(pageLimit));
     pageUrl.searchParams.set("offset", String(offset));
 
@@ -793,8 +788,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit && appended > 0 && entries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -811,7 +805,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       nextOffset: startOffset + entries.length,
       fetchedEntryCount: startOffset + entries.length,
       hasMore,
-      partial: hasMore && Boolean(args.maxPages),
+      partial: hasMore,
       readMode: "builder-api",
     },
   };
