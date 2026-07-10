@@ -490,14 +490,14 @@ POST /_agent-native/integrations/telegram/setup
 
 ### Environment variables {#env-vars}
 
-| Platform        | Required                                                                                                                    | Optional                                              |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Slack           | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                                                   | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
-| Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`                            | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
-| Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                                              | —                                                     |
-| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                                             | —                                                     |
-| Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                                                   | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
-| WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`                        | —                                                     |
+| Platform        | Required                                                                                            | Optional                                              |
+| --------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack           | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                                           | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| Microsoft Teams | `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`      | `MICROSOFT_TEAMS_APP_TENANT_ID`                       |
+| Discord         | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`                                                      | —                                                     |
+| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`                                                     | —                                                     |
+| Email           | `EMAIL_AGENT_ADDRESS`, plus one of `RESEND_API_KEY` or `SENDGRID_API_KEY`                           | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp        | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET` | —                                                     |
 
 Integration credentials resolve from the integration owner's scoped secrets first (user, org, then workspace), with deployment env vars available as a local or deliberate single-tenant fallback. The setup UI saves scoped secrets; use deployment configuration only when you intentionally want one shared integration identity. Values are never returned to the browser or stored in source code.
 

@@ -19,8 +19,8 @@ import {
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
-import { emailAdapter } from "./adapters/email.js";
 import { discordAdapter } from "./adapters/discord.js";
+import { emailAdapter } from "./adapters/email.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
 import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";

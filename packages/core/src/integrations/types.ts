@@ -235,10 +235,7 @@ export function assertPlatformCapability(
   capability: keyof PlatformAdapterCapabilities,
 ): void {
   if (adapter.capabilities?.[capability] !== true) {
-    throw new UnsupportedPlatformCapabilityError(
-      adapter.platform,
-      capability,
-    );
+    throw new UnsupportedPlatformCapabilityError(adapter.platform, capability);
   }
 }
 

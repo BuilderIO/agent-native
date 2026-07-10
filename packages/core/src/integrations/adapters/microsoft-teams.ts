@@ -123,9 +123,10 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
       }
 
       const tenantId = teamsTenantId(activity);
-      return isAllowedTenant(tenantId, await resolveSecret(
-        "MICROSOFT_TEAMS_ALLOWED_TENANT_IDS",
-      ));
+      return isAllowedTenant(
+        tenantId,
+        await resolveSecret("MICROSOFT_TEAMS_ALLOWED_TENANT_IDS"),
+      );
     },
 
     async parseIncomingMessage(
@@ -203,9 +204,7 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
       const serviceUrl = normalizeServiceUrl(
         context.platformContext.serviceUrl,
       );
-      const conversationId = readString(
-        context.platformContext.conversationId,
-      );
+      const conversationId = readString(context.platformContext.conversationId);
       const activityId =
         context.replyRef ??
         readString(context.platformContext.activityId) ??
@@ -339,9 +338,7 @@ async function readRawBodyCached(event: H3Event): Promise<string> {
 function parseActivity(raw: string): TeamsActivity | null {
   try {
     const value = JSON.parse(raw);
-    return value && typeof value === "object"
-      ? (value as TeamsActivity)
-      : null;
+    return value && typeof value === "object" ? (value as TeamsActivity) : null;
   } catch {
     return null;
   }

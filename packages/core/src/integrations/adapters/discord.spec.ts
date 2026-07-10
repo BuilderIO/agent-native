@@ -67,10 +67,7 @@ describe("discordAdapter", () => {
       Buffer.from(keyPair.publicKey).toString("hex"),
     );
     headers.set("x-signature-timestamp", timestamp);
-    headers.set(
-      "x-signature-ed25519",
-      Buffer.from(signature).toString("hex"),
-    );
+    headers.set("x-signature-ed25519", Buffer.from(signature).toString("hex"));
 
     await expect(
       discordAdapter().verifyWebhook(eventWithRaw(raw)),

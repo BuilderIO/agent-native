@@ -10,9 +10,7 @@ vi.mock("h3", async (importOriginal) => {
   return {
     ...actual,
     getHeader: vi.fn((_event: unknown, name: string) =>
-      name.toLowerCase() === "authorization"
-        ? state.authorization
-        : undefined,
+      name.toLowerCase() === "authorization" ? state.authorization : undefined,
     ),
     readRawBody: vi.fn(async (event: any) => event.context.__rawBody),
   };
@@ -86,9 +84,9 @@ describe("microsoftTeamsAdapter", () => {
   it("uses the official Bot Framework verifier and rejects failed JWT validation", async () => {
     const event = eventWithActivity(messageActivity());
 
-    await expect(
-      microsoftTeamsAdapter().verifyWebhook(event),
-    ).resolves.toBe(true);
+    await expect(microsoftTeamsAdapter().verifyWebhook(event)).resolves.toBe(
+      true,
+    );
     expect(state.authenticateRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         channelId: "msteams",
@@ -103,9 +101,9 @@ describe("microsoftTeamsAdapter", () => {
     );
 
     state.authenticateRequest.mockRejectedValueOnce(new Error("invalid"));
-    await expect(
-      microsoftTeamsAdapter().verifyWebhook(event),
-    ).resolves.toBe(false);
+    await expect(microsoftTeamsAdapter().verifyWebhook(event)).resolves.toBe(
+      false,
+    );
   });
 
   it("fails closed for a Teams tenant outside the allowlist", async () => {
@@ -144,14 +142,15 @@ describe("microsoftTeamsAdapter", () => {
   });
 
   it("obtains and caches Bot Framework access tokens", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          access_token: "access-token-example",
-          expires_in: 3600,
-        }),
-        { status: 200 },
-      ),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "access-token-example",
+            expires_in: 3600,
+          }),
+          { status: 200 },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -204,9 +203,7 @@ describe("microsoftTeamsAdapter", () => {
       incoming!,
     );
 
-    const reply = calls.find((call) =>
-      call.url.includes("/v3/conversations/"),
-    );
+    const reply = calls.find((call) => call.url.includes("/v3/conversations/"));
     expect(reply?.url).toBe(
       "https://smba.trafficmanager.net/amer/v3/conversations/conversation-example/activities/activity-example",
     );

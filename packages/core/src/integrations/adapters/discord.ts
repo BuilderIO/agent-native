@@ -319,7 +319,9 @@ async function discordWebhookFetch(
     }),
   });
   if (!response.ok) {
-    throw new Error(`Discord interaction response failed (HTTP ${response.status})`);
+    throw new Error(
+      `Discord interaction response failed (HTTP ${response.status})`,
+    );
   }
 }
 

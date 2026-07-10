@@ -402,7 +402,9 @@ describe("whatsappAdapter sendResponse", () => {
       "fetch",
       vi.fn((_url: string, init?: RequestInit) => {
         body = JSON.parse(String(init?.body));
-        return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify({}), { status: 200 }),
+        );
       }),
     );
 
