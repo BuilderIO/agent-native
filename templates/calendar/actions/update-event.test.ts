@@ -125,14 +125,16 @@ describe("update-event working locations", () => {
   it("replaces one recurring working-location instance with a single-day override", async () => {
     getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
 
-    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-      action.run({
-        id: "google-instance-20260707",
-        workingLocationType: "homeOffice",
-        workingLocationLabel: "",
-        location: "",
-        scope: "single",
-      }),
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          workingLocationLabel: "",
+          location: "",
+          scope: "single",
+        }),
     );
 
     expect(createEventMock).toHaveBeenCalledWith(
@@ -157,6 +159,43 @@ describe("update-event working locations", () => {
       { scope: "single" },
     );
     expect(updateEventMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: "google-working-location-override",
+      replacedId: "google-instance-20260707",
+    });
+  });
+
+  it("sends time-only working-location edits as complete status events", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-instance-20260707",
+        start: "2026-07-08",
+        end: "2026-07-09",
+        allDay: true,
+        scope: "single",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "instance-20260707",
+      expect.objectContaining({
+        eventType: "workingLocation",
+        start: "2026-07-08",
+        end: "2026-07-09",
+        allDay: true,
+        transparency: "transparent",
+        visibility: "public",
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57", buildingId: "nyc" },
+        },
+      }),
+      expect.objectContaining({ scope: "single" }),
+    );
+    expect(createEventMock).not.toHaveBeenCalled();
+    expect(deleteEventMock).not.toHaveBeenCalled();
   });
 
   it("removes the replacement if cancelling the recurring instance fails", async () => {

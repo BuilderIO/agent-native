@@ -306,6 +306,17 @@ export default defineAction({
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,
       });
+      if (
+        existingEvent.eventType === "workingLocation" &&
+        existingEvent.workingLocationProperties
+      ) {
+        Object.assign(updates, {
+          eventType: "workingLocation" as const,
+          transparency: "transparent" as const,
+          visibility: "public" as const,
+          workingLocationProperties: existingEvent.workingLocationProperties,
+        });
+      }
     }
 
     if (hasWorkingLocationPatch) {
@@ -530,6 +541,9 @@ export default defineAction({
     return {
       success: true,
       id: `google-${returnedGoogleEventId}`,
+      ...(returnedGoogleEventId !== googleEventId
+        ? { replacedId: `google-${googleEventId}` }
+        : {}),
       accountEmail,
       updated: updatedKeys,
       htmlLink: result.htmlLink,

@@ -74,6 +74,7 @@ import {
   useUpdateEvent,
   useDeleteEvent,
   useRsvpEvent,
+  findEventByCurrentOrReplacedId,
   prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
@@ -729,15 +730,28 @@ export default function CalendarView() {
     ],
   );
 
+  useEffect(() => {
+    if (sidebarEvent) {
+      const rebound = findEventByCurrentOrReplacedId(events, sidebarEvent.id);
+      if (rebound && rebound.id !== sidebarEvent.id) setSidebarEvent(rebound);
+    }
+    if (focusedEvent) {
+      const rebound = findEventByCurrentOrReplacedId(events, focusedEvent.id);
+      if (rebound && rebound.id !== focusedEvent.id) setFocusedEvent(rebound);
+    }
+  }, [events, focusedEvent, setFocusedEvent, setSidebarEvent, sidebarEvent]);
+
   const selectedEvent = useMemo(() => {
     const candidate = sidebarEvent ?? focusedEvent;
     if (!candidate) return null;
-    return events.find((event) => event.id === candidate.id) ?? candidate;
+    return findEventByCurrentOrReplacedId(events, candidate.id) ?? candidate;
   }, [events, sidebarEvent, focusedEvent]);
 
   const refreshedSidebarEvent = useMemo(() => {
     if (!sidebarEvent) return null;
-    return events.find((event) => event.id === sidebarEvent.id) ?? sidebarEvent;
+    return (
+      findEventByCurrentOrReplacedId(events, sidebarEvent.id) ?? sidebarEvent
+    );
   }, [events, sidebarEvent]);
 
   function handleNavigate(direction: "prev" | "next") {

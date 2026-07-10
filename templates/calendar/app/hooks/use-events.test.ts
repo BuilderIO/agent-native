@@ -8,7 +8,9 @@ import {
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
 import {
+  findEventByCurrentOrReplacedId,
   mergeAttendeeLists,
+  reconcileUpdatedEventList,
   shouldDeferOptimisticEventUpdate,
   shouldShowEventsSkeleton,
 } from "./use-events";
@@ -368,5 +370,32 @@ describe("shouldDeferOptimisticEventUpdate", () => {
     expect(shouldDeferOptimisticEventUpdate(calendarEvent(), false)).toBe(
       false,
     );
+  });
+});
+
+describe("reconcileUpdatedEventList", () => {
+  it("rebinds a replaced working-location occurrence to its new id", () => {
+    const original = calendarEvent({
+      id: "google-instance-20260707",
+      eventType: "workingLocation",
+      accountEmail: "owner@example.com",
+    });
+
+    const reconciled = reconcileUpdatedEventList([original], original.id, {
+      id: "google-working-location-override",
+      replacedId: original.id,
+      accountEmail: "owner@example.com",
+    });
+
+    expect(reconciled).toEqual([
+      expect.objectContaining({
+        id: "google-working-location-override",
+        _replacedId: "google-instance-20260707",
+        accountEmail: "owner@example.com",
+      }),
+    ]);
+    expect(
+      findEventByCurrentOrReplacedId(reconciled ?? [], original.id),
+    ).toMatchObject({ id: "google-working-location-override" });
   });
 });
