@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
+  getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
@@ -29,6 +30,31 @@ describe("responsive overview group layout", () => {
     expect(fourth.y).toBeGreaterThanOrEqual(
       first.y + firstGroup.height + 28 + 56,
     );
+  });
+
+  it("culls against the complete responsive row, not only its primary frame", () => {
+    const primary = { x: 100, y: 200, width: 320, height: 200 };
+    const group = getResponsiveScreenCullGeometry(screens[0]!, primary);
+    const size = getResponsiveScreenGroupSize(screens[0]!, primary);
+
+    expect(group).toMatchObject({ x: 100, y: 200, rotation: undefined });
+    expect(group.width).toBe(size.width);
+    expect(group.height).toBe(size.height);
+    expect(group.width).toBeGreaterThan(primary.width);
+  });
+
+  it("returns a conservative AABB for a responsive row rotated around its primary", () => {
+    const group = getResponsiveScreenCullGeometry(screens[0]!, {
+      x: 100,
+      y: 200,
+      width: 320,
+      height: 200,
+      rotation: 90,
+    });
+
+    expect(group.rotation).toBeUndefined();
+    expect(group.width).toBeGreaterThanOrEqual(200);
+    expect(group.height).toBeGreaterThan(320);
   });
 
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {
@@ -102,6 +128,54 @@ describe("responsive overview group layout", () => {
       persistedGeometryById: custom,
     });
     expect(result.next["variation-2"]).toEqual(custom["variation-2"]);
+    expect(result.shouldNotifyParent).toBe(false);
+  });
+
+  it("stacks multiple untouched generated variation groups without overlap", () => {
+    const grouped = screens.map((screen, index) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: index < 2 ? "set-1" : "set-2",
+    }));
+    const legacy = {
+      "variation-1": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-2": { x: 1376, y: 0, width: 1280, height: 900 },
+      "variation-3": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-4": { x: 1376, y: 0, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: grouped,
+      currentGeometryById: legacy,
+      persistedGeometryById: legacy,
+    });
+    const firstGroupBottom = Math.max(
+      result.next["variation-1"]!.y +
+        getResponsiveScreenGroupSize(grouped[0]!, legacy["variation-1"]).height,
+      result.next["variation-2"]!.y +
+        getResponsiveScreenGroupSize(grouped[1]!, legacy["variation-2"]).height,
+    );
+    expect(result.next["variation-3"]!.y).toBeGreaterThan(firstGroupBottom);
+    expect(result.next["variation-4"]!.y).toBeGreaterThan(firstGroupBottom);
+  });
+
+  it("preserves every frame in a generated group when any member was custom moved", () => {
+    const grouped = screens.slice(0, 2).map((screen) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: "set-1",
+    }));
+    const custom = {
+      "variation-1": { x: 400, y: 200, width: 1280, height: 900 },
+      "variation-2": { x: 1376, y: 0, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: grouped,
+      currentGeometryById: custom,
+      persistedGeometryById: custom,
+    });
+    expect(result.next).toEqual(custom);
     expect(result.shouldNotifyParent).toBe(false);
   });
 });

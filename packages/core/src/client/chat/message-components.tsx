@@ -843,7 +843,29 @@ export function shouldShowAssistantMessageFooter({
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
   const isStreaming = part.status?.type === "running";
-  return <ReasoningCell text={part.text} isStreaming={isStreaming} />;
+  // Time thinking client-side: record the moment streaming first starts and
+  // the moment it stops so the cell can show "Thought for Xs". Historical
+  // messages that were never observed streaming in this session never get a
+  // start time, so they correctly fall back to a plain "Thought" label.
+  const startedAtRef = useRef<number | null>(null);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (isStreaming) {
+      startedAtRef.current ??= Date.now();
+      return;
+    }
+    if (startedAtRef.current != null) {
+      setDurationMs(Date.now() - startedAtRef.current);
+      startedAtRef.current = null;
+    }
+  }, [isStreaming]);
+  return (
+    <ReasoningCell
+      text={part.text}
+      isStreaming={isStreaming}
+      durationMs={durationMs}
+    />
+  );
 }
 
 function groupAssistantWorkParts(part: {

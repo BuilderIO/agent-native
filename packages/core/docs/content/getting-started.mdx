@@ -59,9 +59,7 @@ An action is one typed operation your agent and UI can both call. Replace the
 starter `hello` action with the first real operation in your domain. This example
 analyzes form responses and returns a validated shape for a custom chat chart:
 
-<!-- prettier-ignore -->
-```ts
-// actions/analyze-responses.ts
+```ts filename="actions/analyze-responses.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -72,18 +70,23 @@ const responseChartResultSchema = z.object({
 
 export default defineAction({
   description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({ 
-    formId: z.string().default("demo") 
+  schema: z.object({
+    formId: z.string().default("demo"),
   }),
   outputSchema: responseChartResultSchema,
-  chatUI: { 
-    renderer: "responses.response-chart", 
-    title: "Response chart" 
+  chatUI: {
+    renderer: "responses.response-chart",
+    title: "Response chart",
   },
   readOnly: true,
   run: async ({ formId }) => ({
     title: `Responses for ${formId}`,
-    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+    points: [
+      { day: "Mon", responses: 12 },
+      { day: "Tue", responses: 18 },
+      { day: "Wed", responses: 24 },
+      { day: "Thu", responses: 21 },
+    ],
   }),
 });
 ```
@@ -108,9 +111,11 @@ The action above declares `outputSchema` and a product-specific
 into prose. Register a React component for that exact renderer id, for example
 by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
 
-<!-- prettier-ignore -->
 ```tsx
-import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
 
 type ResponseChartResult = {
   title: string;
@@ -125,8 +130,14 @@ function ResponseChart({ context }: ToolRendererProps) {
       <h3 className="text-sm font-medium">{result.title}</h3>
       <div className="mt-4 flex h-32 items-end gap-2">
         {result.points.map((point) => (
-          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
-            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+          <div
+            key={point.day}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-primary"
+              style={{ height: `${(point.responses / max) * 100}%` }}
+            />
             <span className="text-xs text-muted-foreground">{point.day}</span>
           </div>
         ))}
@@ -174,8 +185,7 @@ Inline chat is great for the first result. A real app needs durable data the
 agent can add, update, and revisit. Add a response-insights table in your schema
 and keep reads/writes behind actions:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
 export const responseInsights = table("response_insights", {
@@ -209,9 +219,7 @@ separate REST route just for the browser if an action is the operation.
 
 Now add a durable page for the data behind the chat result:
 
-<!-- prettier-ignore -->
-```tsx
-// app/routes/response-insights.tsx
+```tsx filename="app/routes/response-insights.tsx"
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 
 export default function ResponseInsightsRoute() {
@@ -224,10 +232,15 @@ export default function ResponseInsightsRoute() {
         <h1>Response insights</h1>
         <p>Insights the agent created from form responses.</p>
       </header>
-      <button onClick={() => createInsight.mutate({ formId: "demo" })}>Analyze demo form</button>
+      <button onClick={() => createInsight.mutate({ formId: "demo" })}>
+        Analyze demo form
+      </button>
       <section>
         {insights.data?.map((insight) => (
-          <article key={insight.id}><h2>{insight.title}</h2><p>{insight.summary}</p></article>
+          <article key={insight.id}>
+            <h2>{insight.title}</h2>
+            <p>{insight.summary}</p>
+          </article>
         ))}
       </section>
     </main>
@@ -286,7 +299,7 @@ framework pieces. If you are building a real analytics product, start from
 connect your providers, use the existing dashboards and agent actions, then
 customize the app from there.
 
-## Where to go next {#next}
+## What's next {#next}
 
 - **[Actions](/docs/actions)** — schemas, auth, approvals, hooks, and transport.
 - **[Native Chat UI](/docs/native-chat-ui)** — render action results as tables,

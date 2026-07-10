@@ -141,8 +141,7 @@ pnpm install
 
 Em seguida, defina a operação durável:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -496,12 +495,11 @@ Mantenha o contrato pequeno: defina operações duráveis como actions, retorne 
 resultados de widget quando o bate-papo precisa de UI rico e adicionar telas inteiras somente quando os usuários
 precisa navegar, comparar, configurar ou colaborar em objetos persistentes.
 
-## Documentos relacionados {#related-docs}
+## Próximos passos {#related-docs}
 
-- [Actions](/docs/actions) — defina a operação sem comando uma vez.
-- [Native Interface de chat](/docs/native-chat-ui) — renderiza os resultados da ação digitada no bate-papo.
-- [Drop-in Agent](/docs/drop-in-agent) — monte bate-papo, barra lateral ou superfícies de painel.
-- [Component API](/docs/components) — peças de bate-papo/compositor React de nível inferior.
-- [Embedding SDK](/docs/embedding-sdk) — adicione Agent-Native a um aplicativo existente.
-- [External Agents](/docs/external-agents) — conecta hosts compatíveis com MCP a um aplicativo.
-- [A2A Protocol](/docs/a2a-protocol) — liga para agentes de outros agentes.
+- [**Actions**](/docs/actions) — defina a operação uma vez; todas as superfícies acima chamam a mesma operação
+- [**Native Interface de chat**](/docs/native-chat-ui) — renderize resultados tipados como tabelas, gráficos e cartões no chat
+- [**Generative UI**](/docs/generative-ui) — gere UI em sandbox, transitória ou persistida, diretamente no chat
+- [**Automation-First Apps**](/docs/pure-agent-apps) — o padrão completo sem navegador para trabalhos, filas, scripts e agentes externos
+- [**External Agents**](/docs/external-agents) — conecte hosts compatíveis com MCP a um aplicativo
+- [**A2A Protocol**](/docs/a2a-protocol) — chame agentes de outros aplicativos Agent-Native

@@ -27,8 +27,10 @@ import React, {
 } from "react";
 
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   reasoningEffortLabel,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
 import type { VoiceContextPack } from "../../voice/index.js";
@@ -77,6 +79,7 @@ import type {
 } from "./types.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
+import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
@@ -867,9 +870,17 @@ export interface ComposerImageModelMenu {
   label?: string;
 }
 
+export function getComposerReasoningEffortOptions(
+  model: string,
+): ReasoningEffort[] {
+  return model === "auto"
+    ? ["low", "medium", "high", "xhigh", "max"]
+    : getReasoningEffortOptionsForModel(model);
+}
+
 function ModelSelector({
   model,
-  effort = "auto",
+  effort = DEFAULT_REASONING_EFFORT,
   engines,
   onChange,
   onEffortChange,
@@ -903,17 +914,8 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
-  const effortOptions =
-    model === "auto"
-      ? ([
-          "auto",
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max",
-        ] satisfies ReasoningEffort[])
-      : getReasoningEffortOptionsForModel(model);
+  const effortOptions = getComposerReasoningEffortOptions(model);
+  const selectedEffort = resolveReasoningEffortSelection(model, effort);
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -997,7 +999,7 @@ function ModelSelector({
           <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {reasoningEffortLabel(effort)}
+              · {reasoningEffortLabel(selectedEffort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1154,11 +1156,10 @@ function ModelSelector({
                       onChange(m, group.engine);
                       const nextOptions = getReasoningEffortOptionsForModel(m);
                       if (
-                        effort !== "auto" &&
                         nextOptions.length > 0 &&
-                        !nextOptions.includes(effort)
+                        !nextOptions.includes(selectedEffort)
                       ) {
-                        onEffortChange?.("auto");
+                        onEffortChange?.(DEFAULT_REASONING_EFFORT);
                       }
                       setOpen(false);
                     }}
@@ -1199,7 +1200,7 @@ function ModelSelector({
                 </span>
                 {!reasoningExpanded && (
                   <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {reasoningEffortLabel(effort)}
+                    {reasoningEffortLabel(selectedEffort)}
                   </span>
                 )}
               </button>
@@ -1215,7 +1216,7 @@ function ModelSelector({
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
                     {reasoningEffortLabel(option)}
                   </span>
-                  {option === effort && (
+                  {option === selectedEffort && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                   )}
                 </button>
@@ -2471,7 +2472,7 @@ export function TiptapComposer({
   }, [editor, disabled]);
 
   return (
-    <>
+    <RealtimeVoiceModeBoundary>
       <style>{`
         .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
           content: attr(data-placeholder);
@@ -2638,6 +2639,6 @@ export function TiptapComposer({
         onSelectCommand={handleSelectCommand}
         onClose={closePopover}
       />
-    </>
+    </RealtimeVoiceModeBoundary>
   );
 }

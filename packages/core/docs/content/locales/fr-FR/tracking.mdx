@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -349,5 +352,5 @@ Le framework suit également `builder connect clicked` à partir des CTA Connect
 ## Quelle est la prochaine étape
 
 - [**Actions**](/docs/actions) – d'où proviennent la plupart des appels de suivi
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` s'exécute dans le plugin core-routes au démarrage
-- [**Secrets**](/docs/security) : gérer les clés API pour les fournisseurs de suivi
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` s'exécute dans le plugin core-routes au démarrage
+- [**Sécurité — Gestion des secrets**](/docs/security#secrets) : gérer les clés API pour les fournisseurs de suivi

@@ -17,7 +17,7 @@ Um novo andaime `npx @agent-native/core@latest create` já vem com:
 - **Troca de organização** — a sessão rastreia a organização ativa (`session.orgId`) e a troca altera os dados que o usuário e o agente veem.
 - **Isolamento de dados por organização** — cada consulta tem como escopo automático a organização ativa.
 
-Se você estiver avaliando agente nativo para um CRM, rastreador de projeto, caixa de entrada de suporte ou qualquer ferramenta de equipe, a base multilocatário já está lá. Todos os modelos próprios são multilocatários. Consulte [Cloneable SaaS templates](/docs/cloneable-saas) para ver a lista.
+Se você estiver avaliando agente nativo para um CRM, rastreador de projeto, caixa de entrada de suporte ou qualquer ferramenta de equipe, a base multilocatário já está lá. Todos os modelos próprios são multilocatários. Consulte [Modelos](/docs/cloneable-saas) para ver a lista.
 
 <Diagram id="doc-block-nfti3p" title={"Associação e isolamento da organização"} summary={"Os usuários ingressam em organizações como owner/admin/member. Cada linha proprietária carrega o org_id do locatário que a possui e nenhuma linha vaza através do limite."}>
 
@@ -117,8 +117,8 @@ Os dados do locatário são isolados por uma coluna `org_id` (adicionada por `ow
 
 Este é o mesmo pipeline usado para escopo por usuário. Para a mecânica de nível SQL, o contrato `ownableColumns()` e os protetores `accessFilter`/`resolveAccess`/`assertAccess`, consulte [Security → Data Scoping](/docs/security#data-scoping) — a única fonte de verdade para o pipeline de escopo.
 
-## Documentos relacionados {#related}
+## Próximos passos {#related}
 
-- [Authentication](/docs/authentication#organizations) — sessões, provedores sociais e superfície de gerenciamento organizacional
-- [Security → Data Scoping](/docs/security#data-scoping) — Isolamento no nível SQL, contrato `ownableColumns()` e proteções de acesso
-- [Multi-App Workspace](/docs/multi-app-workspace) — hospeda vários aplicativos nativos de agente em um monorepo com autenticação compartilhada e RBAC
+- [**Authentication**](/docs/authentication#organizations) — sessões, provedores sociais e superfície de gerenciamento organizacional
+- [**Security — Data Scoping**](/docs/security#data-scoping) — isolamento no nível SQL, contrato `ownableColumns()` e proteções de acesso
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — hospede vários aplicativos Agent-Native em um monorepo com autenticação compartilhada e RBAC

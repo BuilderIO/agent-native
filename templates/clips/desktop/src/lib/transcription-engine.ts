@@ -152,8 +152,9 @@ export async function startTranscriptionEngine(opts: {
   captureSystem?: boolean;
   /**
    * Enable Apple's voice-processing input mode for the Whisper mic tap.
-   * Meeting and recording capture leave this off so Clips never adds a second
-   * VoIP processor beside Zoom, Meet, or Teams and changes their mic uplink.
+   * Meeting and recording capture leave this off at the renderer boundary.
+   * The native meeting runtime may allocate VoiceProcessingIO in bypass mode
+   * only when combined ScreenCaptureKit capture is unavailable or fails.
    */
   voiceProcessing?: boolean;
 }): Promise<TranscriptionEngine> {

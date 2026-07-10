@@ -6,11 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatModels } from "./use-chat-models.js";
 
-function ChatModelsProbe({ enabled }: { enabled: boolean }) {
-  const models = useChatModels({ enabled, storageKey: null });
+function ChatModelsProbe({
+  enabled,
+  storageKey = null,
+}: {
+  enabled: boolean;
+  storageKey?: string | null;
+}) {
+  const models = useChatModels({ enabled, storageKey });
   return (
     <button type="button" onClick={models.refreshEngines}>
-      {models.selectedModel}:{models.availableModels.length}
+      {models.selectedModel}:{models.selectedEffort}:
+      {models.availableModels.length}
     </button>
   );
 }
@@ -50,5 +57,33 @@ describe("useChatModels", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("defaults reasoning to medium", async () => {
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled={false} />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(":medium:");
+  });
+
+  it("migrates a persisted legacy auto selection to medium", async () => {
+    window.localStorage.setItem(
+      "legacy-reasoning-selection",
+      JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
+    );
+
+    await act(async () => {
+      root.render(
+        <ChatModelsProbe
+          enabled={false}
+          storageKey="legacy-reasoning-selection"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("claude-sonnet-5:medium:");
   });
 });

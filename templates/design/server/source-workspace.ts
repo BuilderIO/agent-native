@@ -8,7 +8,10 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
-import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
+import {
+  assertDesignHtmlEditIntegrity,
+  isDesignHtmlIntegrityError,
+} from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
@@ -367,7 +370,30 @@ export async function writeInlineSourceFile(args: {
         );
       }
       if (liveBeforeApply !== args.content) {
-        await applyText(args.file.id, args.content, "content", "agent");
+        try {
+          await applyText(args.file.id, args.content, "content", "agent", {
+            // A human artboard edit can reach the shared Y.Doc from another
+            // serverless process after the version check above. Validate the
+            // fully converged CRDT snapshot before core persists or broadcasts
+            // the agent diff so clients never observe a malformed intermediate
+            // document that is immediately rolled back below.
+            validateSnapshot: (snapshot) =>
+              assertDesignHtmlEditIntegrity({
+                previousContent: current.content,
+                nextContent: snapshot,
+                fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+              }),
+          });
+        } catch (error) {
+          if (!isDesignHtmlIntegrityError(error)) throw error;
+          // The caller's candidate already passed the integrity check above.
+          // A failure here therefore came from concurrent CRDT convergence,
+          // so surface it as a retryable conflict instead of blaming the edit
+          // with the invalid-HTML toast.
+          throw new SourceWorkspaceEditConflictError(
+            "Source file changed while the edit was being applied. Re-read the file and retry.",
+          );
+        }
       }
     } else {
       // No collab doc exists for this file yet. Without the write-lock this

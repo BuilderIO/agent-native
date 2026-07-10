@@ -7,7 +7,11 @@ description: "The workspace control plane: secrets vault, integration hub, cross
 
 Dispatch is the central app that sits in front of every other app in your workspace and handles secrets, integrations, messaging, and cross-app delegation. It is the **workspace control plane** — the single agent your team talks to, the single place credentials live, and the single router that decides which specialist app should handle a given request.
 
-> **Dispatch the template vs. `@agent-native/dispatch` the package.** This page covers the Dispatch app/template concept — what it does and why you'd want it. The `@agent-native/dispatch` npm package is the separately published runtime that bundles the Dispatch template's server logic (vault, integrations, destinations, scheduled jobs, and cross-app delegation) as a drop-in package for workspaces that extend it. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
+<Callout tone="info">
+
+**Dispatch the template vs. `@agent-native/dispatch` the package.** This page covers the Dispatch app/template concept — what it does and why you'd want it. The `@agent-native/dispatch` npm package is the separately published runtime that bundles the Dispatch template's server logic (vault, integrations, destinations, scheduled jobs, and cross-app delegation) as a drop-in package for workspaces that extend it. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
+
+</Callout>
 
 Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
 
@@ -261,7 +265,7 @@ Three short steps:
 
 Then add credentials to the vault and (optionally) author global workspace resources under **Resources**. Vault keys can still be synced or granted depending on access mode; All-app workspace resources are inherited automatically. If you need per-app secret isolation, switch the vault access setting to manual before granting individual apps.
 
-## See also {#see-also}
+## What's next {#whats-next}
 
 - [Dispatch template](/docs/template-dispatch) — the actual scaffolded app, with its full action catalog and agent guide
 - [Messaging](/docs/messaging) — connecting Slack, email, Telegram, WhatsApp

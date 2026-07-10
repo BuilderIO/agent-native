@@ -5,6 +5,7 @@ import path from "node:path";
 import type {
   AgentHarnessAdapter,
   AgentHarnessCapabilities,
+  AgentHarnessContinueInput,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
   AgentHarnessSession,
@@ -381,12 +382,16 @@ class AiSdkHarnessSession implements AgentHarnessSession {
     }
   }
 
-  async *continueTurn(): AsyncIterable<AgentHarnessEvent> {
+  async *continueTurn(
+    input: AgentHarnessContinueInput = {},
+  ): AsyncIterable<AgentHarnessEvent> {
     if (typeof this.agent.continueStream !== "function") {
       return;
     }
     const result = await this.agent.continueStream({
       session: this.nativeSession,
+      ...(input.approval ? { approval: input.approval } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
       for (const event of aiSdkHarnessPartToEvents(part)) {

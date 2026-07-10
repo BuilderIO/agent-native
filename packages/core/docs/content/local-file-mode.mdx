@@ -1,6 +1,6 @@
 ---
 title: "Local File Mode"
-description: "Run agent-native apps with local Markdown, MDX, and other repo files as the source of truth - including Obsidian-style MDX docs with custom components."
+description: "Run agent-native apps with local Markdown, MDX, and other repo files as the source of truth - including a repo-native MDX docs workflow with custom components."
 ---
 
 # Local File Mode
@@ -16,16 +16,16 @@ Content editor, and saving writes back to the selected file. The same files can
 also be edited by Codex, Claude Code, the Agent-Native sidebar agent, or a normal
 editor.
 
-For Content, this makes the product feel like open-source Obsidian for MDX:
-your docs live as files, while the app adds a visual editor, agent actions,
-shareable copies, and rich interactive MDX components.
+For Content, this makes the product a repo-native MDX docs tool: your docs
+live as files, while the app adds a visual editor, agent actions, shareable
+copies, and rich interactive MDX components.
 
 Use Local File Mode when you want a repo-first workflow:
 
 - a docs repo with `docs/*.mdx`
 - a blog with `blog/*.mdx`
 - resources such as positioning, messaging, or team notes in `resources/*.md`
-- a personal Obsidian-style knowledge base with a richer MDX editor
+- a personal knowledge base with a richer MDX editor
 - docs that need interactive custom MDX blocks generated from local React code
 - app artifacts that should be easy for coding agents to inspect and patch
 
@@ -276,8 +276,7 @@ install snippets, or framework-specific code blocks.
 
 For example, add an interactive component next to your content:
 
-```tsx
-// components/ImpactCounter.tsx
+```tsx filename="components/ImpactCounter.tsx"
 import { useState } from "react";
 
 export function ImpactCounter({
@@ -449,7 +448,7 @@ For v1, local extensions are intentionally conservative:
 - raw SQL helpers and external `extensionFetch` are disabled
 - slot targets are declared in `extension.json`, not installed through SQL
 
-This gives local workspaces an Obsidian-like plugin surface without letting an
+This gives local workspaces a lightweight plugin surface without letting an
 arbitrary repo file inherit every capability of a database-backed extension.
 
 ## How Apps Use It
@@ -523,3 +522,10 @@ AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
 Only set that for a trusted single-tenant deployment where everyone who can use
 the app is allowed to read and write the configured files. For normal hosted,
 multi-user apps, use database mode and SQL-backed sharing.
+
+## What's next
+
+- [**Database**](/docs/database) — the SQL-backed mode this page contrasts with
+- [**Sharing**](/docs/sharing) — the standard document-sharing model that database-mode copies use
+- [**Extensions**](/docs/extensions) — the SQL-backed extension model that local extensions intentionally simplify
+- [**Creating Templates**](/docs/creating-templates) — adopting the same local-artifact pattern in a new app

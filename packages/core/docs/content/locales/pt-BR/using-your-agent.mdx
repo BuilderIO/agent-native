@@ -92,20 +92,13 @@ Na maioria das vezes você orienta o agente digitando no chat. Duas coisas torna
 
 O agente não é um aplicativo separado que você acessa. Ele é fornecido como um punhado de componentes React – uma barra lateral, um painel bruto e uma chamada `sendToAgentChat()` – que você coloca em qualquer aplicativo. Renderize `<AgentSidebar>` para dar a cada tela um agente alternável ou conecte um botão para entregar uma tarefa específica ao chat em vez de executar uma chamada LLM única.
 
-→ [**Drop-in Agent**](/docs/drop-in-agent) — monte `<AgentPanel>`, `<AgentSidebar>` e `sendToAgentChat()` em qualquer aplicativo React.
-→ [**Agent Surfaces**](/docs/agent-surfaces) — escolha se o fluxo de trabalho deve ser headless, chat-first, incorporado ou um aplicativo completo.
-
 ## Você pode usar UI leve {#ui-light}
 
 Nem todo aplicativo precisa de um painel completo. Quando o agente _é_ o produto, você pode pular a maior parte do UI personalizado: abra o aplicativo, peça o que deseja e deixe o agente fazer o resto. O agente ainda tem sua superfície de gerenciamento (histórico, espaço de trabalho, configurações), mas a interação principal é a conversa, e não os cliques.
 
-→ [**Automation-First Apps**](/docs/pure-agent-apps) — apps sem navegador para jobs, filas, scripts e agents externos.
-
 ## Você coedita com ele {#you-co-edit}
 
 Quando você e o agente estão trabalhando no mesmo documento, vocês não se revezam. Com a colaboração em tempo real, as edições do agente são transmitidas junto com as suas — cursores ativos, sem substituições — da mesma forma que um colega de equipe faria. Você pode continuar digitando enquanto ele funciona e ele verá as alterações conforme elas acontecem.
-
-→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — edição colaborativa multiusuário com cursores ativos e edições de agente no mesmo documento.
 
 ## O que vem a seguir {#whats-next}
 

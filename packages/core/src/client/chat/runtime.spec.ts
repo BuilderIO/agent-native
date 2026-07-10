@@ -230,6 +230,17 @@ describe("createAgentNativeChatRuntime", () => {
   it("wraps the existing Agent Native chat endpoint and normalizes SSE events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
+        {
+          type: "thinking",
+          text: "Inspecting ",
+          partId: "reasoning-1",
+        },
+        {
+          type: "reasoning",
+          text: "the schema.",
+          partId: "reasoning-1",
+          signature: "sig-native",
+        },
         { type: "text", text: "Looking" },
         { type: "tool_start", id: "tool-1", tool: "list-forms", input: {} },
         {
@@ -238,6 +249,7 @@ describe("createAgentNativeChatRuntime", () => {
           tool: "list-forms",
           result: "ok",
         },
+        { type: "thinking", text: "Double-checking the result." },
         { type: "done" },
       ]),
     );
@@ -264,11 +276,46 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.map((event) => event.type)).toEqual([
       "message-start",
       "message-delta",
+      "message-delta",
+      "message-delta",
       "tool-start",
       "tool-done",
+      "message-delta",
       "message-done",
       "done",
     ]);
+    expect(events[1]).toMatchObject({
+      type: "message-delta",
+      delta: {
+        type: "reasoning",
+        text: "Inspecting ",
+        partId: "reasoning-1",
+      },
+    });
+    expect(events[2]).toMatchObject({
+      type: "message-delta",
+      delta: {
+        type: "reasoning",
+        text: "the schema.",
+        partId: "reasoning-1",
+        signature: "sig-native",
+      },
+    });
+    expect(events.at(-2)).toMatchObject({
+      type: "message-done",
+      message: {
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning-1",
+            text: "Inspecting the schema.",
+            signature: "sig-native",
+          },
+          { type: "text", text: "Looking" },
+          { type: "reasoning", text: "Double-checking the result." },
+        ],
+      },
+    });
   });
 });
 
@@ -291,7 +338,25 @@ describe("createAgentChatRuntimeAdapter", () => {
               yield {
                 type: "message-delta",
                 messageId: "m1",
+                delta: {
+                  type: "reasoning",
+                  text: "Inspecting ",
+                  partId: "reasoning-1",
+                },
+              };
+              yield {
+                type: "message-delta",
+                messageId: "m1",
                 delta: { type: "text", text: input.prompt ?? "" },
+              };
+              yield {
+                type: "message-delta",
+                messageId: "m1",
+                delta: {
+                  type: "reasoning",
+                  text: "the runtime.",
+                  partId: "reasoning-1",
+                },
               };
               yield {
                 type: "tool-start",
@@ -337,6 +402,7 @@ describe("createAgentChatRuntimeAdapter", () => {
 
     expect(results.at(-1)).toMatchObject({
       content: [
+        { type: "reasoning", text: "Inspecting the runtime." },
         { type: "text", text: "Show forms" },
         {
           type: "tool-call",

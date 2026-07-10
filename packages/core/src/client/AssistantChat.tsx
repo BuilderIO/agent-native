@@ -18,7 +18,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
   IconMessage,
   IconX,
-  IconPlayerStop,
+  IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
   IconRefresh,
@@ -1132,6 +1132,46 @@ export function resolveAssistantChatRunningStatusLabel({
   if (isAutoResuming) return "Resuming";
   if (isReconnecting && hasReconnectContent) return "Still working";
   return "Thinking";
+}
+
+function contentHasVisibleReasoning(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const candidate = part as { type?: unknown; text?: unknown };
+    return (
+      candidate.type === "reasoning" &&
+      typeof candidate.text === "string" &&
+      candidate.text.trim().length > 0
+    );
+  });
+}
+
+export function shouldShowGlobalRunningStatus({
+  showRunningInUI,
+  runningActivityLabel,
+  latestMessage,
+  reconnectContent,
+}: {
+  showRunningInUI: boolean;
+  runningActivityLabel: string | null | undefined;
+  latestMessage: unknown;
+  reconnectContent: readonly ContentPart[];
+}): boolean {
+  if (!showRunningInUI) return false;
+  if (runningActivityLabel) return true;
+
+  const message =
+    latestMessage && typeof latestMessage === "object"
+      ? (latestMessage as { role?: unknown; content?: unknown })
+      : null;
+  const latestMessageHasReasoning =
+    message?.role === "assistant" &&
+    contentHasVisibleReasoning(message.content);
+
+  return (
+    !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
+  );
 }
 
 type QueuedMessage = {
@@ -4192,6 +4232,12 @@ const AssistantChatInner = forwardRef<
   );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    latestMessage,
+    reconnectContent: visibleReconnectContent,
+  });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
@@ -4652,7 +4698,7 @@ const AssistantChatInner = forwardRef<
                                 />
                               </MessageScrollerItem>
                             )}
-                          {showRunningInUI && (
+                          {showGlobalRunningStatus && (
                             <MessageScrollerItem>
                               <RunningActivityStatus
                                 label={runningStatusLabel}
@@ -4882,6 +4928,7 @@ const AssistantChatInner = forwardRef<
                             providerConnectStatusEnabled={
                               providerStatusChecksEnabled
                             }
+                            voiceEnabled
                             draftScope={threadId || tabId}
                             interceptBuildRequestsForBuilder
                             onAttachmentError={setComposerError}
@@ -4900,13 +4947,14 @@ const AssistantChatInner = forwardRef<
                                         <button
                                           type="button"
                                           onClick={() => stopActiveRun()}
-                                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                                          aria-label="Stop response"
+                                          className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         >
-                                          <IconPlayerStop className="h-3.5 w-3.5" />
+                                          <IconPlayerStopFilled className="h-3 w-3" />
                                         </button>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        Stop generating
+                                        Stop response
                                       </TooltipContent>
                                     </Tooltip>
                                   )}

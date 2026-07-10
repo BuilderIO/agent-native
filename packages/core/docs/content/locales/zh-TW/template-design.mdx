@@ -11,7 +11,7 @@ Design 是一家 Agent-Native HTML 原型工作室。該代理不是分層繪圖
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>產品發布頁面</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>已生成 HTML 原型</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>讓 hero 更緊湊，CTA 更清晰。</span><div style='flex:1'></div><button class='primary'>應用修訂</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>產品發布頁面</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>透過 Agent-Native 更快發布</strong><span class='wf-muted' style='max-width:70%'>根據提示產生可運作的原型，然後就地完善。</span><button class='primary'>開始使用</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>讓 hero 更緊湊，CTA 更清晰。</span><div style='flex:1'></div><button class='primary'>應用修訂</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -133,6 +133,8 @@ pnpm dev
 ### 資料模型
 
 所有資料透過 Drizzle ORM 儲存在 SQL 中。架構：`templates/design/server/db/schema.ts`。設計和設計系統采用標準 `ownableColumns` 和匹配的框架共用表，因此它們可以插入每使用者/每組織共用模型。
+
+下表涵蓋可擁有的核心資源 — 設計、檔案、範本、版本和設計系統。同一架構中的另外七個資料表支援本文檔其他部分介紹的功能，而不是核心資源模型：`design_localhost_connections` 和 `design_localhost_write_grants`（localhost 來源模式）、`component_index`（元件索引）、`motion_timeline`（動效）、`design_state`（編輯器狀態快照）、`design_fusion_edits`（完整應用程式融合模式），以及 `design_review_snapshot`（審閱快照）。
 
 | 表                                       | 它包含什麼                                                                                                                       |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |

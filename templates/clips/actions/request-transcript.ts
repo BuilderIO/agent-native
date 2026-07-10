@@ -9,7 +9,8 @@
  *
  * Cloud fallback provider selection:
  *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
- *      proxy) when Builder is connected.
+ *      proxy) when Builder is connected; if that model is unavailable in the
+ *      deployment region, retry the Builder gateway's default model.
  *   2. `GROQ_API_KEY` → Groq's fast speech-to-text fallback.
  *   3. Neither → keep any native transcript or fail with a clear reason.
  *
@@ -88,6 +89,7 @@ import {
   normalizeProviderTranscript,
 } from "./lib/provider-transcript.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
 interface SpeechToTextSegment {
@@ -135,6 +137,49 @@ const MEDIA_FETCH_MAX_TIMEOUT_MS = 120_000;
 const MEDIA_FETCH_BASE_TIMEOUT_MS = 30_000;
 const MEDIA_FETCH_PER_50MB_MS = 10_000;
 const ESTIMATED_VIDEO_BYTES_PER_MINUTE = 5 * 1024 * 1024;
+
+function builderErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    return `${error.message} ${cause ? builderErrorText(cause) : ""}`.trim();
+  }
+  return String(error);
+}
+
+export function isBuilderModelAvailabilityError(error: unknown): boolean {
+  const message = builderErrorText(error).toLowerCase();
+  const identifiesModel =
+    message.includes("model") || message.includes("gemini");
+  const identifiesAvailability =
+    message.includes("not available") ||
+    message.includes("unavailable") ||
+    message.includes("unsupported") ||
+    message.includes("not supported") ||
+    message.includes("not found") ||
+    message.includes("region") ||
+    message.includes("location");
+  return identifiesModel && identifiesAvailability;
+}
+
+export async function transcribeWithBuilderModelFallback(
+  options: Omit<Parameters<typeof transcribeWithBuilder>[0], "model">,
+) {
+  try {
+    return await transcribeWithBuilder({
+      ...options,
+      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+    });
+  } catch (error) {
+    if (!isBuilderModelAvailabilityError(error)) throw error;
+    console.warn(
+      `[clips] Builder transcription model ${BUILDER_GEMINI_TRANSCRIPTION_MODEL} is unavailable; retrying the gateway default model.`,
+    );
+    // `model` is optional on the Builder transcription endpoint. Omitting it
+    // restores the gateway's region-aware default that Clips used before the
+    // explicit Gemini model was introduced.
+    return transcribeWithBuilder(options);
+  }
+}
 
 function clampTimeoutMs(value: number): number {
   return Math.max(
@@ -713,6 +758,39 @@ async function cleanupNativeTranscript({
   }
 }
 
+async function generateRecordingMetadata({
+  recordingId,
+  title,
+  titleSource,
+  description,
+  transcriptText,
+}: {
+  recordingId: string;
+  title: string | null | undefined;
+  titleSource: string | null | undefined;
+  description: string | null | undefined;
+  transcriptText: string;
+}): Promise<{ titleQueued: boolean; summaryQueued: boolean }> {
+  if (isAutoTitleReplaceable(title, titleSource)) {
+    await regenerateTitle.run({
+      recordingId,
+      transcriptText,
+      includeSummary: !description?.trim(),
+    });
+    return {
+      titleQueued: true,
+      summaryQueued: !description?.trim(),
+    };
+  }
+
+  if (!description?.trim()) {
+    await regenerateSummary.run({ recordingId });
+    return { titleQueued: false, summaryQueued: true };
+  }
+
+  return { titleQueued: false, summaryQueued: false };
+}
+
 async function completeReadyTranscript({
   db,
   recordingId,
@@ -734,12 +812,14 @@ async function completeReadyTranscript({
   provider: "existing" | "native";
   cleanupQueued: boolean;
   titleQueued: boolean;
+  summaryQueued: boolean;
   preserved?: true;
 }> {
   const [recForTitle] = await db
     .select({
       title: schema.recordings.title,
       titleSource: schema.recordings.titleSource,
+      description: schema.recordings.description,
       durationMs: schema.recordings.durationMs,
     })
     .from(schema.recordings)
@@ -774,7 +854,7 @@ async function completeReadyTranscript({
     }
   }
 
-  void cleanupNativeTranscript({
+  const cleanupPromise = cleanupNativeTranscript({
     db,
     recordingId,
     ownerEmail,
@@ -785,24 +865,47 @@ async function completeReadyTranscript({
       `[clips] native transcript cleanup failed for ${recordingId}:`,
       (err as Error)?.message ?? String(err),
     );
+    return { cleaned: false };
   });
 
-  const titleQueued = !!(
-    recForTitle &&
-    isAutoTitleReplaceable(recForTitle.title, recForTitle.titleSource)
-  );
-  if (titleQueued) {
-    void Promise.resolve(
-      regenerateTitle.run({
+  const metadataPromise = recForTitle
+    ? generateRecordingMetadata({
         recordingId,
+        title: recForTitle.title,
+        titleSource: recForTitle.titleSource,
+        description: recForTitle.description,
         transcriptText: fullText,
-      }),
-    ).catch((err: unknown) => {
-      console.warn(
-        `[clips] native-transcript title generation failed for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
+      }).catch((err: unknown) => {
+        console.warn(
+          `[clips] native-transcript metadata generation failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+        return { titleQueued: false, summaryQueued: false };
+      })
+    : Promise.resolve({ titleQueued: false, summaryQueued: false });
+
+  // Both calls are independent. Await them together so the durable worker stays
+  // alive without serially stacking two model-call timeouts.
+  const [cleanupResult, metadataResult] = await Promise.all([
+    cleanupPromise,
+    metadataPromise,
+  ]);
+
+  if (!recForTitle) {
+    console.warn(
+      `[clips] recording metadata generation skipped because ${recordingId} was not found`,
+    );
+  }
+
+  if (metadataResult.titleQueued) {
+    console.log(
+      `[clips] transcript-backed title generation completed or queued for ${recordingId}`,
+    );
+  }
+  if (metadataResult.summaryQueued) {
+    console.log(
+      `[clips] transcript-backed summary generation queued for ${recordingId}`,
+    );
   }
 
   // Wake the player polling so it picks up the queued cleanup state row
@@ -814,10 +917,11 @@ async function completeReadyTranscript({
   return {
     recordingId,
     status: "ready",
-    cleaned: false,
+    cleaned: cleanupResult.cleaned,
     provider: segmentsJson && segmentsJson !== "[]" ? "existing" : "native",
-    cleanupQueued: true,
-    titleQueued,
+    cleanupQueued: false,
+    titleQueued: metadataResult.titleQueued,
+    summaryQueued: metadataResult.summaryQueued,
     ...(preserved ? { preserved: true as const } : {}),
   };
 }
@@ -839,6 +943,7 @@ async function preserveReadyTranscriptIfAvailable({
   provider: "existing" | "native";
   cleanupQueued: boolean;
   titleQueued: boolean;
+  summaryQueued: boolean;
   preserved?: true;
 } | null> {
   const [current] = await db
@@ -1146,10 +1251,9 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilder({
+        const builderResult = await transcribeWithBuilderModelFallback({
           audioBytes: audioMedia.audioBytes,
           mimeType: audioMedia.mimeType,
-          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
           instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
           timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
@@ -1208,16 +1312,23 @@ const requestTranscriptAction = defineAction({
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
+            description: schema.recordings.description,
           })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
-        if (isAutoTitleReplaceable(freshRec?.title, freshRec?.titleSource)) {
+        if (freshRec) {
           try {
-            await regenerateTitle.run({ recordingId: args.recordingId });
+            await generateRecordingMetadata({
+              recordingId: args.recordingId,
+              title: freshRec.title,
+              titleSource: freshRec.titleSource,
+              description: freshRec.description,
+              transcriptText: fullText,
+            });
           } catch (delegateErr) {
             console.warn(
-              `[clips] auto-title delegation failed for ${args.recordingId}:`,
+              `[clips] automatic metadata generation failed for ${args.recordingId}:`,
               (delegateErr as Error).message,
             );
           }
@@ -1327,6 +1438,7 @@ const requestTranscriptAction = defineAction({
         durationMs: schema.recordings.durationMs,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -1455,23 +1567,22 @@ const requestTranscriptAction = defineAction({
       await writeAppState("refresh-signal", { ts: Date.now() });
       queueBrainExport(args.recordingId);
 
-      // Auto-title. The clip was just born with the default title and we now
-      // have a transcript to reason over. `regenerate-title` tries the fast
-      // media-pipeline path and only queues an agent fallback when appropriate,
-      // so Builder credit pauses stay paused instead of spawning another AI job.
-      // We intentionally skip this when the user (or agent) has already renamed
-      // the clip so we never clobber a human-authored title.
-      if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
-        try {
-          await regenerateTitle.run({ recordingId: args.recordingId });
-        } catch (delegateErr) {
-          // Non-fatal — a missing delegation just means the clip keeps its
-          // placeholder title until the user asks the agent to rename it.
-          console.warn(
-            `[clips] auto-title delegation failed for ${args.recordingId}:`,
-            (delegateErr as Error).message,
-          );
-        }
+      // Generate transcript-backed metadata without replacing a human title or
+      // description. The title action keeps any local heuristic replaceable
+      // while its agent refinement runs.
+      try {
+        await generateRecordingMetadata({
+          recordingId: args.recordingId,
+          title: rec.title,
+          titleSource: rec.titleSource,
+          description: rec.description,
+          transcriptText: fullText,
+        });
+      } catch (delegateErr) {
+        console.warn(
+          `[clips] automatic metadata generation failed for ${args.recordingId}:`,
+          (delegateErr as Error).message,
+        );
       }
 
       const elapsedMs = Date.now() - startedAt;

@@ -324,7 +324,7 @@ export function CodeProviderSettings({
     <div className="settings-provider-card">
       <div className="settings-provider-card-header">
         <div>
-          <span className="settings-mode-card-title">Code providers</span>
+          <span className="settings-mode-card-title">Agent runtimes</span>
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
@@ -344,7 +344,7 @@ export function CodeProviderSettings({
             {builderConnected
               ? builderProvider?.source === "environment"
                 ? "Connected through environment credentials."
-                : "Connected for Code chats."
+                : "Connected for Agent tasks."
               : "Free credits to start - no API key needed."}
           </span>
         </div>
@@ -392,7 +392,7 @@ export function CodeProviderSettings({
           <span className="settings-builder-title">Codex CLI</span>
           <span className="settings-builder-description">
             {codexConnected
-              ? `Using ${codexProvider?.label ?? "Codex CLI"} for Code chats.`
+              ? `Using ${codexProvider?.label ?? "Codex CLI"} for Agent tasks.`
               : codexAvailable
                 ? "Run codex login in Terminal; Desktop will pick up the local session."
                 : "Install the OpenAI Codex CLI, then run codex login in Terminal."}

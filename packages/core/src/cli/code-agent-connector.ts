@@ -3,6 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { assertValidComputerCommandEnvelope } from "../integrations/computer-supervision.js";
+import { serializeBoundedRemoteJson } from "../integrations/remote-json-safety.js";
+import type {
+  ComputerCommandEnvelope,
+  RemoteComputerCapabilities,
+} from "../integrations/remote-types.js";
 import {
   executeDenyCodeAgentApproval,
   executePendingCodeAgentApproval,
@@ -37,6 +43,12 @@ export interface RunCodeAgentConnectorOptions {
   once?: boolean;
 }
 
+export interface LocalComputerBridgeConfig {
+  url: string;
+  token: string;
+  capabilities: RemoteComputerCapabilities;
+}
+
 interface RemoteCommand {
   id: string;
   kind: string;
@@ -58,6 +70,9 @@ interface RunnerProcess {
 }
 
 const DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
+const COMPUTER_BRIDGE_URL_ENV = "AGENT_NATIVE_COMPUTER_BRIDGE_URL";
+const COMPUTER_BRIDGE_TOKEN_ENV = "AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN";
+const COMPUTER_CAPABILITIES_ENV = "AGENT_NATIVE_COMPUTER_CAPABILITIES";
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_INTERVAL_MS = 30_000;
 const MAX_TRANSCRIPT_EVENTS_PER_BATCH = 50;
@@ -144,6 +159,7 @@ class RemoteCodeAgentConnector {
   private readonly transcriptCursors = new Map<string, TranscriptCursor>();
   private readonly remoteRunIds = new Set<string>();
   private stopped = false;
+  private readonly computerBridge = loadLocalComputerBridgeConfig();
 
   constructor(
     private readonly config: RemoteCodeAgentDeviceConfig,
@@ -188,6 +204,13 @@ class RemoteCodeAgentConnector {
       }
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
+      if (this.computerBridge) {
+        await callLocalComputerBridgeTool(
+          this.computerBridge,
+          "computer_revoke_control",
+          { reason: "connector-stopped" },
+        ).catch(() => undefined);
+      }
     }
   }
 
@@ -206,6 +229,7 @@ class RemoteCodeAgentConnector {
           "status",
           "run-events",
         ],
+        computerCapabilities: this.computerBridge?.capabilities ?? {},
         activeRunIds: Array.from(this.remoteRunIds),
       },
     );
@@ -234,6 +258,8 @@ class RemoteCodeAgentConnector {
         return this.deny(command);
       case "stop":
         return this.stop(command);
+      case "computer-operation":
+        return this.computerOperation(command);
       case "status":
         return this.status(command);
       default:
@@ -242,6 +268,13 @@ class RemoteCodeAgentConnector {
           error: `Unsupported remote command kind: ${command.kind}`,
         };
     }
+  }
+
+  private async computerOperation(command: RemoteCommand) {
+    return dispatchComputerOperationToLocalBridge(
+      this.computerBridge,
+      command.params.envelope,
+    );
   }
 
   private createRun(command: RemoteCommand) {
@@ -398,11 +431,42 @@ class RemoteCodeAgentConnector {
     return { ok: true, runId, run: result ?? getCodeAgentRunRecord(runId) };
   }
 
-  private stop(command: RemoteCommand) {
+  private async stop(command: RemoteCommand) {
     const runId = firstStringValue(command.params.runId);
-    if (!runId) return { ok: false, error: "Missing runId." };
+    const taskId = firstStringValue(command.params.taskId);
+    let revokeError: string | undefined;
+    if (this.computerBridge) {
+      try {
+        await callLocalComputerBridgeTool(
+          this.computerBridge,
+          "computer_revoke_control",
+          { taskId, runId, reason: "remote-stop" },
+        );
+      } catch (error) {
+        revokeError = error instanceof Error ? error.message : String(error);
+      }
+    } else if (taskId || command.params.computer === true) {
+      revokeError = "Local authenticated computer bridge is unavailable.";
+    }
+    if (!runId) {
+      return taskId
+        ? {
+            ok: !revokeError,
+            taskId,
+            revoked: !revokeError,
+            error: revokeError,
+          }
+        : { ok: false, error: "Missing runId." };
+    }
     const run = getCodeAgentRunRecord(runId);
-    if (!run) return { ok: false, error: `Run not found: ${runId}` };
+    if (!run) {
+      return {
+        ok: !revokeError && Boolean(this.computerBridge),
+        runId,
+        revoked: !revokeError && Boolean(this.computerBridge),
+        error: revokeError ?? `Run not found: ${runId}`,
+      };
+    }
     const active = activeRunners.get(runId);
     const pid = active?.child.pid ?? Number(run.metadata?.runnerPid);
     let killed = false;
@@ -447,7 +511,14 @@ class RemoteCodeAgentConnector {
         stopError: killError,
       },
     });
-    return { ok: !killError, runId, run: updated, killed, error: killError };
+    return {
+      ok: !killError && !revokeError,
+      runId,
+      run: updated,
+      killed,
+      controlRevoked: !revokeError && Boolean(this.computerBridge),
+      error: revokeError ?? killError,
+    };
   }
 
   private status(command: RemoteCommand) {
@@ -562,14 +633,27 @@ class RemoteCodeAgentConnector {
     command: RemoteCommand,
     result: Record<string, unknown>,
   ) {
+    let safeResult: Record<string, unknown>;
+    try {
+      safeResult = boundedConnectorResult(result);
+    } catch (error) {
+      safeResult = {
+        ok: false,
+        error:
+          error instanceof Error
+            ? `Connector result rejected: ${error.message}`
+            : "Connector result rejected as unsafe.",
+      };
+    }
     await this.postJson("/_agent-native/integrations/remote/result", {
       deviceId: this.config.deviceId,
       commandId: command.id,
       kind: command.kind,
-      ok: result.ok !== false,
-      status: result.ok === false ? "failed" : "completed",
-      result,
-      errorMessage: typeof result.error === "string" ? result.error : undefined,
+      ok: safeResult.ok !== false,
+      status: safeResult.ok === false ? "failed" : "completed",
+      result: safeResult,
+      errorMessage:
+        typeof safeResult.error === "string" ? safeResult.error : undefined,
     });
   }
 
@@ -794,6 +878,177 @@ function normalizeRelayUrl(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+export function loadLocalComputerBridgeConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): LocalComputerBridgeConfig | null {
+  const rawUrl = firstStringValue(env[COMPUTER_BRIDGE_URL_ENV]);
+  const token = firstStringValue(env[COMPUTER_BRIDGE_TOKEN_ENV]);
+  const rawCapabilities = firstStringValue(env[COMPUTER_CAPABILITIES_ENV]);
+  if (!rawUrl || !token || !rawCapabilities) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]")
+  ) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(rawCapabilities) as unknown;
+    const capabilities = normalizeComputerCapabilities(value);
+    if (!hasComputerCapability(capabilities)) return null;
+    return { url: url.toString(), token, capabilities };
+  } catch {
+    return null;
+  }
+}
+
+export async function callLocalComputerBridgeTool(
+  config: LocalComputerBridgeConfig,
+  toolName: "computer_operation" | "computer_revoke_control",
+  args: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<unknown> {
+  const response = await fetchImpl(config.url, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${config.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: `computer-bridge-${Date.now()}`,
+      method: "tools/call",
+      params: { name: toolName, arguments: args },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Local computer bridge returned ${response.status}`);
+  }
+  const text = await response.text();
+  const payload = parseMcpResponse(text);
+  if (!isObject(payload)) {
+    throw new Error("Local computer bridge returned an invalid response");
+  }
+  if (payload.error) {
+    const error = isObject(payload.error) ? payload.error : {};
+    throw new Error(
+      firstStringValue(error.message) ?? "Local computer bridge rejected call",
+    );
+  }
+  return boundedJsonValue(payload.result, "Local computer bridge result");
+}
+
+export async function dispatchComputerOperationToLocalBridge(
+  config: LocalComputerBridgeConfig | null,
+  rawEnvelope: unknown,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Record<string, unknown>> {
+  if (!config) {
+    throw new Error("Local authenticated computer bridge is unavailable.");
+  }
+  const envelope = await assertValidComputerCommandEnvelope(rawEnvelope);
+  const result = await callLocalComputerBridgeTool(
+    config,
+    "computer_operation",
+    { envelope },
+    fetchImpl,
+  );
+  return boundedConnectorResult({
+    ok: true,
+    taskId: envelope.taskId,
+    runId: envelope.runId,
+    sequence: envelope.sequence,
+    idempotencyKey: envelope.idempotencyKey,
+    actionHash: envelope.approval.actionHash,
+    operationClass: envelope.operationClass,
+    bridgeResult: result,
+  });
+}
+
+function normalizeComputerCapabilities(
+  value: unknown,
+): RemoteComputerCapabilities {
+  if (!isObject(value)) return {};
+  const browser = isObject(value.browser) ? value.browser : null;
+  const desktop = isObject(value.desktop) ? value.desktop : null;
+  return {
+    ...(browser
+      ? {
+          browser: {
+            observe: browser.observe === true,
+            control: browser.control === true,
+            provider: firstStringValue(browser.provider) ?? null,
+            version: firstStringValue(browser.version) ?? null,
+          },
+        }
+      : {}),
+    ...(desktop
+      ? {
+          desktop: {
+            observe: desktop.observe === true,
+            control: desktop.control === true,
+            accessibility: desktop.accessibility === true,
+            screenCapture: desktop.screenCapture === true,
+            provider: firstStringValue(desktop.provider) ?? null,
+            version: firstStringValue(desktop.version) ?? null,
+          },
+        }
+      : {}),
+  };
+}
+
+function hasComputerCapability(
+  capabilities: RemoteComputerCapabilities,
+): boolean {
+  return Boolean(
+    capabilities.browser?.observe ||
+    capabilities.browser?.control ||
+    capabilities.desktop?.observe ||
+    capabilities.desktop?.control,
+  );
+}
+
+function parseMcpResponse(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Local computer bridge returned no response");
+  if (!trimmed.startsWith("data:")) return JSON.parse(trimmed);
+  const data = trimmed
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter((line) => line && line !== "[DONE]")
+    .at(-1);
+  if (!data) throw new Error("Local computer bridge returned no MCP result");
+  return JSON.parse(data);
+}
+
+function boundedJsonValue(value: unknown, label: string): unknown {
+  return JSON.parse(
+    serializeBoundedRemoteJson(value ?? null, {
+      label,
+      maxBytes: 128_000,
+    }),
+  );
+}
+
+function boundedConnectorResult(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const parsed = boundedJsonValue(value, "Remote connector result");
+  if (!isObject(parsed)) {
+    throw new Error("Remote connector result must be an object");
+  }
+  return parsed;
 }
 
 function firstStringValue(...values: unknown[]): string | undefined {

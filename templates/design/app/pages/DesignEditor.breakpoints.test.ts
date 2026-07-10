@@ -395,7 +395,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("// Item 9 — agent→UI breakpoint sync"),
     );
     expect(handler).toContain("setActiveBreakpointWidthState(widthPx)");
-    expect(handler).toContain("setActiveBreakpointMutation");
+    expect(handler).toContain("persistActiveBreakpoint");
+  });
+
+  it("keeps a newer local responsive target ahead of an older app-state echo", () => {
+    const persistence = source.slice(
+      source.indexOf("const persistActiveBreakpoint"),
+      source.indexOf('// §6.4 — "show all breakpoints" toggle'),
+    );
+    expect(persistence).toContain(
+      "activeBreakpointWriteQueueRef.current?.enqueue",
+    );
+
+    const sync = source.slice(
+      source.indexOf("// Item 9 — agent→UI breakpoint sync"),
+      source.indexOf("// Agent→UI: open the write-consent dialog"),
+    );
+    expect(
+      sync.match(/activeBreakpointWriteQueueRef\.current\?\.hasPending\(\)/g),
+    ).toHaveLength(2);
   });
 
   it("BP-DEEP item 5: every overview click-to-target path returns the edit scope to Base", () => {
@@ -546,7 +564,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleOverviewEditBreakpoint"),
       source.indexOf("// Hooks must not be called conditionally"),
     );
-    expect(editor).toContain("enterSingleScreen(screenId)");
+    expect(editor).toContain("enterSingleScreenInteract(screenId)");
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

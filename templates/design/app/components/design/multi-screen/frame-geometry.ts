@@ -61,6 +61,69 @@ export function getResponsiveScreenGroupSize(
   };
 }
 
+/**
+ * Bounds used by viewport culling for a screen and every responsive preview
+ * painted to its right. Culling only the persisted primary frame can evict a
+ * breakpoint that is still visibly on-screen after the user pans right.
+ *
+ * Rotated groups pivot around the primary frame, not around the wider row.
+ * Return an unrotated AABB so the generic culler cannot rotate around the
+ * wrong center and underestimate the painted region.
+ */
+export function getResponsiveScreenCullGeometry(
+  screen: ResponsiveLayoutScreen,
+  primaryGeometry: FrameGeometry,
+): FrameGeometry {
+  const size = getResponsiveScreenGroupSize(screen, primaryGeometry);
+  const rotation = primaryGeometry.rotation ?? 0;
+  if (!rotation) {
+    return {
+      ...primaryGeometry,
+      width: size.width,
+      height: size.height,
+      rotation: undefined,
+    };
+  }
+
+  const radians = (rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const pivot = {
+    x: primaryGeometry.x + primaryGeometry.width / 2,
+    y: primaryGeometry.y + primaryGeometry.height / 2,
+  };
+  const corners = [
+    { x: primaryGeometry.x, y: primaryGeometry.y },
+    { x: primaryGeometry.x + size.width, y: primaryGeometry.y },
+    { x: primaryGeometry.x, y: primaryGeometry.y + size.height },
+    {
+      x: primaryGeometry.x + size.width,
+      y: primaryGeometry.y + size.height,
+    },
+  ].map((point) => {
+    const dx = point.x - pivot.x;
+    const dy = point.y - pivot.y;
+    return {
+      x: pivot.x + dx * cosine - dy * sine,
+      y: pivot.y + dx * sine + dy * cosine,
+    };
+  });
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    rotation: undefined,
+    z: primaryGeometry.z,
+  };
+}
+
 /** Legacy three-column lineup with each cell reserving its complete responsive
  * row. This prevents one generated variation's breakpoint frames from
  * painting over the next variation while preserving the familiar grid. */
@@ -149,6 +212,41 @@ function getGeneratedVariantInitialFrameGeometry(
     width: own.width,
     height: own.height,
   };
+}
+
+function getResponsiveVariantGroupOriginY(
+  groupId: string,
+  screens: readonly (ResponsiveLayoutScreen & { id: string })[],
+  primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined>,
+): number {
+  const groupIds = Array.from(
+    new Set(
+      screens
+        .map((screen) => screen.layoutGroupId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  let originY = 0;
+  for (const candidateGroupId of groupIds) {
+    if (candidateGroupId === groupId) return originY;
+    const groupScreens = screens.filter(
+      (screen) => screen.layoutGroupId === candidateGroupId,
+    );
+    const groupBottom = groupScreens.reduce((bottom, screen, index) => {
+      const frame = getResponsiveInitialFrameGeometry(
+        index,
+        groupScreens,
+        primaryGeometryById,
+      );
+      const groupSize = getResponsiveScreenGroupSize(
+        screen,
+        primaryGeometryById[screen.id],
+      );
+      return Math.max(bottom, frame.y + groupSize.height);
+    }, 0);
+    originY += groupBottom + FRAME_LABEL_HEIGHT + GENERATED_VARIANT_GAP;
+  }
+  return originY;
 }
 
 /** Canonical bottom-to-top screen stack. Persisted frame `z` wins; screens
@@ -306,15 +404,45 @@ export function resolveFrameGeometrySync(args: {
     const layoutGroupIndex = layoutGroupScreens?.findIndex(
       (candidate) => candidate.id === screen.id,
     );
+    const generatedGroupUntouched = Boolean(
+      layoutGroupScreens?.every((candidate, candidateIndex) => {
+        const baseline = getGeneratedVariantInitialFrameGeometry(
+          candidateIndex,
+          layoutGroupScreens,
+        );
+        const candidateGeometry =
+          persistedGeometryById?.[candidate.id] ??
+          currentGeometryById[candidate.id];
+        return (
+          candidateGeometry?.x === baseline.x &&
+          candidateGeometry?.y === baseline.y
+        );
+      }),
+    );
+    const variantGroupOriginY = screen.layoutGroupId
+      ? getResponsiveVariantGroupOriginY(
+          screen.layoutGroupId,
+          screens,
+          baseGeometryById,
+        )
+      : 0;
     const responsiveInitial =
       layoutGroupScreens &&
       layoutGroupIndex !== undefined &&
       layoutGroupIndex >= 0
-        ? getResponsiveInitialFrameGeometry(
-            layoutGroupIndex,
-            layoutGroupScreens,
-            baseGeometryById,
-          )
+        ? {
+            ...getResponsiveInitialFrameGeometry(
+              layoutGroupIndex,
+              layoutGroupScreens,
+              baseGeometryById,
+            ),
+            y:
+              getResponsiveInitialFrameGeometry(
+                layoutGroupIndex,
+                layoutGroupScreens,
+                baseGeometryById,
+              ).y + variantGroupOriginY,
+          }
         : getResponsiveInitialFrameGeometry(index, screens, baseGeometryById);
     const generatedVariantInitial =
       layoutGroupScreens &&
@@ -327,6 +455,7 @@ export function resolveFrameGeometrySync(args: {
         : null;
     const persistedUsesGeneratedVariantLineup =
       Boolean(screen.breakpointWidths?.length) &&
+      generatedGroupUntouched &&
       generatedVariantInitial !== null &&
       persisted?.x === generatedVariantInitial.x &&
       persisted?.y === generatedVariantInitial.y &&
@@ -335,6 +464,7 @@ export function resolveFrameGeometrySync(args: {
     const existingUsesGeneratedVariantLineup =
       !persisted &&
       Boolean(screen.breakpointWidths?.length) &&
+      generatedGroupUntouched &&
       generatedVariantInitial !== null &&
       existing?.x === generatedVariantInitial.x &&
       existing?.y === generatedVariantInitial.y &&

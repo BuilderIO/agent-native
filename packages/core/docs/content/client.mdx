@@ -11,6 +11,14 @@ These client/React APIs are exported from both `@agent-native/core` and `@agent-
 
 For file-based routing — adding pages, dynamic params, and navigation — see [Routing](/docs/routing).
 
+On this page: [data hooks](#fetching-mutating), [sendToAgentChat](#sendtoagentchat),
+[agent chat context state](#agent-chat-context-state),
+[openAgentSettings](#openagentsettings), [askUserQuestion](#ask-user-question),
+[MCP App host bridge](#mcp-app-host-bridge),
+[dynamic suggestions](#dynamic-suggestions),
+[useAgentChatGenerating](#useagentchatgenerating), [useDbSync](#usedbsync),
+[change versions](#use-change-version), and [cn](#cn).
+
 ## Fetching and Mutating Data {#fetching-mutating}
 
 The primary way to read and write app data from the browser is through the action hooks. Never hand-write `fetch` calls to `/_agent-native/*` routes — use the named helpers instead (see [Actions](/docs/actions)).
@@ -467,3 +475,11 @@ import { cn } from "@agent-native/core/client";
   className
 )} />
 ```
+
+## What's next
+
+- [**Actions**](/docs/actions) — the `defineAction` surface behind every hook on this page
+- [**Routing**](/docs/routing) — file-based pages, dynamic params, and navigation
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync) — how `useDbSync` and change versions keep the UI current
+- [**Context Awareness**](/docs/context-awareness) — the `navigation`/`selection` state dynamic suggestions read
+- [**Generative UI**](/docs/generative-ui) — building richer inline chat controls beyond `askUserQuestion`

@@ -13,6 +13,12 @@ import { abortRun } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
+  resolveAgentHarnessApproval,
+  sendAgentHarnessFollowUp,
+  stopLiveAgentHarnessSession,
+  type AgentHarnessOwnerScope,
+} from "./lifecycle.js";
+import {
   getAgentHarnessSessionByRunId,
   listAgentHarnessSessions,
   markAgentHarnessSessionStopped,
@@ -20,13 +26,21 @@ import {
   type StoredAgentHarnessSession,
 } from "./store.js";
 
-export function createAgentHarnessBackgroundAgentController(): BackgroundAgentController {
+export function createAgentHarnessBackgroundAgentController(
+  scope: AgentHarnessOwnerScope = { ownerEmail: null },
+): BackgroundAgentController {
   return {
-    list: listAgentHarnessBackgroundRuns,
-    get: getAgentHarnessBackgroundRun,
-    transcript: listAgentHarnessBackgroundTranscriptEvents,
-    sendFollowUp: sendAgentHarnessBackgroundFollowUp,
-    control: controlAgentHarnessBackgroundRun,
+    list: (options) =>
+      listAgentHarnessBackgroundRuns({
+        ...options,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+      }),
+    get: (runId) => getAgentHarnessBackgroundRun(runId, scope),
+    transcript: (runId) =>
+      listAgentHarnessBackgroundTranscriptEvents(runId, scope),
+    sendFollowUp: (input) => sendAgentHarnessBackgroundFollowUp(input, scope),
+    control: (input) => controlAgentHarnessBackgroundRun(input, scope),
   };
 }
 
@@ -34,23 +48,32 @@ export const agentHarnessBackgroundAgentController =
   createAgentHarnessBackgroundAgentController();
 
 export async function listAgentHarnessBackgroundRuns(
-  options: ListBackgroundAgentRunsOptions = {},
+  options: ListBackgroundAgentRunsOptions & { orgId?: string | null } = {},
 ): Promise<BackgroundAgentRun[]> {
   if (options.goalId && options.goalId !== "agent-harness") return [];
   const sessions = await listAgentHarnessSessions({
     ownerEmail: options.ownerEmail,
+    orgId: options.orgId,
   });
   return sessions
+    .filter((session) => session.ownerEmail === (options.ownerEmail ?? null))
+    .filter(
+      (session) =>
+        options.orgId === undefined || session.orgId === options.orgId,
+    )
     .filter((session) => session.runId)
     .map(toAgentHarnessBackgroundRun);
 }
 
 export async function getAgentHarnessBackgroundRun(
   runId: string,
-  options: { ownerEmail?: string | null } = {},
+  options: AgentHarnessOwnerScope = { ownerEmail: null },
 ): Promise<BackgroundAgentRun | null> {
   const session = await getAgentHarnessSessionByRunId(runId);
-  if (options.ownerEmail && session?.ownerEmail !== options.ownerEmail) {
+  if (
+    session?.ownerEmail !== options.ownerEmail ||
+    (options.orgId !== undefined && session.orgId !== options.orgId)
+  ) {
     return null;
   }
   return session ? toAgentHarnessBackgroundRun(session) : null;
@@ -58,10 +81,13 @@ export async function getAgentHarnessBackgroundRun(
 
 export async function listAgentHarnessBackgroundTranscriptEvents(
   runId: string,
-  options: { ownerEmail?: string | null } = {},
+  options: AgentHarnessOwnerScope = { ownerEmail: null },
 ): Promise<BackgroundAgentTranscriptEvent[]> {
   const session = await getAgentHarnessSessionByRunId(runId);
-  if (options.ownerEmail && session?.ownerEmail !== options.ownerEmail) {
+  if (
+    session?.ownerEmail !== options.ownerEmail ||
+    (options.orgId !== undefined && session.orgId !== options.orgId)
+  ) {
     return [];
   }
   if (!session?.runId) return [];
@@ -75,16 +101,25 @@ export async function listAgentHarnessBackgroundTranscriptEvents(
 
 export async function stopAgentHarnessBackgroundRun(
   runId: string,
-  options: { ownerEmail?: string | null } = {},
+  options: { ownerEmail: string | null; orgId?: string | null } = {
+    ownerEmail: null,
+  },
 ): Promise<BackgroundAgentControlResult> {
   const session = await getAgentHarnessSessionByRunId(runId);
   if (!session) return missingHarnessRunResult(runId);
-  if (options.ownerEmail && session.ownerEmail !== options.ownerEmail) {
+  if (
+    session.ownerEmail !== options.ownerEmail ||
+    (options.orgId !== undefined && session.orgId !== options.orgId)
+  ) {
     return missingHarnessRunResult(runId);
   }
   if (session.runId) {
     abortRun(session.runId, "user");
   }
+  await stopLiveAgentHarnessSession({
+    sessionId: session.id,
+    scope: options,
+  });
   await markAgentHarnessSessionStopped(session.id, "stopped");
   return {
     ok: true,
@@ -252,24 +287,66 @@ function backgroundStatus(
 
 async function sendAgentHarnessBackgroundFollowUp(
   input: BackgroundAgentFollowUpInput,
+  scope: AgentHarnessOwnerScope,
 ): Promise<BackgroundAgentControlResult> {
-  const run = await getAgentHarnessBackgroundRun(input.runId);
+  const result = await sendAgentHarnessFollowUp({
+    runId: input.runId,
+    prompt: input.prompt,
+    metadata: input.metadata,
+    scope,
+  });
+  const run = await getAgentHarnessBackgroundRun(input.runId, scope);
   return {
-    ok: false,
+    ok: result.ok,
     runId: input.runId,
     run,
-    error:
-      "Harness follow-up is not available through the background controller yet. Resume the stored harness session directly.",
+    queued: false,
+    message: result.ok
+      ? "Follow-up executed for the harness session."
+      : undefined,
+    error: result.error,
   };
 }
 
 async function controlAgentHarnessBackgroundRun(
   input: BackgroundAgentControlInput,
+  scope: AgentHarnessOwnerScope,
 ): Promise<BackgroundAgentControlResult> {
   if (input.command === "stop") {
-    return stopAgentHarnessBackgroundRun(input.runId);
+    return stopAgentHarnessBackgroundRun(input.runId, scope);
   }
-  const run = await getAgentHarnessBackgroundRun(input.runId);
+  if (input.command === "approve" || input.command === "deny") {
+    const session = await getAgentHarnessSessionByRunId(input.runId);
+    if (!session || session.ownerEmail !== scope.ownerEmail) {
+      return missingHarnessRunResult(input.runId);
+    }
+    const pending = session.pendingApproval as { id?: unknown } | undefined;
+    if (typeof pending?.id !== "string") {
+      return {
+        ok: false,
+        runId: input.runId,
+        run: await getAgentHarnessBackgroundRun(input.runId, scope),
+        error: "This harness session has no pending approval.",
+      };
+    }
+    const result = await resolveAgentHarnessApproval({
+      runId: input.runId,
+      approval: { id: pending.id, approved: input.command === "approve" },
+      scope,
+    });
+    return {
+      ok: result.ok,
+      runId: input.runId,
+      run: await getAgentHarnessBackgroundRun(input.runId, scope),
+      message: result.ok
+        ? input.command === "approve"
+          ? "Harness approval accepted."
+          : "Harness approval denied."
+        : undefined,
+      error: result.error,
+    };
+  }
+  const run = await getAgentHarnessBackgroundRun(input.runId, scope);
   return {
     ok: false,
     runId: input.runId,

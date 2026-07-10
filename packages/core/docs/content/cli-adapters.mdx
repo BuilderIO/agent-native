@@ -5,10 +5,14 @@ description: "Give the agent structured access to any CLI tool (gh, ffmpeg, stri
 
 # CLI Adapters
 
-> **Where this fits:** CLI adapters are one of two adapter seams in the
-> framework. The canonical guide is [Adapters](/docs/sandbox-adapters), which
-> covers both this seam and the `run-code` sandbox seam — including the shared
-> edge/serverless constraint. This page is the quick reference for the CLI side.
+<Callout id="doc-block-clia1fit" tone="info">
+
+**Where this fits:** CLI adapters are one of two adapter seams in the
+framework. The canonical guide is [Adapters](/docs/sandbox-adapters), which
+covers both this seam and the `run-code` sandbox seam — including the shared
+edge/serverless constraint. This page is the quick reference for the CLI side.
+
+</Callout>
 
 A CLI adapter wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Without this seam, every script reinvents how to invoke a CLI and parse its output.
 
@@ -128,8 +132,7 @@ const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
 
 Wrap a CLI call in `defineAction` to expose it on the action surface — `defineAction` is required when the code runs inside the server action surface; use an adapter directly in a `scripts/` file otherwise. Never call `process.exit` in an action; throw an error instead.
 
-```ts
-// actions/list-prs.ts
+```ts filename="actions/list-prs.ts"
 import { defineAction } from "@agent-native/core/action";
 import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
 import { z } from "zod";

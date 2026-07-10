@@ -35,6 +35,7 @@ import {
   usePylonContact,
   isAuthError,
 } from "@/hooks/use-integrations";
+import type { MailIntegrationStatuses } from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
 
@@ -259,17 +260,16 @@ export function IntegrationsSidebar({
 
       {/* Integration setup */}
       <div className="h-px bg-border/30 mx-4" />
-      <IntegrationSetup />
+      <IntegrationSetup statuses={statuses} />
     </div>
   );
 }
 
 // ─── Integration Setup ──────────────────────────────────────────────────────
 
-function IntegrationSetup() {
+function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const [expanded, setExpanded] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
-  const statuses = useAllIntegrations();
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;

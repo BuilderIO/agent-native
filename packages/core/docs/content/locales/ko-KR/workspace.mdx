@@ -5,7 +5,11 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 
 # 작업 공간
 
-> **어떤 작업공간 문서입니까?** 이 페이지에서는 **사용자 정의 레이어**, 즉 작업공간이*무엇인지* 다룹니다. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요. 거버넌스(누가 무엇을 검토하고, 승인하고, 소유하는지)에 대해서는 [Workspace Governance](/docs/workspace-management)를 참조하세요.
+<Callout tone="info">
+
+**어떤 작업공간 문서입니까?** 이 페이지에서는 **사용자 정의 레이어**, 즉 작업공간이*무엇인지* 다룹니다. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요. 거버넌스(누가 무엇을 검토하고, 승인하고, 소유하는지)에 대해서는 [Workspace Governance](/docs/workspace-management)를 참조하세요.
+
+</Callout>
 
 모든 에이전트 기반 앱에는 **작업 공간**, 즉 에이전트를 나만의 것으로 만드는 사용자 정의 레이어가 함께 제공됩니다. 여기에는 팀 지침(`AGENTS.md`), 공유 학습(`LEARNINGS.md`), 개인 구조적 메모리(`memory/MEMORY.md`), 에이전트가 요청 시 가져오는 skills, 사용자 정의 하위 에이전트, 예약된 작업 및 연결된 MCP 서버 등 Claude 코드/Codex 설정에서 기대할 수 있는 모든 것이 포함되어 있습니다.
 
@@ -82,7 +86,7 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 | 프로젝트별 `CLAUDE.md` / skills      | 앱별 `AGENTS.md` + 작업 공간 메모리 리소스     |
 | JSON 파일의 MCP 구성                 | JSON의 MCP 구성 _또는_ 범위당 UI 설정          |
 
-동일한 기능. 다른 경제학. 이것이 SaaS에 중요한 이유는 [Templates](/docs/cloneable-saas)를 참조하세요.
+동일한 기능. 다른 경제학. 이것이 SaaS에 중요한 이유는 [앱](/docs/cloneable-saas)를 참조하세요.
 
 ## 개요 {#overview}
 
@@ -219,11 +223,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-`context/` 파일을 짧고 사실대로 유지하세요. 상담원이 훑어볼 수 있는 몇 가지 글머리 기호는 다음과 같습니다.
+예:
 
-```text
-<!-- context/brand.md -->
-
+```text filename="context/brand.md"
 # 브랜드
 
 - Voice: direct, warm, concrete
@@ -388,15 +390,9 @@ Workspace에는 두 가지 에이전트 유형이 있습니다.
 
 하나의 앱 내에서 위임을 위해 사용자 정의 에이전트를 사용합니다. A2A를 통해 다른 앱에 전화해야 할 때 연결된 에이전트를 사용하세요.
 
-## @태깅 {#at-tagging}
+## @ 태그와 / 슬래시 명령 {#at-tagging}
 
-작업 영역 항목을 참조하려면 채팅 입력에 `@`를 입력하세요. 일치하는 에이전트와 파일을 보여주는 드롭다운이 커서에 나타납니다. 탐색하려면 화살표 키를 사용하고 선택하려면 Enter를 사용하세요. 선택한 항목이 입력에 인라인 칩으로 나타납니다.
-
-메시지를 보내면 **파일/리소스**는 에이전트가 읽을 수 있는 참조로 전달되고, **사용자 지정 에이전트**는 프로필 지침에 따라 로컬로 실행되며, **연결된 에이전트**는 A2A를 통해 호출됩니다.
-
-## / 슬래시 명령 {#slash-commands}
-
-스킬을 호출하려면 줄 시작 부분에 `/`를 입력하세요. 드롭다운에는 사용 가능한 skills가 이름 및 설명과 함께 표시됩니다. 하나를 선택하면 인라인 칩이 추가되고 메시지가 전송될 때 해당 내용이 컨텍스트로 포함됩니다. skills가 구성되지 않은 경우 드롭다운이 이 문서로 연결됩니다.
+채팅 입력에 `@`를 입력해 에이전트, 파일 또는 리소스를 참조하거나 `/`를 입력해 skill을 호출하세요. 둘 다 커서 위치에 드롭다운을 열고 항목을 선택하면 인라인 칩을 추가합니다. 전체 작동 방식(라우팅, `MentionProvider`, 하위 에이전트 선택)은 [에이전트 멘션](/docs/agent-mentions)을, skills 작성 및 검색 방법은 [Skills 가이드](/docs/skills-guide)를 참조하세요.
 
 ## 코드 대 앱 모드 {#dev-vs-prod}
 
@@ -415,10 +411,6 @@ Workspace에는 두 가지 에이전트 유형이 있습니다.
 작업 공간 연결을 사용하면 앱이 자격 증명을 복제하지 않고도 동일한 공급자 계정(Slack, GitHub, HubSpot 등)을 공유할 수 있습니다. 연결은 공급자 ID, 계정 레이블, 상태, 범위, 앱 부여 및 자격 증명 참조를 SQL에 기록합니다. 비밀은 자격 증명 저장소에 보관됩니다. 연결은 `SLACK_BOT_TOKEN`와 같은 자격 증명 키 이름만 가리킵니다.
 
 빠른 시작, 연결/부여/자격 증명 참조 API 및 구체적인 Slack, HubSpot 및 GitHub 예는 [Workspace Connections](/docs/workspace-connections)를 참조하세요.
-
----
-
-# 참고자료
 
 ## 자원 API {#resource-api}
 
@@ -463,3 +455,12 @@ pnpm action resource-write --path "notes/meeting.md" --content "# 회의록..."
 # 리소스 삭제
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+## 다음 단계 {#whats-next}
+
+- [**Skills 가이드**](/docs/skills-guide) — `skills/`에서 참조하는 skill 파일을 작성하고 범위 지정하기
+- [**에이전트 멘션**](/docs/agent-mentions) — `@` 멘션과 `/` 명령의 전체 작동 방식
+- [**반복 작업**](/docs/recurring-jobs) — Scheduled Tasks에서 만든 프롬프트 예약하기
+- [**Workspace 거버넌스**](/docs/workspace-management) — workspace 변경을 검토하고 승인하며 소유하는 주체
+- [**다중 앱 Workspace**](/docs/multi-app-workspace) — 하나의 workspace가 포괄하는 배포 형태
+- [**Workspace 연결**](/docs/workspace-connections) — 앱 간에 제공업체 자격 증명 공유하기

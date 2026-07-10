@@ -51,8 +51,11 @@ A `Processor` is a loop-internal **observer/guardrail** for the agent run. It wa
 
 </Diagram>
 
-> [!WARNING]
-> A processor is **configuration**, not a tool, not an action, and not an authoring DSL. Processors only observe, mutate their own stream-scoped state, and `abort()`. They never define app behavior, replace actions, or appear to the model. App operations belong in [actions](/docs/actions).
+<Callout id="doc-block-proc1cfg" tone="warning">
+
+A processor is **configuration**, not a tool, not an action, and not an authoring DSL. Processors only observe, mutate their own stream-scoped state, and `abort()`. They never define app behavior, replace actions, or appear to the model. App operations belong in [actions](/docs/actions).
+
+</Callout>
 
 ## The hooks {#hooks}
 
@@ -133,10 +136,13 @@ await runAgentLoop({
 
 **Zero-overhead when unused.** The loop builds the processor chain only when at least one processor is supplied; when `processors` is omitted or empty, none of the seam code runs and the loop is byte-for-byte unchanged. Hooks run in registration order and may be sync or async.
 
-> [!NOTE]
-> The loop-level seam is the deliverable today and is callable directly by sub-agents, A2A, MCP, and tests. Threading `processors` through the HTTP chat handler (so a per-request resolver can configure them without calling `runAgentLoop` directly) is convenience plumbing that is not yet wired — configure processors at the `runAgentLoop` call site for now.
+<Callout id="doc-block-proc1note" tone="info">
 
-## Related
+The loop-level seam is the deliverable today and is callable directly by sub-agents, A2A, MCP, and tests. Threading `processors` through the HTTP chat handler (so a per-request resolver can configure them without calling `runAgentLoop` directly) is convenience plumbing that is not yet wired — configure processors at the `runAgentLoop` call site for now.
+
+</Callout>
+
+## What's next
 
 - [**Durable Resume**](/docs/durable-resume) — how the loop survives interruptions without re-running completed side effects.
 - [**Custom Agents & Teams**](/docs/agent-teams) — sub-agents run the same loop and can carry their own processors.

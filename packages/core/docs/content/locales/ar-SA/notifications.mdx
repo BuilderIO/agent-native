@@ -113,6 +113,7 @@ await notify(
 | `inbox`   | الاستمرار في الجدول `notifications`؛ يحرك الجرس UI | تشغيل دائمًا — جزء من البدائي.                                |
 | `webhook` | POST JSON إلى URL التي تم تكوينها                  | تم تعيين `NOTIFICATIONS_WEBHOOK_URL` env var عند بدء التشغيل. |
 
+تُسجَّل قنوات البريد الإلكتروني وSlack والـ webhook دائمًا إلى جانب صندوق الوارد. يفضّل التسليم عنوان URL أو المستلمين المحددين في بيانات الإشعار، ثم يعود إلى متغير البيئة المطابق. وإذا لم يُضبط أي منهما، فلا تنفّذ تلك القناة شيئًا عند الإرسال.
 تعمل قناة webhook على حل مراجع `${keys.NAME}` في كل من URL و`NOTIFICATIONS_WEBHOOK_AUTH` مقابل [secrets](/docs/security) المخصص للمالك، لذلك لا تدخل القيمة الأولية مطلقًا في سياق الوكيل. يتم فرض قوائم URL المسموح بها لكل مفتاح - نفس القاعدة التي تستخدمها أداة `web-request` للتشغيل الآلي.
 
 <Diagram id="doc-block-knshu4" title={"القنوات وخطورتها"} summary={"البريد الوارد قيد التشغيل دائمًا؛ يحتاج خطاف الويب إلى env var؛ يتم تسجيل القنوات المخصصة عند بدء التشغيل. تؤدي درجة الخطورة إلى تصميم الشارة ويتم تمريرها إلى كل قناة."}>
@@ -203,7 +204,7 @@ await notify(
 
 قم بتسجيل قناة مخصصة من أي مكون إضافي للخادم.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 تم تركيبه على `/_agent-native/notifications/*` بواسطة البرنامج الإضافي للمسارات الأساسية. يتم تحديد نطاق كافة المسارات إلى البريد الإلكتروني للجلسة التي تمت مصادقتها.
 
-| الطريقة  | المسار                                              |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| الطريقة  | المسار                                                         |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-1beurdp" title={"قائمة الإشعارات"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"قم بإدراج الإشعارات الأخيرة للمستخدم الحالي"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-1beurdp" title={"قائمة الإشعارات"} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"قم بإدراج الإشعارات الأخيرة للمستخدم الحالي"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ interface NotificationMeta {
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "مؤشر زمني بتنسيق ISO — يعيد الإشعارات التي أُنشئت قبل هذا الوقت، لاستخدامه في ترقيم الصفحات."
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ interface NotificationMeta {
 
 ## مكون UI {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

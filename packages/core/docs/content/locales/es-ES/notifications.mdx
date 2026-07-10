@@ -113,6 +113,7 @@ La gravedad determina el estilo de la insignia en el menú desplegable y se tran
 | `inbox`   | Persiste en la tabla `notifications`; acciona la campana UI | Siempre activo: parte de la primitiva.                         |
 | `webhook` | POST JSON a un URL configurado                              | Var entorno `NOTIFICATIONS_WEBHOOK_URL` configurada al inicio. |
 
+El correo electrónico, Slack y el webhook siempre se registran junto con la bandeja de entrada. La entrega prefiere la URL o los destinatarios de los metadatos de la notificación y, a continuación, recurre a la variable de entorno correspondiente. Si no se configura ninguno, ese canal no hace nada durante la emisión.
 El canal de webhook resuelve las referencias de `${keys.NAME}` tanto en URL como en `NOTIFICATIONS_WEBHOOK_AUTH` contra el [secrets](/docs/security) ad-hoc del propietario, por lo que el valor sin procesar nunca ingresa al contexto del agente. Se aplican listas de permitidos URL por clave: la misma regla que utiliza la herramienta de automatizaciones `web-request`.
 
 <Diagram id="doc-block-cbsg3f" title="Canales y gravedad." summary={"la bandeja de entrada siempre está activada; el webhook necesita una var env; Los canales personalizados se registran al inicio. La gravedad impulsa el estilo de la insignia y se transmite a todos los canales."}>
@@ -203,7 +204,7 @@ Se requiere `meta.owner`: limita la notificación para que solo el usuario la ve
 
 Registra un canal personalizado desde cualquier complemento del servidor.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 Montado en `/_agent-native/notifications/*` por el complemento core-routes. Todas las rutas tienen como alcance el correo electrónico de la sesión autenticada.
 
-| Método   | Ruta                                                |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| Método   | Ruta                                                           |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-1wnwsyu" title="Lista de notificaciones" summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary="Listar notificaciones recientes para el usuario actual" auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-1wnwsyu" title="Lista de notificaciones" method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary="Listar notificaciones recientes para el usuario actual" auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ Montado en `/_agent-native/notifications/*` por el complemento core-routes. Toda
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "Cursor de marca de tiempo ISO: devuelve las notificaciones creadas antes de este momento para la paginación."
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ Montado en `/_agent-native/notifications/*` por el complemento core-routes. Toda
 
 ## Componente UI {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

@@ -5,7 +5,7 @@ description: "Comment fonctionne skills dans l'agent natif : framework skills, 
 
 # Guide Skills
 
-Skills sont des fichiers Markdown qui donnent à l'agent des connaissances approfondies sur des modèles et des flux de travail spécifiques.
+Les skills sont des fichiers Markdown qui apportent à l'agent une connaissance approfondie de modèles et de workflows précis. Au lieu d'entasser toutes les règles dans une seule invite système, vous répartissez les connaissances dans des fichiers ciblés que l'agent ne charge que lorsqu'une tâche en a réellement besoin. Le contexte par défaut reste ainsi réduit, tout en permettant à l'agent d'aller en profondeur à la demande.
 
 ## Que sont les skills {#what-are-skills}
 
@@ -120,9 +120,11 @@ Le domaine skills suit le même format que le framework skills. Ils codent des m
 
 Les skills basées sur des apps incluent aujourd'hui `visual-plan`, `visual-recap` et `visualize-repo` depuis Plan, `visual-edit` depuis Design, `assets` depuis Assets et `content` pour l'édition docs/blog/MDX adossée au dépôt.
 
-skills basé sur une application regroupe une application native d'agent en tant qu'artefact de marché de compétences. L'ensemble peut inclure des instructions d'agent, des métadonnées de connecteur skills exportées et MCP, des instructions de lancement hébergées/locales et des surfaces UI telles que les applications MCP.
+<Callout tone="info">
 
-> **Tous les détails ci-dessous :** les mécanismes du skills basé sur l'application (format du manifeste, commandes CLI, adaptateurs de marché, hachage de mise à jour automatique) sont couverts dans [App-backed skills — full details](#app-backed-skills-full).
+**Tous les détails ci-dessous :** les mécanismes du skills basé sur l'application (format du manifeste, commandes CLI, adaptateurs de marché, hachage de mise à jour automatique) sont couverts dans [App-backed skills — full details](#app-backed-skills-full).
+
+</Callout>
 
 ## Création d'un skills personnalisé {#creating-skills}
 
@@ -177,7 +179,11 @@ Les frontmatters `name` et `description` sont utilisés par le système d'outils
 
 Enregistrez le fichier sous `.agents/skills/my-skill/SKILL.md`. Le nom du répertoire doit correspondre au `name` en première page.
 
-> **Voir aussi :** [Writing Agent Instructions](/docs/writing-agent-instructions) pour savoir comment rédiger des descriptions de compétences, appliquer la divulgation progressive et maintenir `AGENTS.md` simple. Les deux pages utilisent la compétence `project-imports` comme exemple courant.
+<Callout tone="info">
+
+**Voir aussi :** [Writing Agent Instructions](/docs/writing-agent-instructions) pour savoir comment rédiger des descriptions de compétences, appliquer la divulgation progressive et maintenir `AGENTS.md` simple. Les deux pages utilisent la compétence `project-imports` comme exemple courant.
+
+</Callout>
 
 ## Portée des compétences : runtime vs dev {#skill-scope}
 
@@ -267,33 +273,37 @@ Cela remplace l'ancien hack consistant à s'appuyer sur le code Claude lisant un
 
 </Diagram>
 
-> **Voir aussi :** [Writing Agent Instructions](/docs/writing-agent-instructions) pour savoir comment rédiger des descriptions de compétences, appliquer la divulgation progressive et maintenir `AGENTS.md` simple.
-
 ## Skills contre AGENTS.md {#skills-vs-agents-md}
 
-> **AGENTS.md** — La présentation. Répertorie tous les scripts, décrit le modèle de données, explique l'architecture de l'application. L'agent lit ceci en premier pour comprendre l'application.
->
-> **Skills** — Analyses approfondies. Chaque compétence se concentre sur un modèle avec des règles détaillées, des exemples de code et des listes de choses à faire/à ne pas faire. L'agent les lit lorsqu'il doit suivre un modèle spécifique.
+<Callout tone="info">
+
+**AGENTS.md** — La présentation. Répertorie tous les scripts, décrit le modèle de données, explique l'architecture de l'application. L'agent lit ceci en premier pour comprendre l'application.
+
+**Skills** — Analyses approfondies. Chaque compétence se concentre sur un modèle avec des règles détaillées, des exemples de code et des listes de choses à faire/à ne pas faire. L'agent les lit lorsqu'il doit suivre un modèle spécifique.
+
+</Callout>
 
 `AGENTS.md` indique à l'agent _ce que_ l'application fait. Skills indique à l'agent _comment_ faire des choses spécifiques correctement. Les deux sont nécessaires : `AGENTS.md` pour l'orientation, skills pour l'exécution.
 
 ## Skills contre mémoire {#skills-vs-memory}
 
-> **Skills** — Guides pratiques rédigés et réutilisables. S'applique à chaque utilisateur, invoqué à la demande lorsque la tâche correspond.
->
-> **Mémoire (`LEARNINGS.md` / `memory/MEMORY.md`)** — Apprentissages partagés du projet et mémoire structurée personnelle chargée à chaque tour.
+<Callout tone="info">
+
+**Skills** — Guides pratiques rédigés et réutilisables. S'applique à chaque utilisateur, invoqué à la demande lorsque la tâche correspond.
+
+**Mémoire (`LEARNINGS.md` / `memory/MEMORY.md`)** — Apprentissages partagés du projet et mémoire structurée personnelle chargée à chaque tour.
+
+</Callout>
 
 Si les connaissances s'appliquent à _tout le monde_ travaillant dans l'application (« préférez toujours les CTE aux sous-requêtes »), il s'agit d'une compétence ou d'un `LEARNINGS.md` partagé. S'il s'agit de _cet utilisateur particulier_ ("Steve aime les réponses concises"), cela appartient à `memory/MEMORY.md`. Voir [Workspace Memory](/docs/workspace#memory) pour le traitement complet.
 
----
+## Skills et ressources SQL {#skills-vs-resources}
 
-# Avancé
+Cette page présente un skill comme un fichier situé dans `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) présente ce même skill comme une ressource SQL au chemin `skills/<slug>/SKILL.md`, de portée workspace, partagée ou personnelle. Il s'agit du même concept vu sous deux angles : le mode Code lit et écrit directement le fichier ; le mode App le stocke sous forme de ligne de ressource afin qu'il fonctionne sans système de fichiers. Dans les deux cas, rédigez le contenu au format décrit sur cette page.
 
 ## skills basé sur une application — tous les détails {#app-backed-skills-full}
 
-skills basé sur une application regroupe une application native d'agent en tant qu'artefact de marché de compétences.
-Le bundle peut inclure des instructions d'agent, un connecteur skills exporté et un connecteur MCP
-métadonnées, instructions de lancement hébergées/locales et surfaces UI telles que les applications MCP.
+Le format du manifeste, les commandes CLI, les adaptateurs de marketplace et le hachage de mise à jour automatique qui sous-tendent les [skills basés sur une application](#app-backed-skills), en détail :
 
 Chaque compétence basée sur l'application commence par `agent-native.app-skill.json` à la racine de l'application :
 
@@ -410,3 +420,10 @@ npx @agent-native/core@latest skills update scaffold --project
 `AGENTS.md` et `.agents/skills` restent canoniques. La commande update répare également
 Liens de compatibilité Claude (`CLAUDE.md` et `.claude/skills`) pour que le code Claude voie
 les mêmes instructions sans conserver une deuxième copie.
+
+## Et ensuite ? {#whats-next}
+
+- [**Rédiger les instructions de l'agent**](/docs/writing-agent-instructions) — formuler les descriptions des skills et répartir les consignes entre AGENTS.md, les skills et la mémoire
+- [**Workspace**](/docs/workspace#skills) — où les skills résident sous forme de ressources SQL en mode App
+- [**Mentions d'agents**](/docs/agent-mentions) — le déclencheur de commande `/` qui invoque un skill dans le chat
+- [**Plugin et marketplace Plan**](/docs/plan-plugin) — installation et mise à jour automatique de bout en bout d'un véritable skill basé sur une application

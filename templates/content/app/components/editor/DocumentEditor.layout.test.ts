@@ -199,6 +199,24 @@ describe("document editor layout", () => {
     );
   });
 
+  it("wakes live-editor flush reads from shared sync events instead of polling", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("useDbSync({ onEvent: handleFlushRequestEvent })");
+    expect(source).toContain('event.source === "app-state"');
+    expect(source).toContain(
+      'event.key === flushRequestKey || event.key === "*"',
+    );
+    expect(source).toContain("void flushIfRequested()");
+    expect(source).not.toContain("setTimeout(poll, 600)");
+    expect(source).not.toContain("setTimeout(flushIfRequested");
+  });
+
   it("lets slash-created page references use the editor save pipeline", () => {
     const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

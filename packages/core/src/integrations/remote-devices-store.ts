@@ -9,7 +9,12 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import type { PublicRemoteDevice, RemoteDevice } from "./remote-types.js";
+import type {
+  PublicRemoteDevice,
+  RemoteComputerCapabilities,
+  RemoteDevice,
+  RemoteDeviceMetadata,
+} from "./remote-types.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -136,10 +141,7 @@ function rowToDevice(row: Record<string, unknown>): RemoteDevice {
     platform: (row.platform as string | null) ?? null,
     appVersion: (row.app_version as string | null) ?? null,
     hostName: (row.host_name as string | null) ?? null,
-    metadata: parseJson(row.metadata_json, null) as Record<
-      string,
-      unknown
-    > | null,
+    metadata: parseJson(row.metadata_json, null) as RemoteDeviceMetadata | null,
     deviceTokenHash: row.device_token_hash as string,
     lastSeenAt:
       row.last_seen_at == null ? null : Number(row.last_seen_at as number),
@@ -168,6 +170,14 @@ export function toPublicRemoteDevice(device: RemoteDevice): PublicRemoteDevice {
   };
 }
 
+export function getRemoteComputerCapabilities(
+  device: Pick<RemoteDevice, "metadata">,
+): RemoteComputerCapabilities | null {
+  const value = device.metadata?.computerCapabilities;
+  if (!value || typeof value !== "object") return null;
+  return normalizeComputerCapabilities(value);
+}
+
 export async function createRemoteDevice(input: {
   ownerEmail: string;
   orgId?: string | null;
@@ -175,7 +185,7 @@ export async function createRemoteDevice(input: {
   platform?: string | null;
   appVersion?: string | null;
   hostName?: string | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: RemoteDeviceMetadata | null;
 }): Promise<{ device: RemoteDevice; token: string }> {
   await ensureTable();
   const client = getDbExec();
@@ -197,7 +207,7 @@ export async function createRemoteDevice(input: {
       sanitizeOptionalString(input.platform, 80),
       sanitizeOptionalString(input.appVersion, 120),
       sanitizeOptionalString(input.hostName, 200),
-      input.metadata ? JSON.stringify(input.metadata) : null,
+      serializeRemoteDeviceMetadata(input.metadata),
       tokenHash,
       now,
       "active",
@@ -316,7 +326,7 @@ export async function updateRemoteDeviceDetails(input: {
   platform?: string | null;
   appVersion?: string | null;
   hostName?: string | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: RemoteDeviceMetadata | null;
 }): Promise<RemoteDevice | null> {
   await ensureTable();
   const now = Date.now();
@@ -340,7 +350,7 @@ export async function updateRemoteDeviceDetails(input: {
   }
   if (input.metadata !== undefined) {
     updates.push("metadata_json = ?");
-    args.push(input.metadata ? JSON.stringify(input.metadata) : null);
+    args.push(serializeRemoteDeviceMetadata(input.metadata));
   }
   if (updates.length === 0) return getRemoteDevice(input.id);
 
@@ -418,6 +428,55 @@ function parseJson(value: unknown, fallback: unknown): unknown {
   } catch {
     return fallback;
   }
+}
+
+function serializeRemoteDeviceMetadata(
+  metadata: RemoteDeviceMetadata | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  const normalized: RemoteDeviceMetadata = { ...metadata };
+  if (metadata.computerCapabilities !== undefined) {
+    normalized.computerCapabilities = normalizeComputerCapabilities(
+      metadata.computerCapabilities,
+    );
+  }
+  const json = JSON.stringify(normalized);
+  if (new TextEncoder().encode(json).byteLength > 32_768) {
+    throw new Error("Remote device metadata exceeds 32 KiB");
+  }
+  if (/"data:[^"]*"/i.test(json) || looksLikeLargeBase64(json)) {
+    throw new Error("Remote device metadata cannot contain binary payloads");
+  }
+  return json;
+}
+
+function normalizeComputerCapabilities(
+  value: RemoteComputerCapabilities,
+): RemoteComputerCapabilities {
+  const result: RemoteComputerCapabilities = {};
+  if (value.browser && typeof value.browser === "object") {
+    result.browser = {
+      observe: value.browser.observe === true,
+      control: value.browser.control === true,
+      provider: sanitizeOptionalString(value.browser.provider, 120),
+      version: sanitizeOptionalString(value.browser.version, 120),
+    };
+  }
+  if (value.desktop && typeof value.desktop === "object") {
+    result.desktop = {
+      observe: value.desktop.observe === true,
+      control: value.desktop.control === true,
+      accessibility: value.desktop.accessibility === true,
+      screenCapture: value.desktop.screenCapture === true,
+      provider: sanitizeOptionalString(value.desktop.provider, 120),
+      version: sanitizeOptionalString(value.desktop.version, 120),
+    };
+  }
+  return result;
+}
+
+function looksLikeLargeBase64(value: string): boolean {
+  return value.length > 4_096 && /[A-Za-z0-9+/]{4_096,}={0,2}/.test(value);
 }
 
 function randomHex(byteLength: number): string {

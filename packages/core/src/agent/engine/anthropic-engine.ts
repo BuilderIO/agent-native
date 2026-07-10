@@ -104,10 +104,8 @@ class AnthropicEngine implements AgentEngine {
       opts.model,
       opts.reasoningEffort,
     );
-    if (reasoningEffort) {
-      if (!extra.thinking) {
-        extra.thinking = { type: "adaptive" };
-      }
+    if (reasoningEffort && !extra.thinking) {
+      extra.thinking = { type: "adaptive" };
       extra.output_config = { effort: reasoningEffort };
     }
 

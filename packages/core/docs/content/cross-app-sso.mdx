@@ -9,7 +9,11 @@ Each hosted app at `*.agent-native.com` runs its own deployment with its **own s
 
 This is the same trust primitive [A2A](/docs/a2a-protocol) and [External Agents](/docs/external-agents) already use — an `A2A_SECRET`-signed JWT verified at the request boundary — applied to the human sign-in path instead of agent-to-agent calls.
 
-> **Unified deploy vs. per-domain deploy.** If you host all apps at one origin (`your-agents.com/mail`, `your-agents.com/calendar`), you already get shared login via a single cookie domain — no federation needed. Cross-App SSO is only necessary when apps run on separate domains. See [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+<Callout tone="info">
+
+**Unified deploy vs. per-domain deploy.** If you host all apps at one origin (`your-agents.com/mail`, `your-agents.com/calendar`), you already get shared login via a single cookie domain — no federation needed. Cross-App SSO is only necessary when apps run on separate domains. See [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+</Callout>
 
 ## What & why {#what-why}
 
@@ -86,14 +90,16 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 
 </Diagram>
 
-1. **App → Dispatch (authorize).** The app sends the user to the identity authority:
+1. **App → Dispatch (authorize).** The app-side `GET /_agent-native/identity/login` route (what the "Sign in with Agent-Native" button links to) builds the redirect and sends the user to the identity authority:
 
-   ```
+   ```http
    GET https://dispatch.agent-native.com/_agent-native/identity/authorize
        ?app=<requesting-app>
        &redirect_uri=<app-callback-url>
        &state=<csrf-state>
    ```
+
+   `redirect_uri` is this app's own `GET /_agent-native/identity/callback` route — the route that receives the signed token in step 3.
 
 <Endpoint id="doc-block-1wojo41" title="Identity authorize endpoint" method="GET" path="/_agent-native/identity/authorize" summary="Dispatch (identity authority) authenticates the human and redirects back with a signed identity token" auth="Dispatch session (interactive login if none)" params={[
   {
@@ -143,7 +149,7 @@ The flow is a standard authorize → signed-token → callback redirect, with em
    | `scope`      | Always `"identity"` — this token authorizes sign-in only |
    | `exp`        | **≤ 2 minutes** from issue                               |
 
-4. **App verifies and JIT-links by email.** The app verifies the token signature with its own `A2A_SECRET`, checks `scope: "identity"` and `exp`, then performs **just-in-time linking strictly by verified email**:
+4. **App verifies and JIT-links by email.** The app's `GET /_agent-native/identity/callback` route verifies the token signature with its own `A2A_SECRET`, checks `scope: "identity"` and `exp`, then performs **just-in-time linking strictly by verified email**:
    - If a local user with that email exists → reuse it unchanged.
    - If not → create a local user for that email.
 
@@ -290,9 +296,13 @@ Once one app is verified, repeat steps 2–3 for the next app — setting `AGENT
 **5. Rollback = unset the env var on that app's deploy.**
 To revert any app, **remove `AGENT_NATIVE_IDENTITY_HUB_URL` from that app's environment and redeploy/restart it.** The app immediately returns to its prior auth behavior. There is **no data change to undo** — identity rows were only ever added, and unsetting the variable simply makes the federation path dormant again. Each app's cutover and rollback are independent and reversible.
 
-> Rollout logs users out as each app is enabled (they re-auth via Dispatch), but they always log back into the **same email-matched account with data intact**, because identity rows are never destroyed or renamed — only added.
+<Callout tone="info">
 
-## Related {#related}
+Rollout logs users out as each app is enabled (they re-auth via Dispatch), but they always log back into the **same email-matched account with data intact**, because identity rows are never destroyed or renamed — only added.
+
+</Callout>
+
+## What's next {#whats-next}
 
 - [Authentication](/docs/authentication) — local auth modes, sessions, orgs, the `A2A_SECRET` env var.
 - [A2A Protocol](/docs/a2a-protocol) — the signed-JWT, verify-at-the-boundary trust model this reuses.

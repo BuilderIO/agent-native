@@ -297,6 +297,7 @@ import {
   getLayerSelectableBounds,
   getOutsideFrameDraftFallback,
   getPreviewDeviceFrameGeometry,
+  getResponsiveScreenCullGeometry,
   getScreenPreviewViewport,
   getSelectableBounds,
   rectContainsPoint,
@@ -1293,6 +1294,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         id: screen.id,
         metadata: getResolvedMetadata(screen),
         breakpointWidths: screen.breakpointWidths,
+        layoutGroupId: screen.layoutGroupId,
       })),
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
@@ -6467,23 +6469,76 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     if (!cameraCommand) return;
     if (lastCameraCommandNonceRef.current === cameraCommand.nonce) return;
-    lastCameraCommandNonceRef.current = cameraCommand.nonce;
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return;
-    const camera = getCameraForBounds(
-      cameraCommand.fitBounds,
-      { width: rect.width, height: rect.height },
-      {
-        paddingScreenPx: cameraCommand.paddingScreenPx ?? 64,
-        minZoom: MIN_ZOOM,
-        maxZoom: MAX_ZOOM,
-        fallbackZoom: zoomRef.current,
-      },
-    );
-    zoomRef.current = camera.zoom;
-    panRef.current = { x: camera.x, y: camera.y };
-    applyViewToDom();
-    scheduleViewCommit();
+
+    let cancelled = false;
+    let retryFrame: number | null = null;
+    let retryCount = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    const maxMeasureRetries = 30;
+
+    const applyPendingCameraCommand = () => {
+      if (
+        cancelled ||
+        lastCameraCommandNonceRef.current === cameraCommand.nonce
+      ) {
+        return true;
+      }
+      const rect = surfaceRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      const camera = getCameraForBounds(
+        cameraCommand.fitBounds,
+        { width: rect.width, height: rect.height },
+        {
+          paddingScreenPx: cameraCommand.paddingScreenPx ?? 64,
+          // Frame geometry is canvas-space, while every frame DOM node lives
+          // inside the padded world. Include that shared origin so fitting a
+          // small drawn/preset frame actually centers its painted card.
+          canvasPadding: SURFACE_PADDING,
+          minZoom: MIN_ZOOM,
+          maxZoom: MAX_ZOOM,
+          fallbackZoom: zoomRef.current,
+        },
+      );
+      zoomRef.current = camera.zoom;
+      panRef.current = { x: camera.x, y: camera.y };
+      applyViewToDom();
+      scheduleViewCommit();
+      // A nonce is acknowledged only after a measurable surface accepted the
+      // imperative camera commit. Consuming it before this point loses the
+      // command during the brief zero-size overview remount caused by active
+      // screen URL synchronization.
+      lastCameraCommandNonceRef.current = cameraCommand.nonce;
+      resizeObserver?.disconnect();
+      return true;
+    };
+
+    const scheduleMeasureRetry = () => {
+      if (cancelled || retryFrame !== null || retryCount >= maxMeasureRetries) {
+        return;
+      }
+      retryFrame = window.requestAnimationFrame(() => {
+        retryFrame = null;
+        retryCount += 1;
+        if (!applyPendingCameraCommand()) scheduleMeasureRetry();
+      });
+    };
+
+    if (!applyPendingCameraCommand()) {
+      scheduleMeasureRetry();
+      const surface = surfaceRef.current;
+      if (surface && typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => {
+          if (!applyPendingCameraCommand()) scheduleMeasureRetry();
+        });
+        resizeObserver.observe(surface);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      if (retryFrame !== null) window.cancelAnimationFrame(retryFrame);
+      resizeObserver?.disconnect();
+    };
   }, [cameraCommand, applyViewToDom, scheduleViewCommit]);
 
   // PERF9-WHEEL: the first flush that actually moves the camera mutes
@@ -7168,7 +7223,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = computeBoundedScreenCullState({
       candidates: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
-        geometry,
+        geometry: getResponsiveScreenCullGeometry(screen, geometry),
         iframeCount: 1 + (screen.breakpointWidths?.length ?? 0),
       })),
       viewport,

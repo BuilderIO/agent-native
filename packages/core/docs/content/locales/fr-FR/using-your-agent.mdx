@@ -92,20 +92,13 @@ La plupart du temps, vous dirigez l'agent en écrivant dans le chat. Deux choses
 
 L'agent n'est pas une application distincte vers laquelle vous accédez. Il est livré sous la forme d'une poignée de composants React (une barre latérale, un panneau brut et un appel `sendToAgentChat()`) que vous déposez dans n'importe quelle application. Rendu `<AgentSidebar>` pour attribuer à chaque écran un agent commutable, ou câblez un bouton pour confier une tâche spécifique au chat au lieu d'exécuter un appel LLM unique.
 
-→ [**Drop-in Agent**](/docs/drop-in-agent) : montez les `<AgentPanel>`, `<AgentSidebar>` et `sendToAgentChat()` dans n'importe quelle application React.
-→ [**Agent Surfaces**](/docs/agent-surfaces) : choisissez si le flux de travail doit être sans tête, axé d'abord sur le chat, intégré ou une application complète.
-
 ## Vous pouvez passer au UI légère {#ui-light}
 
 Toutes les applications n'ont pas besoin d'un tableau de bord complet. Lorsque l'agent _est_ le produit, vous pouvez ignorer la plupart des UI personnalisés : ouvrez l'application, demandez ce que vous voulez et laissez l'agent faire le reste. L'agent dispose toujours de sa surface de gestion (historique, espace de travail, paramètres), mais l'interaction principale est la conversation plutôt que les clics.
 
-→ [**Automation-First Apps**](/docs/pure-agent-apps) — apps sans navigateur pour jobs, files, scripts et agents externes.
-
 ## Vous co-éditez avec lui {#you-co-edit}
 
 Lorsque vous et l'agent travaillez sur le même document, vous ne vous relayez pas. Grâce à la collaboration en temps réel, les modifications de l'agent sont diffusées parallèlement aux vôtres (curseurs en direct, pas d'écrasement) de la même manière que celles d'un coéquipier. Vous pouvez continuer à taper pendant qu'il fonctionne et il voit vos modifications au fur et à mesure qu'elles se produisent.
-
-→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — édition collaborative multi-utilisateurs avec curseurs en direct et modifications d'agent dans le même document.
 
 ## Quelle est la prochaine étape {#whats-next}
 

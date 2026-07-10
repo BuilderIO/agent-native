@@ -36,6 +36,7 @@ import {
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
+  shouldShowGlobalRunningStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
@@ -961,6 +962,60 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         hasReconnectContent: false,
       }),
     ).toBe("Thinking");
+  });
+});
+
+describe("shouldShowGlobalRunningStatus", () => {
+  it("hides the duplicate generic status while reasoning is visibly streaming", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a specific tool activity ahead of visible reasoning", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Querying submissions",
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the duplicate status while reconnect reasoning is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: null,
+        reconnectContent: [
+          { type: "reasoning", text: "Resuming the same thought." },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the generic status before any visible reasoning arrives", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: null,
+        reconnectContent: [],
+      }),
+    ).toBe(true);
   });
 });
 

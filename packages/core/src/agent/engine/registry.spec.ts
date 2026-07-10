@@ -389,6 +389,9 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "totally-removed-model")).toBe(
         "claude-sonnet-5",
       );
+      expect(normalizeModelForEngine(engine, "gemini-3-1-flash-lite")).toBe(
+        "claude-sonnet-5",
+      );
     });
 
     it("keeps supported Builder models and missing values deterministic", async () => {
@@ -587,8 +590,11 @@ describe("AgentEngine registry", () => {
       }),
     }));
 
-    const { registerAgentEngine, resolveEngine } =
-      await import("./registry.js");
+    const {
+      getConfiguredEngineNameForRequest,
+      registerAgentEngine,
+      resolveEngine,
+    } = await import("./registry.js");
 
     const appEngine = { name: "app-engine", stream: vi.fn() } as any;
     const globalEngine = { name: "global-engine", stream: vi.fn() } as any;
@@ -628,6 +634,9 @@ describe("AgentEngine registry", () => {
 
     const resolved = await resolveEngine({ appId: "analytics" });
 
+    await expect(
+      getConfiguredEngineNameForRequest({ appId: "analytics" }),
+    ).resolves.toBe("app-engine");
     expect(appCreate).toHaveBeenCalled();
     expect(globalCreate).not.toHaveBeenCalled();
     expect(resolved).toBe(appEngine);

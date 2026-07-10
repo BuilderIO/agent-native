@@ -117,6 +117,38 @@ export async function appStateGet(
   }
 }
 
+/**
+ * Read several application-state keys for one session in a single SQL query.
+ * Missing keys are returned as `null` so callers can preserve the requested
+ * shape without issuing one fallback query per key.
+ */
+export async function appStateGetMany(
+  sessionId: string,
+  keys: readonly string[],
+): Promise<Record<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const values: Record<string, Record<string, unknown> | null> = {};
+  for (const key of uniqueKeys) values[key] = null;
+  if (uniqueKeys.length === 0) return values;
+
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    const placeholders = uniqueKeys.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
+      args: [sessionId, ...uniqueKeys],
+    });
+    for (const row of rows) {
+      values[row.key as string] = JSON.parse(row.value as string);
+    }
+    return values;
+  } catch (err) {
+    if (isConnectionError(err)) return values;
+    throw err;
+  }
+}
+
 export async function appStatePut(
   sessionId: string,
   key: string,

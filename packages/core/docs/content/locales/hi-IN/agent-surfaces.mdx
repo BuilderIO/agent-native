@@ -137,8 +137,7 @@ pnpm install
 
 फिर टिकाऊ संचालन को परिभाषित करें:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -492,12 +491,11 @@ export function AppShell({ children }) {
 विजेट परिणाम जब चैट को समृद्ध UI की आवश्यकता होती है, और पूर्ण स्क्रीन केवल तभी जोड़ते हैं जब उपयोगकर्ता
 लगातार वस्तुओं को ब्राउज़ करने, तुलना करने, कॉन्फ़िगर करने या सहयोग करने की आवश्यकता है।
 
-## संबंधित दस्तावेज़ {#related-docs}
+## आगे क्या है {#related-docs}
 
-- [Actions](/docs/actions) - हेडलेस ऑपरेशन को एक बार परिभाषित करें।
-- [Native चैट UI](/docs/native-chat-ui) - चैट में टाइप किए गए कार्रवाई परिणाम प्रस्तुत करें।
-- [Drop-in Agent](/docs/drop-in-agent) - चैट, साइडबार या पैनल सतहों को माउंट करें।
-- [Component API](/docs/components) - निचले स्तर के React चैट/संगीतकार टुकड़े।
-- [Embedding SDK](/docs/embedding-sdk) - किसी मौजूदा ऐप में Agent-Native जोड़ें।
-- [External Agents](/docs/external-agents) - MCP-संगत होस्ट को एक ऐप से कनेक्ट करें।
-- [A2A Protocol](/docs/a2a-protocol) - अन्य एजेंटों से कॉल एजेंट।
+- [**Actions**](/docs/actions) — ऑपरेशन को एक बार परिभाषित करें; ऊपर की हर सतह उसी को कॉल करती है
+- [**Native चैट UI**](/docs/native-chat-ui) — टाइप किए गए action परिणामों को चैट में टेबल, चार्ट और कार्ड के रूप में दिखाएँ
+- [**Generative UI**](/docs/generative-ui) — चैट में अस्थायी या सहेजी गई sandbox UI बनाएँ
+- [**Automation-First Apps**](/docs/pure-agent-apps) — jobs, queues, scripts और बाहरी agents के लिए पूरा बिना-ब्राउज़र पैटर्न
+- [**External Agents**](/docs/external-agents) — MCP-संगत hosts को ऐप से जोड़ें
+- [**A2A Protocol**](/docs/a2a-protocol) — अन्य Agent-Native ऐप्स से agents को कॉल करें

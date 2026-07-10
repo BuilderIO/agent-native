@@ -211,6 +211,34 @@ const messages = {
     cliRequiresDevModeDescription:
       "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
     toggleAgent: "Toggle agent",
+    voiceMode: {
+      entryButtonLabel: "Use microphone",
+      promptTitle: "Talk to your app",
+      promptDescription:
+        "Voice mode keeps listening while the agent navigates and takes actions.",
+      start: "Start voice mode",
+      keepDictating: "Keep dictating",
+      showChat: "Show chat",
+      hideChat: "Hide chat",
+      end: "End voice mode",
+      status: {
+        connecting: "Connecting",
+        listening: "Listening",
+        speaking: "Speaking",
+        working: "Working",
+        error: "Voice mode needs attention",
+        ending: "Ending voice mode",
+      },
+      errors: {
+        unsupported:
+          "This browser does not support realtime voice conversations.",
+        responseFailed: "OpenAI could not complete the voice response.",
+        sessionFailed: "The realtime voice session encountered an error.",
+        channelDisconnected: "The realtime voice control channel disconnected.",
+        connectionFailed: "The realtime voice connection failed.",
+        offerFailed: "The browser did not create an audio offer.",
+      },
+    },
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

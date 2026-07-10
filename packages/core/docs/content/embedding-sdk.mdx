@@ -82,8 +82,7 @@ pnpm add @agent-native/core
 
 On the server:
 
-```ts
-// server/plugins/agent-native.ts
+```ts filename="server/plugins/agent-native.ts"
 import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
 import { builderActions } from "../agent-native/actions";
 import { getBuilderSession } from "../auth";
@@ -288,9 +287,13 @@ for await (const chunk of sendMessage(
 
 ### Host App (`<AgentNative>` host bridge)
 
-> The batteries-included plugin above is preferred. Use this lower-level bridge
-> only for standalone sidecar apps or cross-origin iframes where you wire page
-> context and client actions yourself.
+<Callout id="doc-block-emb1host" tone="info">
+
+The batteries-included plugin above is preferred. Use this lower-level bridge
+only for standalone sidecar apps or cross-origin iframes where you wire page
+context and client actions yourself.
+
+</Callout>
 
 For standalone sidecar apps or cross-origin iframes, use the lower-level `<AgentNative />`. It renders the iframe sidecar and wires page context, live client actions, and host refresh/navigation commands in one place:
 
@@ -501,9 +504,13 @@ Client actions are a live bridge to one browser tab. The host advertises them wi
 
 ### Portable Extensions
 
-> Prefer the batteries-included plugin when you want Agent-Native to manage
-> extension definitions, approval, storage, and agent-created extensions. Use
-> the portable slot below only when the SaaS already owns those concerns.
+<Callout id="doc-block-emb1ext" tone="info">
+
+Prefer the batteries-included plugin when you want Agent-Native to manage
+extension definitions, approval, storage, and agent-created extensions. Use
+the portable slot below only when the SaaS already owns those concerns.
+
+</Callout>
 
 The SDK also supports user-defined extensions: sandboxed Alpine.js mini-apps that a host SaaS can render in named slots. Use this when the customer wants to build their own small panels, calculators, dashboards, or workflow helpers against the same action/context surface that the agent uses.
 
@@ -670,3 +677,14 @@ The helper intentionally returns plain `{ name, description, parameters, execute
 Start iframe-first. It works for Builder.io, customer SaaS apps, and internal admin tools without coupling release cycles or CSS/runtime assumptions.
 
 The sidecar itself should still be an Agent-Native app/template: actions are the backend API surface, SQL-backed app state is the agent's memory, and integrations such as Slack or Telegram can route into the same durable chat. The embedding SDK supplies the live membrane between that sidecar and the current host page.
+
+## What's next
+
+- [**Agent Surfaces**](/docs/agent-surfaces) — decide between headless, chat,
+  sidecar, and full-app before you start embedding.
+- [**Native Chat UI**](/docs/native-chat-ui) — the chat runtime and widget
+  contract the sidecar renders.
+- [**Extensions**](/docs/extensions) — the SQL-backed extension system this
+  SDK's portable slot is a lighter-weight alternative to.
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount the same agent inside an
+  Agent-Native app instead of an external host.

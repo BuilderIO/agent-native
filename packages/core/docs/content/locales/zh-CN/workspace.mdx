@@ -5,7 +5,11 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 # 工作区
 
-> **哪个工作区文档？** 此页面涵盖 **自定义层** — 工作区*是什么*。对于部署形状（一个单一存储库，许多应用程序），请参阅 [Multi-App Workspaces](/docs/multi-app-workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
+<Callout tone="info">
+
+**哪个工作区文档？** 此页面涵盖 **自定义层** — 工作区*是什么*。对于部署形状（一个单一存储库，许多应用程序），请参阅 [Multi-App Workspaces](/docs/multi-app-workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
+
+</Callout>
 
 每个代理本机应用程序都附带一个**工作区**：使代理成为您的自定义层。它包含团队指令 (`AGENTS.md`)、共享学习内容 (`LEARNINGS.md`)、个人结构化内存 (`memory/MEMORY.md`)、代理按需拉入的 skills、自定义子代理、计划作业和连接的 MCP 服务器 — 您期望从 Claude 代码 / Codex 设置获得的一切。
 
@@ -81,7 +85,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 | 每个项目 `CLAUDE.md` / skills | 每个应用 `AGENTS.md` + 工作区内存资源   |
 | JSON 文件中的 MCP 配置        | JSON 中的 MCP 配置*或*设置 UI，每个范围 |
 
-相同的功能。不同的经济。请参阅 [Templates](/docs/cloneable-saas) 了解为什么这对 SaaS 很重要。
+相同的功能。不同的经济。请参阅 [应用程序](/docs/cloneable-saas) 了解为什么这对 SaaS 很重要。
 
 ## 概述 {#overview}
 
@@ -218,11 +222,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-保持 `context/` 文件简短且真实——代理可以浏览的一些要点：
+例如：
 
-```text
-<!-- context/brand.md -->
-
+```text filename="context/brand.md"
 # 品牌
 
 - Voice: direct, warm, concrete
@@ -387,15 +389,9 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 在一个应用程序内使用自定义代理进行委派。当您需要通过 A2A 调用另一个应用程序时，请使用连接的代理。
 
-## @标记 {#at-tagging}
+## @ 标记与 / 斜杠命令 {#at-tagging}
 
-在聊天输入中键入 `@` 以引用工作区项目。光标处会出现一个下拉列表，显示匹配的代理和文件。使用箭头键进行导航并使用 Enter 进行选择。所选项目在输入中显示为内联芯片。
-
-当您发送消息时，**文件/资源**作为代理可以读取的引用进行传递，**自定义代理**使用其配置文件指令在本地运行，并且**连接的代理**通过 A2A 进行调用。
-
-## / 斜线命令 {#slash-commands}
-
-在行首键入 `/` 以调用技能。下拉列表显示可用的 skills 及其名称和描述；选择一个会添加一个内联芯片，并在发送消息时将其内容作为上下文包含在内。如果未配置 skills，则下拉列表链接到这些文档。
+在聊天输入框中键入 `@` 可引用代理、文件或资源，键入 `/` 可调用 skill——两者都会在光标处打开下拉菜单，并在选择项目后添加内联标签。有关完整机制（路由、`MentionProvider`、子代理选择），请参阅[代理提及](/docs/agent-mentions)；有关 skills 的编写和发现方式，请参阅 [Skills 指南](/docs/skills-guide)。
 
 ## 代码与应用程序模式 {#dev-vs-prod}
 
@@ -414,10 +410,6 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 工作区连接允许应用程序共享相同的提供商帐户（Slack、GitHub、HubSpot 等），而无需重复凭据。连接在 SQL 中记录提供者身份、帐户标签、状态、范围、应用程序授权和凭据引用。秘密保留在凭证存储中；连接仅指向凭证密钥名称，例如 `SLACK_BOT_TOKEN`。
 
 请参阅 [Workspace Connections](/docs/workspace-connections) 了解快速入门、connection/grant/credentialRef API 以及具体的 Slack、HubSpot 和 GitHub 示例。
-
----
-
-# 参考
 
 ## 资源API {#resource-api}
 
@@ -462,3 +454,12 @@ pnpm action resource-write --path "notes/meeting.md" --content "# 会议记录..
 # 删除资源
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+## 接下来 {#whats-next}
+
+- [**Skills 指南**](/docs/skills-guide) — 编写 `skills/` 中引用的 skill 文件并设置其范围
+- [**代理提及**](/docs/agent-mentions) — `@` 提及与 `/` 命令的完整机制
+- [**定期作业**](/docs/recurring-jobs) — 调度由 Scheduled Tasks 创建的提示词
+- [**Workspace 治理**](/docs/workspace-management) — 谁负责审核、批准和拥有 workspace 更改
+- [**多应用 Workspace**](/docs/multi-app-workspace) — 一个 workspace 所跨越的部署形态
+- [**Workspace 连接**](/docs/workspace-connections) — 在应用程序之间共享提供商凭据

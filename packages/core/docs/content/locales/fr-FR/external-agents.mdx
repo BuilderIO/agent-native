@@ -136,13 +136,9 @@ instantané jusqu'à ce que vous l'actualisiez/le révisiez à nouveau, donc ana
 ou de l'application MCP. Si vous disposez encore d'anciens connecteurs par application
 activé avec Dispatch, actualisez ou reconnectez chaque connecteur obsolète ; mise à jour
 Dispatch ne réécrit pas le calendrier/courrier/etc mis en cache de ChatGPT ou Claude.
-instantanés. Les portées sont :
-
-| Portée      | Ce qu'il permet                                                           |
-| ----------- | ------------------------------------------------------------------------- |
-| `mcp:read`  | Outils en lecture seule et découverte d'outils/ressources                 |
-| `mcp:write` | Rédaction, mise à jour et autres actions en mutation                      |
-| `mcp:apps`  | Applications MCP en ligne, graphiques, tableaux de bord, brouillons et UI |
+instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` sont les mêmes
+que celles décrites plus bas dans
+[OAuth MCP distant standard](#standard-oauth).
 
 Cursor, Goose, Postman, MCPJam et VS Code GitHub Copilot utilisent la même télécommande
 MCP URL via leur propre serveur MCP UI lorsque leur version prend en charge les OAuth distants

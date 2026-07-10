@@ -113,6 +113,7 @@ await notify(
 | `inbox`   | 持久化到`notifications`表；驱动铃UI | 始终开启 - 原语的一部分。                          |
 | `webhook` | POST JSON 到已配置的 URL            | `NOTIFICATIONS_WEBHOOK_URL` 环境变量在启动时设置。 |
 
+电子邮件、Slack 和 webhook 始终与收件箱一起注册。发送时优先使用每条通知元数据中的 URL 或收件人，然后回退到匹配的环境变量。如果两者均未设置，该频道在发送时不会执行任何操作。
 Webhook 通道根据所有者的临时 [secrets](/docs/security) 解析 URL 和 `NOTIFICATIONS_WEBHOOK_AUTH` 中的 `${keys.NAME}` 引用，因此原始值永远不会进入代理的上下文。强制执行每键 URL 允许列表 - 自动化 `web-request` 工具使用相同的规则。
 
 <Diagram id="doc-block-10l6a1l" title={"渠道和严重性"} summary={"收件箱始终打开； webhook 需要一个环境变量；自定义频道在启动时注册。严重性驱动徽章样式并传递到每个渠道。"}>
@@ -203,7 +204,7 @@ await notify(
 
 从任何服务器插件注册自定义通道。
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 通过 core-routes 插件安装在 `/_agent-native/notifications/*`。所有路由的范围仅限于经过身份验证的会话的电子邮件。
 
-| 方法     | 路径                                                |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| 方法     | 路径                                                           |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-yxyssw" title={"列出通知"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"列出当前用户的最近通知"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-yxyssw" title={"列出通知"} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"列出当前用户的最近通知"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ interface NotificationMeta {
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "ISO 时间戳游标 — 返回在此时间之前创建的通知，用于分页。"
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ interface NotificationMeta {
 
 ## UI组件 {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

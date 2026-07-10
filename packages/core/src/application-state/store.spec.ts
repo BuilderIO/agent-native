@@ -36,8 +36,13 @@ vi.mock("./emitter.js", () => ({
   emitAppStateDelete: (...args: unknown[]) => emitAppStateDelete(...args),
 }));
 
-const { appStatePut, appStateGet, appStateList, appStateDeleteByPrefix } =
-  await import("./store.js");
+const {
+  appStatePut,
+  appStateGet,
+  appStateGetMany,
+  appStateList,
+  appStateDeleteByPrefix,
+} = await import("./store.js");
 
 const SESSION = "alice@example.com";
 
@@ -94,6 +99,35 @@ describe("application-state store", () => {
     const rows = await appStateList(SESSION, "compose_");
 
     expect(rows).toEqual([{ key: "compose_draft", value: { id: "draft" } }]);
+  });
+
+  it("reads several exact keys in one query and preserves missing keys", async () => {
+    await appStatePut(SESSION, "apollo", { apiKey: "example-apollo-key" });
+    await appStatePut(SESSION, "gong", { apiKey: "example-gong-key" });
+    await appStatePut("other@example.com", "pylon", {
+      apiKey: "example-other-key",
+    });
+    rawClient.execute.mockClear();
+
+    const values = await appStateGetMany(SESSION, [
+      "apollo",
+      "gong",
+      "pylon",
+      "apollo",
+    ]);
+
+    expect(values).toEqual({
+      apollo: { apiKey: "example-apollo-key" },
+      gong: { apiKey: "example-gong-key" },
+      pylon: null,
+    });
+    expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    expect(rawClient.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("key IN (?, ?, ?)"),
+        args: [SESSION, "apollo", "gong", "pylon"],
+      }),
+    );
   });
 
   it("deletes literal prefixes without treating LIKE metacharacters as wildcards", async () => {

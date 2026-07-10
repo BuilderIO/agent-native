@@ -139,8 +139,7 @@ pnpm install
 
 그런 다음 지속성 작업을 정의합니다.
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -493,12 +492,11 @@ actions 주변 또는 도메인 [template](/docs/cloneable-saas)에서
 채팅에 풍부한 UI가 필요한 경우 위젯 결과를 제공하고 사용자가 있는 경우에만 전체 화면을 추가합니다.
 영구 객체를 탐색, 비교, 구성 또는 공동 작업해야 합니다.
 
-## 관련 문서 {#related-docs}
+## 다음 단계 {#related-docs}
 
-- [Actions](/docs/actions) — 헤드리스 작업을 한 번 정의합니다.
-- [Native 채팅 UI](/docs/native-chat-ui) — 채팅에서 입력된 작업 결과를 렌더링합니다.
-- [Drop-in Agent](/docs/drop-in-agent) — 채팅, 사이드바 또는 패널 표면을 마운트합니다.
-- [Component API](/docs/components) — 하위 레벨 React 채팅/작곡가 부분.
-- [Embedding SDK](/docs/embedding-sdk) — 기존 앱에 Agent-Native를 추가합니다.
-- [External Agents](/docs/external-agents) — MCP 호환 호스트를 앱에 연결합니다.
-- [A2A Protocol](/docs/a2a-protocol) — 다른 요원의 요원에게 전화를 겁니다.
+- [**Actions**](/docs/actions) — 작업을 한 번 정의하면 위의 모든 표면이 같은 작업을 호출합니다
+- [**Native 채팅 UI**](/docs/native-chat-ui) — 형식화된 action 결과를 채팅에서 표, 차트, 카드로 렌더링합니다
+- [**Generative UI**](/docs/generative-ui) — 임시 또는 영구 sandbox UI를 채팅 안에서 생성합니다
+- [**Automation-First Apps**](/docs/pure-agent-apps) — 작업, 대기열, 스크립트 및 외부 에이전트를 위한 완전한 브라우저 없는 패턴입니다
+- [**External Agents**](/docs/external-agents) — MCP 호환 호스트를 앱에 연결합니다
+- [**A2A Protocol**](/docs/a2a-protocol) — 다른 Agent-Native 앱에서 에이전트를 호출합니다

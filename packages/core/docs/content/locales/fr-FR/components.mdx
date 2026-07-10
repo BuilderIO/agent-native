@@ -476,10 +476,12 @@ action pour que le UI et l'agent partagent la même capacité.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -494,3 +496,11 @@ export default defineAction({
 Utilisez plutôt `sendToAgentChat({ background: true, openSidebar: false })` lorsque
 le travail nécessite des outils, un état, une auditabilité, un pilotage utilisateur ou plusieurs étapes
 raisonnement.
+
+## Et ensuite {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — montez `<AgentSidebar>` et `<AgentPanel>` avec un parcours guidé axé sur le tutoriel
+- [**Native Chat UI**](/docs/native-chat-ui) — le contrat de résultat des actions derrière les widgets de données et les moteurs de rendu personnalisés
+- [**Actions**](/docs/actions) — `defineAction()`, les schémas et la surface d'actions appelée par ces composants
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — les hooks de collaboration et les composants de présence en détail
+- [**Sharing**](/docs/sharing) — câblage de `<ShareButton>` et `<ShareDialog>` pour les ressources possédables

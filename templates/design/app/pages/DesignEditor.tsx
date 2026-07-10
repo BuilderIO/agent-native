@@ -378,11 +378,24 @@ import {
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
+  acknowledgeClipboardContentMutation,
+  publishClipboardContentMutation,
+  type ClipboardContentLineage,
+  type ClipboardContentMutationOrigin,
+  type ClipboardContentMutationPublication,
+} from "@/lib/clipboard-content-lineage";
+import {
   plainTextFromDesignHtml,
+  getDesignClipboardTrustToken,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
   writeDesignClipboard,
 } from "@/lib/design-clipboard";
+import {
+  applyDesignClipboardManagedStyles,
+  extractDesignClipboardManagedStyles,
+  type DesignClipboardManagedStyleSnapshot,
+} from "@/lib/design-clipboard-managed-styles";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -563,6 +576,7 @@ import {
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
 } from "./design-editor/history";
+import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   type AlignableRect,
   computeAlignedPositions,
@@ -633,6 +647,7 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "./design-editor/pending-edits";
 import { verifyPendingStructuresRuntime } from "./design-editor/pending-structure-verification";
+import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
 import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
@@ -1198,6 +1213,7 @@ interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
 interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
@@ -2470,6 +2486,9 @@ function insertClonedHtmlLayers(
     stripRootPosition?: boolean;
     positions?: Array<{ x: number; y: number } | null | undefined>;
     styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
+    managedStyleSnapshots?: Array<
+      DesignClipboardManagedStyleSnapshot | null | undefined
+    >;
   } = {},
 ): {
   content: string;
@@ -2523,8 +2542,13 @@ function insertClonedHtmlLayers(
         doc.body.appendChild(fragment);
       }
     }
+    const contentWithClones = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     return {
-      content: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`,
+      content: applyDesignClipboardManagedStyles(
+        contentWithClones,
+        options.managedStyleSnapshots ?? [],
+        nodeIdMap,
+      ),
       rootNodeIds,
       nodeIdMap,
     };
@@ -3929,6 +3953,11 @@ function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // Long overview sessions (pan/zoom/select/undo across many screens) build
+  // up a very large native `performance.measure` buffer from React/Radix dev
+  // instrumentation (see performance-buffer-guard.ts) — bound it so a long
+  // session's JS heap doesn't grow from that alone.
+  usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;
     searchParams: URLSearchParams;
@@ -4456,6 +4485,17 @@ function DesignEditor() {
   // paste without mistaking a newer external copy for stale in-memory layers.
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
+  // Synchronous per-file content lineage for repeated paste/undo cycles. A
+  // save acknowledgement may clear the generic pending-local map before the
+  // React query/collab mirrors have rendered its content, leaving a brief
+  // stale-base gap. Keep this mirror current for both local applications and
+  // authoritative host-sync snapshots; the latter replaces, rather than
+  // clears, the known content so there is never an undefined gap.
+  const latestClipboardMutationContentRef = useRef<
+    Map<string, ClipboardContentLineage>
+  >(new Map());
+  const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
+  const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -4935,6 +4975,7 @@ function DesignEditor() {
         pendingLiveNonStyleUndoStackRef.current.length > 0 ||
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
+        clipboardPasteUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
@@ -4946,6 +4987,7 @@ function DesignEditor() {
         pendingLiveNonStyleRedoStackRef.current.length > 0 ||
         Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
+        clipboardPasteRedoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
@@ -5113,6 +5155,9 @@ function DesignEditor() {
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
+    clipboardPasteUndoStackRef.current = [];
+    clipboardPasteRedoStackRef.current = [];
+    latestClipboardMutationContentRef.current.clear();
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, []);
@@ -5677,6 +5722,36 @@ function DesignEditor() {
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+  );
+  type ActiveBreakpointWrite = {
+    designId: string;
+    breakpointId: string;
+    editScope: ResponsiveEditScope;
+  };
+  const setActiveBreakpointMutateAsyncRef = useRef(
+    setActiveBreakpointMutation.mutateAsync,
+  );
+  setActiveBreakpointMutateAsyncRef.current =
+    setActiveBreakpointMutation.mutateAsync;
+  const activeBreakpointWriteQueueRef =
+    useRef<ReturnType<typeof createLatestWriteQueue<ActiveBreakpointWrite>>>(
+      null,
+    );
+  if (!activeBreakpointWriteQueueRef.current) {
+    activeBreakpointWriteQueueRef.current = createLatestWriteQueue((input) =>
+      setActiveBreakpointMutateAsyncRef.current(input),
+    );
+  }
+  const persistActiveBreakpoint = useCallback(
+    (breakpointId: string, editScope: ResponsiveEditScope) => {
+      if (!id) return;
+      activeBreakpointWriteQueueRef.current?.enqueue({
+        designId: id,
+        breakpointId,
+        editScope,
+      });
+    },
+    [id],
   );
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
@@ -7753,13 +7828,9 @@ function DesignEditor() {
       // app-state poll tick this write eventually triggers is a no-op echo,
       // not a redundant re-apply of a value we already set locally.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designBreakpoints, setActiveBreakpointMutation],
+    [id, designBreakpoints, persistActiveBreakpoint],
   );
   const handleResponsiveEditScopeChange = useCallback(
     (scope: ResponsiveEditScope) => {
@@ -7772,13 +7843,9 @@ function DesignEditor() {
           ? "auto"
           : (designBreakpoints.find((bp) => bp.widthPx === activeWidth)?.id ??
             "auto");
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: scope,
-      });
+      persistActiveBreakpoint(breakpointId, scope);
     },
-    [designBreakpoints, id, setActiveBreakpointMutation],
+    [designBreakpoints, id, persistActiveBreakpoint],
   );
 
   // Item 9 — agent→UI breakpoint sync. `set-active-breakpoint` (the action
@@ -7802,12 +7869,20 @@ function DesignEditor() {
     if (!id) return;
     let cancelled = false;
     void (async () => {
+      if (activeBreakpointWriteQueueRef.current?.hasPending()) return;
       const value = await readClientAppState<{
         designId?: string;
         activeBreakpointId?: string;
         responsiveEditScope?: ResponsiveEditScope;
       }>(`design-active-breakpoint:${id}`).catch(() => null);
-      if (cancelled || !value || value.designId !== id) return;
+      if (
+        cancelled ||
+        activeBreakpointWriteQueueRef.current?.hasPending() ||
+        !value ||
+        value.designId !== id
+      ) {
+        return;
+      }
       const nextBreakpointId = value.activeBreakpointId ?? "auto";
       if (nextBreakpointId === lastAppliedActiveBreakpointIdRef.current) {
         return;
@@ -10247,6 +10322,7 @@ function DesignEditor() {
       cancelPendingStructureVerification("conflict");
       pendingVisualStyleRedoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
+      clipboardPasteRedoStackRef.current = [];
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
@@ -11325,6 +11401,53 @@ function DesignEditor() {
     [selectedCanvasSelector, selectedCanvasSelectorCandidates],
   );
 
+  const publishAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      baseContent: string;
+      nextContent: string;
+      origin: ClipboardContentMutationOrigin;
+    }): ClipboardContentMutationPublication | null => {
+      const current = latestClipboardMutationContentRef.current.get(
+        args.fileId,
+      );
+      const nextLineage = publishClipboardContentMutation({
+        current,
+        baseContentHash: sourceContentHash(args.baseContent),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        origin: args.origin,
+      });
+      if (!nextLineage) return null;
+      latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
+      return {
+        mutationId: nextLineage.mutationId,
+        contentHash: nextLineage.contentHash,
+        origin: nextLineage.origin,
+      };
+    },
+    [],
+  );
+
+  const acknowledgeAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      nextContent: string;
+      publication?: ClipboardContentMutationPublication;
+    }) => {
+      const nextLineage = acknowledgeClipboardContentMutation({
+        current: latestClipboardMutationContentRef.current.get(args.fileId),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        publication: args.publication,
+      });
+      if (nextLineage) {
+        latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
+      }
+    },
+    [],
+  );
+
   const applyLocalContentUpdate = useCallback(
     (
       nextContent: string,
@@ -11337,6 +11460,7 @@ function DesignEditor() {
         recordHistory?: boolean;
         historyBeforeContent?: string;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -11361,6 +11485,14 @@ function DesignEditor() {
         });
         return;
       }
+      // No implicit authority from `recordHistory`: save/query/Yjs echoes can
+      // traverse this same function with history enabled. Only a publication
+      // allocated synchronously at a user-action boundary may advance lineage.
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId: activeFile.id,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11419,6 +11551,8 @@ function DesignEditor() {
       }
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
+      collabContentRef.current = nextContent;
+      collabContentFileIdRef.current = activeFile.id;
       lastLocalContentRef.current = nextContent;
       latestActiveContentRef.current = nextContent;
       if (id) {
@@ -11512,6 +11646,7 @@ function DesignEditor() {
     },
     [
       activeFile,
+      acknowledgeAuthoritativeClipboardMutation,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
       id,
@@ -11540,6 +11675,7 @@ function DesignEditor() {
         persist?: boolean;
         recordHistory?: boolean;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!canEditDesignRef.current) return;
@@ -11577,6 +11713,11 @@ function DesignEditor() {
         });
         return;
       }
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       if (
@@ -11662,6 +11803,7 @@ function DesignEditor() {
     },
     [
       activeFile?.id,
+      acknowledgeAuthoritativeClipboardMutation,
       applyLocalContentUpdate,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
@@ -16357,6 +16499,7 @@ function DesignEditor() {
             candidate.dataAttributes["data-agent-native-node-id"] === layerId,
         );
         if (!node?.source) continue;
+        const html = content.slice(node.source.start, node.source.end);
         const portableStyleSnapshot =
           selectedElementLayerId &&
           node.id === selectedElementLayerId &&
@@ -16364,11 +16507,15 @@ function DesignEditor() {
             ? selectedElement.portableStyleSnapshot
             : undefined;
         snapshots.push({
-          html: content.slice(node.source.start, node.source.end),
+          html,
           rootNodeId:
             node.dataAttributes["data-agent-native-node-id"] ?? node.id,
           sourceFileId: file.id,
           portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source.start,
           tree,
@@ -16396,6 +16543,10 @@ function DesignEditor() {
             selectedElement.id,
           sourceFileId: activeFile.id,
           portableStyleSnapshot: selectedElement.portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
           tree,
@@ -16564,6 +16715,7 @@ function DesignEditor() {
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      managedStyleSnapshot: snapshot.managedStyleSnapshot,
     }));
     // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
     // file/screen ids from layer candidates, so selecting one or more whole
@@ -16603,11 +16755,15 @@ function DesignEditor() {
     // only readable content. This mirrors Figma's clipboard behavior: Design
     // can round-trip structure across tabs without dumping source and marker
     // data into ordinary text destinations.
-    const clipboardHtml = serializeDesignClipboardPayload(copiedHtml, {
-      version: 1,
-      entries,
-      screens,
-    });
+    const clipboardHtml = serializeDesignClipboardPayload(
+      copiedHtml,
+      {
+        version: 1,
+        entries,
+        screens,
+      },
+      getDesignClipboardTrustToken() ?? undefined,
+    );
     copiedLayerEntriesRef.current = entries;
     copiedScreenEntriesRef.current = screens;
     copiedLayerHtmlRef.current = clipboardHtml;
@@ -16735,25 +16891,71 @@ function DesignEditor() {
         return;
       }
       if (!targetFileId || !canEditDesign) return;
+      // The pending-local map is the synchronous write-through source for
+      // same-task/repeated operations. React query/collab mirrors can lag one
+      // render behind a just-completed paste even after its save is already
+      // observable from another request; rebasing a second paste on that stale
+      // mirror makes its history `before` skip the first clone, so one undo
+      // removes both. Prefer the pending snapshot exactly like primitive and
+      // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
-        targetFileId === activeFile?.id
+        latestClipboardMutationContentRef.current.get(targetFileId)?.content ??
+        pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
+        (targetFileId === activeFile?.id
           ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
+          : (getScreenContent(targetFileId) ?? ""));
       if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
       const styleSnapshots = entries.map(
         (entry) => entry.portableStyleSnapshot,
       );
+      const managedStyleSnapshots = entries.map(
+        (entry) => entry.managedStyleSnapshot,
+      );
       const applyPasteContentUpdate = (nextContent: string) => {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: targetFileId,
+          baseContent,
+          nextContent,
+          origin: "clipboard-paste",
+        });
+        if (!clipboardMutation) return false;
+        if (nextContent !== baseContent) {
+          // Capture the exact immutable pre-paste document here, before the
+          // optimistic cache/collab mirrors can advance independently. The
+          // dedicated stack owns paste history in both single and overview
+          // mode: generic Yjs/local history can be destroyed by a view switch
+          // and cannot publish the authoritative clipboard generation on
+          // undo. DOM insertion + every remapped managed rule stay in this
+          // single before/after snapshot.
+          clipboardPasteUndoStackRef.current = [
+            ...clipboardPasteUndoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            {
+              fileId: targetFileId,
+              before: baseContent,
+              after: nextContent,
+            },
+          ];
+          clipboardPasteRedoStackRef.current = [];
+          clearRedoStacks();
+          syncUndoRedoState();
+        }
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
             forcePreviewFullDocument: true,
+            clipboardMutation,
+            recordHistory: false,
           });
-          return;
+          return true;
         }
         applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
+          clipboardMutation,
+          recordHistory: false,
         });
+        return true;
       };
 
       // B7 fix: when an element is selected and no explicit canvas position was
@@ -16773,10 +16975,11 @@ function DesignEditor() {
           placement: "after",
           stripRootPosition: true,
           styleSnapshots,
+          managedStyleSnapshots,
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyPasteContentUpdate(result.content);
+          if (!applyPasteContentUpdate(result.content)) return;
           remapMotionTracksForClone(result.nodeIdMap, targetFileId);
           selectInsertedLayers(
             targetFileId,
@@ -16856,10 +17059,11 @@ function DesignEditor() {
       const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
         positions,
         styleSnapshots,
+        managedStyleSnapshots,
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyPasteContentUpdate(result.content);
+      if (!applyPasteContentUpdate(result.content)) return;
       remapMotionTracksForClone(result.nodeIdMap, targetFileId);
       selectInsertedLayers(targetFileId, result.content, result.rootNodeIds);
     },
@@ -16874,11 +17078,14 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       pasteCopiedScreens,
+      publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
       remapMotionTracksForClone,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
+      clearRedoStacks,
+      syncUndoRedoState,
       zoom,
     ],
   );
@@ -17362,6 +17569,9 @@ function DesignEditor() {
             y: y + index * 16,
           })),
           styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+          managedStyleSnapshots: entries.map(
+            (entry) => entry.managedStyleSnapshot,
+          ),
         },
       );
       if (!result) return;
@@ -17415,6 +17625,7 @@ function DesignEditor() {
       {
         positions: [{ x: targetPosition.x, y: targetPosition.y }],
         styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
       },
     );
     if (!result) return;
@@ -20214,6 +20425,9 @@ function DesignEditor() {
 
         if (deletionHistoryEntry) {
           fileHistoryMutationPendingRef.current = false;
+          clipboardPasteUndoStackRef.current = [];
+          clipboardPasteRedoStackRef.current = [];
+          latestClipboardMutationContentRef.current.clear();
         }
         options?.onMutationSettled?.(deletedFiles, failedFiles);
         syncUndoRedoState();
@@ -20808,6 +21022,72 @@ function DesignEditor() {
       syncUndoRedoState();
       return;
     }
+    const clipboardPasteUndo =
+      clipboardPasteUndoStackRef.current[
+        clipboardPasteUndoStackRef.current.length - 1
+      ];
+    if (clipboardPasteUndo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(clipboardPasteUndo.fileId)
+          ?.content ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
+          ?.content ??
+        (clipboardPasteUndo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
+      // Only claim the command when this paste is still the top document
+      // state. If another edit followed it, the ordinary chronological
+      // history below gets first chance; once that edit is undone back to
+      // `after`, the next Cmd+Z reaches this immutable paste entry.
+      if (currentContent === clipboardPasteUndo.after) {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteUndo.fileId,
+          baseContent: clipboardPasteUndo.after,
+          nextContent: clipboardPasteUndo.before,
+          origin: "clipboard-undo",
+        });
+        if (!clipboardMutation) return;
+        clipboardPasteUndoStackRef.current =
+          clipboardPasteUndoStackRef.current.slice(0, -1);
+        clipboardPasteRedoStackRef.current = [
+          ...clipboardPasteRedoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteUndo,
+        ];
+        if (clipboardPasteUndo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteUndo.before, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+            clipboardMutation,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteUndo.fileId,
+            clipboardPasteUndo.before,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+        }
+        setSelectedElement((previous) =>
+          previous
+            ? refreshElementInfoFromContent(clipboardPasteUndo.before, previous)
+            : previous,
+        );
+        setSelectedLayerIdsState((previous) =>
+          refreshSelectedLayerIdsFromContent(
+            clipboardPasteUndo.before,
+            previous,
+          ),
+        );
+        syncUndoRedoState();
+        return;
+      }
+    }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
     let prunedUndoHistory = 0;
@@ -21233,11 +21513,14 @@ function DesignEditor() {
     createFileMutation,
     deleteFileMutation,
     files,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,
     markPendingLocalFileContent,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     replacePreviewContent,
@@ -21411,6 +21694,57 @@ function DesignEditor() {
       }
       syncUndoRedoState();
       return;
+    }
+    const clipboardPasteRedo =
+      clipboardPasteRedoStackRef.current[
+        clipboardPasteRedoStackRef.current.length - 1
+      ];
+    if (clipboardPasteRedo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(clipboardPasteRedo.fileId)
+          ?.content ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
+          ?.content ??
+        (clipboardPasteRedo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
+      if (currentContent === clipboardPasteRedo.before) {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteRedo.fileId,
+          baseContent: clipboardPasteRedo.before,
+          nextContent: clipboardPasteRedo.after,
+          origin: "clipboard-redo",
+        });
+        if (!clipboardMutation) return;
+        clipboardPasteRedoStackRef.current =
+          clipboardPasteRedoStackRef.current.slice(0, -1);
+        clipboardPasteUndoStackRef.current = [
+          ...clipboardPasteUndoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteRedo,
+        ];
+        if (clipboardPasteRedo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteRedo.after, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+            clipboardMutation,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteRedo.fileId,
+            clipboardPasteRedo.after,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+        }
+        syncUndoRedoState();
+        return;
+      }
     }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
@@ -21846,6 +22180,8 @@ function DesignEditor() {
     createFileMutation,
     files,
     focusCreatedScreen,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,
@@ -21853,6 +22189,7 @@ function DesignEditor() {
     optimisticallyInsertCreatedFile,
     overviewScreens.length,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     recordLocalContentHistoryChangeFallback,
@@ -22024,7 +22361,7 @@ function DesignEditor() {
   ]);
 
   const enterSingleScreen = useCallback(
-    (fileId?: string | null) => {
+    (fileId?: string | null, nextMode: EditorMode = "edit") => {
       if (
         viewModeRef.current === "single" &&
         (!fileId || fileId === activeFileId)
@@ -22064,7 +22401,7 @@ function DesignEditor() {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
         setPinMode(false);
-        setMode("edit");
+        setMode(nextMode);
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");
@@ -22077,6 +22414,10 @@ function DesignEditor() {
       clearPendingOverviewLayerSelectionTimer,
       runEditorViewTransition,
     ],
+  );
+  const enterSingleScreenInteract = useCallback(
+    (fileId?: string | null) => enterSingleScreen(fileId, "interact"),
+    [enterSingleScreen],
   );
 
   // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
@@ -25755,11 +26096,7 @@ function DesignEditor() {
         activeBreakpointWidthStateRef.current = undefined;
         setActiveBreakpointWidthState(undefined);
         if (id) {
-          void setActiveBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId: "auto",
-            editScope: responsiveEditScopeRef.current,
-          });
+          persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
         }
         return;
       }
@@ -25770,14 +26107,10 @@ function DesignEditor() {
       activeBreakpointWidthStateRef.current = bp.widthPx;
       setActiveBreakpointWidthState(bp.widthPx);
       if (id) {
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId,
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
       }
     },
-    [id, setActiveBreakpointMutation, statesPanelBreakpoints],
+    [id, persistActiveBreakpoint, statesPanelBreakpoints],
   );
 
   const handleStatesPanelAddBreakpoint = useCallback(() => {
@@ -28597,11 +28930,7 @@ function DesignEditor() {
         setActiveBreakpointWidthState(undefined);
         // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId: "auto",
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
       }
       void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
     },
@@ -28610,7 +28939,7 @@ function DesignEditor() {
       designBreakpoints,
       activeBreakpointWidthState,
       removeBreakpointMutation,
-      setActiveBreakpointMutation,
+      persistActiveBreakpoint,
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
@@ -28726,13 +29055,9 @@ function DesignEditor() {
       const breakpointId = widthPx !== undefined && bp ? bp.id : "auto";
       // Item 9 — see handleBreakpointBarSelect's matching comment.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designDataJson, setActiveBreakpointMutation],
+    [id, designDataJson, persistActiveBreakpoint],
   );
   // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu (Remove /
   // Change width) and full-view entry. Width-first, same convention as
@@ -28768,9 +29093,9 @@ function DesignEditor() {
   // base frame's onEdit={enterSingleScreen}.
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
-      enterSingleScreen(screenId);
+      enterSingleScreenInteract(screenId);
     },
-    [enterSingleScreen],
+    [enterSingleScreenInteract],
   );
 
   // Hooks must not be called conditionally; keep navigate as an effect so the
@@ -30285,7 +30610,7 @@ function DesignEditor() {
                           selectedLayerSelectorGroupsByScreen
                         }
                         onPick={handleOverviewScreenPick}
-                        onEdit={enterSingleScreen}
+                        onEdit={enterSingleScreenInteract}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         onActiveBreakpointChange={

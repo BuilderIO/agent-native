@@ -136,13 +136,9 @@ instantánea hasta que la actualices/revises nuevamente, así que vuelve a escan
 o de la aplicación MCP. Si todavía tienes conectores antiguos por aplicación
 habilitado junto con Dispatch, actualiza o vuelve a conectar cada conector obsoleto; actualizando
 Dispatch no reescribe el calendario/correo/etc. almacenados en caché de ChatGPT o Claude.
-instantáneas. Los alcances son:
-
-| Alcance     | Qué permite                                                            |
-| ----------- | ---------------------------------------------------------------------- |
-| `mcp:read`  | Herramientas de solo lectura y descubrimiento de herramientas/recursos |
-| `mcp:write` | Redacción, actualización y otras mutaciones actions                    |
-| `mcp:apps`  | Aplicaciones, gráficos, paneles, borradores y UI MCP en línea          |
+instantáneas. Los ámbitos `mcp:read` / `mcp:write` / `mcp:apps` son los mismos
+que se explican más abajo en
+[OAuth remoto estándar de MCP](#standard-oauth).
 
 Cursor, Goose, Postman, MCPJam y VS Code GitHub Copilot usan el mismo control remoto
 MCP URL a través de su propio servidor MCP UI cuando su compilación admite OAuth remoto

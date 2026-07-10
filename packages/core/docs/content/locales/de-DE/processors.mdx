@@ -51,8 +51,11 @@ Ein `Processor` ist ein schleifeninterner **Beobachter/Leitplanke** für den Age
 
 </Diagram>
 
-> [!WARNING]
-> Ein Prozessor ist eine **Konfiguration**, kein Werkzeug, keine Aktion und kein Authoring DSL. Prozessoren beobachten nur, verändern ihren eigenen Stream-Scope-Status und `abort()`. Sie definieren niemals das App-Verhalten, ersetzen actions oder erscheinen im Modell. App-Vorgänge gehören zu [actions](/docs/actions).
+<Callout id="doc-block-proc1cfg" tone="warning">
+
+Ein Prozessor ist eine **Konfiguration**, kein Werkzeug, keine Aktion und kein Authoring DSL. Prozessoren beobachten nur, verändern ihren eigenen Stream-Scope-Status und `abort()`. Sie definieren niemals das App-Verhalten, ersetzen actions oder erscheinen im Modell. App-Vorgänge gehören zu [actions](/docs/actions).
+
+</Callout>
 
 ## Die Haken {#hooks}
 
@@ -133,10 +136,13 @@ await runAgentLoop({
 
 **Kein Overhead, wenn nicht verwendet.** Die Schleife baut die Prozessorkette nur auf, wenn mindestens ein Prozessor bereitgestellt wird; Wenn `processors` weggelassen oder leer ist, wird keiner der Nahtcodes ausgeführt und die Schleife bleibt Byte für Byte unverändert. Hooks werden in der Reihenfolge der Registrierung ausgeführt und können synchron oder asynchron sein.
 
-> [!NOTE]
-> Der Loop-Level-Seam ist heute lieferbar und kann direkt von Subagenten, A2A, MCP und Tests aufgerufen werden. Das Einfädeln von `processors` durch den HTTP-Chat-Handler (damit ein Pro-Request-Resolver sie konfigurieren kann, ohne `runAgentLoop` direkt aufzurufen) ist eine praktische Installation, die noch nicht verkabelt ist – konfigurieren Sie Prozessoren vorerst an der `runAgentLoop`-Aufrufseite.
+<Callout id="doc-block-proc1note" tone="info">
 
-## Verwandt
+Der Loop-Level-Seam ist heute lieferbar und kann direkt von Subagenten, A2A, MCP und Tests aufgerufen werden. Das Einfädeln von `processors` durch den HTTP-Chat-Handler (damit ein Pro-Request-Resolver sie konfigurieren kann, ohne `runAgentLoop` direkt aufzurufen) ist eine praktische Installation, die noch nicht verkabelt ist – konfigurieren Sie Prozessoren vorerst an der `runAgentLoop`-Aufrufseite.
+
+</Callout>
+
+## Wie geht es weiter
 
 - [**Durable Resume**](/docs/durable-resume) – wie die Schleife Unterbrechungen übersteht, ohne abgeschlossene Nebenwirkungen erneut auszuführen.
 - [**Custom Agents & Teams**](/docs/agent-teams) – Subagenten führen dieselbe Schleife aus und können ihre eigenen Prozessoren tragen.

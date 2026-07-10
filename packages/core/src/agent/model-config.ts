@@ -265,7 +265,10 @@ export const AGENT_MODEL_CONFIG = {
       "gpt-5-6-luna",
       "gemini-3-1-pro",
       "gemini-3-5-flash",
-      "gemini-3-1-flash-lite",
+      // Flash-Lite is a transcription-only public id. Advertising it as an
+      // agent-chat option routes through a Vertex preview model whose
+      // availability can lapse while the id remains accepted, leaving chat
+      // with a bare stop/error event that cannot recover.
     ],
   },
   anthropic: {

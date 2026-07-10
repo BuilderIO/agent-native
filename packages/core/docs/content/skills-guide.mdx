@@ -5,7 +5,7 @@ description: "How skills work in agent-native: framework skills, domain skills, 
 
 # Skills Guide
 
-Skills are Markdown files that give the agent deep knowledge about specific patterns and workflows.
+Skills are Markdown files that give the agent deep knowledge about specific patterns and workflows. Instead of cramming every rule into one system prompt, you split knowledge into focused files the agent loads only when a task actually needs them — keeping the default context small while still letting the agent go deep on demand.
 
 ## What are skills {#what-are-skills}
 
@@ -124,7 +124,11 @@ Current app-backed skills include `visual-plan`, `visual-recap`, and
 `visualize-repo` from Plan, `visual-edit` from Design, `assets` from Assets, and
 `content` for repo-backed docs/blog/MDX editing.
 
-> **Full details below:** the mechanics of app-backed skills (manifest format, CLI commands, marketplace adapters, auto-update hashing) are covered in [App-backed skills — full details](#app-backed-skills-full).
+<Callout tone="info">
+
+**Full details below:** the mechanics of app-backed skills (manifest format, CLI commands, marketplace adapters, auto-update hashing) are covered in [App-backed skills — full details](#app-backed-skills-full).
+
+</Callout>
 
 ## Creating custom skills {#creating-skills}
 
@@ -179,7 +183,11 @@ The frontmatter `name` and `description` are used by the agent's tool system for
 
 Save the file at `.agents/skills/my-skill/SKILL.md`. The directory name should match the `name` in frontmatter.
 
-> **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean. Both pages use the `project-imports` skill as a running example.
+<Callout tone="info">
+
+**See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean. Both pages use the `project-imports` skill as a running example.
+
+</Callout>
 
 ## Skill scope: runtime vs dev {#skill-scope}
 
@@ -269,33 +277,37 @@ This replaces the old hack of relying on Claude Code only reading `.claude/skill
 
 </Diagram>
 
-> **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean.
-
 ## Skills vs AGENTS.md {#skills-vs-agents-md}
 
-> **AGENTS.md** — The overview. Lists all scripts, describes the data model, explains the app architecture. The agent reads this first to understand the app.
->
-> **Skills** — Deep dives. Each skill focuses on one pattern with detailed rules, code examples, and do/don't lists. The agent reads these when it needs to follow a specific pattern.
+<Callout tone="info">
+
+**AGENTS.md** — The overview. Lists all scripts, describes the data model, explains the app architecture. The agent reads this first to understand the app.
+
+**Skills** — Deep dives. Each skill focuses on one pattern with detailed rules, code examples, and do/don't lists. The agent reads these when it needs to follow a specific pattern.
+
+</Callout>
 
 `AGENTS.md` tells the agent _what_ the app does. Skills tell the agent _how_ to do specific things correctly. Both are needed — `AGENTS.md` for orientation, skills for execution.
 
 ## Skills vs memory {#skills-vs-memory}
 
-> **Skills** — Authored, reusable how-to guides. Apply to every user, invoked on demand when the task matches.
->
-> **Memory (`LEARNINGS.md` / `memory/MEMORY.md`)** — Shared project learnings and personal structured memory loaded every turn.
+<Callout tone="info">
+
+**Skills** — Authored, reusable how-to guides. Apply to every user, invoked on demand when the task matches.
+
+**Memory (`LEARNINGS.md` / `memory/MEMORY.md`)** — Shared project learnings and personal structured memory loaded every turn.
+
+</Callout>
 
 If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Workspace Memory](/docs/workspace#memory) for the full treatment.
 
----
+## Skills vs SQL resources {#skills-vs-resources}
 
-# Advanced
+This page frames a skill as a file at `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) frames the same skill as a SQL resource at path `skills/<slug>/SKILL.md`, scoped workspace/shared/personal. These are the same concept from two angles: Code mode reads and writes the file directly; App mode stores it as a resource row so it works without a filesystem. Author the content using this page's format either way.
 
 ## App-backed skills — full details {#app-backed-skills-full}
 
-App-backed skills package an agent-native app as a skill marketplace artifact.
-The bundle can include agent instructions, exported skills, MCP connector
-metadata, hosted/local launch instructions, and UI surfaces such as MCP Apps.
+The manifest format, CLI commands, marketplace adapters, and auto-update hashing behind [app-backed skills](#app-backed-skills) in full:
 
 Each app-backed skill starts with `agent-native.app-skill.json` at the app root:
 
@@ -412,3 +424,10 @@ npx @agent-native/core@latest skills update scaffold --project
 `AGENTS.md` and `.agents/skills` stay canonical. The update command also repairs
 Claude compatibility links (`CLAUDE.md` and `.claude/skills`) so Claude Code sees
 the same instructions without maintaining a second copy.
+
+## What's next {#whats-next}
+
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions) — word skill descriptions and split guidance across AGENTS.md, skills, and memory
+- [**Workspace**](/docs/workspace#skills) — where skills live as SQL resources in App mode
+- [**Agent Mentions**](/docs/agent-mentions) — the `/`-command trigger that invokes a skill in chat
+- [**Plan plugin & marketplace**](/docs/plan-plugin) — a real app-backed skill's end-to-end install and auto-update flow

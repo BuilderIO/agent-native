@@ -116,8 +116,7 @@ _Planned (not yet available):_ when connected to Builder.io, your app will be ab
 
 Each template creates a lazy, singleton Drizzle client by calling `createGetDb(schema)` from `@agent-native/core/db`. The canonical location is `server/db/index.ts`:
 
-```ts
-// server/db/index.ts
+```ts filename="server/db/index.ts"
 import { createGetDb } from "@agent-native/core/db";
 import * as schema from "./schema.js";
 
@@ -257,9 +256,14 @@ All database schema updates must be **strictly additive**.
 - **Do not rename tables or columns.** Renaming a column or table looks like a drop + create sequence to Drizzle, which will permanently delete your existing production data.
 - If a column needs to be renamed or replaced, add the new column alongside the old one, update your application code to read from/write to both, migrate the data, and only retire the old column in a later release once no active deployments are referencing it.
 
-> [!WARNING]
-> **Never run `drizzle-kit push` against a production database.**
-> Template database schemas only define app-specific domain tables; they do not define central framework tables (`user`, `session`, `application_state`, etc.). If you run `drizzle-kit push` against production, Drizzle will detect these framework tables as "not in schema" and attempt to drop them, causing immediate system-wide failure and data loss.
+<Callout tone="risk">
+  **Never run `drizzle-kit push` against a production database.** Template
+  database schemas only define app-specific domain tables; they do not define
+  central framework tables (`user`, `session`, `application_state`, etc.). If
+  you run `drizzle-kit push` against production, Drizzle will detect these
+  framework tables as "not in schema" and attempt to drop them, causing
+  immediate system-wide failure and data loss.
+</Callout>
 
 ### Safe Migration Path
 
@@ -298,3 +302,11 @@ Instead of pushing directly, schema changes should be applied via SQL migrations
 | --------------------- | ------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
 | `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |
+
+## What's next
+
+- [**Security — Data Scoping**](/docs/security#data-scoping) — how `owner_email` and access helpers scope reads and writes
+- [**Sharing**](/docs/sharing#building) — `ownableColumns()` and the visibility model for shared resources
+- [**Server**](/docs/server#request-context) — how actions and custom routes each import `getDb`
+- [**Deployment**](/docs/deployment#persistent-database) — connecting a persistent database per deploy target
+- [**Actions**](/docs/actions#access-control) — a complete, paste-ready action that reads and writes through `getDb`/`schema`

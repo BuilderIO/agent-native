@@ -1212,13 +1212,25 @@ function nativeHistoryFromMessages(
     : history;
 }
 
+type AgentNativeMessageContentState =
+  | { type: "text"; text: string; id?: string }
+  | {
+      type: "reasoning";
+      text: string;
+      id?: string;
+      signature?: string;
+    };
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
     sessionId: AgentChatRuntimeSessionId;
     turnId?: AgentChatRuntimeTurnId;
     messageId: string;
-    text: { value: string; started: boolean };
+    message: {
+      content: AgentNativeMessageContentState[];
+      started: boolean;
+    };
   },
 ): AgentChatRuntimeKnownEvent[] {
   if (!raw || typeof raw !== "object") return [];
@@ -1232,11 +1244,17 @@ function mapAgentNativeEvent(
       seq: ev.seq,
     };
   }
-  if (ev.type === "text") {
+  if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
+    const type = ev.type === "text" ? "text" : "reasoning";
+    const extended = ev as SSEEvent & {
+      partId?: string;
+      signature?: string;
+    };
+    const partId = extended.partId;
     const events: AgentChatRuntimeKnownEvent[] = [];
-    if (!input.text.started) {
-      input.text.started = true;
+    if (!input.message.started) {
+      input.message.started = true;
       events.push({
         type: "message-start",
         ...base,
@@ -1247,12 +1265,47 @@ function mapAgentNativeEvent(
         },
       });
     }
-    input.text.value += text;
+    const last = input.message.content.at(-1);
+    let part = partId
+      ? input.message.content.find(
+          (candidate) => candidate.type === type && candidate.id === partId,
+        )
+      : last?.type === type && !last.id
+        ? last
+        : undefined;
+    if (!part) {
+      const nextPart: AgentNativeMessageContentState =
+        type === "reasoning"
+          ? {
+              type: "reasoning",
+              text: "",
+              ...(partId ? { id: partId } : {}),
+            }
+          : {
+              type: "text",
+              text: "",
+              ...(partId ? { id: partId } : {}),
+            };
+      input.message.content.push(nextPart);
+      part = nextPart;
+    }
+    part.text += text;
+    if (part.type === "reasoning" && extended.signature) {
+      part.signature = extended.signature;
+    }
     events.push({
       type: "message-delta",
       ...base,
       messageId: input.messageId,
-      delta: { type: "text", text },
+      delta:
+        type === "reasoning"
+          ? {
+              type: "reasoning",
+              text,
+              partId,
+              signature: extended.signature,
+            }
+          : { type: "text", text, partId },
     });
     return events;
   }
@@ -1330,12 +1383,10 @@ function mapAgentNativeEvent(
     const message: AgentChatRuntimeMessage = {
       id: input.messageId,
       role: "assistant",
-      content: input.text.value
-        ? [{ type: "text", text: input.text.value }]
-        : [],
+      content: input.message.content.map((part) => ({ ...part })),
     };
     return [
-      ...(input.text.started
+      ...(input.message.started
         ? [{ type: "message-done" as const, ...base, message }]
         : []),
       { type: "done", ...base, reason: "complete" },
@@ -1397,7 +1448,13 @@ export function createAgentNativeChatRuntime(
     mapEvent: (() => {
       const states = new Map<
         string,
-        { messageId: string; text: { value: string; started: boolean } }
+        {
+          messageId: string;
+          message: {
+            content: AgentNativeMessageContentState[];
+            started: boolean;
+          };
+        }
       >();
       return (
         event: unknown,
@@ -1411,7 +1468,7 @@ export function createAgentNativeChatRuntime(
         if (!state) {
           state = {
             messageId: createRuntimeId("message"),
-            text: { value: "", started: false },
+            message: { content: [], started: false },
           };
           states.set(stateKey, state);
         }
@@ -1419,7 +1476,7 @@ export function createAgentNativeChatRuntime(
           sessionId: context.sessionId,
           turnId: context.turnId,
           messageId: state.messageId,
-          text: state.text,
+          message: state.message,
         });
         const type =
           event && typeof event === "object"
@@ -1461,27 +1518,68 @@ function toolResultText(value: unknown): string {
   }
 }
 
+interface RuntimeContentProjection {
+  content: ContentPart[];
+  partsById: Map<string, Extract<ContentPart, { type: "text" | "reasoning" }>>;
+}
+
+function appendRuntimeContentPart(
+  projection: RuntimeContentProjection,
+  input: {
+    type: "text" | "reasoning";
+    text: string;
+    partId?: string;
+  },
+): void {
+  const key = input.partId ? `${input.type}:${input.partId}` : undefined;
+  const last = projection.content.at(-1);
+  let part = key ? projection.partsById.get(key) : undefined;
+  if (
+    !part &&
+    !key &&
+    last &&
+    (last.type === "text" || last.type === "reasoning") &&
+    last.type === input.type
+  ) {
+    part = last;
+  }
+  if (!part) {
+    const nextPart: Extract<ContentPart, { type: "text" | "reasoning" }> =
+      input.type === "reasoning"
+        ? { type: "reasoning", text: "" }
+        : { type: "text", text: "" };
+    projection.content.push(nextPart);
+    if (key) projection.partsById.set(key, nextPart);
+    part = nextPart;
+  }
+  part.text += input.text;
+}
+
 function applyRuntimeEventToContent(
   event: AgentChatRuntimeEventBase,
-  content: ContentPart[],
+  projection: RuntimeContentProjection,
 ): ChatModelRunResult | null {
+  const { content } = projection;
   const typed = event as AgentChatRuntimeKnownEvent;
   if (typed.type === "message-start") {
     for (const part of typed.message.content) {
-      if (part.type === "text" && part.text) {
-        content.push({ type: "text", text: part.text });
+      if ((part.type === "text" || part.type === "reasoning") && part.text) {
+        appendRuntimeContentPart(projection, {
+          type: part.type,
+          text: part.text,
+          partId: part.id,
+        });
       }
     }
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "message-delta") {
-    if (typed.delta.type === "text") {
-      const last = content[content.length - 1];
-      if (last?.type === "text") {
-        last.text += typed.delta.text;
-      } else {
-        content.push({ type: "text", text: typed.delta.text });
-      }
+    if (typed.delta.type === "text" || typed.delta.type === "reasoning") {
+      appendRuntimeContentPart(projection, {
+        type: typed.delta.type,
+        text: typed.delta.text,
+        partId: typed.delta.partId,
+      });
       return { content: [...content] } as ChatModelRunResult;
     }
     return null;
@@ -1674,10 +1772,13 @@ export function createAgentChatRuntimeAdapter(
         abortSignal,
         metadata: options.metadata,
       });
-      const content: ContentPart[] = [];
+      const projection: RuntimeContentProjection = {
+        content: [],
+        partsById: new Map(),
+      };
       try {
         for await (const event of turn.events) {
-          const result = applyRuntimeEventToContent(event, content);
+          const result = applyRuntimeEventToContent(event, projection);
           if (result) {
             const metadata = (result.metadata ?? {}) as Record<string, unknown>;
             const custom =

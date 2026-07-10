@@ -2,6 +2,11 @@ import type { ActiveRun, StartRunOptions } from "../run-manager.js";
 import { startRun } from "../run-manager.js";
 import type { AgentChatEvent } from "../types.js";
 import {
+  registerLiveAgentHarnessSession,
+  releaseLiveAgentHarnessSession,
+} from "./lifecycle.js";
+import {
+  getAgentHarnessSession,
   markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
   updateAgentHarnessSession,
@@ -67,16 +72,31 @@ export function startAgentHarnessRun(
         ownerEmail: opts.ownerEmail ?? opts.createSession?.ownerEmail ?? null,
         orgId: opts.orgId ?? opts.createSession?.orgId ?? null,
       });
+      const storedSessionId =
+        opts.createSession?.sessionId ?? harnessSession.id;
+      registerLiveAgentHarnessSession({
+        sessionId: storedSessionId,
+        adapter: opts.adapter,
+        session: harnessSession,
+        createSession: opts.createSession,
+        ownerEmail: opts.ownerEmail ?? opts.createSession?.ownerEmail ?? null,
+        orgId: opts.orgId ?? opts.createSession?.orgId ?? null,
+      });
 
       const input: AgentHarnessTurnInput = {
         ...opts.input,
         abortSignal: signal,
       };
 
+      let pendingApproval: Extract<
+        AgentHarnessEvent,
+        { type: "approval-request" }
+      > | null = null;
       for await (const event of harnessSession.streamTurn(input)) {
         if (signal.aborted) break;
         await opts.onHarnessEvent?.(event);
         if (event.type === "approval-request") {
+          pendingApproval = event;
           await updateAgentHarnessSession(
             opts.createSession?.sessionId ?? harnessSession.id,
             {
@@ -95,6 +115,7 @@ export function startAgentHarnessRun(
 
       if (signal.aborted) {
         await stopHarnessSession(harnessSession);
+        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
         await markAgentHarnessSessionStopped(
           opts.createSession?.sessionId ?? harnessSession.id,
           "stopped",
@@ -102,10 +123,27 @@ export function startAgentHarnessRun(
         return;
       }
 
+      if (pendingApproval) {
+        const stored = await getAgentHarnessSession(storedSessionId);
+        const stillPending =
+          stored?.pendingApproval &&
+          typeof stored.pendingApproval === "object" &&
+          "id" in stored.pendingApproval &&
+          stored.pendingApproval.id === pendingApproval.id;
+        if (stillPending) {
+          await updateAgentHarnessSession(storedSessionId, {
+            status: "idle",
+            pendingApproval,
+          });
+          return;
+        }
+      }
+
       let resumeState: unknown = opts.createSession?.resumeState;
       if (detachOnComplete && harnessSession.detach) {
         resumeState = await harnessSession.detach();
       }
+      releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
       await updateAgentHarnessSession(
         opts.createSession?.sessionId ?? harnessSession.id,
         {

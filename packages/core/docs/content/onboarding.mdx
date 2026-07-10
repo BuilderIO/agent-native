@@ -197,7 +197,7 @@ When building templates that interact with external services (like Slack, Google
 
 You can check connection readiness in your `isComplete` callback using the connection catalog APIs:
 
-```ts
+```ts filename="server/plugins/my-onboarding.ts"
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 
 // Inside registerOnboardingStep:
@@ -253,7 +253,7 @@ defaults load.
 
 The panel is already inside `<AgentPanel>`. To build a custom layout:
 
-```tsx
+```tsx filename="app/components/MySidebar.tsx"
 import {
   OnboardingPanel,
   OnboardingBanner,
@@ -276,3 +276,10 @@ For background on where step values are stored and how secrets are handled,
 see [Security](/docs/security). For end-user messaging touchpoints (invitations,
 password resets) that depend on the **Email delivery** step, see
 [Messaging](/docs/messaging).
+
+## What's next {#whats-next}
+
+- [**Security**](/docs/security) — where onboarding secrets and step values are stored
+- [**Authentication**](/docs/authentication) — sign-in setup for the Authentication step
+- [**Workspace Connections**](/docs/workspace-connections) — the connection catalog APIs used by `isComplete` checks
+- [**Messaging**](/docs/messaging) — email delivery setup that the Email delivery step unlocks

@@ -10,6 +10,10 @@ and durable app pages. Use this pattern when the primary surface is not a
 browser UI yet: scheduled reports, queues, integration workers, CLI loops, or
 another app or agent calling this app over MCP/A2A.
 
+Building something people browse, compare, edit, or share in a full app? See
+[Templates](/docs/cloneable-saas) instead — this page covers the complementary
+archetype, where the work runs without a persistent screen.
+
 Automation-first does **not** mean stateless. The app-agent loop still uses the
 same Agent-Native contract: actions, sessions, app state, history, settings,
 credentials, and share records live in SQL.
@@ -113,7 +117,7 @@ Choose chat when people need conversational steering, approvals, or durable
 thread history; add app pages when they need to browse, compare, edit, or share
 persistent objects.
 
-## What to add next {#whats-next}
+## What's next {#whats-next}
 
 - [**Getting Started**](/docs/getting-started) — the chat-first tutorial from action to inline result to durable page
 - [**Agent Surfaces — Automation-first app**](/docs/agent-surfaces#headless) — the full decision guide and APIs

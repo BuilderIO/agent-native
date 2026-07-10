@@ -129,6 +129,7 @@ vi.mock("./AssistantChat.js", async () => {
       const props = _props as {
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
+        selectedEffort?: string;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -143,7 +144,10 @@ vi.mock("./AssistantChat.js", async () => {
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
       return (
-        <div data-testid="assistant-chat">
+        <div
+          data-testid="assistant-chat"
+          data-reasoning-effort={props.selectedEffort}
+        >
           {props.emptyStateAddon}
           {props.composerSlot}
         </div>
@@ -236,6 +240,33 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("defaults reasoning to medium", () => {
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
+  });
+
+  it("migrates persisted legacy auto reasoning to medium", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:legacy-medium-test",
+      JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="legacy-medium-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
   });
 
   it("continues to submit when submit is omitted", () => {

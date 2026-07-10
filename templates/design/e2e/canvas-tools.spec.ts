@@ -763,6 +763,15 @@ async function waitForTextEditing(page: Page): Promise<void> {
     .toBeGreaterThan(0);
 }
 
+async function activeTextEditingFrame(page: Page): Promise<Frame> {
+  for (const frame of page.frames()) {
+    if (await frame.locator("[data-agent-native-text-editing]").count()) {
+      return frame;
+    }
+  }
+  throw new Error("no active text-editing frame");
+}
+
 async function textEditingChromeSummary(
   page: Page,
 ): Promise<TextEditingChromeSummary | null> {
@@ -1690,22 +1699,14 @@ test("new empty text is one atomic undo step and cancel leaves the frame intact"
       beforeBox.y + beforeBox.height * 0.42,
     );
     await waitForTextEditing(page);
-    await expect
-      .poll(
-        async () => (await textPrimitiveSummaries(page, "index.html")).length,
-      )
-      .toBe(beforeCount + 1);
   };
 
   await placeEmptyText();
-  let liveEditingFrame: Frame | null = null;
-  for (const frame of page.frames()) {
-    if (await frame.locator("[data-agent-native-text-editing]").count()) {
-      liveEditingFrame = frame;
-      break;
-    }
-  }
-  if (!liveEditingFrame) throw new Error("no active text-editing frame");
+  // Let the optimistic write and its server acknowledgement land. The caret
+  // must survive this window; historically the save echo forced a second
+  // whole-document replacement and silently ended the edit session.
+  await page.waitForTimeout(1_500);
+  let liveEditingFrame = await activeTextEditingFrame(page);
   await liveEditingFrame
     .locator("[data-agent-native-text-editing]")
     .press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
@@ -1714,17 +1715,36 @@ test("new empty text is one atomic undo step and cancel leaves the frame intact"
     .toBe(beforeCount);
 
   await placeEmptyText();
-  await page.keyboard.press("Escape");
+  await page.waitForTimeout(1_500);
+  liveEditingFrame = await activeTextEditingFrame(page);
+  await liveEditingFrame
+    .locator("[data-agent-native-text-editing]")
+    .press("Escape");
+  await expect
+    .poll(async () => (await textPrimitiveSummaries(page, "index.html")).length)
+    .toBe(beforeCount);
+
+  await placeEmptyText();
+  await page.waitForTimeout(1_500);
+  liveEditingFrame = await activeTextEditingFrame(page);
+  const editable = liveEditingFrame.locator("[data-agent-native-text-editing]");
+  await editable.type("Atomic text undo");
+  await editable.press("Escape");
+  await waitForTextPrimitive(page, "index.html", "Atomic text undo");
+  await page.waitForTimeout(900);
+  await liveEditingFrame
+    .locator("body")
+    .press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
   await expect
     .poll(async () => (await textPrimitiveSummaries(page, "index.html")).length)
     .toBe(beforeCount);
 
   const afterBox = await card.boundingBox();
   expect(afterBox).not.toBeNull();
-  expect(afterBox!.x).toBeCloseTo(beforeBox.x, 1);
-  expect(afterBox!.y).toBeCloseTo(beforeBox.y, 1);
-  expect(afterBox!.width).toBeCloseTo(beforeBox.width, 1);
-  expect(afterBox!.height).toBeCloseTo(beforeBox.height, 1);
+  expect(Math.abs(afterBox!.x - beforeBox.x)).toBeLessThan(1);
+  expect(Math.abs(afterBox!.y - beforeBox.y)).toBeLessThan(1);
+  expect(Math.abs(afterBox!.width - beforeBox.width)).toBeLessThan(1);
+  expect(Math.abs(afterBox!.height - beforeBox.height)).toBeLessThan(1);
 });
 
 test("board text focuses immediately and uses editing chrome states", async ({

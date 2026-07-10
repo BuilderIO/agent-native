@@ -45,6 +45,43 @@ const tree = useResourceTree("workspace");
 const resource = useResource(selectedId);
 ```
 
+## Mutations {#mutations}
+
+Reads and writes go through the same hooks the panel uses internally, so a
+custom toolbar button stays wired into the same cache invalidation as
+`<ResourcesPanel>`:
+
+```tsx
+import {
+  useCreateResource,
+  useResourceTree,
+} from "@agent-native/core/client/resources";
+
+export function NewNoteButton() {
+  const tree = useResourceTree("personal");
+  const createResource = useCreateResource();
+
+  return (
+    <button
+      type="button"
+      disabled={createResource.isPending}
+      onClick={() =>
+        createResource.mutate({
+          path: "notes/untitled.md",
+          content: "# Untitled\n",
+          mimeType: "text/markdown",
+        })
+      }
+    >
+      New note ({tree.data?.length ?? 0} items)
+    </button>
+  );
+}
+```
+
+`useUpdateResource()`, `useDeleteResource()`, and `useUploadResource()` follow
+the same shape and invalidate the tree/resource queries on success.
+
 ## UX Standard {#ux-standard}
 
 - Use a stable tree/editor split for file-heavy apps.
@@ -53,5 +90,11 @@ const resource = useResource(selectedId);
   collaboration still uses SQL-backed runtime state.
 - Resource actions should return deep links to the focused file/resource.
 
-Related docs: [Local File Mode](/docs/local-file-mode),
-[File Uploads](/docs/file-uploads), [Component API](/docs/components#resources).
+## What's next
+
+- [**Local File Mode**](/docs/local-file-mode) — repo-backed resources where
+  files are the source of truth.
+- [**File Uploads**](/docs/file-uploads) — the shared attachment path resource
+  uploads reuse.
+- [**Component API**](/docs/components#resources) — the full prop reference for
+  the resource components.

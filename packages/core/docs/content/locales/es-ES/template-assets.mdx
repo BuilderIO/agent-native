@@ -92,6 +92,18 @@ Cuando abre la aplicación, la biblioteca seleccionada, el mensaje, las referenc
 - **Otras aplicaciones necesitan un selector o generador de recursos**: Presentaciones, Diseño, Contenido, un editor de blog o un creador de sitios pueden insertar el selector o llamar a Recursos a través de A2A.
 - **Quiere que los medios de marca estén disponibles a través de su agente de codificación**: Codex, Claude Code, Claude o ChatGPT pueden generar y seleccionar recursos sin salir del chat.
 
+## Qué puedes hacer con él
+
+- **Crea bibliotecas de recursos.** Agrupa imágenes de referencia, vídeos, logotipos canónicos, notas de estilo, paletas, carpetas y resultados generados por marca, campaña, producto o categoría.
+- **Generar a través del chat.** El compositor principal y los controles Generar de la biblioteca envían el mensaje al agente con `sendToAgentChat()`, para que los usuarios puedan inspeccionar variantes, dar comentarios e iterar.
+- **Generar imágenes y vídeos.** La generación de imágenes administrada por Builder está disponible cuando está habilitada, y Gemini potencia la generación de vídeos además del respaldo manual de imágenes.
+- **Cargue y describa referencias.** Agregue imágenes o videos de la biblioteca UI o solicite el botón adjunto del compositor, luego busque por título, descripción, texto alternativo, mensaje, modelo, tipo de medio, estado, función, carpeta o colección.
+- **Mantenga un registro de auditoría de generación.** Cada ejecución registra indicaciones, modelo, relación de aspecto, referencias, activo de origen, linaje, activos generados, estado, errores y marcas de tiempo para una revisión posterior del diseño.
+- **Preservar la precisión del logotipo.** El agente puede generar un área de marcador de posición y el servidor compone el logotipo canónico cargado en la imagen final en lugar de depender del modelo de imagen para volver a dibujarlo.
+- **Insertar como selector.** Otras aplicaciones pueden encuadrar `/picker` y escuchar el evento `chooseAsset` desde `@agent-native/embedding`, lo que convierte a Assets en un selector/generador de recursos para editores de blogs, creadores de sitios, presentaciones de diapositivas y aplicaciones personalizadas. El selector también emite el alias heredado `chooseImage` para hosts existentes de solo imágenes.
+- **Instalar como una habilidad respaldada por una aplicación.** El manifiesto `agent-native.app-skill.json` exporta una habilidad de Activos más metadatos del conector MCP para que los mercados puedan instalar la aplicación, sus instrucciones y su selector juntos.
+- **Servir a otros agentes.** Diapositivas, Diseño, Contenido, Correo y Envío pueden llamar a Recursos a través de A2A para enumerar bibliotecas, generar lotes, crear videos, refinar un recurso, recuperar exportaciones y generar vistas previas en línea donde se permite la incrustación.
+
 ## Cómo empezar
 
 Demostración en vivo: [assets.agent-native.com](https://assets.agent-native.com).
@@ -113,18 +125,6 @@ Demostración en vivo: [assets.agent-native.com](https://assets.agent-native.com
 - "Encontrar todos los recursos aprobados para el rediseño de incorporación."
 - "Convierta este diagrama subido en una imagen explicativa del producto más limpia."
 - "Crea un guión gráfico de vídeo y guarda el mejor conjunto de fotogramas en esta biblioteca."
-
-## Qué puedes hacer con él
-
-- **Crea bibliotecas de recursos.** Agrupa imágenes de referencia, vídeos, logotipos canónicos, notas de estilo, paletas, carpetas y resultados generados por marca, campaña, producto o categoría.
-- **Generar a través del chat.** El compositor principal y los controles Generar de la biblioteca envían el mensaje al agente con `sendToAgentChat()`, para que los usuarios puedan inspeccionar variantes, dar comentarios e iterar.
-- **Generar imágenes y vídeos.** La generación de imágenes administrada por Builder está disponible cuando está habilitada, y Gemini potencia la generación de vídeos además del respaldo manual de imágenes.
-- **Cargue y describa referencias.** Agregue imágenes o videos de la biblioteca UI o solicite el botón adjunto del compositor, luego busque por título, descripción, texto alternativo, mensaje, modelo, tipo de medio, estado, función, carpeta o colección.
-- **Mantenga un registro de auditoría de generación.** Cada ejecución registra indicaciones, modelo, relación de aspecto, referencias, activo de origen, linaje, activos generados, estado, errores y marcas de tiempo para una revisión posterior del diseño.
-- **Preservar la precisión del logotipo.** El agente puede generar un área de marcador de posición y el servidor compone el logotipo canónico cargado en la imagen final en lugar de depender del modelo de imagen para volver a dibujarlo.
-- **Insertar como selector.** Otras aplicaciones pueden encuadrar `/picker` y escuchar el evento `chooseAsset` desde `@agent-native/embedding`, lo que convierte a Assets en un selector/generador de recursos para editores de blogs, creadores de sitios, presentaciones de diapositivas y aplicaciones personalizadas. El selector también emite el alias heredado `chooseImage` para hosts existentes de solo imágenes.
-- **Instalar como una habilidad respaldada por una aplicación.** El manifiesto `agent-native.app-skill.json` exporta una habilidad de Activos más metadatos del conector MCP para que los mercados puedan instalar la aplicación, sus instrucciones y su selector juntos.
-- **Servir a otros agentes.** Diapositivas, Diseño, Contenido, Correo y Envío pueden llamar a Recursos a través de A2A para enumerar bibliotecas, generar lotes, crear videos, refinar un recurso, recuperar exportaciones y generar vistas previas en línea donde se permite la incrustación.
 
 ## Usándolo desde su agente de codificación
 
@@ -168,10 +168,13 @@ Genere y seleccione medios de marca sin salir de Codex, Claude Code, Claude o Ch
 
 El resto de este documento es para cualquiera que bifurque la plantilla de Activos o la amplíe.
 
-### Andamios
+### Inicio rápido
 
 ```bash
 npx @agent-native/core@latest create my-assets --standalone --template assets
+cd my-assets
+pnpm install
+pnpm dev
 ```
 
 ### Modelo de datos

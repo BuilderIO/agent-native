@@ -9,7 +9,11 @@ Chaque application hébergée sur `*.agent-native.com` exécute son propre dépl
 
 Il s'agit de la même primitive de confiance que [A2A](/docs/a2a-protocol) et [External Agents](/docs/external-agents) utilisent déjà (un JWT signé `A2A_SECRET` et vérifié à la limite de la demande) appliquée au chemin de connexion humaine au lieu des appels d'agent à agent.
 
-> **Déploiement unifié ou déploiement par domaine.** Si vous hébergez toutes les applications sur une seule origine (`your-agents.com/mail`, `your-agents.com/calendar`), vous bénéficiez déjà d'une connexion partagée via un seul domaine de cookie — aucune fédération n'est nécessaire. Cross-App SSO n’est nécessaire que lorsque les applications s’exécutent sur des domaines distincts. Voir [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+<Callout tone="info">
+
+**Déploiement unifié ou déploiement par domaine.** Si vous hébergez toutes les applications sur une seule origine (`your-agents.com/mail`, `your-agents.com/calendar`), vous bénéficiez déjà d'une connexion partagée via un seul domaine de cookie — aucune fédération n'est nécessaire. Cross-App SSO n’est nécessaire que lorsque les applications s’exécutent sur des domaines distincts. Voir [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+</Callout>
 
 ## Quoi et pourquoi {#what-why}
 
@@ -86,14 +90,16 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
 
 </Diagram>
 
-1. **Application → Répartir (autoriser).** L'application envoie l'utilisateur à l'autorité d'identité :
+1. **Application → Dispatch (autorisation).** La route `GET /_agent-native/identity/login` de l’application (celle du bouton « Se connecter avec Agent-Native ») construit la redirection et envoie l’utilisateur à l’autorité d’identité :
 
-   ```
+   ```http
    GET https://dispatch.agent-native.com/_agent-native/identity/authorize
        ?app=<requesting-app>
        &redirect_uri=<app-callback-url>
        &state=<csrf-state>
    ```
+
+   `redirect_uri` est la propre route `GET /_agent-native/identity/callback` de cette application — celle qui reçoit le jeton signé à l’étape 3.
 
 <Endpoint id="cross-app-sso-identity-authorize-fr-fr" title={"Point de terminaison d'autorisation d'identité"} method="GET" path="/_agent-native/identity/authorize" summary={"Dispatch (autorité d'identité) authentifie l'humain et le redirige avec un jeton d'identité signé"} auth={"Session de répartition (connexion interactive si aucune)"} params={[
   {
@@ -143,7 +149,7 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
    | `scope`      | Toujours `"identity"` : ce jeton autorise uniquement la connexion          |
    | `exp`        | **≤ 2 minutes** à partir du problème                                       |
 
-4. **L'application vérifie et les liens JIT par e-mail.** L'application vérifie la signature du jeton avec son propre `A2A_SECRET`, vérifie `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps strictement par e-mail vérifié** :
+4. **L’application vérifie et lie le compte juste à temps par e-mail.** La route `GET /_agent-native/identity/callback` vérifie la signature du jeton avec `A2A_SECRET`, contrôle `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps strictement par e-mail vérifié** :
    - S'il existe un utilisateur local avec cette adresse e-mail → réutilisez-le tel quel.
    - Sinon → créez un utilisateur local pour cet e-mail.
 
@@ -290,9 +296,13 @@ Une fois qu'une application est vérifiée, répétez les étapes 2 à 3 pour l
 **5. Rollback = désactivez la variable d'environnement lors du déploiement de cette application.**
 Pour restaurer une application, **supprimez `AGENT_NATIVE_IDENTITY_HUB_URL` de l'environnement de cette application et redéployez-la/redémarrez-la.** L'application revient immédiatement à son comportement d'authentification antérieur. Il n'y a **aucune modification de données à annuler** : les lignes d'identité n'ont été ajoutées que, et la suppression de la variable rend simplement le chemin de fédération à nouveau inactif. Le basculement et la restauration de chaque application sont indépendants et réversibles.
 
-> Le déploiement déconnecte les utilisateurs lorsque chaque application est activée (ils se ré-authentifient via Dispatch), mais ils se reconnectent toujours au **même compte correspondant à l'adresse e-mail avec les données intactes**, car les lignes d'identité ne sont jamais détruites ou renommées : elles sont seulement ajoutées.
+<Callout tone="info">
 
-## Connexe {#related}
+Le déploiement déconnecte les utilisateurs lorsque chaque application est activée (ils se ré-authentifient via Dispatch), mais ils se reconnectent toujours au **même compte correspondant à l'adresse e-mail avec les données intactes**, car les lignes d'identité ne sont jamais détruites ou renommées : elles sont seulement ajoutées.
+
+</Callout>
+
+## Et ensuite {#whats-next}
 
 - [Authentication](/docs/authentication) – modes d'authentification locaux, sessions, organisations, variable d'environnement `A2A_SECRET`.
 - [A2A Protocol](/docs/a2a-protocol) — le modèle de confiance signé JWT, à vérification à la limite, réutilisé.

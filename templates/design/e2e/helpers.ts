@@ -167,14 +167,20 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
     page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
   const overviewChromeVisible = await page
-    .getByRole("button", { name: "Interact", exact: true })
+    .locator("[data-screen-shell]")
     .first()
     .isVisible()
     .catch(() => false);
   if (!overviewChromeVisible) {
-    await expect(
-      designFrame(page).locator('[data-agent-native-edit-overlay="shield"]'),
-    ).toBeVisible({ timeout: 10_000 });
+    const editShield = designFrame(page).locator(
+      '[data-agent-native-edit-overlay="shield"]',
+    );
+    // Edit mode installs the pointer shield; Interact mode intentionally does
+    // not. If a shield exists, wait for it, but don't confuse the persistent
+    // toolbar Interact button with overview screen-card chrome.
+    if ((await editShield.count()) > 0) {
+      await expect(editShield).toBeVisible({ timeout: 10_000 });
+    }
   }
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
@@ -239,7 +245,12 @@ export async function enterDirectMode(
       : fullView.last();
     await expect(targetFullView).toHaveCount(1);
     await targetFullView.click();
-    await expect(fullView).toHaveCount(0);
+    // The top toolbar's Interact mode button intentionally remains visible
+    // (and becomes pressed) in direct mode. The old assertion expected every
+    // button named "Interact" to disappear, which now mistakes that persistent
+    // mode control for an overview card. The overview screen shells are the
+    // stable boundary that actually unmounts when the transition succeeds.
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   }
   await expect
     .poll(

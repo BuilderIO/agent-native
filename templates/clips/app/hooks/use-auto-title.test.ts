@@ -32,4 +32,22 @@ describe("buildAiRequestChatOptions", () => {
     expect(options.background).toBe(false);
     expect(options.openSidebar).toBe(true);
   });
+
+  it("passes combined title and summary context to the agent", () => {
+    const options = buildAiRequestChatOptions(recording, {
+      kind: "generate-metadata",
+      recordingId: "rec_123",
+      currentDescription: "",
+      transcriptText: "The clip explains activity grouping by project.",
+      includeSummary: true,
+      message: "Generate recording metadata",
+    });
+
+    expect(JSON.parse(options.context ?? "{}")).toMatchObject({
+      recordingId: "rec_123",
+      currentDescription: "",
+      transcript: "The clip explains activity grouping by project.",
+      includeSummary: true,
+    });
+  });
 });

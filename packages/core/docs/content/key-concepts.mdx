@@ -11,11 +11,9 @@ How agent-native apps work under the hood — the principles and the architectur
 
 Every agent-native app is three things working together:
 
-> **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
->
-> **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
->
-> **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
+- **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
+- **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
+- **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -278,8 +276,7 @@ Why not call an LLM inline?
 
 When the agent needs to do something complex — call an API, process data, query the database — it runs an **action**. Actions are TypeScript files in `actions/` that export a default `defineAction()`:
 
-```ts
-// actions/fetch-data.ts
+```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -379,9 +376,8 @@ A _frame_ is the environment that hosts the agent next to your app — locally t
 
 Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
 
-> **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
->
-> **Cloud** — Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
+- **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
+- **Cloud** — Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
 
 ## Context awareness {#context-awareness}
 
@@ -452,14 +448,11 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 
 That's the "and everything else" you'd otherwise be gluing together yourself.
 
-## Deep dives {#deep-dives}
+## What's next {#deep-dives}
 
-For detailed guidance on specific patterns:
-
-- [What Is Agent-Native?](/docs/what-is-agent-native) — the vision and philosophy
-- [Context Awareness](/docs/context-awareness) — navigation state, view-screen, navigate commands
-- [Skills Guide](/docs/skills-guide) — framework skills, domain skills, creating custom skills
-- [Native Chat UI](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
-- [Agent Surfaces](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
-- [A2A Protocol](/docs/a2a-protocol) — agent-to-agent communication
-- [Multi-App Workspace](/docs/multi-app-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — the vision and philosophy behind these rules
+- [**Context Awareness**](/docs/context-awareness) — navigation state, view-screen, and navigate commands in depth
+- [**Skills Guide**](/docs/skills-guide) — framework skills, domain skills, and creating custom skills
+- [**Native Chat UI**](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
+- [**Agent Surfaces**](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
+- [**A2A Protocol**](/docs/a2a-protocol) — agent-to-agent communication

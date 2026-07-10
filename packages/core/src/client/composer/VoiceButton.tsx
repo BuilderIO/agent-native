@@ -20,6 +20,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
+import {
+  useRealtimeVoiceModeCopy,
+  useRealtimeVoiceModeOptional,
+} from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
 
 export interface VoiceButtonProps {
@@ -30,11 +35,26 @@ export interface VoiceButtonProps {
 
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   const { state, start, stop, supported } = voice;
+  const realtimeVoice = useRealtimeVoiceModeOptional();
+  const realtimeCopy = useRealtimeVoiceModeCopy();
 
   if (!supported) return null;
 
   const recording = state === "recording" || state === "starting";
   const transcribing = state === "transcribing";
+
+  if (realtimeVoice?.active && !recording && !transcribing) return null;
+
+  if (realtimeVoice && !recording && !transcribing) {
+    return (
+      <RealtimeVoiceModeEntry
+        copy={realtimeCopy}
+        disabled={disabled}
+        onStartVoiceMode={() => void realtimeVoice.start()}
+        onKeepDictating={() => void start()}
+      />
+    );
+  }
 
   const label = recording
     ? "Stop recording"

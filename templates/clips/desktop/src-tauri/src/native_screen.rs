@@ -111,6 +111,7 @@ const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "/opt/local/bin/ffmpeg",
 ];
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
+const CLIP_DRAFTS_DIR: &str = "Drafts";
 const THUMBNAIL_MIME_TYPE: &str = "image/jpeg";
 const THUMBNAIL_MAX_BYTES: u64 = 2 * 1024 * 1024;
 const THUMBNAIL_WIDTH: &str = "1280";
@@ -2103,12 +2104,60 @@ pub async fn native_fullscreen_recording_retry_upload(
 }
 
 #[tauri::command]
-pub async fn native_fullscreen_recording_discard_upload(
+pub async fn native_fullscreen_recording_dismiss_upload(
     app: AppHandle,
     recording_id: String,
-) -> Result<(), String> {
-    let saved = read_saved_recording_metadata(&app, &recording_id)?;
-    clear_saved_recording(&app, &saved)
+) -> Result<String, String> {
+    let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
+    let draft_dir = clip_drafts_dir(&app)?.join(sanitize_recording_id(&recording_id));
+    std::fs::create_dir_all(&draft_dir)
+        .map_err(|e| format!("clip draft directory unavailable: {e}"))?;
+
+    let mut sources = vec![saved.file_path.clone()];
+    for segment_path in &saved.segment_paths {
+        if !sources.contains(segment_path) {
+            sources.push(segment_path.clone());
+        }
+    }
+
+    let mut moved_any = false;
+    for source in sources {
+        if !source.exists() {
+            continue;
+        }
+        if source.parent() == Some(draft_dir.as_path()) {
+            moved_any = true;
+            continue;
+        }
+        let destination = available_draft_path(&draft_dir, &source);
+        move_or_copy_file(&source, &destination)?;
+        moved_any = true;
+
+        if saved.file_path == source {
+            saved.file_path = destination.clone();
+        }
+        for segment_path in &mut saved.segment_paths {
+            if *segment_path == source {
+                *segment_path = destination.clone();
+            }
+        }
+        // Keep metadata recoverable if a later segment move fails.
+        write_saved_recording_metadata(&app, &saved)?;
+    }
+
+    if !moved_any {
+        return Err("No saved clip file was available to move into Clip Drafts.".into());
+    }
+
+    let metadata_path = saved_recording_metadata_path(&app, &saved.recording_id)?;
+    remove_saved_file(&metadata_path, "pending recording metadata")?;
+    Ok(draft_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn native_fullscreen_open_drafts_folder(app: AppHandle) -> Result<(), String> {
+    let dir = clip_drafts_dir(&app)?;
+    crate::clips::open_local_recording_folder(dir.to_string_lossy().to_string())
 }
 
 fn sanitize_recording_id(value: &str) -> String {
@@ -2150,6 +2199,74 @@ fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("pending recordings directory unavailable: {e}"))?;
     Ok(dir)
+}
+
+fn clip_drafts_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .video_dir()
+        .map_err(|e| format!("videos directory unavailable: {e}"))?
+        .join("Clips")
+        .join(CLIP_DRAFTS_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("clip drafts directory unavailable: {e}"))?;
+    Ok(dir)
+}
+
+fn available_draft_path(draft_dir: &Path, source: &Path) -> PathBuf {
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("clip");
+    let preferred = draft_dir.join(file_name);
+    if !preferred.exists() {
+        return preferred;
+    }
+
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("clip");
+    let extension = source.extension().and_then(|value| value.to_str());
+    for suffix in 2.. {
+        let candidate_name = match extension {
+            Some(extension) => format!("{stem}-{suffix}.{extension}"),
+            None => format!("{stem}-{suffix}"),
+        };
+        let candidate = draft_dir.join(candidate_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+#[cfg(test)]
+mod clip_draft_tests {
+    use super::available_draft_path;
+
+    #[test]
+    fn keeps_existing_drafts_when_file_names_collide() {
+        let root = std::env::temp_dir().join(format!(
+            "clips-draft-path-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let drafts = root.join("Drafts");
+        std::fs::create_dir_all(&drafts).unwrap();
+        std::fs::write(drafts.join("clip.mp4"), b"first").unwrap();
+        std::fs::write(drafts.join("clip-2.mp4"), b"second").unwrap();
+
+        let source = root.join("clip.mp4");
+        assert_eq!(
+            available_draft_path(&drafts, &source),
+            drafts.join("clip-3.mp4")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 fn pending_recording_path(

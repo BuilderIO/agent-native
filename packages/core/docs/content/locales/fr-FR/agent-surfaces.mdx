@@ -143,8 +143,7 @@ pnpm install
 
 Définissez ensuite l’opération durable :
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -498,12 +497,11 @@ Gardez le contrat petit : définissez les opérations durables comme actions, r
 résultats du widget lorsque le chat a besoin de UI riche et ajout d'écrans pleins uniquement lorsque les utilisateurs
 besoin de parcourir, comparer, configurer ou collaborer sur des objets persistants.
 
-## Documents associés {#related-docs}
+## Et ensuite {#related-docs}
 
-- [Actions](/docs/actions) : définissez une fois l'opération sans tête.
-- [Native Interface de chat](/docs/native-chat-ui) : afficher les résultats des actions saisies dans le chat.
-- [Drop-in Agent](/docs/drop-in-agent) : montez les surfaces de discussion, de barre latérale ou de panneau.
-- [Component API](/docs/components) — pièces de discussion/compositeur React de niveau inférieur.
-- [Embedding SDK](/docs/embedding-sdk) : ajoutez Agent-Native à une application existante.
-- [External Agents](/docs/external-agents) : connectez des hôtes compatibles MCP à une application.
-- [A2A Protocol](/docs/a2a-protocol) – appeler des agents d'autres agents.
+- [**Actions**](/docs/actions) — définissez l’opération une fois ; toutes les surfaces ci-dessus appellent la même
+- [**Native Interface de chat**](/docs/native-chat-ui) — affichez les résultats typés sous forme de tableaux, graphiques et cartes dans le chat
+- [**Generative UI**](/docs/generative-ui) — générez une UI en bac à sable, temporaire ou persistante, dans le chat
+- [**Automation-First Apps**](/docs/pure-agent-apps) — le modèle complet sans navigateur pour les tâches, files d’attente, scripts et agents externes
+- [**External Agents**](/docs/external-agents) — connectez des hôtes compatibles MCP à une application
+- [**A2A Protocol**](/docs/a2a-protocol) — appelez des agents depuis d’autres applications Agent-Native

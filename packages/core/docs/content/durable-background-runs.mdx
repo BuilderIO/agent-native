@@ -5,10 +5,14 @@ description: "Long agent-chat turns can run on a separate 15-minute Netlify back
 
 # Durable Background Runs
 
-> **Who is this for:** anyone deploying an agent-native app who wants long,
-> multi-step agent turns to complete server-side, and anyone wondering what the
-> `AGENT_CHAT_DURABLE_BACKGROUND` flag and the second Netlify function do. This
-> is opt-in and entirely inside the framework — there is no app code to write.
+<Callout id="doc-block-dbgr1who" tone="info">
+
+**Who is this for:** anyone deploying an agent-native app who wants long,
+multi-step agent turns to complete server-side, and anyone wondering what the
+`AGENT_CHAT_DURABLE_BACKGROUND` flag and the second Netlify function do. This
+is opt-in and entirely inside the framework — there is no app code to write.
+
+</Callout>
 
 A normal hosted agent turn runs inside the synchronous request function, which
 is capped by the platform's request timeout (~10s on Netlify's free tier, and
@@ -190,7 +194,7 @@ Durable runs are opt-in per app and default OFF. Enable with AGENT_CHAT_DURABLE_
 
 </Callout>
 
-## Related
+## What's next
 
 - [**Durable Resume**](/docs/durable-resume) — how an interrupted run resumes
   without repeating completed side effects (a separate, always-on protection).

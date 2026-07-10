@@ -50,6 +50,16 @@ describe("docsBodyToMarkdownMirror", () => {
     expect(mirror).not.toContain("### Wrapping <AgentSidebar>");
   });
 
+  it("preserves filename-labeled fences as-is (G3 filename attribute)", () => {
+    const markdown = [
+      '```ts filename="actions/foo.ts"',
+      "export const foo = 1;",
+      "```",
+    ].join("\n");
+
+    expect(docsBodyToMarkdownMirror(markdown)).toBe(`${markdown}\n`);
+  });
+
   it("preserves portable mermaid fences", () => {
     const markdown = ["```mermaid", "flowchart LR", "A --> B", "```"].join(
       "\n",

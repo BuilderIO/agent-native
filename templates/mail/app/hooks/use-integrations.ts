@@ -1,25 +1,38 @@
-import { agentNativePath } from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
+import {
+  appApiPath,
+  callAction,
+  deleteClientAppState,
+  writeClientAppState,
+} from "@agent-native/core/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import {
+  EMPTY_MAIL_INTEGRATION_STATUSES,
+  MAIL_INTEGRATION_STATUS_QUERY_KEY,
+  type MailIntegrationProvider,
+  type MailIntegrationStatuses,
+} from "@/lib/integration-status";
+import { TAB_ID } from "@/lib/tab-id";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
-type Provider = "apollo" | "hubspot" | "gong" | "pylon";
-
-function useIntegrationStatus(provider: Provider) {
-  const { data } = useQuery<{ apiKey?: string } | null>({
-    queryKey: ["integration-status", provider],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/application-state/${provider}`),
-      );
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.json();
-    },
-    staleTime: 30_000,
+function useIntegrationStatuses() {
+  return useQuery<MailIntegrationStatuses>({
+    queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+    queryFn: ({ signal }) =>
+      callAction<MailIntegrationStatuses>(
+        "get-integration-statuses",
+        {},
+        { method: "GET", signal },
+      ),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   });
-  return !!data?.apiKey;
+}
+
+function useIntegrationStatus(provider: MailIntegrationProvider) {
+  const { data } = useIntegrationStatuses();
+  return data?.[provider] ?? false;
 }
 
 export class IntegrationConnectError extends Error {
@@ -32,7 +45,7 @@ export class IntegrationConnectError extends Error {
   }
 }
 
-function useIntegrationConnect(provider: Provider) {
+function useIntegrationConnect(provider: MailIntegrationProvider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
@@ -60,15 +73,13 @@ function useIntegrationConnect(provider: Provider) {
           kind,
         );
       }
-      const saveRes = await fetch(
-        agentNativePath(`/_agent-native/application-state/${provider}`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey }),
-        },
-      );
-      if (!saveRes.ok) {
+      try {
+        await writeClientAppState(
+          provider,
+          { apiKey },
+          { requestSource: TAB_ID },
+        );
+      } catch {
         throw new IntegrationConnectError(
           "Could not save the API key.",
           "save-failed",
@@ -76,25 +87,20 @@ function useIntegrationConnect(provider: Provider) {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integration-status", provider] });
+      qc.invalidateQueries({ queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
 }
 
-function useIntegrationDisconnect(provider: Provider) {
+function useIntegrationDisconnect(provider: MailIntegrationProvider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await fetch(
-        agentNativePath(`/_agent-native/application-state/${provider}`),
-        {
-          method: "DELETE",
-        },
-      );
+      await deleteClientAppState(provider, { requestSource: TAB_ID });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["integration-status", provider] });
+      qc.invalidateQueries({ queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["integration-data", provider] });
     },
   });
@@ -103,14 +109,11 @@ function useIntegrationDisconnect(provider: Provider) {
 // ─── Provider-specific data fetching ────────────────────────────────────────
 
 export function useAllIntegrations() {
-  const apollo = useIntegrationStatus("apollo");
-  const hubspot = useIntegrationStatus("hubspot");
-  const gong = useIntegrationStatus("gong");
-  const pylon = useIntegrationStatus("pylon");
-  return { apollo, hubspot, gong, pylon };
+  const { data } = useIntegrationStatuses();
+  return data ?? EMPTY_MAIL_INTEGRATION_STATUSES;
 }
 
-export function useIntegration(provider: Provider) {
+export function useIntegration(provider: MailIntegrationProvider) {
   const connected = useIntegrationStatus(provider);
   const connect = useIntegrationConnect(provider);
   const disconnect = useIntegrationDisconnect(provider);
@@ -125,41 +128,41 @@ async function integrationFetch<T>(url: string): Promise<T> {
 }
 
 export function useHubSpotContact(email: string | undefined) {
-  const connected = useIntegrationStatus("hubspot");
   return useQuery({
     queryKey: ["integration-data", "hubspot", email],
     queryFn: () =>
       integrationFetch(
         `/api/hubspot/contact?email=${encodeURIComponent(email!)}`,
       ),
-    enabled: !!email && connected,
+    enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
 
 export function usePylonContact(email: string | undefined) {
-  const connected = useIntegrationStatus("pylon");
   return useQuery({
     queryKey: ["integration-data", "pylon", email],
     queryFn: () =>
       integrationFetch(
         `/api/pylon/contact?email=${encodeURIComponent(email!)}`,
       ),
-    enabled: !!email && connected,
+    enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
 
 export function useGongCalls(email: string | undefined) {
-  const connected = useIntegrationStatus("gong");
   return useQuery({
     queryKey: ["integration-data", "gong", email],
     queryFn: () =>
       integrationFetch(`/api/gong/calls?email=${encodeURIComponent(email!)}`),
-    enabled: !!email && connected,
+    enabled: !!email,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 }
