@@ -4469,6 +4469,8 @@ function DesignEditor() {
   const latestClipboardMutationContentRef = useRef<Map<string, string>>(
     new Map(),
   );
+  const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
+  const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -4948,6 +4950,7 @@ function DesignEditor() {
         pendingLiveNonStyleUndoStackRef.current.length > 0 ||
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
+        clipboardPasteUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
@@ -4959,6 +4962,7 @@ function DesignEditor() {
         pendingLiveNonStyleRedoStackRef.current.length > 0 ||
         Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
+        clipboardPasteRedoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
@@ -10227,6 +10231,7 @@ function DesignEditor() {
       cancelPendingStructureVerification("conflict");
       pendingVisualStyleRedoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
+      clipboardPasteRedoStackRef.current = [];
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
@@ -16768,11 +16773,19 @@ function DesignEditor() {
           // from a newer collab ref and collapse two rapid pastes into one
           // overview history entry. DOM insertion + every remapped managed
           // rule stay in this single before/after snapshot.
-          recordContentHistoryEntry({
-            fileId: targetFileId,
-            before: baseContent,
-            after: nextContent,
-          });
+          clipboardPasteUndoStackRef.current = [
+            ...clipboardPasteUndoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            {
+              fileId: targetFileId,
+              before: baseContent,
+              after: nextContent,
+            },
+          ];
+          clipboardPasteRedoStackRef.current = [];
+          clearRedoStacks();
+          syncUndoRedoState();
         }
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
@@ -16908,11 +16921,12 @@ function DesignEditor() {
       getScreenContent,
       pasteCopiedScreens,
       refreshClipboardFromSystemClipboard,
-      recordContentHistoryEntry,
       remapMotionTracksForClone,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
+      clearRedoStacks,
+      syncUndoRedoState,
       zoom,
     ],
   );
@@ -20252,6 +20266,9 @@ function DesignEditor() {
 
         if (deletionHistoryEntry) {
           fileHistoryMutationPendingRef.current = false;
+          clipboardPasteUndoStackRef.current = [];
+          clipboardPasteRedoStackRef.current = [];
+          latestClipboardMutationContentRef.current.clear();
         }
         options?.onMutationSettled?.(deletedFiles, failedFiles);
         syncUndoRedoState();
@@ -20846,6 +20863,64 @@ function DesignEditor() {
       syncUndoRedoState();
       return;
     }
+    const clipboardPasteUndo =
+      clipboardPasteUndoStackRef.current[
+        clipboardPasteUndoStackRef.current.length - 1
+      ];
+    if (clipboardPasteUndo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(
+          clipboardPasteUndo.fileId,
+        ) ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
+          ?.content ??
+        (clipboardPasteUndo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
+      // Only claim the command when this paste is still the top document
+      // state. If another edit followed it, the ordinary chronological
+      // history below gets first chance; once that edit is undone back to
+      // `after`, the next Cmd+Z reaches this immutable paste entry.
+      if (currentContent === clipboardPasteUndo.after) {
+        clipboardPasteUndoStackRef.current =
+          clipboardPasteUndoStackRef.current.slice(0, -1);
+        clipboardPasteRedoStackRef.current = [
+          ...clipboardPasteRedoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteUndo,
+        ];
+        if (clipboardPasteUndo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteUndo.before, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteUndo.fileId,
+            clipboardPasteUndo.before,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+            },
+          );
+        }
+        setSelectedElement((previous) =>
+          previous
+            ? refreshElementInfoFromContent(clipboardPasteUndo.before, previous)
+            : previous,
+        );
+        setSelectedLayerIdsState((previous) =>
+          refreshSelectedLayerIdsFromContent(
+            clipboardPasteUndo.before,
+            previous,
+          ),
+        );
+        syncUndoRedoState();
+        return;
+      }
+    }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
     let prunedUndoHistory = 0;
@@ -21271,6 +21346,8 @@ function DesignEditor() {
     createFileMutation,
     deleteFileMutation,
     files,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,
@@ -21449,6 +21526,49 @@ function DesignEditor() {
       }
       syncUndoRedoState();
       return;
+    }
+    const clipboardPasteRedo =
+      clipboardPasteRedoStackRef.current[
+        clipboardPasteRedoStackRef.current.length - 1
+      ];
+    if (clipboardPasteRedo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(
+          clipboardPasteRedo.fileId,
+        ) ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
+          ?.content ??
+        (clipboardPasteRedo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
+      if (currentContent === clipboardPasteRedo.before) {
+        clipboardPasteRedoStackRef.current =
+          clipboardPasteRedoStackRef.current.slice(0, -1);
+        clipboardPasteUndoStackRef.current = [
+          ...clipboardPasteUndoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteRedo,
+        ];
+        if (clipboardPasteRedo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteRedo.after, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteRedo.fileId,
+            clipboardPasteRedo.after,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+            },
+          );
+        }
+        syncUndoRedoState();
+        return;
+      }
     }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
@@ -21884,6 +22004,8 @@ function DesignEditor() {
     createFileMutation,
     files,
     focusCreatedScreen,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,

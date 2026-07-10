@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
+  resolvesToDefaultThinking,
   stepDownReasoningEffort,
 } from "./reasoning-effort.js";
 
@@ -74,6 +75,42 @@ describe("normalizeReasoningEffortForModel", () => {
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
+  });
+});
+
+describe("resolvesToDefaultThinking", () => {
+  it("is true for auto effort on claude-fable-5", () => {
+    expect(resolvesToDefaultThinking("claude-fable-5", "auto")).toBe(true);
+  });
+
+  it("is true for unset effort on claude-sonnet-5", () => {
+    expect(resolvesToDefaultThinking("claude-sonnet-5", undefined)).toBe(true);
+  });
+
+  it("is true for auto effort on the haiku-4-5 era", () => {
+    expect(resolvesToDefaultThinking("claude-haiku-4-5-20251001", "auto")).toBe(
+      true,
+    );
+  });
+
+  it("is true for auto effort on opus-4-6", () => {
+    expect(resolvesToDefaultThinking("claude-opus-4-6", "auto")).toBe(true);
+  });
+
+  it("is false for auto effort on a non-reasoning-capable model", () => {
+    expect(resolvesToDefaultThinking("llama-3.3-70b-versatile", "auto")).toBe(
+      false,
+    );
+    expect(resolvesToDefaultThinking(undefined, "auto")).toBe(false);
+  });
+
+  it("is false for an explicit non-auto effort", () => {
+    expect(resolvesToDefaultThinking("claude-sonnet-5", "high")).toBe(false);
+  });
+
+  it("is false when effort is explicitly none or minimal", () => {
+    expect(resolvesToDefaultThinking("claude-sonnet-5", "none")).toBe(false);
+    expect(resolvesToDefaultThinking("claude-sonnet-5", "minimal")).toBe(false);
   });
 });
 

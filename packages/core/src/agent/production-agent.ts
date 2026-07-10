@@ -3509,9 +3509,11 @@ export async function runAgentLoop(opts: {
           effectiveReasoningEffort = stepDownReasoningEffort(
             effectiveReasoningEffort,
           );
+          send({ type: "clear" });
           appendAgentLoopContinuation(messages, "max_tokens");
           continue;
         }
+        send({ type: "clear" });
         send({
           type: "text",
           text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",

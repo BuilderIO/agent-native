@@ -17,7 +17,10 @@ import {
   readDeployCredentialEnv,
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import {
+  normalizeReasoningEffortForModel,
+  resolvesToDefaultThinking,
+} from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
   clampThinkingBudgetTokens,
@@ -352,6 +355,15 @@ class AISDKEngine implements AgentEngine {
               },
         };
       }
+    } else if (
+      this.provider === "anthropic" &&
+      !opts.providerOptions?.anthropic?.thinking &&
+      resolvesToDefaultThinking(opts.model, opts.reasoningEffort)
+    ) {
+      providerOpts.anthropic = {
+        ...((providerOpts.anthropic as object) ?? {}),
+        thinking: { type: "adaptive" },
+      };
     }
 
     let assistantContent: EngineContentPart[] = [];

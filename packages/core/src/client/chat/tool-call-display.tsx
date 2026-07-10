@@ -955,14 +955,31 @@ export function ReasoningCell({
   text,
   isStreaming = false,
   defaultOpen,
+  durationMs,
 }: {
   text: string;
   isStreaming?: boolean;
   defaultOpen?: boolean;
+  /**
+   * Elapsed thinking time in ms, once known. Only meaningful once streaming
+   * has finished — callers that track live timing (see ReasoningMessagePart)
+   * pass this so the label can read "Thought for Xs" instead of "Thought".
+   * Historical messages with no live timing simply omit it.
+   */
+  durationMs?: number | null;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? isStreaming);
   const trimmed = text.trim();
   if (!trimmed && !isStreaming) return null;
+
+  const label = isStreaming
+    ? "Thinking"
+    : durationMs != null && durationMs >= 1000
+      ? `Thought for ${formatWorkedDuration(durationMs)}`
+      : "Thought";
+  // Only clamp to a scroll-free "tail" view while actively streaming and
+  // expanded — once the run finishes the full text is shown, unclamped.
+  const showTail = isStreaming && open;
 
   return (
     <div className="my-0.5 w-full">
@@ -978,11 +995,17 @@ export function ReasoningCell({
             open && "rotate-90",
           )}
         />
-        <span>{isStreaming ? "Thinking" : "Thought"}</span>
+        {isStreaming ? (
+          <span className="agent-thinking-indicator__text">{label}</span>
+        ) : (
+          <span>{label}</span>
+        )}
       </button>
       <AnimatedCollapse open={open}>
-        <div className="pl-5 pb-1 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-          {trimmed || (isStreaming ? "…" : "")}
+        <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
+          <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            {trimmed || (isStreaming ? "…" : "")}
+          </div>
         </div>
       </AnimatedCollapse>
     </div>

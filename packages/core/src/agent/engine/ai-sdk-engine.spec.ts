@@ -83,6 +83,42 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(budgetTokens).toBeLessThan(32_000);
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
   });
+
+  it("defaults to adaptive thinking for a reasoning-capable Claude model when effort is auto/unset", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({ ...BASE_STREAM_OPTIONS, model: "claude-sonnet-5" }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("does not default thinking for a non-reasoning-capable Claude model", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-3-5-haiku-20241022",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions?.anthropic).toBeUndefined();
+  });
 });
 
 describe("AISDKEngine Google Gemini thinking config", () => {

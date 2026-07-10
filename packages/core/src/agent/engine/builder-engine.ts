@@ -22,6 +22,7 @@ import {
 } from "../../server/credential-provider.js";
 import {
   normalizeReasoningEffortForModel,
+  resolvesToDefaultThinking,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
@@ -158,7 +159,9 @@ class BuilderEngine implements AgentEngine {
       explicitReasoningEffort ??
       (typeof thinkingBudget === "number"
         ? mapReasoningEffort(thinkingBudget)
-        : undefined);
+        : resolvesToDefaultThinking(opts.model, opts.reasoningEffort)
+          ? "auto"
+          : undefined);
 
     // Apply prompt caching to system + tools (stable prefix) and to the last
     // user message (moving cache breakpoint so growing history gets cached

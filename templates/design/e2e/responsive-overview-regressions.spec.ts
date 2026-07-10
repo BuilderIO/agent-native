@@ -132,6 +132,19 @@ async function designData(request: APIRequestContext, designId: string) {
   return JSON.parse(result.data || "{}") as Record<string, any>;
 }
 
+async function designFileIds(
+  request: APIRequestContext,
+  designId: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({ id: designId });
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design?${params}`,
+  );
+  if (!response.ok()) throw new Error(await response.text());
+  const result = await response.json();
+  return result.files.map((file: { id: string }) => file.id);
+}
+
 test.use({ viewport: { width: 1500, height: 1000 } });
 
 test("responsive frames select and edit directly with explicit scope persistence", async ({
@@ -384,43 +397,60 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     const resetCameraProbe = () => {
       cameraTransforms.length = 0;
     };
-    const assertNewestScreenSelectedVisibleWithSingleCameraCommit =
-      async () => {
-        await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
-        await expect
-          .poll(() =>
-            page.evaluate(() => {
-              const world = document.querySelector(
-                "[data-multi-screen-canvas-world]",
-              );
-              const shells = document.querySelectorAll("[data-screen-shell]");
-              const newest =
-                shells[shells.length - 1]?.querySelector("[data-screen-card]");
-              if (!world?.parentElement || !newest) return false;
-              const canvas = world.parentElement.getBoundingClientRect();
-              const card = newest.getBoundingClientRect();
-              return (
-                card.right > canvas.left &&
-                card.left < canvas.right &&
-                card.bottom > canvas.top &&
-                card.top < canvas.bottom
-              );
-            }),
-          )
-          .toBe(true);
-        await page.waitForTimeout(250);
-        expect(
-          new Set(cameraTransforms.filter(Boolean)).size,
-          `camera transforms: ${cameraTransforms.join(" | ")}`,
-        ).toBeLessThanOrEqual(1);
-      };
+    const createdScreenId = async (beforeIds: readonly string[]) => {
+      let createdId: string | undefined;
+      await expect
+        .poll(async () => {
+          const afterIds = await designFileIds(request, designId);
+          createdId = afterIds.find((fileId) => !beforeIds.includes(fileId));
+          return createdId;
+        })
+        .toBeTruthy();
+      if (!createdId) throw new Error("created screen did not persist");
+      return createdId;
+    };
+    const assertCreatedScreenSelectedVisibleWithSingleCameraCommit = async (
+      screenId: string,
+    ) => {
+      await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate((targetId) => {
+            const world = document.querySelector(
+              "[data-multi-screen-canvas-world]",
+            );
+            const target = document
+              .querySelector(`[data-frame-id="${CSS.escape(targetId)}"]`)
+              ?.querySelector("[data-screen-card]");
+            if (!world?.parentElement || !target) return false;
+            const canvas = world.parentElement.getBoundingClientRect();
+            const card = target.getBoundingClientRect();
+            return (
+              card.right > canvas.left &&
+              card.left < canvas.right &&
+              card.bottom > canvas.top &&
+              card.top < canvas.bottom
+            );
+          }, screenId),
+        )
+        .toBe(true);
+      await page.waitForTimeout(250);
+      expect(
+        new Set(cameraTransforms.filter(Boolean)).size,
+        `camera transforms: ${cameraTransforms.join(" | ")}`,
+      ).toBeLessThanOrEqual(1);
+    };
 
+    let beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+D" : "Control+D",
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    await assertNewestScreenSelectedVisibleWithSingleCameraCommit();
+    const duplicatedId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
+      duplicatedId,
+    );
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+Z" : "Control+Z",
     );
@@ -430,7 +460,8 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    await assertNewestScreenSelectedVisibleWithSingleCameraCommit();
+    const redoneId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
 
     const findEmptyCanvasPoint = async () => {
       const canvas = await surface.boundingBox();
@@ -469,6 +500,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       }
       throw new Error("no empty canvas point");
     };
+    beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await page.getByRole("button", { name: "Frame", exact: true }).click();
     const empty = await findEmptyCanvasPoint();
@@ -477,8 +509,10 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     await page.mouse.move(empty.x + 140, empty.y + 160, { steps: 10 });
     await page.mouse.up();
     await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
-    await assertNewestScreenSelectedVisibleWithSingleCameraCommit();
+    const drawnId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(drawnId);
 
+    beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await page.getByRole("button", { name: "Frame", exact: true }).click();
     await page
@@ -486,7 +520,8 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       .first()
       .click();
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
-    await assertNewestScreenSelectedVisibleWithSingleCameraCommit();
+    const presetId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

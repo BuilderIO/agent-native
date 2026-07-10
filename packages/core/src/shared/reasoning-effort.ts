@@ -99,6 +99,24 @@ export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
 }
 
 /**
+ * True when an unset/"auto" effort should resolve to default-on adaptive
+ * thinking for this model — i.e. the model is one of the Claude 4.6+/5-era
+ * models with built-in adaptive thinking + output_config effort support
+ * (mirrors supportsClaudeXHigh's family plus opus-4-6 and the haiku-4-5
+ * era). Explicit efforts ("none" through "max") are never adaptive-by-default
+ * here; callers keep handling those through normalizeReasoningEffortForModel.
+ */
+export function resolvesToDefaultThinking(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): boolean {
+  if (!model || (effort !== undefined && effort !== "auto")) {
+    return false;
+  }
+  return isClaudeReasoningModel(model) && supportsAdaptiveThinking(model);
+}
+
+/**
  * One tier down from each effort, stopping at "minimal" — "none"/"auto"
  * (not really "tiers") and "minimal" itself are left unchanged. Used by the
  * empty-final-response retry so a retried turn asks for meaningfully less
@@ -143,6 +161,19 @@ function supportsClaudeXHigh(model: string) {
   if (opusMatch) {
     return parseInt(opusMatch[1], 10) >= 7;
   }
+  return false;
+}
+
+/**
+ * Models with built-in adaptive thinking (Anthropic's `thinking: {type:
+ * "adaptive"}`). Superset of supportsClaudeXHigh: also includes opus-4-6
+ * and the haiku-4-5 era, which support adaptive thinking without the xhigh
+ * effort tier.
+ */
+function supportsAdaptiveThinking(model: string) {
+  if (supportsClaudeXHigh(model)) return true;
+  if (model.includes("opus-4-6")) return true;
+  if (model.includes("haiku-4-5")) return true;
   return false;
 }
 
