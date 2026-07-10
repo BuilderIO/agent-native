@@ -594,11 +594,24 @@ export default function CalendarView() {
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
       if (committingDraftIdsRef.current.has(draftId)) return;
       committingDraftIdsRef.current.add(draftId);
-      const draft = pendingPatch
+      const pendingDraft = pendingPatch
         ? applyDraftPatch(eventDraft, pendingPatch)
         : eventDraft;
+      const accountEmail = resolveEventAccountEmail(
+        googleStatus.data?.accounts ?? [],
+        pendingDraft.accountEmail,
+      );
+      if (!accountEmail) {
+        committingDraftIdsRef.current.delete(draftId);
+        toast.error(t("calendarView.calendarSettingsLoading"));
+        return;
+      }
+      const draft =
+        pendingDraft.accountEmail === accountEmail
+          ? pendingDraft
+          : { ...pendingDraft, accountEmail };
       discardedCommittingDraftsRef.current.delete(draftId);
-      if (pendingPatch) {
+      if (pendingPatch || draft !== pendingDraft) {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
@@ -646,7 +659,7 @@ export default function CalendarView() {
           ? undefined
           : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
         location,
-        accountEmail: draft.accountEmail ?? defaultAccountEmail,
+        accountEmail,
         allDay: draft.allDay ?? false,
         transparency:
           eventType === "workingLocation"
@@ -719,6 +732,7 @@ export default function CalendarView() {
       defaultAccountEmail,
       deleteEvent,
       eventDraft,
+      googleStatus.data?.accounts,
       selectedDate,
       setEventDraft,
       t,
@@ -1342,16 +1356,22 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (ev?.title === "(No title)") {
+      if (!ev || ev.title === "(No title)") {
         deleteEvent.mutate(
-          buildDeleteEventMutationInput(ev, {
-            scope: "single",
-            sendUpdates: "none",
-          }),
+          buildDeleteEventMutationInput(
+            {
+              id: eventId,
+              accountEmail: ev?.accountEmail ?? defaultAccountEmail,
+            },
+            {
+              scope: "single",
+              sendUpdates: "none",
+            },
+          ),
         );
       }
     },
-    [discardDraftEvent, events, deleteEvent],
+    [defaultAccountEmail, discardDraftEvent, events, deleteEvent],
   );
 
   // IconKeyboard shortcuts — don't fire when user is typing in an input
