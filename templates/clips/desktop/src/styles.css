@@ -3400,14 +3400,14 @@ body[data-clips-route="recording-pill"] #root {
  * Slots into the top of the popover when an update is in flight or ready.
  * Two visual states:
  *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   accent color + actions (Later / Restart) since clicking
+ *  - ready:   accent color + actions (dismiss / Restart) since clicking
  *             Restart is the thing we actually want them to do.
  */
 .update-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 8px;
+  margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -3424,7 +3424,7 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-strong);
   color: var(--fg);
   border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .update-banner--error {
@@ -3464,6 +3464,27 @@ body[data-clips-route="recording-pill"] #root {
 .update-banner-btn--ghost:hover {
   background: var(--surface-hover, var(--surface));
   color: var(--fg);
+}
+
+.update-banner-btn--dismiss {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.update-banner-btn--dismiss:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
 .update-banner-btn--primary {
