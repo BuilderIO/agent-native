@@ -63,8 +63,18 @@ const sourcePolicyValues = ["strict", "balanced", "exploratory"] as const;
 
 type ToneValue = (typeof toneValues)[number];
 type SourcePolicyValue = (typeof sourcePolicyValues)[number];
+type ToneOption = {
+  value: ToneValue;
+  label: string;
+  description: string;
+};
+type SourcePolicyOption = {
+  value: SourcePolicyValue;
+  label: string;
+  description: string;
+};
 
-function toneOptions(t: ReturnType<typeof useT>) {
+function toneOptions(t: ReturnType<typeof useT>): ToneOption[] {
   return toneValues.map((value) => ({
     value,
     label: t(`settings.tone.${value}.label`),
@@ -72,7 +82,7 @@ function toneOptions(t: ReturnType<typeof useT>) {
   }));
 }
 
-function sourcePolicyOptions(t: ReturnType<typeof useT>) {
+function sourcePolicyOptions(t: ReturnType<typeof useT>): SourcePolicyOption[] {
   return sourcePolicyValues.map((value) => ({
     value,
     label: t(`settings.sourcePolicy.${value}.label`),
@@ -93,17 +103,16 @@ function AssistantBehaviorSettings({
 }: {
   settings: BrainSettings;
   update: UpdateBrainSettings;
-  toneOptions: ReturnType<typeof toneOptions>;
-  sourcePolicyOptions: ReturnType<typeof sourcePolicyOptions>;
+  toneOptions: ToneOption[];
+  sourcePolicyOptions: SourcePolicyOption[];
 }) {
   const t = useT();
   const toneDescription =
     toneOptions.find((option) => option.value === settings.assistantTone)
       ?.description ?? toneOptions[0].description;
   const sourcePolicyDescription =
-    sourcePolicyOptions.find(
-      (option) => option.value === settings.sourcePolicy,
-    )?.description ?? sourcePolicyOptions[1].description;
+    sourcePolicyOptions.find((option) => option.value === settings.sourcePolicy)
+      ?.description ?? sourcePolicyOptions[1].description;
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -312,7 +321,10 @@ function SafetyEvidenceSettings({
                   id="capture-sanitization-instructions"
                   value={settings.captureSanitizationInstructions ?? ""}
                   onChange={(event) =>
-                    update("captureSanitizationInstructions", event.target.value)
+                    update(
+                      "captureSanitizationInstructions",
+                      event.target.value,
+                    )
                   }
                   className="min-h-24 resize-y leading-6"
                 />
@@ -437,7 +449,9 @@ export default function SettingsRoute() {
             hash: "publishing-review",
           },
         ],
-        content: <PublishingReviewSettings settings={settings} update={update} />,
+        content: (
+          <PublishingReviewSettings settings={settings} update={update} />
+        ),
       },
       {
         id: "safety-evidence",
@@ -542,7 +556,6 @@ export default function SettingsRoute() {
                   />
                 </CardContent>
               </Card>
-
             </main>
 
             <aside className="grid content-start gap-5">
