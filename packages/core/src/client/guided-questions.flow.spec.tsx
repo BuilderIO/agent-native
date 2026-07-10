@@ -163,8 +163,11 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
     let hasQuestion = false;
-    const fetchMock = vi.fn(async () =>
-      new Response(hasQuestion ? JSON.stringify(payload) : "", { status: 200 }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(hasQuestion ? JSON.stringify(payload) : "", {
+          status: 200,
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 

@@ -604,8 +604,8 @@ describe("useDbSync", () => {
   it("polls at 15s while idle and switches immediately to 2s for an active agent run", async () => {
     vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ version: 1, events: [] })),
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
     );
     vi.stubGlobal("fetch", fetchMock);
 
