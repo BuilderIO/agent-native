@@ -487,6 +487,7 @@ export interface UsageBucket {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
 }
 
@@ -494,8 +495,14 @@ export interface DailyBucket {
   /** YYYY-MM-DD (UTC) */
   date: string;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
 }
+
+export type UsageCostAggregate =
+  | { status: "known"; knownCents: number; unavailableCalls: 0 }
+  | { status: "partial"; knownCents: number; unavailableCalls: number }
+  | { status: "unavailable"; knownCents: 0; unavailableCalls: number };
 
 export interface UsageRecentEntry {
   id: number;
@@ -513,7 +520,9 @@ export interface UsageRecentEntry {
 
 export interface UsageSummary {
   billing?: UsageBillingMode;
+  /** Legacy known-cost subtotal. Use totalCost to preserve unavailable spend. */
   totalCents: number;
+  totalCost: UsageCostAggregate;
   totalCalls: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -542,7 +551,8 @@ export async function getUsageSummary(
 
   const totalRow = await client.execute({
     sql: `SELECT
-      COALESCE(SUM(cost_cents_x100), 0) AS cents,
+      COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 0 ELSE cost_cents_x100 END), 0) AS known_cents,
+      COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unavailable_calls,
       COUNT(*) AS calls,
       COALESCE(SUM(input_tokens), 0) AS in_tok,
       COALESCE(SUM(output_tokens), 0) AS out_tok,
@@ -555,7 +565,8 @@ export async function getUsageSummary(
 
   const bucketSql = (col: string) => ({
     sql: `SELECT ${col} AS k,
-        COALESCE(SUM(cost_cents_x100), 0) AS cents,
+        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 0 ELSE cost_cents_x100 END), 0) AS known_cents,
+        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unavailable_calls,
         COUNT(*) AS calls,
         COALESCE(SUM(input_tokens), 0) AS in_tok,
         COALESCE(SUM(output_tokens), 0) AS out_tok,
@@ -564,16 +575,19 @@ export async function getUsageSummary(
       FROM token_usage
       WHERE owner_email = ? AND created_at >= ?
       GROUP BY ${col}
-      ORDER BY cents DESC`,
+      ORDER BY known_cents DESC`,
     args: [options.ownerEmail, sinceMs],
   });
 
   const mapBuckets = (rows: unknown[]): UsageBucket[] =>
     rows.map((r) => {
       const row = r as Record<string, number | string | null>;
+      const knownCents = Number(row.known_cents ?? 0) / 100;
+      const unavailableCalls = Number(row.unavailable_calls ?? 0);
       return {
         key: String(row.k ?? ""),
-        cents: Number(row.cents ?? 0) / 100,
+        cents: knownCents,
+        cost: buildUsageCostAggregate(knownCents, unavailableCalls),
         calls: Number(row.calls ?? 0),
         inputTokens: Number(row.in_tok ?? 0),
         outputTokens: Number(row.out_tok ?? 0),
@@ -592,24 +606,36 @@ export async function getUsageSummary(
   // date functions (SQLite `strftime`, Postgres `to_char`). Cheap enough
   // for a 30-day window; if this grows, swap for a dialect-aware query.
   const dayRows = await client.execute({
-    sql: `SELECT created_at, cost_cents_x100 FROM token_usage
+    sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,
     args: [options.ownerEmail, sinceMs],
   });
-  const dayMap = new Map<string, { cents: number; calls: number }>();
-  for (const row of dayRows.rows as Array<Record<string, number>>) {
+  const dayMap = new Map<
+    string,
+    { knownCentsX100: number; unavailableCalls: number; calls: number }
+  >();
+  for (const row of dayRows.rows as Array<Record<string, number | string>>) {
     const date = new Date(Number(row.created_at)).toISOString().slice(0, 10);
-    const prev = dayMap.get(date) ?? { cents: 0, calls: 0 };
-    prev.cents += Number(row.cost_cents_x100 ?? 0);
+    const prev = dayMap.get(date) ?? {
+      knownCentsX100: 0,
+      unavailableCalls: 0,
+      calls: 0,
+    };
+    if (row.cost_source === "unavailable") prev.unavailableCalls += 1;
+    else prev.knownCentsX100 += Number(row.cost_cents_x100 ?? 0);
     prev.calls += 1;
     dayMap.set(date, prev);
   }
   const byDay: DailyBucket[] = [...dayMap.entries()]
-    .map(([date, v]) => ({
-      date,
-      cents: v.cents / 100,
-      calls: v.calls,
-    }))
+    .map(([date, v]) => {
+      const knownCents = v.knownCentsX100 / 100;
+      return {
+        date,
+        cents: knownCents,
+        cost: buildUsageCostAggregate(knownCents, v.unavailableCalls),
+        calls: v.calls,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const recentRows = await client.execute({
@@ -638,9 +664,12 @@ export async function getUsageSummary(
     costSource: String(row.cost_source ?? "estimated") as UsageCostSource,
   }));
 
+  const knownCents = Number(t.known_cents ?? 0) / 100;
+  const unavailableCalls = Number(t.unavailable_calls ?? 0);
   return {
     billing: USD_USAGE_BILLING,
-    totalCents: Number(t.cents ?? 0) / 100,
+    totalCents: knownCents,
+    totalCost: buildUsageCostAggregate(knownCents, unavailableCalls),
     totalCalls: Number(t.calls ?? 0),
     totalInputTokens: Number(t.in_tok ?? 0),
     totalOutputTokens: Number(t.out_tok ?? 0),
@@ -653,4 +682,17 @@ export async function getUsageSummary(
     byDay,
     recent,
   };
+}
+
+function buildUsageCostAggregate(
+  knownCents: number,
+  unavailableCalls: number,
+): UsageCostAggregate {
+  if (unavailableCalls === 0) {
+    return { status: "known", knownCents, unavailableCalls: 0 };
+  }
+  if (knownCents === 0) {
+    return { status: "unavailable", knownCents: 0, unavailableCalls };
+  }
+  return { status: "partial", knownCents, unavailableCalls };
 }

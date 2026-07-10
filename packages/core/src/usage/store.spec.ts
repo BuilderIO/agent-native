@@ -383,11 +383,53 @@ describe("getUsageSummary", () => {
     const summary = await getUsageSummary({ ownerEmail: "ghost@example.com" });
     expect(summary.totalCalls).toBe(0);
     expect(summary.totalCents).toBe(0);
+    expect(summary.totalCost).toEqual({
+      status: "known",
+      knownCents: 0,
+      unavailableCalls: 0,
+    });
     expect(summary.byLabel).toEqual([]);
     expect(summary.byModel).toEqual([]);
     expect(summary.byApp).toEqual([]);
     expect(summary.byDay).toEqual([]);
     expect(summary.recent).toEqual([]);
+  });
+
+  it("keeps unavailable provider cost visible in every aggregate", async () => {
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "openai/gpt-oss-120b",
+      label: "visual-recap",
+      costSource: "unavailable",
+    });
+
+    const summary = await getUsageSummary({
+      ownerEmail: "mixed@example.com",
+    });
+
+    expect(summary.totalCost).toEqual({
+      status: "partial",
+      knownCents: 300,
+      unavailableCalls: 1,
+    });
+    expect(
+      summary.byModel.find((bucket) => bucket.key === "openai/gpt-oss-120b")
+        ?.cost,
+    ).toEqual({
+      status: "unavailable",
+      knownCents: 0,
+      unavailableCalls: 1,
+    });
+    expect(summary.byDay[0]?.cost.status).toBe("partial");
   });
 });
 
