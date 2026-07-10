@@ -310,6 +310,43 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
+  it("cleans up a failed resumed progress stream before falling back to a normal reply", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => {
+      throw new Error("Slack stream is no longer active");
+    });
+    const fail = vi.fn(async () => undefined);
+    const resumedAdapter = adapter(sendResponse);
+    resumedAdapter.resumeRunProgress = vi.fn(async () => ({
+      ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      onEvent: vi.fn(async () => undefined),
+      complete,
+      fail,
+    }));
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", resumedAdapter]]),
+    });
+
+    expect(fail).toHaveBeenCalledWith(
+      "The delegated agent completed, but I couldn't finalize the live response. I'll post the final result in this thread.",
+    );
+    expect(fail.mock.invocationCallOrder[0]).toBeLessThan(
+      sendResponse.mock.invocationCallOrder[0],
+    );
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+  });
+
   it("expands relative URLs against the agent public base, not the A2A endpoint", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(

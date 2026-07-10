@@ -404,6 +404,12 @@ async function deliverA2AContinuationResponse(
     } catch {
       // A stale or failed native stream must not prevent the continuation's
       // terminal message from reaching the requester through the normal reply.
+      // Try to close it first so platform task cards do not remain working.
+      try {
+        await progress.fail?.(
+          "The delegated agent completed, but I couldn't finalize the live response. I'll post the final result in this thread.",
+        );
+      } catch {}
     }
   }
   await adapter.sendResponse(message, continuation.incoming, {

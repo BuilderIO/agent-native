@@ -25,6 +25,7 @@ const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -94,6 +95,11 @@ vi.mock("./usage-budget-store.js", () => ({
 vi.mock("./awaiting-input-store.js", () => ({
   setIntegrationAwaitingInput: setIntegrationAwaitingInputMock,
   clearIntegrationAwaitingInput: clearIntegrationAwaitingInputMock,
+}));
+
+vi.mock("./a2a-continuations-store.js", () => ({
+  getA2AContinuationForIntegrationTask:
+    getA2AContinuationForIntegrationTaskMock,
 }));
 
 vi.mock("../usage/store.js", () => ({
@@ -217,6 +223,7 @@ describe("integration webhook handler engine resolution", () => {
     });
     setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
+    getA2AContinuationForIntegrationTaskMock.mockResolvedValue(null);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     getConfiguredEngineNameForRequestMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
@@ -938,6 +945,10 @@ describe("integration webhook handler engine resolution", () => {
         complete,
       }),
     };
+    getA2AContinuationForIntegrationTaskMock.mockResolvedValueOnce({
+      status: "pending",
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+    });
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({ type: "agent_call", agent: "Design", status: "start" });
       send({
@@ -966,6 +977,65 @@ describe("integration webhook handler engine resolution", () => {
         agent: "Design",
         state: "working",
       }),
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("closes a fresh native progress stream when a retry only finds an older continuation", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000099" },
+        onEvent,
+        complete,
+      }),
+    };
+    getA2AContinuationForIntegrationTaskMock.mockResolvedValueOnce({
+      status: "processing",
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+    });
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      // This mirrors formatExistingIntegrationContinuationIfRetry: it emits a
+      // queued marker for an older continuation without creating one for this
+      // retry or claiming this run's fresh stream.
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({
+        id: "task-retry-stale-progress-stream",
+        attempts: 2,
+      }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(getA2AContinuationForIntegrationTaskMock).toHaveBeenCalledWith(
+      "task-retry-stale-progress-stream",
+    );
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+      }),
+    );
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent_call_progress" }),
     );
     expect(sendResponse).not.toHaveBeenCalled();
   });
@@ -1152,6 +1222,10 @@ describe("integration webhook handler engine resolution", () => {
         complete,
       }),
     };
+    getA2AContinuationForIntegrationTaskMock.mockResolvedValueOnce({
+      status: "pending",
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000002" },
+    });
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",

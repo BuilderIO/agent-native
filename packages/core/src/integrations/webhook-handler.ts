@@ -59,7 +59,11 @@ import {
 } from "./pending-tasks-store.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import type { PlatformAdapter, IncomingMessage } from "./types.js";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  PlatformRunProgressRef,
+} from "./types.js";
 import {
   listIntegrationUsageBudgets,
   releaseIntegrationUsageBudget,
@@ -877,7 +881,11 @@ async function processIncomingMessage(
         try {
           const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
           continuationOwnsProgress =
-            queuedA2AContinuation && Boolean(progress?.ref);
+            queuedA2AContinuation &&
+            (await currentA2AContinuationOwnsProgress(
+              opts.taskId,
+              progress?.ref,
+            ));
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -971,7 +979,7 @@ async function processIncomingMessage(
             // substantive parent partial as a normal thread reply instead of
             // completing that stream, which the continuation needs for its
             // eventual task/plan result.
-            if (queuedA2AContinuation && progress?.ref) {
+            if (continuationOwnsProgress) {
               await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
@@ -1006,7 +1014,7 @@ async function processIncomingMessage(
             // stream open for the continuation processor to update and close;
             // ending it here discards the plan/task UI before the delegated
             // work has actually finished.
-            if (progress.ref) {
+            if (continuationOwnsProgress) {
               await progress.onEvent({
                 type: "agent_call_progress",
                 agent:
@@ -1347,6 +1355,41 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+/**
+ * A retry can report the queued marker by recognizing an already-enqueued
+ * continuation. Its new native stream is not resumable by that older
+ * continuation, so only leave a stream open when the continuation row proves
+ * it claimed this exact reference during the current run.
+ */
+async function currentA2AContinuationOwnsProgress(
+  taskId: string | undefined,
+  progressRef: PlatformRunProgressRef | undefined,
+): Promise<boolean> {
+  if (!taskId || !progressRef) return false;
+
+  try {
+    const { getA2AContinuationForIntegrationTask } =
+      await import("./a2a-continuations-store.js");
+    const continuation = await getA2AContinuationForIntegrationTask(taskId);
+    if (
+      !continuation ||
+      !["pending", "processing", "delivering"].includes(continuation.status)
+    ) {
+      return false;
+    }
+    return (
+      continuation.progressRef?.kind === progressRef.kind &&
+      continuation.progressRef.streamTs === progressRef.streamTs
+    );
+  } catch (err) {
+    console.warn(
+      "[integrations] Could not verify A2A continuation progress ownership:",
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
 }
 
 function getQueuedA2AContinuationAgent(completedRun: ActiveRun): string | null {
