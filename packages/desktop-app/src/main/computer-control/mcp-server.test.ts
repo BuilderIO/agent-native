@@ -3,6 +3,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { BrowserControlLoopbackBridge } from "../browser-control/bridge";
+import type { BrowserHostBridgeRegistration } from "../browser-control/protocol";
 import { ComputerControlBroker } from "./broker";
 import type { DesktopHelper } from "./helper-client";
 import {
@@ -26,6 +28,7 @@ interface Harness {
   registration: { url: string; bearerToken: string };
   mutations: MutationOperation[];
   releaseAll: ReturnType<typeof vi.fn>;
+  browserHost?: BrowserHostBridgeRegistration;
 }
 
 const active: Harness[] = [];
@@ -39,6 +42,7 @@ afterEach(async () => {
 
 async function createHarness(
   permissionMode: DesktopComputerPermissionMode,
+  withBrowser = false,
 ): Promise<Harness> {
   const mutations: MutationOperation[] = [];
   const releaseAll = vi.fn(async () => undefined);
@@ -71,10 +75,15 @@ async function createHarness(
     },
     permissionStatus,
   });
+  const browserBridge = withBrowser
+    ? new BrowserControlLoopbackBridge()
+    : undefined;
+  const browserHost = await browserBridge?.start();
   const bridge = new DesktopComputerMcpBridge({
     broker,
     permissionStatus,
     screenObserver,
+    browserBridge,
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
@@ -86,7 +95,14 @@ async function createHarness(
       },
     }),
   );
-  const harness = { bridge, client, registration, mutations, releaseAll };
+  const harness = {
+    bridge,
+    client,
+    registration,
+    mutations,
+    releaseAll,
+    browserHost,
+  };
   active.push(harness);
   return harness;
 }
@@ -211,5 +227,83 @@ describe("DesktopComputerMcpBridge", () => {
       ]),
     });
     await manager.stop();
+  });
+
+  it("routes browser tools through the native-host bridge with server-owned identity and observations", async () => {
+    const harness = await createHarness("full-auto", true);
+    const host = harness.browserHost!;
+    const poll = async () => {
+      const response = await fetch(`${host.baseUrl}/v1/commands`, {
+        headers: { authorization: `Bearer ${host.bearerToken}` },
+      });
+      return response.json() as Promise<any>;
+    };
+    const respond = (id: string, result?: unknown) =>
+      fetch(`${host.baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${host.bearerToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ id, ok: true, result }),
+      });
+
+    const attaching = harness.client.callTool({
+      name: "browser_attach",
+      arguments: {
+        tabId: 9,
+        origin: "https://example.com",
+        taskId: "model-forged",
+      },
+    });
+    const attach = await poll();
+    expect(attach).toMatchObject({
+      taskId: "run-server-owned",
+      command: {
+        type: "attach",
+        tabId: 9,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    await respond(attach.id, { tabId: 9, origin: "https://example.com" });
+    expect((await attaching).isError).not.toBe(true);
+
+    const observing = harness.client.callTool({
+      name: "browser_observe",
+      arguments: {},
+    });
+    const observe = await poll();
+    await respond(observe.id, {
+      tabId: 9,
+      observationId: "observation-server-result",
+      nodes: [{ backendNodeId: 17, role: "button" }],
+      screenshot: {
+        mediaType: "image/jpeg",
+        data: Buffer.from("chrome-frame").toString("base64"),
+        width: 800,
+        height: 600,
+      },
+    });
+    expect((await observing).content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text" }),
+        expect.objectContaining({ type: "image", mimeType: "image/jpeg" }),
+      ]),
+    );
+
+    const clicking = harness.client.callTool({
+      name: "browser_click",
+      arguments: { backendNodeId: 17, observationId: "model-forged" },
+    });
+    const click = await poll();
+    expect(click.command).toMatchObject({
+      type: "click",
+      target: {
+        observationId: "observation-server-result",
+        backendNodeId: 17,
+      },
+    });
+    await respond(click.id, { x: 10, y: 20 });
+    expect((await clicking).isError).not.toBe(true);
   });
 });

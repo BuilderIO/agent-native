@@ -195,7 +195,7 @@ export class DesktopComputerMcpBridge {
       await Promise.allSettled(
         registrations.map(async (remoteRegistration) => {
           try {
-            await bridge.stopTask(remoteRegistration);
+            await stopBrowserTaskBounded(bridge, remoteRegistration);
           } finally {
             bridge.revokeTask(remoteRegistration.taskId);
           }
@@ -204,7 +204,7 @@ export class DesktopComputerMcpBridge {
     }
     if (!bridge || !registration) return;
     try {
-      await bridge.stopTask(registration);
+      await stopBrowserTaskBounded(bridge, registration);
     } finally {
       bridge.revokeTask(context.runId);
     }
@@ -1114,4 +1114,21 @@ function writeJsonRpc(response: ServerResponse, value: unknown): void {
     "content-type": "application/json",
   });
   response.end(JSON.stringify(value));
+}
+
+async function stopBrowserTaskBounded(
+  bridge: BrowserControlLoopbackBridge,
+  registration: BrowserTaskRegistration,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      bridge.stopTask(registration),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 1_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
