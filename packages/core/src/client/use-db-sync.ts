@@ -196,10 +196,8 @@ interface TransportSubscription {
    * subscribers so the most-frequent caller is satisfied.
    */
   interval: number;
-  /** Requested poll interval while the tab has no active agent/collab work. */
+  /** Requested poll interval while the tab has no active agent work. */
   idleInterval: number;
-  /** Keeps the shared transport on the active cadence while mounted. */
-  active: boolean;
   /** Requested fallback interval while SSE is connected. */
   fallbackInterval: number;
   /**
@@ -289,11 +287,7 @@ class SyncTransport {
   }
 
   private get isActive(): boolean {
-    if (this.activeChatIds.size > 0) return true;
-    for (const sub of this.subscribers.values()) {
-      if (sub.active) return true;
-    }
-    return false;
+    return this.activeChatIds.size > 0;
   }
 
   private get effectiveFallbackInterval(): number {
@@ -625,10 +619,6 @@ export interface SubscribeSyncEventsOptions {
    * useDbSync (mounted by every template root) already sets the pace.
    */
   interval?: number;
-  /** Poll cadence while this subscriber is idle. Defaults to `interval`. */
-  idleInterval?: number;
-  /** Keep the shared transport on the active cadence while subscribed. */
-  active?: boolean;
   fallbackInterval?: number;
 }
 
@@ -654,8 +644,7 @@ export function subscribeSyncEvents(
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? true,
     interval: options.interval ?? 60_000,
-    idleInterval: options.idleInterval ?? options.interval ?? 60_000,
-    active: options.active ?? false,
+    idleInterval: options.interval ?? 60_000,
     fallbackInterval: options.fallbackInterval ?? 60_000,
   });
   return () => {
@@ -685,9 +674,6 @@ export function subscribeSyncEvents(
  *   Pass false to disable SSE and use polling only.
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
- * @param options.idleInterval - Poll interval when no agent run or active
- *   subscriber needs low latency. Default: 15000 (or `interval` when callers
- *   explicitly override the active interval for backwards compatibility).
  * @param options.fallbackInterval - Poll interval while SSE is connected.
  *   Default: 15000
  * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
@@ -713,7 +699,6 @@ export function useDbSync(
     eventsUrl?: string;
     onEvent?: (data: any) => void;
     interval?: number;
-    idleInterval?: number;
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
@@ -726,17 +711,14 @@ export function useDbSync(
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
-    idleInterval = Math.max(
-      options.idleInterval ??
-        (options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval),
-      interval,
-    ),
     fallbackInterval = Math.max(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
     pauseWhenHidden = true,
   } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
 
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
@@ -964,7 +946,6 @@ export function useDbSync(
       pauseWhenHidden,
       interval,
       idleInterval,
-      active: false,
       fallbackInterval,
     });
 
@@ -1022,7 +1003,6 @@ export function useScreenRefreshKey(
     pollUrl?: string;
     sseUrl?: string | false;
     interval?: number;
-    idleInterval?: number;
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
   } = {},
@@ -1031,17 +1011,14 @@ export function useScreenRefreshKey(
     pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
-    idleInterval = Math.max(
-      options.idleInterval ??
-        (options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval),
-      interval,
-    ),
     fallbackInterval = Math.max(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
     pauseWhenHidden = true,
   } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
   const [key, setKey] = useState(0);
 
   useEffect(() => {
@@ -1075,7 +1052,6 @@ export function useScreenRefreshKey(
       pauseWhenHidden,
       interval,
       idleInterval,
-      active: false,
       fallbackInterval,
     });
 
