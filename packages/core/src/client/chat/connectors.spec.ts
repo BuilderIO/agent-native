@@ -508,16 +508,43 @@ describe("standard agent chat runtime connectors", () => {
         {
           type: "content_block_start",
           index: 0,
-          content_block: { type: "text" },
+          content_block: { type: "thinking", thinking: "", signature: "" },
         },
         {
           type: "content_block_delta",
           index: 0,
+          delta: {
+            type: "thinking_delta",
+            thinking: "I should read ",
+          },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: {
+            type: "thinking_delta",
+            thinking: "the project docs.",
+          },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "signature_delta", signature: "sig-claude" },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "text" },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
           delta: { type: "text_delta", text: "Checking project docs." },
         },
         {
           type: "content_block_start",
-          index: 1,
+          index: 2,
           content_block: {
             type: "tool_use",
             id: "tool-1",
@@ -527,13 +554,13 @@ describe("standard agent chat runtime connectors", () => {
         },
         {
           type: "content_block_delta",
-          index: 1,
+          index: 2,
           delta: {
             type: "input_json_delta",
             partial_json: '{"path":"README.md"}',
           },
         },
-        { type: "content_block_stop", index: 1 },
+        { type: "content_block_stop", index: 2 },
         { type: "message_stop" },
         {
           type: "result",
@@ -560,6 +587,9 @@ describe("standard agent chat runtime connectors", () => {
     expect(events.map((event) => event.type)).toEqual([
       "message-start",
       "message-delta",
+      "message-delta",
+      "message-delta",
+      "message-delta",
       "tool-start",
       "tool-delta",
       "tool-done",
@@ -570,9 +600,32 @@ describe("standard agent chat runtime connectors", () => {
     expect(events[1]).toMatchObject({
       type: "message-delta",
       messageId: "message-1",
-      delta: { type: "text", text: "Checking project docs." },
+      delta: {
+        type: "reasoning",
+        text: "I should read ",
+        partId: "message-1:content:0",
+      },
     });
-    expect(events[2]).toMatchObject({
+    expect(events[3]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: {
+        type: "reasoning",
+        text: "",
+        partId: "message-1:content:0",
+        signature: "sig-claude",
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: {
+        type: "text",
+        text: "Checking project docs.",
+        partId: "message-1:content:1",
+      },
+    });
+    expect(events[5]).toMatchObject({
       type: "tool-start",
       toolCall: {
         id: "tool-1",
@@ -580,18 +633,37 @@ describe("standard agent chat runtime connectors", () => {
         input: { path: "README.md" },
       },
     });
-    expect(events[4]).toMatchObject({
+    expect(events[7]).toMatchObject({
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: '{"path":"README.md"}',
     });
-    expect(events[6]).toMatchObject({
+    expect(events[9]).toMatchObject({
       type: "usage",
       usage: {
         inputTokens: 10,
         outputTokens: 20,
         totalTokens: 30,
         costCents: 2.5,
+      },
+    });
+    expect(events[8]).toMatchObject({
+      type: "message-done",
+      message: {
+        id: "message-1",
+        content: [
+          {
+            type: "reasoning",
+            id: "message-1:content:0",
+            text: "I should read the project docs.",
+            signature: "sig-claude",
+          },
+          {
+            type: "text",
+            id: "message-1:content:1",
+            text: "Checking project docs.",
+          },
+        ],
       },
     });
   });
