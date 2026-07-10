@@ -24,6 +24,7 @@ const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const startRunMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -99,37 +100,39 @@ vi.mock("../usage/store.js", () => ({
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
-  startRun: vi.fn((runId, threadId, runFn, onComplete) => {
-    const events: any[] = [];
-    const send = (event: any) => {
-      events.push({
-        id: `event-${events.length + 1}`,
-        runId,
-        event,
-        createdAt: Date.now(),
-      });
-    };
-    Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
-      onComplete?.({
+  startRun: startRunMock.mockImplementation(
+    (runId, threadId, runFn, onComplete) => {
+      const events: any[] = [];
+      const send = (event: any) => {
+        events.push({
+          id: `event-${events.length + 1}`,
+          runId,
+          event,
+          createdAt: Date.now(),
+        });
+      };
+      Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
+        onComplete?.({
+          runId,
+          threadId,
+          events,
+          status: "completed",
+          subscribers: new Set(),
+          abort: new AbortController(),
+          startedAt: Date.now(),
+        }),
+      );
+      return {
         runId,
         threadId,
         events,
-        status: "completed",
+        status: "running",
         subscribers: new Set(),
         abort: new AbortController(),
         startedAt: Date.now(),
-      }),
-    );
-    return {
-      runId,
-      threadId,
-      events,
-      status: "running",
-      subscribers: new Set(),
-      abort: new AbortController(),
-      startedAt: Date.now(),
-    };
-  }),
+      };
+    },
+  ),
 }));
 
 function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
@@ -309,6 +312,13 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        { useHostedDefault: true },
+      );
       expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({
           budgetId: "budget-org",

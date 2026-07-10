@@ -1047,6 +1047,13 @@ async function processIncomingMessage(
           resolve();
         }
       },
+      // Integration workers are ordinary self-dispatched serverless requests,
+      // not a Netlify background-function route. Without the hosted soft
+      // timeout, a wedged model connection can outlive the worker and leave
+      // Slack's native stream in "working" forever when the host kills the
+      // process. Checkpoint at the foreground-safe boundary so onComplete can
+      // always close the provider progress surface before the function wall.
+      { useHostedDefault: true },
     );
   });
 }
