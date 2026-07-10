@@ -240,30 +240,23 @@ test.describe("editor keyboard layer clipboard", () => {
       },
     );
 
-    // Settled-delay control: repeat the same two-paste sequence, undo the
-    // latest immediately, then wait before the second undo. Both timings must
-    // preserve two distinct immutable history entries.
-    await pressPrimaryShortcut(page, "v");
-    await expectFileContent(
-      request,
-      baseURL,
-      targetDesignId,
-      "target.html",
-      (html) => {
-        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
-      },
-    );
-    await pressPrimaryShortcut(page, "v");
-    await expectFileContent(
-      request,
-      baseURL,
-      targetDesignId,
-      "target.html",
-      (html) => {
-        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
-        expect(count(html, "font-size: 22px")).toBe(2);
-      },
-    );
+    // Repeat after the route-remount, cross-tab copy, and rapid undo cycles.
+    // Prior history depth must not collapse the next pair into one entry.
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "v");
+      await expectFileContent(
+        request,
+        baseURL,
+        targetDesignId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
     await pressPrimaryShortcut(page, "z");
     await expectFileContent(
       request,
@@ -281,6 +274,63 @@ test.describe("editor keyboard layer clipboard", () => {
       request,
       baseURL,
       targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(html).toContain("letter-spacing: 1px");
+      },
+    );
+  });
+
+  test("keeps two responsive pastes distinct across a settled second undo", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    designId = await createKeyboardDesign(
+      request,
+      baseURL,
+      "E2E Settled Clipboard Undo",
+    );
+    await gotoEditor(page, designId);
+    await selectLayerRow(page, "Copy Card");
+    await pressPrimaryShortcut(page, "c");
+    await selectScreenRow(page, "Target");
+
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "v");
+      await expectFileContent(
+        request,
+        baseURL,
+        designId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
+
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      designId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, "font-size: 22px")).toBe(1);
+      },
+    );
+    await page.waitForTimeout(1_000);
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      designId,
       "target.html",
       (html) => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);

@@ -4461,6 +4461,14 @@ function DesignEditor() {
   // paste without mistaking a newer external copy for stale in-memory layers.
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
+  // Synchronous per-file content lineage for repeated paste/undo cycles. A
+  // save acknowledgement may clear the generic pending-local map before the
+  // React query/collab mirrors have rendered its content, leaving a brief
+  // stale-base gap. Keep the last locally-applied document until an
+  // authoritative external `updatedAt` snapshot arrives.
+  const latestClipboardMutationContentRef = useRef<Map<string, string>>(
+    new Map(),
+  );
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -11333,6 +11341,14 @@ function DesignEditor() {
         });
         return;
       }
+      if (options.updatedAt) {
+        latestClipboardMutationContentRef.current.delete(activeFile.id);
+      } else {
+        latestClipboardMutationContentRef.current.set(
+          activeFile.id,
+          nextContent,
+        );
+      }
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11548,6 +11564,11 @@ function DesignEditor() {
           id: `design-source-integrity:${fileId}`,
         });
         return;
+      }
+      if (options.updatedAt) {
+        latestClipboardMutationContentRef.current.delete(fileId);
+      } else {
+        latestClipboardMutationContentRef.current.set(fileId, nextContent);
       }
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
@@ -16725,6 +16746,7 @@ function DesignEditor() {
       // removes both. Prefer the pending snapshot exactly like primitive and
       // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
+        latestClipboardMutationContentRef.current.get(targetFileId) ??
         pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
         (targetFileId === activeFile?.id
           ? getFreshActiveContent()

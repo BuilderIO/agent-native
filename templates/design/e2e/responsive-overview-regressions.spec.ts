@@ -335,19 +335,36 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     await gotoEditor(page, designId);
     const world = page.locator("[data-multi-screen-canvas-world]");
     const surface = world.locator("xpath=..");
-    const observed = await page.evaluate(() => {
-      const target = document.querySelector("[data-multi-screen-canvas-world]");
-      (window as any).__qaCameraTransforms = [];
-      if (target) {
+    const cameraTransforms: string[] = [];
+    await page.exposeFunction(
+      "__qaRecordCameraTransform",
+      (transform: string) => cameraTransforms.push(transform),
+    );
+    const installCameraObserver = () => {
+      const attach = () => {
+        const target = document.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-world]",
+        );
+        if (!target || target.dataset.qaCameraObserved === "true") return false;
+        target.dataset.qaCameraObserved = "true";
         new MutationObserver(() => {
-          (window as any).__qaCameraTransforms.push(
-            (target as HTMLElement).style.transform,
+          void (window as any).__qaRecordCameraTransform(
+            target.style.transform,
           );
         }).observe(target, { attributes: true, attributeFilter: ["style"] });
-      }
-      return true;
-    });
-    expect(observed).toBe(true);
+        return true;
+      };
+      if (attach()) return;
+      const observer = new MutationObserver(() => {
+        if (attach()) observer.disconnect();
+      });
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    };
+    await page.addInitScript(installCameraObserver);
+    await page.evaluate(installCameraObserver);
 
     await page.getByRole("button", { name: "Add screen" }).click();
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
@@ -360,46 +377,45 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     if (!selectedBox || !surfaceBox) throw new Error("missing created screen");
     expect(selectedBox.x + selectedBox.width).toBeGreaterThan(surfaceBox.x);
     expect(selectedBox.x).toBeLessThan(surfaceBox.x + surfaceBox.width);
-    const transforms = await page.evaluate(
-      () => (window as any).__qaCameraTransforms as string[],
+    expect(new Set(cameraTransforms.filter(Boolean)).size).toBeLessThanOrEqual(
+      1,
     );
-    expect(new Set(transforms.filter(Boolean)).size).toBeLessThanOrEqual(1);
 
-    const resetCameraProbe = () =>
-      page.evaluate(() => {
-        (window as any).__qaCameraTransforms = [];
-      });
+    const resetCameraProbe = () => {
+      cameraTransforms.length = 0;
+    };
     const assertNewestScreenSelectedVisibleWithSingleCameraCommit =
       async () => {
         await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
         await expect
-          .poll(async () => {
-            const newest = await page
-              .locator("[data-screen-shell]")
-              .last()
-              .locator("[data-screen-card]")
-              .boundingBox();
-            const canvas = await surface.boundingBox();
-            if (!newest || !canvas) return false;
-            return (
-              newest.x + newest.width > canvas.x &&
-              newest.x < canvas.x + canvas.width &&
-              newest.y + newest.height > canvas.y &&
-              newest.y < canvas.y + canvas.height
-            );
-          })
+          .poll(() =>
+            page.evaluate(() => {
+              const world = document.querySelector(
+                "[data-multi-screen-canvas-world]",
+              );
+              const shells = document.querySelectorAll("[data-screen-shell]");
+              const newest =
+                shells[shells.length - 1]?.querySelector("[data-screen-card]");
+              if (!world?.parentElement || !newest) return false;
+              const canvas = world.parentElement.getBoundingClientRect();
+              const card = newest.getBoundingClientRect();
+              return (
+                card.right > canvas.left &&
+                card.left < canvas.right &&
+                card.bottom > canvas.top &&
+                card.top < canvas.bottom
+              );
+            }),
+          )
           .toBe(true);
         await page.waitForTimeout(250);
-        const cameraTransforms = await page.evaluate(
-          () => (window as any).__qaCameraTransforms as string[],
-        );
         expect(
           new Set(cameraTransforms.filter(Boolean)).size,
           `camera transforms: ${cameraTransforms.join(" | ")}`,
         ).toBeLessThanOrEqual(1);
       };
 
-    await resetCameraProbe();
+    resetCameraProbe();
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+D" : "Control+D",
     );
@@ -409,7 +425,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       process.platform === "darwin" ? "Meta+Z" : "Control+Z",
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-    await resetCameraProbe();
+    resetCameraProbe();
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
     );
@@ -453,7 +469,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       }
       throw new Error("no empty canvas point");
     };
-    await resetCameraProbe();
+    resetCameraProbe();
     await page.getByRole("button", { name: "Frame", exact: true }).click();
     const empty = await findEmptyCanvasPoint();
     await page.mouse.move(empty.x, empty.y);
@@ -463,7 +479,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
     await assertNewestScreenSelectedVisibleWithSingleCameraCommit();
 
-    await resetCameraProbe();
+    resetCameraProbe();
     await page.getByRole("button", { name: "Frame", exact: true }).click();
     await page
       .getByRole("button", { name: /iPhone 17/ })
