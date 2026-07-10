@@ -8949,6 +8949,12 @@ function DesignEditor() {
       setHoveredElement(null);
       setHoveredElementScreenId(null);
       setSelectedLayerIdsState([]);
+      // Mirror the marquee/Escape clear path: the selection highlight for an
+      // in-screen element is drawn inside the iframe by the bridge, so clearing
+      // only host state leaves that highlight visible. Bump the bridge
+      // clear-selection signal too (the single-screen canvas reads this via
+      // clearSelectionRequest={overviewClearSelectionRequest}).
+      setOverviewClearSelectionRequest((request) => request + 1);
     },
     [],
   );
@@ -28224,6 +28230,14 @@ ${serializedHtml}
                           setHoveredElement(null);
                           setHoveredElementScreenId(null);
                           setSelectedLayerIdsState([]);
+                          // Also signal the iframe bridge so an in-screen
+                          // element's selection highlight (drawn inside the
+                          // iframe) is cleared, not just host state. Harmless
+                          // echo when this fires from the iframe's own
+                          // clear-selection message.
+                          setOverviewClearSelectionRequest(
+                            (request) => request + 1,
+                          );
                         }}
                         onIframeHotkey={handleIframeHotkey}
                         onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
