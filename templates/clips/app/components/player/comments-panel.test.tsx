@@ -30,7 +30,8 @@ const rootComment: Comment = {
   parentId: null,
   authorEmail: "author@example.com",
   authorName: "Author",
-  content: "Please take a look",
+  content:
+    "Please take a look at https://example.com/docs?item=1 and www.example.org/help.",
   videoTimestampMs: 12_000,
   emojiReactionsJson: "{}",
   resolved: false,
@@ -85,6 +86,21 @@ describe("CommentsPanel reply composer", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("renders comment URLs as safe external links without including punctuation", () => {
+    const absoluteUrl = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.com/docs?item=1"]',
+    );
+    const wwwUrl = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://www.example.org/help"]',
+    );
+
+    expect(absoluteUrl?.textContent).toBe("https://example.com/docs?item=1");
+    expect(absoluteUrl?.target).toBe("_blank");
+    expect(absoluteUrl?.rel).toBe("noopener noreferrer");
+    expect(wwwUrl?.textContent).toBe("www.example.org/help");
+    expect(container.textContent).toContain("www.example.org/help.");
   });
 
   it("opens and focuses a reply field inline without replacing the new-comment draft", async () => {

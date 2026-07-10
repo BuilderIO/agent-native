@@ -859,7 +859,16 @@ function CommentCard({
 }
 
 const COMMENT_URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
-const ALWAYS_TRAILING_PUNCTUATION = new Set([".", ",", "!", "?", ";", ":", "'", '"']);
+const ALWAYS_TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  "!",
+  "?",
+  ";",
+  ":",
+  "'",
+  '"',
+]);
 const PAIRED_TRAILING_PUNCTUATION: Record<string, string> = {
   ")": "(",
   "]": "[",
