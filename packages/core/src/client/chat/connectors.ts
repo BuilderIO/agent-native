@@ -822,12 +822,7 @@ function mapOpenAIResponsesEvent(
     type === "RESPONSE_REASONING_TEXT_DELTA" ||
     type === "REASONING_TEXT_DELTA"
   ) {
-    const messageId = recordString(
-      event,
-      "item_id",
-      "itemId",
-      "messageId",
-    );
+    const messageId = recordString(event, "item_id", "itemId", "messageId");
     const index = recordKey(
       event,
       "summary_index",
@@ -851,12 +846,7 @@ function mapOpenAIResponsesEvent(
     type === "RESPONSE_REASONING_TEXT_DONE" ||
     type === "REASONING_TEXT_DONE"
   ) {
-    const messageId = recordString(
-      event,
-      "item_id",
-      "itemId",
-      "messageId",
-    );
+    const messageId = recordString(event, "item_id", "itemId", "messageId");
     const index = recordKey(
       event,
       "summary_index",
@@ -870,9 +860,7 @@ function mapOpenAIResponsesEvent(
       : undefined;
     const existing = state.messages
       .get(messageId ?? state.fallbackMessageId)
-      ?.content.find(
-        (part) => part.type === "reasoning" && part.id === partId,
-      );
+      ?.content.find((part) => part.type === "reasoning" && part.id === partId);
     return existing?.text
       ? []
       : appendReasoningEvents(context, state, {

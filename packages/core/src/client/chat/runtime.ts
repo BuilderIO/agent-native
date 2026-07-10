@@ -1235,11 +1235,7 @@ function mapAgentNativeEvent(
       seq: ev.seq,
     };
   }
-  if (
-    ev.type === "text" ||
-    ev.type === "thinking" ||
-    ev.type === "reasoning"
-  ) {
+  if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
     const type = ev.type === "text" ? "text" : "reasoning";
     const extended = ev as SSEEvent & {
@@ -1544,10 +1540,7 @@ function applyRuntimeEventToContent(
   const typed = event as AgentChatRuntimeKnownEvent;
   if (typed.type === "message-start") {
     for (const part of typed.message.content) {
-      if (
-        (part.type === "text" || part.type === "reasoning") &&
-        part.text
-      ) {
+      if ((part.type === "text" || part.type === "reasoning") && part.text) {
         appendRuntimeContentPart(projection, {
           type: part.type,
           text: part.text,
@@ -1558,10 +1551,7 @@ function applyRuntimeEventToContent(
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "message-delta") {
-    if (
-      typed.delta.type === "text" ||
-      typed.delta.type === "reasoning"
-    ) {
+    if (typed.delta.type === "text" || typed.delta.type === "reasoning") {
       appendRuntimeContentPart(projection, {
         type: typed.delta.type,
         text: typed.delta.text,
