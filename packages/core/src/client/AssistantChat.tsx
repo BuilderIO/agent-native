@@ -4884,6 +4884,7 @@ const AssistantChatInner = forwardRef<
                             providerConnectStatusEnabled={
                               providerStatusChecksEnabled
                             }
+                            voiceEnabled
                             draftScope={threadId || tabId}
                             interceptBuildRequestsForBuilder
                             onAttachmentError={setComposerError}
