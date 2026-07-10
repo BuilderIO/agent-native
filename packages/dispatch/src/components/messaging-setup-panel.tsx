@@ -11,7 +11,6 @@ import {
   listBuiltInChannelIntegrations,
   type IntegrationCatalogEntry,
   type IntegrationCredentialRequirement,
-  type IntegrationIconKey,
 } from "@agent-native/core/integrations";
 import {
   IconBrandDiscord,
@@ -42,9 +41,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const CHANNELS = listBuiltInChannelIntegrations();
 
-const PLATFORM_ICONS: Partial<
-  Record<IntegrationIconKey, typeof IconBrandSlack>
-> = {
+const PLATFORM_ICONS: Partial<Record<string, typeof IconBrandSlack>> = {
   slack: IconBrandSlack,
   "microsoft-teams": IconBrandTeams,
   discord: IconBrandDiscord,

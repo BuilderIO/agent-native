@@ -352,7 +352,7 @@ function teamsTenantId(activity: TeamsActivity): string | undefined {
 
 function isAllowedTenant(
   tenantId: string | undefined,
-  allowlist: string | undefined,
+  allowlist: string | null | undefined,
 ): boolean {
   if (!tenantId) return false;
   const allowed = parseCsv(allowlist);
@@ -360,7 +360,7 @@ function isAllowedTenant(
   return allowed.has(tenantId);
 }
 
-function parseCsv(value: string | undefined): Set<string> {
+function parseCsv(value: string | null | undefined): Set<string> {
   return new Set(
     (value ?? "")
       .split(",")
