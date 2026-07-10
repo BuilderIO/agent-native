@@ -96,7 +96,10 @@ describe("FigmaLinkComposerBubble", () => {
       'input[type="password"]',
     )!;
     await act(async () => {
-      input.value = "figma-token-example";
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "figma-token-example");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
