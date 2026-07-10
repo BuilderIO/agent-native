@@ -41,6 +41,12 @@ import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
+import {
+  createComputerApprovalRequest,
+  decideComputerApproval,
+  listComputerApprovalsForOwner,
+} from "./computer-supervision-store.js";
+import { ComputerSupervisionError } from "./computer-supervision.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { claimIntegrationControl } from "./controls-store.js";
 import {
@@ -84,12 +90,6 @@ import {
   listRemoteCommandsForOwner,
   updateRemoteCommandResult,
 } from "./remote-commands-store.js";
-import {
-  createComputerApprovalRequest,
-  decideComputerApproval,
-  listComputerApprovalsForOwner,
-} from "./computer-supervision-store.js";
-import { ComputerSupervisionError } from "./computer-supervision.js";
 import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
@@ -1333,9 +1333,8 @@ export function createIntegrationsPlugin(
         const deadline = Date.now() + waitMs;
 
         while (true) {
-          const operationClasses = advertisedComputerOperationClasses(
-            pollingDevice,
-          );
+          const operationClasses =
+            advertisedComputerOperationClasses(pollingDevice);
           const computerCommand =
             operationClasses.length > 0
               ? await claimNextComputerCommand({
@@ -1346,8 +1345,7 @@ export function createIntegrationsPlugin(
                 })
               : null;
           const command =
-            computerCommand ??
-            (await claimNextRemoteCommand(pollingDevice.id));
+            computerCommand ?? (await claimNextRemoteCommand(pollingDevice.id));
           if (command) return { command };
           const remaining = deadline - Date.now();
           if (remaining <= 0) return { command: null };

@@ -8,6 +8,7 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { assertValidComputerCommandEnvelope } from "@agent-native/core/integrations";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -41,6 +42,9 @@ interface RunContext {
   leaseToken?: string;
   browserRegistration?: BrowserTaskRegistration;
   browserObservationId?: string;
+  browserOrigin?: string;
+  connector?: boolean;
+  remoteBrowserRegistrations?: Map<string, BrowserTaskRegistration>;
 }
 
 export interface DesktopComputerMcpRegistration {
@@ -54,6 +58,7 @@ export interface DesktopComputerMcpBridgeOptions {
   screenObserver?: EphemeralScreenObserver;
   browserBridge?: BrowserControlLoopbackBridge;
   browserNativeHostInstalled?: () => boolean;
+  browserExtensionPath?: () => string | undefined;
   token?: () => string;
   leaseTtlMs?: number;
 }
@@ -115,6 +120,24 @@ export class DesktopComputerMcpBridge {
     return { url: this.url, bearerToken };
   }
 
+  registerConnector(): DesktopComputerMcpRegistration {
+    if (!this.url) throw new Error("Desktop computer MCP bridge is not ready.");
+    const runId = "__remote_connector__";
+    for (const previous of this.removeCredentials(runId)) {
+      void this.stopBrowserContext(previous);
+    }
+    const bearerToken = this.token();
+    const tokenHash = hashToken(bearerToken);
+    this.contextsByTokenHash.set(tokenHash, {
+      runId,
+      permissionMode: "full-auto",
+      connector: true,
+      remoteBrowserRegistrations: new Map(),
+    });
+    this.tokenHashesByRun.set(runId, new Set([tokenHash]));
+    return { url: this.url, bearerToken };
+  }
+
   async revokeRun(runId: string): Promise<void> {
     const contexts = this.removeCredentials(runId);
     this.options.screenObserver?.clear(runId);
@@ -125,9 +148,13 @@ export class DesktopComputerMcpBridge {
   }
 
   async close(): Promise<void> {
+    const contexts = [...this.contextsByTokenHash.values()];
     this.contextsByTokenHash.clear();
     this.tokenHashesByRun.clear();
     this.options.screenObserver?.clear();
+    await Promise.allSettled(
+      contexts.map((context) => this.stopBrowserContext(context)),
+    );
     await this.options.browserBridge?.close();
     await this.options.broker.kill();
     this.options.broker.close();
@@ -155,6 +182,19 @@ export class DesktopComputerMcpBridge {
     const registration = context.browserRegistration;
     context.browserRegistration = undefined;
     context.browserObservationId = undefined;
+    if (bridge && context.remoteBrowserRegistrations) {
+      const registrations = [...context.remoteBrowserRegistrations.values()];
+      context.remoteBrowserRegistrations.clear();
+      await Promise.allSettled(
+        registrations.map(async (remoteRegistration) => {
+          try {
+            await bridge.stopTask(remoteRegistration);
+          } finally {
+            bridge.revokeTask(remoteRegistration.taskId);
+          }
+        }),
+      );
+    }
     if (!bridge || !registration) return;
     try {
       await bridge.stopTask(registration);
@@ -406,6 +446,288 @@ export class DesktopComputerMcpBridge {
         return this.textResult({ stopped: true });
       },
     );
+
+    mcp.registerTool(
+      "browser_status",
+      {
+        description:
+          "Read Agent Native Chrome extension, native-host, and task attachment status.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => {
+        const context = this.context();
+        return this.textResult({
+          nativeHostInstalled:
+            this.options.browserNativeHostInstalled?.() ?? false,
+          extensionPath: this.options.browserExtensionPath?.(),
+          attachedOrigin: context.browserOrigin,
+          ...(this.options.browserBridge?.status() ?? {
+            nativeHostConnected: false,
+            registeredTasks: 0,
+          }),
+        });
+      },
+    );
+    mcp.registerTool(
+      "browser_attach",
+      {
+        description:
+          "Attach this full-Auto task to one Chrome tab and exactly one approved HTTP(S) origin.",
+        inputSchema: {
+          tabId: z.number().int().min(0),
+          origin: z.string().max(2_048),
+        },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ tabId, origin }) => {
+        const context = this.assertBrowserContext();
+        const exactOrigin = normalizeBrowserOrigin(origin);
+        const result = await this.browserExecute(context, {
+          type: "attach",
+          tabId,
+          allowedOrigins: [exactOrigin],
+        });
+        const attached = browserRecord(result);
+        if (attached.origin !== exactOrigin) {
+          throw new Error("Chrome attached a different origin than requested.");
+        }
+        context.browserOrigin = exactOrigin;
+        context.browserObservationId = undefined;
+        return this.textResult({ tabId, origin: exactOrigin });
+      },
+    );
+    mcp.registerTool(
+      "browser_observe",
+      {
+        description:
+          "Observe the attached Chrome tab's accessibility tree and bounded screenshot. Full Auto is required until explicit tab approval UX exists.",
+        inputSchema: {
+          maxNodes: z.number().int().min(1).max(2_000).optional(),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async ({ maxNodes }) => {
+        const context = this.assertBrowserContext();
+        const raw = browserRecord(
+          await this.browserExecute(context, {
+            type: "observe",
+            includeScreenshot: true,
+            maxNodes: maxNodes ?? 400,
+          }),
+        );
+        if (typeof raw.observationId !== "string") {
+          throw new Error("Chrome returned an invalid observation.");
+        }
+        context.browserObservationId = raw.observationId;
+        const screenshot = browserRecord(raw.screenshot, true);
+        const content: Array<
+          | { type: "text"; text: string }
+          | { type: "image"; data: string; mimeType: "image/jpeg" }
+        > = [
+          {
+            type: "text",
+            text: JSON.stringify({ ...raw, screenshot: undefined }),
+          },
+        ];
+        if (
+          typeof screenshot.data === "string" &&
+          screenshot.data.length <= 4 * 1024 * 1024
+        ) {
+          content.push({
+            type: "image",
+            data: screenshot.data,
+            mimeType: "image/jpeg",
+          });
+        }
+        return { content };
+      },
+    );
+    const browserTargetSchema = {
+      backendNodeId: z.number().int().min(1),
+    };
+    mcp.registerTool(
+      "browser_click",
+      {
+        description:
+          "Click a backend node from the latest Chrome observation. Observe again before another target action.",
+        inputSchema: {
+          ...browserTargetSchema,
+          button: z.enum(["left", "middle", "right"]).optional(),
+        },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ backendNodeId, button }) =>
+        this.browserTargetMutation(backendNodeId, (target) => ({
+          type: "click",
+          target,
+          button,
+        })),
+    );
+    mcp.registerTool(
+      "browser_type",
+      {
+        description:
+          "Type into a backend node from the latest Chrome observation. Observe again before another target action.",
+        inputSchema: {
+          ...browserTargetSchema,
+          text: z.string().max(100_000),
+          replace: z.boolean().optional(),
+        },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ backendNodeId, text, replace }) =>
+        this.browserTargetMutation(backendNodeId, (target) => ({
+          type: "type",
+          target,
+          text,
+          replace,
+        })),
+    );
+    mcp.registerTool(
+      "browser_key",
+      {
+        description: "Press a supported key in the attached Chrome tab.",
+        inputSchema: {
+          key: z.enum([
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "ArrowUp",
+            "Backspace",
+            "Delete",
+            "End",
+            "Enter",
+            "Escape",
+            "Home",
+            "PageDown",
+            "PageUp",
+            "Space",
+            "Tab",
+          ]),
+          modifiers: z
+            .array(z.enum(["alt", "control", "meta", "shift"]))
+            .max(4)
+            .optional(),
+        },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ key, modifiers }) => {
+        const context = this.assertBrowserContext();
+        const result = await this.browserExecute(context, {
+          type: "key",
+          key,
+          modifiers,
+        });
+        context.browserObservationId = undefined;
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
+      "browser_navigate",
+      {
+        description:
+          "Navigate within the exact origin assigned when this task attached the tab.",
+        inputSchema: { url: z.string().max(16_384) },
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      },
+      async ({ url }) => {
+        const context = this.assertBrowserContext();
+        const parsed = new URL(url);
+        if (parsed.origin !== context.browserOrigin) {
+          throw new Error("Navigation cannot leave the attached origin.");
+        }
+        const result = await this.browserExecute(context, {
+          type: "navigate",
+          url: parsed.toString(),
+        });
+        context.browserObservationId = undefined;
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
+      "browser_scroll",
+      {
+        description: "Scroll the attached Chrome tab.",
+        inputSchema: {
+          deltaX: z.number().finite().min(-100_000).max(100_000),
+          deltaY: z.number().finite().min(-100_000).max(100_000),
+        },
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async ({ deltaX, deltaY }) => {
+        const context = this.assertBrowserContext();
+        const result = await this.browserExecute(context, {
+          type: "scroll",
+          deltaX,
+          deltaY,
+        });
+        context.browserObservationId = undefined;
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
+      "browser_stop",
+      {
+        description:
+          "Stop this task's Chrome control, release input, and detach the debugger.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () => {
+        const context = this.context();
+        const registration = context.browserRegistration;
+        if (registration && this.options.browserBridge) {
+          await this.options.browserBridge.stopTask(registration);
+        }
+        context.browserObservationId = undefined;
+        context.browserOrigin = undefined;
+        return this.textResult({ stopped: true });
+      },
+    );
+  }
+
+  private assertBrowserContext(): RunContext {
+    const context = this.assertMutationContext();
+    if (!context.browserRegistration || !this.options.browserBridge) {
+      throw new Error("Agent Native browser control is unavailable.");
+    }
+    return context;
+  }
+
+  private browserExecute(
+    context: RunContext,
+    command: import("../browser-control/protocol").BrowserCommand,
+  ) {
+    return this.options.browserBridge!.execute(
+      context.browserRegistration!,
+      command,
+    );
+  }
+
+  private async browserTargetMutation(
+    backendNodeId: number,
+    command: (target: {
+      observationId: string;
+      backendNodeId: number;
+    }) => import("../browser-control/protocol").BrowserCommand,
+  ) {
+    const context = this.assertBrowserContext();
+    const observationId = context.browserObservationId;
+    if (!observationId) {
+      throw new Error("Observe the Chrome tab again before targeting a node.");
+    }
+    try {
+      const result = await this.browserExecute(
+        context,
+        command({ observationId, backendNodeId }),
+      );
+      return this.textResult(result);
+    } finally {
+      context.browserObservationId = undefined;
+    }
   }
 
   private async mutate(
@@ -480,6 +802,32 @@ export class DesktopComputerMcpBridge {
 
 function canMutate(mode: DesktopComputerPermissionMode): boolean {
   return mode === "full-auto";
+}
+
+function normalizeBrowserOrigin(value: string): string {
+  const url = new URL(value);
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("Browser origin must be one exact HTTP(S) origin.");
+  }
+  return url.origin;
+}
+
+function browserRecord(
+  value: unknown,
+  optional = false,
+): Record<string, unknown> {
+  if (optional && value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Chrome returned an invalid response.");
+  }
+  return value as Record<string, unknown>;
 }
 
 function scopeForSnapshot(snapshot: SemanticSnapshot) {

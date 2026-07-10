@@ -21,9 +21,10 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:native:mac": "bash native/build-macos-helper.sh",
-    "build:mac": "pnpm build:native:mac && electron-vite build && electron-builder --mac --config",
+    "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
+    "build:mac": "pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
-    "test:computer-control": "vitest run src/main/computer-control",
+    "test:computer-control": "vitest run src/main/computer-control src/main/browser-control",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -139,6 +139,8 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
+import { installBrowserNativeHost } from "./browser-control/native-host";
 import {
   ComputerControlBroker,
   DesktopComputerMcpBridge,
@@ -217,6 +219,7 @@ let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
+let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
@@ -3230,10 +3233,46 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     desktopCapturer,
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
   });
+  const browserBridge = new BrowserControlLoopbackBridge();
+  const browserHost = await browserBridge.start();
+  const hostEntryPath = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        "app.asar",
+        "out/main/browser-control-host.js",
+      )
+    : path.resolve(__dirname, "browser-control-host.js");
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  try {
+    browserNativeHostManifestPath = installBrowserNativeHost({
+      ...browserHost,
+      executablePath: process.execPath,
+      hostEntryPath,
+      stateDirectory: path.join(app.getPath("userData"), "browser-control"),
+    }).manifestPath;
+  } catch (error) {
+    await browserBridge.close();
+    broker.close();
+    console.warn(
+      "[browser-control] Chrome native host installation failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return;
+  }
   const bridge = new DesktopComputerMcpBridge({
     broker,
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
     screenObserver,
+    browserBridge,
+    browserNativeHostInstalled: () =>
+      Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+    browserExtensionPath: () =>
+      fs.existsSync(extensionPath) ? extensionPath : undefined,
   });
   try {
     await bridge.start();

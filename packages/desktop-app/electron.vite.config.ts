@@ -198,6 +198,17 @@ export default defineConfig({
         "@shared": resolve("shared"),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve("src/main/index.ts"),
+          "browser-control-host": resolve(
+            "src/native-host/browser-control-host.ts",
+          ),
+        },
+        output: { format: "cjs", entryFileNames: "[name].js" },
+      },
+    },
   },
   preload: {
     define: desktopSentryDefines,
