@@ -11,7 +11,9 @@ export function TaskTitleSection({
   return (
     <section className="grid gap-2 border-b border-border/70 px-3 py-3">
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <Label className="min-w-0 truncate text-[13px] font-medium">Title</Label>
+        <Label className="min-w-0 truncate text-[13px] font-medium">
+          Title
+        </Label>
         <span className="shrink-0 text-[11px] text-muted-foreground">Task</span>
       </div>
       <Input

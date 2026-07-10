@@ -1,25 +1,27 @@
+import { IconChecks, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { Checkbox } from "@/components/ui/checkbox";
+
+import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
+import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
 import {
   InlineEditable,
   LIST_ROW_TITLE_FIELD_CLASS,
 } from "@/components/shared/InlineEditable";
-import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
 import { ListRow } from "@/components/shared/list/ListRow";
-import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
+import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
+import { RowActionsMenu } from "@/components/shared/RowActionsMenu";
+import type { ListSelection } from "@/components/shared/selection/use-list-selection";
+import { useTaskRowCompletionAnimation } from "@/components/tasks/use-task-row-completion-animation";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import type { TaskFieldValue } from "@/hooks/use-custom-fields";
 import {
   TASK_CARD_FIELD_LIMIT,
   useVisibleTaskFieldIds,
 } from "@/hooks/use-visible-task-fields";
-import { IconChecks, IconTrash } from "@tabler/icons-react";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { RowActionsMenu } from "@/components/shared/RowActionsMenu";
-import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
-import type { ListSelection } from "@/components/shared/selection/use-list-selection";
-import { useTaskRowCompletionAnimation } from "@/components/tasks/use-task-row-completion-animation";
-import type { TaskFieldValue } from "@/hooks/use-custom-fields";
+import { cn } from "@/lib/utils";
+
 import "./TaskListRow.css";
 
 export interface TaskListRowProps {
@@ -86,16 +88,13 @@ export function TaskListRow({
       dataAttributes={{ "data-task-id": item.id }}
       className={cn(
         "will-change-[opacity,transform]",
-        displayDone &&
-        completionPhase === "idle" &&
-        !selected &&
-        "opacity-60",
+        displayDone && completionPhase === "idle" && !selected && "opacity-60",
         completionPhase === "completing" &&
-        hideAfterComplete &&
-        "task-row-exit opacity-60",
+          hideAfterComplete &&
+          "task-row-exit opacity-60",
         completionPhase === "completing" &&
-        !hideAfterComplete &&
-        "task-row-complete opacity-60",
+          !hideAfterComplete &&
+          "task-row-complete opacity-60",
         completionPhase === "uncompleting" && "task-row-restore",
       )}
     >
@@ -121,9 +120,7 @@ export function TaskListRow({
               disabled={busy}
               onCheckedChange={completion.handleDoneToggle}
               onClick={
-                rowSelection.selectionMode
-                  ? rowSelection.selectRow
-                  : undefined
+                rowSelection.selectionMode ? rowSelection.selectRow : undefined
               }
               aria-label={`Mark ${displayTitle} ${displayDone ? "incomplete" : "complete"}`}
             />

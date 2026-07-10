@@ -29,7 +29,11 @@ function TaskListFieldStripHeader({ fields }: { fields?: TaskFieldValue[] }) {
   );
 }
 
-export function TaskListHeaderRow({ task }: { task: TaskWithFields | undefined }) {
+export function TaskListHeaderRow({
+  task,
+}: {
+  task: TaskWithFields | undefined;
+}) {
   return (
     <div className="hidden items-center gap-3 px-3 mb-2 text-xs font-medium text-muted-foreground md:flex">
       <div className="size-8 shrink-0" />

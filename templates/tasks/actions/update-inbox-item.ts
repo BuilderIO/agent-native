@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
+
 import { requireUserEmail, updateInboxItem } from "../server/inbox/store.js";
 
 export default defineAction({

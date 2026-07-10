@@ -25,7 +25,9 @@ export async function resetInbox(request: APIRequestContext) {
   }
 }
 
-export async function waitForInboxLoaded(page: import("@playwright/test").Page) {
+export async function waitForInboxLoaded(
+  page: import("@playwright/test").Page,
+) {
   await expect(page.locator(".animate-pulse")).toHaveCount(0);
 }
 
@@ -45,7 +47,10 @@ export function inboxItemRowByTitle(
   });
 }
 
-export async function createInboxItem(request: APIRequestContext, title: string) {
+export async function createInboxItem(
+  request: APIRequestContext,
+  title: string,
+) {
   const response = await request.post(
     "/_agent-native/actions/create-inbox-item",
     {

@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import {
   IconBold,
   IconH1,
@@ -7,6 +6,8 @@ import {
   IconList,
   IconListNumbers,
 } from "@tabler/icons-react";
+import { useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 

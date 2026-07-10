@@ -1,19 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { focusAgentChat } from "@agent-native/core/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ListRowPreview } from "@/components/shared/dnd/ListRowPreview";
+
+import { FieldListRow } from "@/components/custom-fields/FieldListRow";
+import { FieldsListSkeleton } from "@/components/custom-fields/FieldsListSkeleton";
+import { ChipSelect } from "@/components/shared/ChipSelect";
 import { DeleteItemDialog } from "@/components/shared/DeleteItemDialog";
+import { ListRowPreview } from "@/components/shared/dnd/ListRowPreview";
 import { List } from "@/components/shared/list/List";
 import { ListEmptyState } from "@/components/shared/ListEmptyState";
 import { ListErrorMessage } from "@/components/shared/ListErrorMessage";
-import { ChipSelect } from "@/components/shared/ChipSelect";
-import { FieldListRow } from "@/components/custom-fields/FieldListRow";
-import { FieldsListSkeleton } from "@/components/custom-fields/FieldsListSkeleton";
-import {
-  TASK_CARD_FIELD_LIMIT,
-  useUpdateVisibleTaskFields,
-  useVisibleTaskFieldIds,
-} from "@/hooks/use-visible-task-fields";
 import {
   useCreateCustomField,
   useCustomFields,
@@ -21,9 +17,15 @@ import {
   useReorderCustomFields,
   type FieldDefinition,
 } from "@/hooks/use-custom-fields";
-import { FieldCreateBar } from "./FieldCreateBar";
+import {
+  TASK_CARD_FIELD_LIMIT,
+  useUpdateVisibleTaskFields,
+  useVisibleTaskFieldIds,
+} from "@/hooks/use-visible-task-fields";
+
 import { FieldEditorSidebar } from "./editor/FieldEditorSidebar";
 import type { FieldDraft } from "./editor/types";
+import { FieldCreateBar } from "./FieldCreateBar";
 
 type FieldListItem = FieldDefinition;
 

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
+import {
+  createTask,
+  deleteTask,
+  listTasks,
+  reorderTasks,
+  updateTask,
+} from "../tasks/store.js";
 import {
   bulkDeleteInboxItems,
   createInboxItem,
@@ -9,13 +17,6 @@ import {
   reorderInboxItems,
   updateInboxItem,
 } from "./store.js";
-import {
-  createTask,
-  deleteTask,
-  listTasks,
-  reorderTasks,
-  updateTask,
-} from "../tasks/store.js";
 
 vi.mock("../db/index.js", () => ({
   getDb: () => testDb,

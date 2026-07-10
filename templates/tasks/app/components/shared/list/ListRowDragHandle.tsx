@@ -1,9 +1,10 @@
 import { IconGripVertical } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+
 import type {
   ListRowDrag,
   ListRowRowSelection,
 } from "@/components/shared/list/ListRow";
+import { cn } from "@/lib/utils";
 
 interface ListRowDragHandleProps {
   rowDrag: ListRowDrag;

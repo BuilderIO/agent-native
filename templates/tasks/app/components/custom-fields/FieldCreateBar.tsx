@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
 import { IconPlus } from "@tabler/icons-react";
+import { useState, type FormEvent } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { FieldConfig, FieldType } from "@/hooks/use-custom-fields";
+
 import { FieldConfigControl } from "./editor/config/FieldConfigControl";
 import { normalizedInitialConfig } from "./editor/config/utils";
 import type { FieldDraft } from "./editor/types";

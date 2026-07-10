@@ -1,13 +1,14 @@
-import { useCallback, useEffect } from "react";
-import { useSearchParams } from "react-router";
-import { TaskList } from "@/components/tasks/TaskList";
-import { ListViewHeader } from "@/components/shared/ListViewHeader";
-import { ListErrorMessage } from "@/components/shared/ListErrorMessage";
-import { useTasks } from "@/hooks/use-tasks";
 import {
   INCLUDE_DONE_QUERY_VALUE,
   parseIncludeDoneParam,
 } from "@shared/boolean-param";
+import { useCallback, useEffect } from "react";
+import { useSearchParams } from "react-router";
+
+import { ListErrorMessage } from "@/components/shared/ListErrorMessage";
+import { ListViewHeader } from "@/components/shared/ListViewHeader";
+import { TaskList } from "@/components/tasks/TaskList";
+import { useTasks } from "@/hooks/use-tasks";
 
 export function TaskListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,7 +51,12 @@ export function TaskListPage() {
     [setSearchParams],
   );
 
-  const { tasks: serverTasks, isPending, isError, error } = useTasks({
+  const {
+    tasks: serverTasks,
+    isPending,
+    isError,
+    error,
+  } = useTasks({
     includeDone: true,
     includeFields: true,
   });

@@ -1,8 +1,6 @@
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+
 import type { InboxItem } from "../../server/inbox/store.js";
 import type { Task } from "../../server/tasks/store.js";
 import {
@@ -73,14 +71,14 @@ export function useCreateInboxItem() {
 
 export function useUpdateInboxItem() {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    InboxItem,
-    { inboxItemId: string; title?: string }
-  >("update-inbox-item", {
-    onSettled: () => {
-      invalidateInboxItems(queryClient);
+  return useActionMutation<InboxItem, { inboxItemId: string; title?: string }>(
+    "update-inbox-item",
+    {
+      onSettled: () => {
+        invalidateInboxItems(queryClient);
+      },
     },
-  });
+  );
 }
 
 export function useDeleteInboxItem() {
@@ -97,30 +95,32 @@ export function useDeleteInboxItem() {
 
 export function useMarkInboxItemReady() {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    { task: Task },
-    { inboxItemId: string }
-  >("mark-inbox-item-ready", {
-    onMutate: async ({ inboxItemId }) => {
-      await queryClient.cancelQueries({ queryKey: LIST_INBOX_ITEMS_QUERY_KEY });
-      const previous = snapshotListInboxItemsQueries(queryClient);
+  return useActionMutation<{ task: Task }, { inboxItemId: string }>(
+    "mark-inbox-item-ready",
+    {
+      onMutate: async ({ inboxItemId }) => {
+        await queryClient.cancelQueries({
+          queryKey: LIST_INBOX_ITEMS_QUERY_KEY,
+        });
+        const previous = snapshotListInboxItemsQueries(queryClient);
 
-      patchListInboxItemsCache(queryClient, (items) =>
-        items.filter((item) => item.id !== inboxItemId),
-      );
+        patchListInboxItemsCache(queryClient, (items) =>
+          items.filter((item) => item.id !== inboxItemId),
+        );
 
-      return { previous };
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        restoreListInboxItemsQueries(
+          queryClient,
+          (context as InboxMutationContext | undefined)?.previous ?? [],
+        );
+      },
+      onSettled: () => {
+        runMarkInboxItemReadyInvalidation(queryClient);
+      },
     },
-    onError: (_error, _variables, context) => {
-      restoreListInboxItemsQueries(
-        queryClient,
-        (context as InboxMutationContext | undefined)?.previous ?? [],
-      );
-    },
-    onSettled: () => {
-      runMarkInboxItemReadyInvalidation(queryClient);
-    },
-  });
+  );
 }
 
 export function useBulkDeleteInboxItems() {
@@ -154,12 +154,12 @@ export function useBulkDeleteInboxItems() {
 
 export function useReorderInboxItems() {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    { items: InboxItem[] },
-    { inboxItemIds: string[] }
-  >("reorder-inbox-items", {
-    onSettled: () => {
-      invalidateInboxItems(queryClient);
+  return useActionMutation<{ items: InboxItem[] }, { inboxItemIds: string[] }>(
+    "reorder-inbox-items",
+    {
+      onSettled: () => {
+        invalidateInboxItems(queryClient);
+      },
     },
-  });
+  );
 }

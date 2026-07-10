@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   gotoInboxPage,
   inboxItemTitleButton,
@@ -15,7 +16,9 @@ test.describe("Inbox CRUD", () => {
   test("shows empty state on fresh database", async ({ page }) => {
     await expect(page.getByText("Inbox is empty")).toBeVisible();
     await expect(
-      page.getByText("Add an item above or ask chat to capture something for triage."),
+      page.getByText(
+        "Add an item above or ask chat to capture something for triage.",
+      ),
     ).toBeVisible();
   });
 
@@ -46,7 +49,9 @@ test.describe("Inbox CRUD", () => {
     await expect(inboxItemTitleButton(page, title)).toHaveCount(0);
   });
 
-  test("marks an inbox item ready and keeps the user on inbox", async ({ page }) => {
+  test("marks an inbox item ready and keeps the user on inbox", async ({
+    page,
+  }) => {
     const title = `E2E inbox ready ${Date.now()}`;
 
     await page.getByLabel("New inbox item title").fill(title);

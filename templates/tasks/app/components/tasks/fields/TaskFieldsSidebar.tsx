@@ -1,9 +1,11 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { Label } from "@/components/ui/label";
+
 import { SidePanel } from "@/components/shared/SidePanel";
-import { useUpdateTask, type TaskWithFields } from "@/hooks/use-tasks";
+import { Label } from "@/components/ui/label";
 import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
+import { useUpdateTask, type TaskWithFields } from "@/hooks/use-tasks";
+
 import { FieldValueControl } from "./controls/FieldValueControl";
 import { TaskTitleSection } from "./TaskTitleSection";
 

@@ -19,8 +19,7 @@ function sharedSortableProps(
     ...attributes,
     ...(listeners?.onKeyDown
       ? {
-          onKeyDown:
-            listeners.onKeyDown as KeyboardEventHandler<HTMLElement>,
+          onKeyDown: listeners.onKeyDown as KeyboardEventHandler<HTMLElement>,
         }
       : {}),
   };
@@ -46,8 +45,7 @@ export function getSortableDragProps(
     },
     rowDragProps: pointerDown
       ? {
-          onPointerDown:
-            pointerDown as PointerEventHandler<HTMLDivElement>,
+          onPointerDown: pointerDown as PointerEventHandler<HTMLDivElement>,
         }
       : undefined,
     titleDragProps: pointerDown

@@ -1,8 +1,8 @@
-import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
-import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
-import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";
 import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
+import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
+import { cn } from "@/lib/utils";
 
 export function MultiSelectValueControl({
   field,

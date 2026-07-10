@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createCustomField } from "../custom-fields/store.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
-import { getStoredItem } from "../stored-items/store.js";
 import { createInboxItem, updateInboxItem } from "../inbox/store.js";
+import { getStoredItem } from "../stored-items/store.js";
 import {
   bulkDeleteTasks,
   bulkUpdateTasks,
@@ -12,7 +14,6 @@ import {
   reorderTasks,
   updateTask,
 } from "./store.js";
-import { createCustomField } from "../custom-fields/store.js";
 
 vi.mock("../db/index.js", () => ({
   getDb: () => testDb,

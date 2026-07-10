@@ -1,8 +1,8 @@
-import { listCustomFields } from "./store.js";
-import { listCustomFieldValues } from "./values/store.js";
-import type { FieldDefinition, FieldValue } from "./types.js";
-import { parseStoredValue } from "./parse.js";
 import { getTask, type Task } from "../tasks/store.js";
+import { parseStoredValue } from "./parse.js";
+import { listCustomFields } from "./store.js";
+import type { FieldDefinition, FieldValue } from "./types.js";
+import { listCustomFieldValues } from "./values/store.js";
 
 export type TaskFieldValue = FieldDefinition & {
   value: FieldValue | null;

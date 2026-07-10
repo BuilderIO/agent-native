@@ -1,5 +1,3 @@
-import { useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -16,12 +14,18 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { SortableItem, type SortableItemRenderProps } from "@/components/dnd/SortableItem";
+import { useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+
 import {
   getDragOverlayItem,
   isBlockDragActive,
   reorderMovingItems,
 } from "@/components/dnd/reorder-moving-items";
+import {
+  SortableItem,
+  type SortableItemRenderProps,
+} from "@/components/dnd/SortableItem";
 
 export interface SortableListRenderItemProps<T extends { id: string }> {
   item: T;
@@ -98,7 +102,10 @@ export function SortableList<T extends { id: string }>({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
+      <SortableContext
+        items={orderedIds}
+        strategy={verticalListSortingStrategy}
+      >
         <div className={listClassName}>
           {items.map((item) => (
             <SortableItem

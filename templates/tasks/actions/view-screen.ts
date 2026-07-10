@@ -8,24 +8,21 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
-import { buildListViewScreen } from "./view-screen-helpers.js";
-import {
-  getTask,
-  listTasks,
-  requireUserEmail,
-} from "../server/tasks/store.js";
-import {
-  listTaskFieldValues,
-  type TaskFieldValue,
-} from "../server/custom-fields/task-fields.js";
-import { getInboxItem, listInboxItems } from "../server/inbox/store.js";
+
 import {
   getCustomField,
   listCustomFields,
   type FieldConfig,
   type FieldDefinition,
 } from "../server/custom-fields/store.js";
+import {
+  listTaskFieldValues,
+  type TaskFieldValue,
+} from "../server/custom-fields/task-fields.js";
+import { getInboxItem, listInboxItems } from "../server/inbox/store.js";
+import { getTask, listTasks, requireUserEmail } from "../server/tasks/store.js";
 import { getTaskCardFieldIds } from "../server/user-config/store.js";
+import { buildListViewScreen } from "./view-screen-helpers.js";
 
 /** Max tasks in the agent tool payload (token budget). The UI may show more rows; */
 const AGENT_TASKS_LIST_CAP = 25;

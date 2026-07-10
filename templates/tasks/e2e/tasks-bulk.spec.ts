@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   gotoTasksPage,
   resetTasks,
@@ -80,7 +81,9 @@ test.describe("Tasks bulk selection", () => {
     await expect(page.getByRole("button", { name: "Select" })).toBeVisible();
   });
 
-  test("reorders selected tasks by dragging the grip handle", async ({ page }) => {
+  test("reorders selected tasks by dragging the grip handle", async ({
+    page,
+  }) => {
     const first = `E2E bulk drag A ${Date.now()}`;
     const second = `E2E bulk drag B ${Date.now()}`;
     const third = `E2E bulk drag C ${Date.now()}`;
@@ -98,7 +101,9 @@ test.describe("Tasks bulk selection", () => {
 
     const orderBefore = await page
       .locator("[data-task-id]")
-      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-task-id")));
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-task-id")),
+      );
 
     const movingRow = taskRowByTitle(page, second);
     const targetRow = taskRowByTitle(page, third);
@@ -126,7 +131,9 @@ test.describe("Tasks bulk selection", () => {
 
     const orderAfter = await page
       .locator("[data-task-id]")
-      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-task-id")));
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-task-id")),
+      );
     expect(orderAfter).not.toEqual(orderBefore);
   });
 });

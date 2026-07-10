@@ -12,6 +12,7 @@ order: 4
 The **inbox** is where new and rough ideas land before they become **tasks**. Inbox **items** are not tasks yet — they are **not ready**. They do not appear on the main task page, in [F3 projects](./f3-projects.mdx), or in [F5 views](./f5-views.mdx) until the user **marks them ready**.
 
 <!-- status: done -->
+
 ### Foundation
 
 - **Backend** — unified `tasks` table with a storage-only `ready` flag; inbox and task list share one store with scoped queries and actions (`list-inbox-items`, `create-inbox-item`, `update-inbox-item`, `delete-inbox-item`, `mark-inbox-item-ready`, `reorder-inbox-items`)
@@ -22,6 +23,7 @@ The **inbox** is where new and rough ideas land before they become **tasks**. In
 ## What users can do
 
 <!-- status: done -->
+
 - **Add** an inbox item from the inbox page or via agent (`create-inbox-item`).
 - **Edit** title inline or via `update-inbox-item`.
 - **Reorder** via drag-and-drop or `reorder-inbox-items`.
@@ -30,14 +32,15 @@ The **inbox** is where new and rough ideas land before they become **tasks**. In
 - **Delete** via row action, bulk toolbar, or `delete-inbox-item` (confirm with user first in chat).
 
 <!-- status: todo -->
+
 - **Edit** [custom fields](./f2-custom-fields.mdx) and project assignment on items.
 
 ## How it behaves
 
-| State | What it is | Where it appears |
-| --- | --- | --- |
-| **Inbox** | Not-ready item | Inbox page only |
-| **Task** | Ready item | Main task page, project (if assigned), [F5 views](./f5-views.mdx), [F6 search](./f6-search.mdx) |
+| State     | What it is     | Where it appears                                                                                |
+| --------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| **Inbox** | Not-ready item | Inbox page only                                                                                 |
+| **Task**  | Ready item     | Main task page, project (if assigned), [F5 views](./f5-views.mdx), [F6 search](./f6-search.mdx) |
 
 - **Completion** cannot be changed on inbox items — only after mark ready (F1).
 - An item may have a **project assigned** before it is ready; the project page does not show it until mark ready.

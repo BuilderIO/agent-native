@@ -5,13 +5,14 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { cn } from "@/lib/utils";
+
 import { getSortableDragProps } from "@/components/dnd/sortable-drag-props";
 import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
-import { getListRowSelectionUi } from "@/components/shared/selection/get-list-row-selection-ui";
 import { SortableListItemShell } from "@/components/shared/list/SortableListItemShell";
 import type { ListIdentifiable } from "@/components/shared/list/types";
+import { getListRowSelectionUi } from "@/components/shared/selection/get-list-row-selection-ui";
 import type { ListSelection } from "@/components/shared/selection/use-list-selection";
+import { cn } from "@/lib/utils";
 
 export type { ListIdentifiable } from "@/components/shared/list/types";
 
@@ -82,10 +83,8 @@ export function ListRow<T extends ListIdentifiable>({
 
   const rowDragEnabled = !selectionMode;
   const gripDragEnabled = !selectionMode || selectedItemsCount > 0;
-  const { dragHandleProps, rowDragProps, titleDragProps } = getSortableDragProps(
-    sortable.attributes,
-    sortable.listeners,
-  );
+  const { dragHandleProps, rowDragProps, titleDragProps } =
+    getSortableDragProps(sortable.attributes, sortable.listeners);
   const isDragging = sortable.isDragging;
   const gatedRowDragProps = rowDragEnabled ? rowDragProps : undefined;
   const renderArgs: ListRowRenderArgs = {

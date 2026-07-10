@@ -1,21 +1,22 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { createRecordId, timestamp } from "../../db/record-utils.js";
+
 import { getDb } from "../../db/index.js";
+import { createRecordId, timestamp } from "../../db/record-utils.js";
 import {
   customFields,
   customFieldValues,
   type StoredCustomFieldValue,
 } from "../../db/schema.js";
 import { runTransaction, type TransactionDb } from "../../db/transaction.js";
+import { getStoredItem } from "../../stored-items/store.js";
 import { isEmptyFieldValue, normalizeFieldValue } from "../normalize.js";
-import { validateFieldValue } from "../validate.js";
 import {
   parseField,
   parseStoredValue,
   parseFieldValueShape,
 } from "../parse.js";
 import type { FieldDefinition, FieldValue, FieldValueInput } from "../types.js";
-import { getStoredItem } from "../../stored-items/store.js";
+import { validateFieldValue } from "../validate.js";
 
 export type { FieldValue, FieldValueInput } from "../types.js";
 

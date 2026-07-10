@@ -1,29 +1,30 @@
 import { and, asc, eq, inArray, max } from "drizzle-orm";
-import { createRecordId, timestamp } from "../db/record-utils.js";
+
 import { getDb } from "../db/index.js";
-import { runTransaction } from "../db/transaction.js";
+import { createRecordId, timestamp } from "../db/record-utils.js";
 import { customFields } from "../db/schema.js";
+import { runTransaction } from "../db/transaction.js";
+import type { TransactionDb } from "../db/transaction.js";
 import { requireUserEmail } from "../stored-items/store.js";
+import { removeTaskCardFieldId } from "../user-config/store.js";
+import {
+  canonicalizeFieldConfig,
+  normalizeFieldConfigInput,
+  normalizeFieldTitle,
+} from "./normalize.js";
 import {
   parseFieldType,
   parseFieldConfigShape,
   parseField,
   parseStoredValue,
 } from "./parse.js";
-import { validateFieldConfig, validateFieldTitle } from "./validate.js";
-import {
-  canonicalizeFieldConfig,
-  normalizeFieldConfigInput,
-  normalizeFieldTitle,
-} from "./normalize.js";
 import type { FieldConfigInput, FieldDefinition, FieldType } from "./types.js";
+import { validateFieldConfig, validateFieldTitle } from "./validate.js";
 import {
   deleteCustomFieldValues,
   listCustomFieldValues,
   updateCustomFieldValue,
 } from "./values/store.js";
-import type { TransactionDb } from "../db/transaction.js";
-import { removeTaskCardFieldId } from "../user-config/store.js";
 
 export { requireUserEmail };
 export type {

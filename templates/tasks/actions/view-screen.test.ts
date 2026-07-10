@@ -687,14 +687,16 @@ describe("view-screen fields context", () => {
             title: "Priority",
             type: "single_select",
             config: {
-              options: [{ id: "high", name: "High", color: "red", sortOrder: 0 }],
+              options: [
+                { id: "high", name: "High", color: "red", sortOrder: 0 },
+              ],
             },
           },
         ],
       },
       selectedItem: {
         id: "fld-priority",
-            title: "Priority",
+        title: "Priority",
         config: {
           options: [{ id: "high", name: "High", color: "red", sortOrder: 0 }],
         },

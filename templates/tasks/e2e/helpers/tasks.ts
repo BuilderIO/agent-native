@@ -25,7 +25,9 @@ export async function resetTasks(request: APIRequestContext) {
   }
 }
 
-export async function waitForTasksLoaded(page: import("@playwright/test").Page) {
+export async function waitForTasksLoaded(
+  page: import("@playwright/test").Page,
+) {
   await expect(page.locator(".animate-pulse")).toHaveCount(0);
 }
 

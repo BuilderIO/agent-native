@@ -1,8 +1,9 @@
+import type { DraggableAttributes } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DraggableAttributes } from "@dnd-kit/core";
 import type { CSSProperties, ReactNode } from "react";
 import type { KeyboardEventHandler, PointerEventHandler } from "react";
+
 import { isBlockDragActive } from "@/components/dnd/reorder-moving-items";
 
 type DragListeners = {

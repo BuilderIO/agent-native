@@ -1,4 +1,5 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,8 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { SelectColorToken } from "@/hooks/use-custom-fields";
-import { SELECT_COLOR_OPTIONS } from "./select-colors";
 import { cn } from "@/lib/utils";
+
+import { SELECT_COLOR_OPTIONS } from "./select-colors";
 import {
   type FieldConfigControlProps,
   optionsFromConfig,
@@ -26,7 +28,10 @@ export function SelectConfigControl({
 }: FieldConfigControlProps) {
   const options = optionsFromConfig(config);
 
-  function updateOption(index: number, patch: Partial<(typeof options)[number]>) {
+  function updateOption(
+    index: number,
+    patch: Partial<(typeof options)[number]>,
+  ) {
     onChange({
       options: withSortedOptions(
         options.map((option, optionIndex) =>

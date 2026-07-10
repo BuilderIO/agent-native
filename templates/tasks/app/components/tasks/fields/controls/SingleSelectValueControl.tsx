@@ -1,3 +1,5 @@
+import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
+import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";
 import {
   Select,
   SelectContent,
@@ -6,10 +8,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import type { FieldValue, TaskFieldValue } from "@/hooks/use-custom-fields";
-import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";
-import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
+import { cn } from "@/lib/utils";
 
 const EMPTY_SELECT_VALUE = "__empty__";
 

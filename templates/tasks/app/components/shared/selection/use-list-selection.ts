@@ -1,3 +1,5 @@
+import { setClientAppState } from "@agent-native/core/client/application-state";
+import { type ListSelectionAppState } from "@shared/navigation";
 import {
   useCallback,
   useEffect,
@@ -6,8 +8,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { setClientAppState } from "@agent-native/core/client/application-state";
-import { type ListSelectionAppState } from "@shared/navigation";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 function useSelectionAppStateSync(

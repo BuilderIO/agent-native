@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+
 import Database from "better-sqlite3";
 
 const DB_PATH = resolve(process.cwd(), "data/e2e-playwright.db");

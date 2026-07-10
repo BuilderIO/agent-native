@@ -1,9 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  type FieldConfigControlProps,
-  precisionFromConfig,
-} from "./utils";
+
+import { type FieldConfigControlProps, precisionFromConfig } from "./utils";
 
 export function PercentConfigControl({
   config,

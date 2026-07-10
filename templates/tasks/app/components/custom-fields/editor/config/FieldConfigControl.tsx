@@ -1,4 +1,5 @@
 import type { FieldConfig, FieldType } from "@/hooks/use-custom-fields";
+
 import { CurrencyConfigControl } from "./CurrencyConfigControl";
 import { NumberConfigControl } from "./NumberConfigControl";
 import { PercentConfigControl } from "./PercentConfigControl";

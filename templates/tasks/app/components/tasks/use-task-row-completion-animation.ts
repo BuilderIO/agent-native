@@ -32,7 +32,8 @@ export function useTaskRowCompletionAnimation({
   onExitAfterComplete,
   onUpdateTask,
 }: UseTaskRowCompletionAnimationOptions) {
-  const [completionPhase, setCompletionPhase] = useState<CompletionPhase>("idle");
+  const [completionPhase, setCompletionPhase] =
+    useState<CompletionPhase>("idle");
   const animationFallbackRef = useRef<number | null>(null);
   const latestTaskDoneRef = useRef(taskDone);
 
@@ -143,7 +144,11 @@ export function useTaskRowCompletionAnimation({
   }
 
   function handleDoneToggle(checked: boolean | "indeterminate") {
-    if (checked === "indeterminate" || isAnimating || completionPhase === "exited") {
+    if (
+      checked === "indeterminate" ||
+      isAnimating ||
+      completionPhase === "exited"
+    ) {
       return;
     }
 

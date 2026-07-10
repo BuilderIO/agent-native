@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   closestCenter,
   DndContext,
@@ -17,6 +16,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconChevronDown, IconGripVertical, IconX } from "@tabler/icons-react";
+import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -152,8 +153,12 @@ export function ChipSelect({
 
     const activeId = String(active.id);
     const overId = String(over.id);
-    const oldIndex = selectedOptions.findIndex((option) => option.id === activeId);
-    const newIndex = selectedOptions.findIndex((option) => option.id === overId);
+    const oldIndex = selectedOptions.findIndex(
+      (option) => option.id === activeId,
+    );
+    const newIndex = selectedOptions.findIndex(
+      (option) => option.id === overId,
+    );
     if (oldIndex < 0 || newIndex < 0) return;
 
     onSelectedIdsChange(

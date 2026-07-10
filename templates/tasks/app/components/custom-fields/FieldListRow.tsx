@@ -1,9 +1,10 @@
 import { IconTrash } from "@tabler/icons-react";
+
 import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/shared/list/ListRow";
 import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { FieldDefinition, FieldType } from "@/hooks/use-custom-fields";
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {

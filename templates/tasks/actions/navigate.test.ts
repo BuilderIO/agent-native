@@ -29,12 +29,12 @@ describe("navigate", () => {
         includeDone: true,
         taskId: "abc",
       });
-      expect(navigate.schema.parse({ view: "tasks", includeDone: "true" })).toEqual(
-        {
-          view: "tasks",
-          includeDone: true,
-        },
-      );
+      expect(
+        navigate.schema.parse({ view: "tasks", includeDone: "true" }),
+      ).toEqual({
+        view: "tasks",
+        includeDone: true,
+      });
     });
   });
 

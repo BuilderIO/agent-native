@@ -1,7 +1,8 @@
-import { type ReactNode } from "react";
 import { IconTrash, IconX } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { type ReactNode } from "react";
+
 import { type ListSelectionActions } from "@/components/shared/selection/use-list-selection";
+import { Button } from "@/components/ui/button";
 
 interface ListSelectionToolbarProps {
   ariaLabel: string;
@@ -34,7 +35,11 @@ export function ListSelectionToolbar({
         : `${selectedCount} selected`;
 
   return (
-    <div className="flex h-10 items-center gap-2" role="toolbar" aria-label={ariaLabel}>
+    <div
+      className="flex h-10 items-center gap-2"
+      role="toolbar"
+      aria-label={ariaLabel}
+    >
       <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
         {statusText}
       </p>

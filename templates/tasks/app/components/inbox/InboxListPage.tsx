@@ -1,7 +1,8 @@
 import { useSearchParams } from "react-router";
+
 import { InboxList } from "@/components/inbox/InboxList";
-import { ListViewHeader } from "@/components/shared/ListViewHeader";
 import { ListErrorMessage } from "@/components/shared/ListErrorMessage";
+import { ListViewHeader } from "@/components/shared/ListViewHeader";
 import { useInboxItems } from "@/hooks/use-inbox-items";
 
 export function InboxListPage() {

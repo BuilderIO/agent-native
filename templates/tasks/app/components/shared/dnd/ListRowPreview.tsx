@@ -1,7 +1,8 @@
 import { IconDots, IconGripVertical } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 
 // TODO(shared-dnd): render the live row component in the drag overlay instead of
 // this static chrome duplicate once SortableList can mount row previews safely.

@@ -19,9 +19,7 @@ export async function buildListViewScreen<
     /** Bulk-select mode ids from app state. */
     bulkIds?: string[];
   };
-  resolveSelectedMiss?: (
-    id: string,
-  ) => Promise<Record<string, unknown> | null>;
+  resolveSelectedMiss?: (id: string) => Promise<Record<string, unknown> | null>;
 }): Promise<Record<string, unknown>> {
   const screen: Record<string, unknown> = {};
   const items = await input.fetchItems(input.ownerEmail);

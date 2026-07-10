@@ -6,13 +6,6 @@ import type {
   StoredCustomField,
   StoredCustomFieldValue,
 } from "../db/schema.js";
-import type {
-  FieldConfigInput,
-  FieldDefinition,
-  FieldType,
-  FieldValue,
-  FieldValueInput,
-} from "./types.js";
 import {
   canonicalizeFieldConfig,
   isEmptyFieldValue,
@@ -28,6 +21,13 @@ import {
   percentConfigShapeSchema,
   selectConfigShapeSchema,
 } from "./schema.js";
+import type {
+  FieldConfigInput,
+  FieldDefinition,
+  FieldType,
+  FieldValue,
+  FieldValueInput,
+} from "./types.js";
 import { validateFieldConfig, validateFieldValue } from "./validate.js";
 
 export function parseFieldType(value: unknown): FieldType {

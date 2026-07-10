@@ -1,9 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
-import {
-  invalidateInboxItems,
-  invalidateTasks,
-} from "./cache";
+import { describe, expect, it, vi } from "vitest";
+
+import { invalidateInboxItems, invalidateTasks } from "./cache";
 import { runMarkInboxItemReadyInvalidation } from "./use-inbox-items";
 
 vi.mock("./cache", async (importOriginal) => {

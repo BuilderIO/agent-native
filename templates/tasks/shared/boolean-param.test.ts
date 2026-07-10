@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  coerceBooleanParam,
-  parseIncludeDoneParam,
-} from "./boolean-param.js";
+
+import { coerceBooleanParam, parseIncludeDoneParam } from "./boolean-param.js";
 
 describe("coerceBooleanParam", () => {
   it("returns undefined when absent", () => {

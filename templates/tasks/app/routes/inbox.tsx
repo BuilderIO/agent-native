@@ -1,5 +1,5 @@
-import { APP_TITLE } from "@/lib/app-config";
 import { InboxListPage } from "@/components/inbox/InboxListPage";
+import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
   return [

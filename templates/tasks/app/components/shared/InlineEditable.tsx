@@ -5,8 +5,9 @@ import {
   type HTMLAttributes,
   type KeyboardEvent,
 } from "react";
-import { cn } from "@/lib/utils";
+
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 export const LIST_ROW_TITLE_FIELD_CLASS =
   "h-8 w-full rounded-md border px-3 text-sm leading-8";

@@ -1,8 +1,9 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { Task } from "../../server/tasks/store.js";
-import type { FieldValue } from "../../server/custom-fields/values/store.js";
+
 import type { TaskFieldValue } from "../../server/custom-fields/task-fields.js";
+import type { FieldValue } from "../../server/custom-fields/values/store.js";
+import type { Task } from "../../server/tasks/store.js";
 import { LIST_TASKS_QUERY_KEY, invalidateTasks } from "./cache";
 
 export type { Task } from "../../server/tasks/store.js";
@@ -71,7 +72,10 @@ async function beginListTasksOptimisticUpdate(
 function listTasksOptimisticLifecycle(queryClient: QueryClient) {
   return {
     onError: (_error: unknown, _variables: unknown, context: unknown) => {
-      restoreListTasksQueries(queryClient, getPreviousListTasksQueries(context));
+      restoreListTasksQueries(
+        queryClient,
+        getPreviousListTasksQueries(context),
+      );
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: LIST_TASKS_QUERY_KEY });
@@ -167,21 +171,21 @@ export function useUpdateTask() {
         tasks.map((task) =>
           task.id === taskId
             ? {
-              ...task,
-              ...(title !== undefined ? { title } : {}),
-              ...(done !== undefined ? { done } : {}),
-              ...(fieldValues && task.fields
-                ? {
-                  fields: task.fields.map((field) => {
-                    const next = fieldValues.find(
-                      (value) => value.fieldId === field.id,
-                    );
-                    return next ? { ...field, value: next.value } : field;
-                  }),
-                }
-                : {}),
-              updatedAt: timestamp,
-            }
+                ...task,
+                ...(title !== undefined ? { title } : {}),
+                ...(done !== undefined ? { done } : {}),
+                ...(fieldValues && task.fields
+                  ? {
+                      fields: task.fields.map((field) => {
+                        const next = fieldValues.find(
+                          (value) => value.fieldId === field.id,
+                        );
+                        return next ? { ...field, value: next.value } : field;
+                      }),
+                    }
+                  : {}),
+                updatedAt: timestamp,
+              }
             : task,
         ),
       );
@@ -223,11 +227,11 @@ export function useBulkUpdateTasks() {
         tasks.map((task) =>
           selected.has(task.id)
             ? {
-              ...task,
-              ...(title !== undefined ? { title } : {}),
-              ...(done !== undefined ? { done } : {}),
-              updatedAt: timestamp,
-            }
+                ...task,
+                ...(title !== undefined ? { title } : {}),
+                ...(done !== undefined ? { done } : {}),
+                updatedAt: timestamp,
+              }
             : task,
         ),
       );

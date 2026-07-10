@@ -1,12 +1,13 @@
 import { eq } from "drizzle-orm";
-import { timestamp } from "../db/record-utils.js";
-import { getDb } from "../db/index.js";
-import { userConfig } from "../db/schema.js";
-import { listCustomFields } from "../custom-fields/store.js";
+
 import {
   DEFAULT_TASK_CARD_FIELD_NAMES,
   TASK_CARD_FIELD_LIMIT,
 } from "../../shared/visible-task-fields.js";
+import { listCustomFields } from "../custom-fields/store.js";
+import { getDb } from "../db/index.js";
+import { timestamp } from "../db/record-utils.js";
+import { userConfig } from "../db/schema.js";
 
 export { DEFAULT_TASK_CARD_FIELD_NAMES, TASK_CARD_FIELD_LIMIT };
 

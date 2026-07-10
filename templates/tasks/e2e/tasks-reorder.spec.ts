@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   createTask,
   gotoTasksPage,
@@ -56,25 +57,37 @@ test.describe("Tasks reorder and layout", () => {
       element.scrollTop = element.scrollHeight;
     });
     const bottomListBox = await listRegion.boundingBox();
-    const lastTaskBox = await page.locator("[data-task-id]").last().boundingBox();
+    const lastTaskBox = await page
+      .locator("[data-task-id]")
+      .last()
+      .boundingBox();
     expect(bottomListBox).toBeTruthy();
     expect(lastTaskBox).toBeTruthy();
-    expect(bottomListBox!.y + bottomListBox!.height - (lastTaskBox!.y + lastTaskBox!.height))
-      .toBeGreaterThanOrEqual(20);
+    expect(
+      bottomListBox!.y +
+        bottomListBox!.height -
+        (lastTaskBox!.y + lastTaskBox!.height),
+    ).toBeGreaterThanOrEqual(20);
   });
 
   test("reorders tasks via the reorder action", async ({ page, request }) => {
-    const titles = [`E2E reorder A ${Date.now()}`, `E2E reorder B ${Date.now()}`];
+    const titles = [
+      `E2E reorder A ${Date.now()}`,
+      `E2E reorder B ${Date.now()}`,
+    ];
     const ids: string[] = [];
 
     for (const title of titles) {
-      const response = await request.post("/_agent-native/actions/create-task", {
-        headers: {
-          "Content-Type": "application/json",
-          "X-Agent-Native-Frontend": "1",
+      const response = await request.post(
+        "/_agent-native/actions/create-task",
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Frontend": "1",
+          },
+          data: { title },
         },
-        data: { title },
-      });
+      );
       expect(response.ok()).toBeTruthy();
       const task = (await response.json()) as { id: string };
       ids.push(task.id);

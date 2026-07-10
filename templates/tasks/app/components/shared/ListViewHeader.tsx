@@ -1,9 +1,10 @@
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { AgentToggleButton } from "@agent-native/core/client";
+
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ListSelectionHeaderToggle } from "@/components/shared/selection/ListSelectionHeaderToggle";
 import { type ListSelection } from "@/components/shared/selection/use-list-selection";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export interface ListViewHeaderProps<T extends { id: string }> {
   title: string;

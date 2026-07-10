@@ -30,7 +30,9 @@ describe("create-inbox-item", () => {
 
   describe("schema", () => {
     it("requires a non-empty title", () => {
-      expect(createInboxItemAction.schema.parse({ title: "Capture me" })).toEqual({
+      expect(
+        createInboxItemAction.schema.parse({ title: "Capture me" }),
+      ).toEqual({
         title: "Capture me",
       });
       expect(() => createInboxItemAction.schema.parse({ title: "" })).toThrow();

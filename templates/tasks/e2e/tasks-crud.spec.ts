@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import {
   createTask,
   chooseTaskRowMenuItem,
@@ -48,7 +49,9 @@ test.describe("Tasks CRUD", () => {
     await expect(page.getByText("No tasks yet")).toHaveCount(0);
   });
 
-  test("shows a newly created task while create is pending", async ({ page }) => {
+  test("shows a newly created task while create is pending", async ({
+    page,
+  }) => {
     const title = `E2E create pending ${Date.now()}`;
     let releaseCreate: (() => void) | undefined;
     let sawPendingCreate = false;
@@ -76,7 +79,9 @@ test.describe("Tasks CRUD", () => {
     await expect(taskTitleButton(page, title)).toBeVisible();
   });
 
-  test("completes a task and hides it until show-all is enabled", async ({ page }) => {
+  test("completes a task and hides it until show-all is enabled", async ({
+    page,
+  }) => {
     const title = `E2E complete ${Date.now()}`;
 
     await page.getByLabel("New task title").fill(title);
@@ -98,7 +103,9 @@ test.describe("Tasks CRUD", () => {
     await expect(completedTitle).toHaveClass(/line-through/);
   });
 
-  test("hides a completed task while the update is pending", async ({ page }) => {
+  test("hides a completed task while the update is pending", async ({
+    page,
+  }) => {
     const title = `E2E complete pending ${Date.now()}`;
     let releaseUpdate: (() => void) | undefined;
     let sawPendingUpdate = false;
@@ -194,7 +201,9 @@ test.describe("Tasks CRUD", () => {
     await expect(taskTitleButton(page, updated)).toBeVisible();
   });
 
-  test("rolls back an inline title edit when update fails", async ({ page }) => {
+  test("rolls back an inline title edit when update fails", async ({
+    page,
+  }) => {
     const title = `E2E edit failure ${Date.now()}`;
     const updated = `${title} updated`;
     let failedUpdateRequests = 0;
@@ -336,7 +345,9 @@ test.describe("Tasks CRUD", () => {
     );
     expect(updateResponse.ok()).toBeTruthy();
 
-    await expect(taskTitleButton(page, title)).toHaveCount(0, { timeout: 10_000 });
+    await expect(taskTitleButton(page, title)).toHaveCount(0, {
+      timeout: 10_000,
+    });
   });
 
   test("shows all-complete state when every task is done", async ({ page }) => {
@@ -396,7 +407,9 @@ test.describe("Tasks CRUD", () => {
     await page.getByRole("switch", { name: "Show all" }).click();
     await waitForTasksLoaded(page);
     await expect(
-      page.getByRole("checkbox", { name: new RegExp(`Mark ${title} incomplete`) }),
+      page.getByRole("checkbox", {
+        name: new RegExp(`Mark ${title} incomplete`),
+      }),
     ).toBeVisible();
 
     let releaseUpdate: (() => void) | undefined;

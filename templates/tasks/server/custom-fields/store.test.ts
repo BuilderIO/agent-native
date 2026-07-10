@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem } from "../inbox/store.js";
 import { createTask, deleteTask } from "../tasks/store.js";
 import { parseStoredValue } from "./parse.js";
-import { listTaskFieldValues } from "./task-fields.js";
 import {
   createCustomField,
   deleteCustomField,
@@ -12,6 +12,7 @@ import {
   reorderCustomFields,
   updateCustomField,
 } from "./store.js";
+import { listTaskFieldValues } from "./task-fields.js";
 import {
   listCustomFieldValues,
   updateCustomFieldValues,

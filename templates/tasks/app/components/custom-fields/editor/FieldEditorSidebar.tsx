@@ -1,10 +1,12 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
+
 import { SidePanel } from "@/components/shared/SidePanel";
 import {
   useUpdateCustomField,
   type FieldDefinition,
 } from "@/hooks/use-custom-fields";
+
 import { FieldConfigControl } from "./config/FieldConfigControl";
 import { FieldTitleSection } from "./FieldTitleSection";
 

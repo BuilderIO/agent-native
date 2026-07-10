@@ -6,7 +6,8 @@ export function meta() {
     { title: `Tasks · ${APP_TITLE}` },
     {
       name: "description",
-      content: "Manage tasks, reorder by drag-and-drop, and ask chat to add or update reminders.",
+      content:
+        "Manage tasks, reorder by drag-and-drop, and ask chat to add or update reminders.",
     },
   ];
 }

@@ -9,10 +9,11 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
+
 import { NAV_VIEWS } from "../shared/navigation.js";
 import { optionalBooleanQueryParam } from "./lib/boolean-query-param.js";
-import { writeAppState } from "@agent-native/core/application-state";
 
 const viewSchema = z.enum(NAV_VIEWS);
 

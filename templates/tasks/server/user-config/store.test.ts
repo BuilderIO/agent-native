@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
+
+import {
+  createCustomField,
+  deleteCustomField,
+} from "../custom-fields/store.js";
 import { userConfig } from "../db/schema.js";
-import { createCustomField, deleteCustomField } from "../custom-fields/store.js";
+import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import {
   getTaskCardFieldIds,
   removeTaskCardFieldId,

@@ -91,7 +91,9 @@ function optionIdFor(optionName: string) {
   }`;
 }
 
-function canonicalizeSelectOptions(options: SelectOptionInput[]): SelectOption[] {
+function canonicalizeSelectOptions(
+  options: SelectOptionInput[],
+): SelectOption[] {
   const names = new Set<string>();
   const ids = new Set<string>();
   return options

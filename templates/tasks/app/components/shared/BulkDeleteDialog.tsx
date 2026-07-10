@@ -15,7 +15,10 @@ function BulkDeleteDialogDescription({
   selectedItems,
   entitySingular,
   entityPlural,
-}: Pick<BulkDeleteDialogProps, "selectedItems" | "entitySingular" | "entityPlural">) {
+}: Pick<
+  BulkDeleteDialogProps,
+  "selectedItems" | "entitySingular" | "entityPlural"
+>) {
   const selectedCount = selectedItems.length;
 
   return (

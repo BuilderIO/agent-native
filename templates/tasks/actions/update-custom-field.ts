@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
+
+import { updateCustomFieldConfigActionSchema } from "../server/custom-fields/schema.js";
 import {
   requireUserEmail,
   updateCustomField,
 } from "../server/custom-fields/store.js";
-import { updateCustomFieldConfigActionSchema } from "../server/custom-fields/schema.js";
 
 export default defineAction({
   description:

@@ -1,24 +1,20 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { focusAgentChat } from "@agent-native/core/client";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ListRowPreview } from "@/components/shared/dnd/ListRowPreview";
+
 import { AddListItemInput } from "@/components/shared/AddListItemInput";
 import { BulkDeleteDialog } from "@/components/shared/BulkDeleteDialog";
 import { DeleteItemDialog } from "@/components/shared/DeleteItemDialog";
+import { ListRowPreview } from "@/components/shared/dnd/ListRowPreview";
 import { List } from "@/components/shared/list/List";
-import { ListEmptyState } from "@/components/shared/ListEmptyState";
 import { ListSkeletonRows } from "@/components/shared/list/ListSkeletonRows";
+import { ListEmptyState } from "@/components/shared/ListEmptyState";
 import { ListViewHeader } from "@/components/shared/ListViewHeader";
-import { TaskListRow } from "@/components/tasks/TaskListRow";
-import { TaskListHeaderRow } from "@/components/tasks/TaskListHeaderRow";
-import { TaskFieldsSidebar } from "@/components/tasks/fields/TaskFieldsSidebar";
 import { ListSelectionBar } from "@/components/shared/selection/ListSelectionBar";
 import { useListSelection } from "@/components/shared/selection/use-list-selection";
-import { focusAgentChat } from "@agent-native/core/client";
+import { TaskFieldsSidebar } from "@/components/tasks/fields/TaskFieldsSidebar";
+import { TaskListHeaderRow } from "@/components/tasks/TaskListHeaderRow";
+import { TaskListRow } from "@/components/tasks/TaskListRow";
 import {
   useBulkDeleteTasks,
   useBulkUpdateTasks,

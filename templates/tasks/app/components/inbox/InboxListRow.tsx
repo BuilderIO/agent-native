@@ -1,14 +1,15 @@
-import { useState } from "react";
 import { IconChecks, IconTrash } from "@tabler/icons-react";
+import { useState } from "react";
+
+import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
+import { InlineEditable } from "@/components/shared/InlineEditable";
+import { ListRow } from "@/components/shared/list/ListRow";
+import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
+import { RowActionsMenu } from "@/components/shared/RowActionsMenu";
+import type { ListSelection } from "@/components/shared/selection/use-list-selection";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { RowActionsMenu } from "@/components/shared/RowActionsMenu";
-import { InlineEditable } from "@/components/shared/InlineEditable";
-import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
-import { ListRow } from "@/components/shared/list/ListRow";
-import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
-import type { ListSelection } from "@/components/shared/selection/use-list-selection";
 
 export interface InboxListRowProps {
   sortable: SortableItemRenderProps;

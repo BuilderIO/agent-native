@@ -1,10 +1,11 @@
-import { toast } from "sonner";
 import { IconCircleCheck, IconCircle } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { useBulkUpdateTasks, useUpdateTask } from "@/hooks/use-tasks";
-import { useMarkInboxItemReady } from "@/hooks/use-inbox-items";
-import { type ListSelection } from "@/components/shared/selection/use-list-selection";
+import { toast } from "sonner";
+
 import { ListSelectionToolbar } from "@/components/shared/selection/ListSelectionToolbar";
+import { type ListSelection } from "@/components/shared/selection/use-list-selection";
+import { Button } from "@/components/ui/button";
+import { useMarkInboxItemReady } from "@/hooks/use-inbox-items";
+import { useBulkUpdateTasks, useUpdateTask } from "@/hooks/use-tasks";
 
 interface ListSelectionBarProps<
   T extends { id: string; title: string; done?: boolean },
