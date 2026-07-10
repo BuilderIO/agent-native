@@ -32,7 +32,7 @@ import {
   CanvasCommentPins,
   type CanvasPin,
 } from "@/components/visual-editor";
-import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
@@ -464,6 +464,20 @@ interface DesignCanvasProps {
   drawMode?: boolean;
   /** Called when the user exits draw mode (X / Escape / after Send). */
   onExitDrawMode?: () => void;
+  /**
+   * Bumped by the parent exactly when the user deliberately discards the
+   * current annotation batch (the same moment `onExitDrawMode` fires from
+   * the overlay's own X button or a confirmed Send). SharedDrawOverlay only
+   * clears its strokes/text annotations when this changes — NOT merely
+   * because `drawMode` toggled off for some other reason (switching tools,
+   * views, or side panels) — so unsent annotation work survives an
+   * unrelated exit instead of being silently discarded.
+   */
+  drawOverlayResetSignal?: number;
+  /** Keeps the active focused overlay bitmap alive across mode/view hides. */
+  retainDrawOverlayWhenHidden?: boolean;
+  /** Reports focused annotation delivery state so global Escape stays inert too. */
+  onAnnotationSendingChange?: (sending: boolean) => void;
   /** Whether comment-pin drop mode is active. */
   pinMode?: boolean;
   /**
@@ -939,6 +953,9 @@ export function DesignCanvas({
   tweakValues,
   drawMode,
   onExitDrawMode,
+  drawOverlayResetSignal,
+  retainDrawOverlayWhenHidden = false,
+  onAnnotationSendingChange,
   pinMode,
   commentPinsHidden,
   selectedSelector,
@@ -1048,6 +1065,7 @@ export function DesignCanvas({
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
   // twice from the same drawing.
   const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
+  const annotationCaptureBusyRef = useRef(false);
   const [fetchedExternalSnapshot, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
@@ -3831,12 +3849,16 @@ export function DesignCanvas({
       {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
       <SharedDrawOverlay
         visible={!!drawMode}
+        clearSignal={drawOverlayResetSignal}
+        scopeKey={screenId}
+        retainSurfaceWhenHidden={retainDrawOverlayWhenHidden}
         canvasInteractive={!pinMode}
         queuedAnnotationCount={queuedAnnotationPins.length}
         zoom={zoom}
         sending={annotationCaptureBusy}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
+          if (annotationCaptureBusyRef.current) return;
           const summary = annotations
             .map((a) =>
               a.type === "path"
@@ -3879,7 +3901,9 @@ export function DesignCanvas({
           // (no Chromium in hosted deploys, network blip, upload not
           // configured, timeout) silently resolves to `null` and the message
           // still goes out text-only, exactly as it did before this feature.
+          annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
+          onAnnotationSendingChange?.(true);
           captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
@@ -3889,17 +3913,29 @@ export function DesignCanvas({
             canvasSize,
           })
             .catch(() => null)
-            .then((imageUrl) => {
+            .then((imageUrl) =>
               submitDesignAnnotations({
                 message,
                 hasQueuedPins,
-                send: (message) => {
-                  sendToDesignAgentChat({
+                // Ack-confirmed send: only exit draw mode / mark pins
+                // submitted once the message is CONFIRMED to have reached
+                // the chat (became a visible turn). A fire-and-forget send
+                // here would let the overlay tear down and the pins clear
+                // even when delivery is silently dropped — e.g. no LLM/agent
+                // engine configured, or the panel never finished mounting —
+                // discarding the user's drawing with no way to retry it.
+                send: async (message) => {
+                  const result = await sendToDesignAgentChatAndConfirm({
                     message,
                     images: imageUrl ? [imageUrl] : undefined,
                     submit: true,
                     openSidebar: true,
                   });
+                  if (!result.delivered) {
+                    throw new Error(
+                      `Annotation message was not delivered to the agent chat (${result.reason ?? "unknown"})`,
+                    );
+                  }
                 },
                 markQueuedPinsSubmitted: () => {
                   setPinSubmitSignal((signal) => signal + 1);
@@ -3912,9 +3948,13 @@ export function DesignCanvas({
                   );
                   toast.error(t("designEditor.toasts.annotationSendError"));
                 },
-              });
-            })
-            .finally(() => setAnnotationCaptureBusy(false));
+              }),
+            )
+            .finally(() => {
+              annotationCaptureBusyRef.current = false;
+              setAnnotationCaptureBusy(false);
+              onAnnotationSendingChange?.(false);
+            });
         }}
       />
     </div>

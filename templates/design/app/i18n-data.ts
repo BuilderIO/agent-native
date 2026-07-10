@@ -1032,6 +1032,8 @@ const enUS = {
     offline: "Offline",
     saving: "Saving...",
     clearedAllAnnotations: "Cleared all annotations",
+    annotationsDiscardedOnViewChange:
+      "{{count}} unsent annotation(s) were discarded when you left this view.",
     undo: "Undo",
     send: "Send",
     sendingDrawing: "Sending…",
@@ -5039,6 +5041,8 @@ const designRawLiteralOverrides = {
       offline: "离线",
       saving: "正在保存...",
       clearedAllAnnotations: "已清除所有批注",
+      annotationsDiscardedOnViewChange:
+        "离开此视图时，{{count}} 条未发送的批注已被丢弃。",
       undo: "撤消",
       send: "发送",
       sendingDrawing: "正在发送…",
@@ -5194,6 +5198,8 @@ const designRawLiteralOverrides = {
       offline: "Sin conexión",
       saving: "Guardando...",
       clearedAllAnnotations: "Se borraron todas las anotaciones",
+      annotationsDiscardedOnViewChange:
+        "Se descartaron {{count}} anotación(es) sin enviar al salir de esta vista.",
       undo: "Deshacer",
       send: "Enviar",
       sendingDrawing: "Enviando…",
@@ -5350,6 +5356,8 @@ const designRawLiteralOverrides = {
       offline: "Hors ligne",
       saving: "Enregistrement...",
       clearedAllAnnotations: "Toutes les annotations ont été effacées",
+      annotationsDiscardedOnViewChange:
+        "{{count}} annotation(s) non envoyée(s) ont été abandonnées lorsque vous avez quitté cette vue.",
       undo: "Annuler",
       send: "Envoyer",
       sendingDrawing: "Envoi…",
@@ -5507,6 +5515,8 @@ const designRawLiteralOverrides = {
       offline: "Offline",
       saving: "Speichern...",
       clearedAllAnnotations: "Alle Anmerkungen gelöscht",
+      annotationsDiscardedOnViewChange:
+        "{{count}} nicht gesendete Anmerkung(en) wurden beim Verlassen dieser Ansicht verworfen.",
       undo: "Rückgängig",
       send: "Senden",
       sendingDrawing: "Wird gesendet …",
@@ -5660,6 +5670,8 @@ const designRawLiteralOverrides = {
       offline: "オフライン",
       saving: "保存中...",
       clearedAllAnnotations: "すべての注釈を消去しました",
+      annotationsDiscardedOnViewChange:
+        "この画面を離れたため、未送信の注釈{{count}}件が破棄されました。",
       undo: "元に戻す",
       send: "送信",
       sendingDrawing: "送信中…",
@@ -5811,6 +5823,8 @@ const designRawLiteralOverrides = {
       offline: "오프라인",
       saving: "저장 중...",
       clearedAllAnnotations: "모든 주석이 지워졌습니다",
+      annotationsDiscardedOnViewChange:
+        "이 화면을 벗어나면서 전송되지 않은 주석 {{count}}개가 삭제되었습니다.",
       undo: "실행 취소",
       send: "보내기",
       sendingDrawing: "전송 중…",
@@ -5966,6 +5980,8 @@ const designRawLiteralOverrides = {
       offline: "Off-line",
       saving: "Salvando...",
       clearedAllAnnotations: "Todas as anotações foram limpas",
+      annotationsDiscardedOnViewChange:
+        "{{count}} anotação(ões) não enviada(s) foram descartadas ao sair desta visualização.",
       undo: "Desfazer",
       send: "Enviar",
       sendingDrawing: "Enviando…",
@@ -6118,6 +6134,8 @@ const designRawLiteralOverrides = {
       offline: "ऑफ़लाइन",
       saving: "सहेजा जा रहा है...",
       clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
+      annotationsDiscardedOnViewChange:
+        "यह दृश्य छोड़ने पर {{count}} न भेजे गए एनोटेशन हटा दिए गए।",
       undo: "पूर्ववत करें",
       send: "भेजें",
       sendingDrawing: "भेजा जा रहा है…",
@@ -6269,6 +6287,8 @@ const designRawLiteralOverrides = {
       offline: "غير متصل",
       saving: "جارٍ الحفظ...",
       clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
+      annotationsDiscardedOnViewChange:
+        "تم تجاهل {{count}} من التعليقات التوضيحية غير المُرسَلة عند مغادرة هذا العرض.",
       undo: "تراجع",
       send: "إرسال",
       sendingDrawing: "جارٍ الإرسال…",

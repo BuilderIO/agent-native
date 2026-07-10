@@ -864,6 +864,8 @@ const messages = {
     offline: "離線",
     saving: "儲存...",
     clearedAllAnnotations: "已清除所有批注",
+    annotationsDiscardedOnViewChange:
+      "離開此檢視畫面時，{{count}} 則未傳送的批注已被捨棄。",
     undo: "復原",
     send: "傳送",
     sendingDrawing: "正在傳送…",

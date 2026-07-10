@@ -13,6 +13,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -75,10 +76,37 @@ interface DrawOverlayProps {
    * screenshot for a just-submitted drawing (see the design app's
    * design-canvas/annotation-snapshot.ts). Disables Send and swaps its icon
    * for a spinner so a slow capture can't be triggered twice from the same
-   * drawing. Purely cosmetic — DrawOverlay's own state is unaffected, and the
-   * overlay still unmounts normally once the caller calls `onClose`.
+   * drawing. The entire overlay becomes inert while true so edits made after
+   * the submitted snapshot cannot be erased when that submission is later
+   * confirmed and the caller clears the batch.
    */
   sending?: boolean;
+  /**
+   * Bump this (e.g. a counter) exactly when the caller wants to discard the
+   * current strokes/text annotations — after `onClose` or a confirmed Send.
+   * Strokes/text are intentionally NOT cleared merely because `visible`
+   * turns false: `visible` can toggle off for reasons that have nothing to
+   * do with the user wanting to discard their work (switching tools, views,
+   * or side panels), and doing so silently would destroy annotations the
+   * user never got a chance to send. Only an in-progress (uncommitted)
+   * gesture is reset on hide; a pending text label is committed so its typed
+   * content survives.
+   */
+  clearSignal?: number;
+  /**
+   * Identity of the canvas this annotation batch belongs to. When the host
+   * reuses one DrawOverlay instance for a different screen, the old batch is
+   * cleared with a warning instead of being silently reinterpreted against
+   * the new screen's pixels and submitted with the wrong screenshot.
+   */
+  scopeKey?: string;
+  /**
+   * Keep the canvas DOM/bitmap alive while hidden. Use for the one active
+   * editor overlay whose work must survive mode/view toggles; leave false for
+   * large preview grids so every dormant screen does not allocate a canvas
+   * and ResizeObserver.
+   */
+  retainSurfaceWhenHidden?: boolean;
 }
 
 const PRESET_COLORS = [
@@ -223,6 +251,9 @@ export function DrawOverlay({
   onSend,
   onClose,
   sending = false,
+  clearSignal,
+  scopeKey,
+  retainSurfaceWhenHidden = false,
 }: DrawOverlayProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -257,6 +288,7 @@ export function DrawOverlay({
   // just cancelled. This flag lets the blur handler skip that commit.
   const cancelingTextRef = useRef(false);
   const [instruction, setInstruction] = useState("");
+  const instructionRef = useRef("");
   const drawing = useRef(false);
   const canvasSizeRef = useRef({ w: 0, h: 0 });
   // Resize tick: bumped by ResizeObserver so the redraw effect re-runs when
@@ -264,6 +296,36 @@ export function DrawOverlay({
   const [resizeTick, setResizeTick] = useState(0);
 
   const scale = Math.max(zoom / 100, 0.01);
+
+  // A host can still unmount the active editor entirely (route/design close,
+  // or focused canvas teardown) rather than merely hiding this component.
+  // Losing unsent work in that teardown must never be silent. Normal
+  // overview/focused visibility changes retain their active surface and do
+  // not hit this cleanup; only a real component unmount does.
+  useEffect(() => {
+    return () => {
+      // A true unmount never runs the `!visible` effect above (the prop
+      // never transitions — the component is simply gone), so a still-open
+      // pending text box never gets its usual commit-on-hide chance. Count
+      // it here too, or a label the user was mid-typing would vanish
+      // without even counting toward the warning.
+      const pendingText = textInputStateRef.current?.value.trim();
+      const discardedCount =
+        strokesRef.current.length +
+        textAnnotationsRef.current.length +
+        (pendingText ? 1 : 0) +
+        (instructionRef.current.trim() ? 1 : 0);
+      if (discardedCount > 0) {
+        toast(
+          t("visualEditor.annotationsDiscardedOnViewChange", {
+            count: discardedCount,
+          }),
+        );
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- must only run
+    // its cleanup on actual unmount, not on every `t`/locale change.
+  }, []);
 
   const cancelScheduledStrokeFrame = useCallback(() => {
     if (currentStrokeFrameRef.current === null) return;
@@ -311,23 +373,35 @@ export function DrawOverlay({
     [],
   );
 
-  // Clear all state on hide so the next open starts fresh.
+  const clearAnnotationState = useCallback(() => {
+    resetActiveStroke();
+    strokesRef.current = [];
+    textAnnotationsRef.current = [];
+    setStrokes([]);
+    setTextAnnotations([]);
+    setRedoStack([]);
+    setPendingTextInput(null);
+    setTextMode(false);
+    instructionRef.current = "";
+    setInstruction("");
+    cancelingTextRef.current = false;
+    lastCreatedAtRef.current = 0;
+    textInputGenerationRef.current = 0;
+  }, [resetActiveStroke, setPendingTextInput]);
+
+  // Hiding ends whatever the user was mid-gesture on, but must NOT discard
+  // already-committed strokes/text: `visible` can turn false for reasons
+  // that have nothing to do with the user wanting to abandon their
+  // annotations (switching tools, views, or side panels). Only reset the
+  // transient in-flight state here — the committed `strokes`/
+  // `textAnnotations` arrays are cleared exclusively by `clearSignal` below.
   useEffect(() => {
     if (!visible) {
       resetActiveStroke();
-      strokesRef.current = [];
-      textAnnotationsRef.current = [];
-      setStrokes([]);
-      setTextAnnotations([]);
-      setRedoStack([]);
-      setPendingTextInput(null);
       setTextMode(false);
-      setInstruction("");
       cancelingTextRef.current = false;
-      lastCreatedAtRef.current = 0;
-      textInputGenerationRef.current = 0;
     }
-  }, [resetActiveStroke, setPendingTextInput, visible]);
+  }, [resetActiveStroke, visible]);
 
   // Comment-pin mode can temporarily leave the toolbar visible while making
   // the drawing surface inert. Never retain a half-finished gesture across
@@ -345,26 +419,34 @@ export function DrawOverlay({
 
   const shouldFocusTextInput = textInput !== null;
   useEffect(() => {
-    if (!shouldFocusTextInput) return;
+    if (!visible || !shouldFocusTextInput) return;
     const id = window.requestAnimationFrame(() => {
       textInputRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [shouldFocusTextInput]);
+  }, [shouldFocusTextInput, visible]);
 
-  // ResizeObserver: bump resizeTick whenever the canvas changes CSS size so
-  // the redraw effect re-runs and the backing store is resized correctly.
+  // Retained editor surfaces keep their canvas mounted while hidden, so a
+  // hidden-first host installs its observer and the bitmap does not flash
+  // blank when the user re-enters annotate mode. Non-retained preview-grid
+  // overlays attach only while visible to avoid idle canvas/observer cost.
   useEffect(() => {
+    if (!visible && !retainSurfaceWhenHidden) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => setResizeTick((t) => t + 1));
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, []);
+  }, [retainSurfaceWhenHidden, visible]);
 
-  // Redraw canvas whenever strokes change or the canvas is resized.
-  useEffect(() => {
+  // Redraw before paint whenever strokes change, the canvas is resized, or a
+  // preserved batch becomes visible again. The visible dependency is
+  // intentional even though the DOM stays mounted: browsers may discard a
+  // hidden canvas backing store under memory pressure, and re-entry must
+  // never expose a blank frame before the next pointer event.
+  useLayoutEffect(() => {
+    if (!visible) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -412,7 +494,7 @@ export function DrawOverlay({
     // which changes getBoundingClientRect() without firing ResizeObserver — the
     // effect must re-run on zoom change to redraw the fraction-based strokes at
     // the new visual size.
-  }, [strokes, currentStroke, color, lineWidth, resizeTick, zoom]);
+  }, [strokes, currentStroke, color, lineWidth, resizeTick, visible, zoom]);
 
   /**
    * Commits the pending text annotation (if any) and clears the pending
@@ -457,11 +539,49 @@ export function DrawOverlay({
     [color, lineWidth, nextCreatedAt, setPendingTextInput],
   );
 
+  // Hiding removes the pending-text input from interaction. Commit whatever
+  // was typed explicitly so a still-open label survives an unrelated exit
+  // instead of relying on incidental native blur ordering.
+  useEffect(() => {
+    if (!visible) commitTextAnnotation();
+  }, [visible, commitTextAnnotation]);
+
+  // The explicit-discard path: the caller bumps `clearSignal` exactly when
+  // the user deliberately closes the overlay (X/Escape) or a Send is
+  // confirmed delivered. A scope change below is the only other reset path,
+  // guarding against submitting one screen's geometry against another.
+  const lastClearSignalRef = useRef(clearSignal);
+  useLayoutEffect(() => {
+    if (clearSignal === lastClearSignalRef.current) return;
+    lastClearSignalRef.current = clearSignal;
+    clearAnnotationState();
+  }, [clearAnnotationState, clearSignal]);
+
+  const lastScopeKeyRef = useRef(scopeKey);
+  useLayoutEffect(() => {
+    if (scopeKey === lastScopeKeyRef.current) return;
+    lastScopeKeyRef.current = scopeKey;
+    const pendingText = textInputStateRef.current?.value.trim();
+    const discardedCount =
+      strokesRef.current.length +
+      textAnnotationsRef.current.length +
+      (pendingText ? 1 : 0) +
+      (instructionRef.current.trim() ? 1 : 0);
+    if (discardedCount > 0) {
+      toast(
+        t("visualEditor.annotationsDiscardedOnViewChange", {
+          count: discardedCount,
+        }),
+      );
+    }
+    clearAnnotationState();
+  }, [clearAnnotationState, scopeKey, t]);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
-      if (!canvasInteractive || drawing.current) return;
+      if (!canvasInteractive || sending || drawing.current) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
 
       if (textMode) {
@@ -501,6 +621,7 @@ export function DrawOverlay({
       color,
       commitTextAnnotation,
       lineWidth,
+      sending,
       setPendingTextInput,
       textMode,
     ],
@@ -610,6 +731,7 @@ export function DrawOverlay({
    * creation order and pushes it onto the unified redo stack.
    */
   const undo = () => {
+    if (sending) return;
     const currentStrokes = strokesRef.current;
     const currentTexts = textAnnotationsRef.current;
     const lastStroke =
@@ -639,6 +761,7 @@ export function DrawOverlay({
   };
 
   const redo = () => {
+    if (sending) return;
     setRedoStack((stack) => {
       if (stack.length === 0) return stack;
       const top = stack[stack.length - 1];
@@ -662,6 +785,7 @@ export function DrawOverlay({
   };
 
   const clear = () => {
+    if (sending) return;
     if (strokes.length === 0 && textAnnotations.length === 0) return;
     const prevStrokes = strokesRef.current;
     const prevTexts = textAnnotationsRef.current;
@@ -691,6 +815,7 @@ export function DrawOverlay({
   };
 
   const send = () => {
+    if (sending) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     // A focused text label normally commits on blur before the Send click, but
@@ -736,7 +861,7 @@ export function DrawOverlay({
     });
   };
 
-  if (!visible) return null;
+  if (!visible && !retainSurfaceWhenHidden) return null;
 
   const hasContent =
     strokes.length > 0 ||
@@ -762,7 +887,10 @@ export function DrawOverlay({
                 type="button"
                 aria-label={preset.label}
                 data-testid={`draw-color-${preset.label.toLowerCase()}`}
-                onClick={() => setColor(preset.color)}
+                onClick={() => {
+                  if (!sending) setColor(preset.color);
+                }}
+                disabled={sending}
                 className={cn(
                   "h-5 w-5 cursor-pointer rounded-full",
                   color === preset.color
@@ -788,7 +916,10 @@ export function DrawOverlay({
                 type="button"
                 aria-label={lw.label}
                 data-testid={`draw-line-width-${lw.label.toLowerCase()}`}
-                onClick={() => setLineWidth(lw.value)}
+                onClick={() => {
+                  if (!sending) setLineWidth(lw.value);
+                }}
+                disabled={sending}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
                   lineWidth === lw.value
@@ -816,7 +947,10 @@ export function DrawOverlay({
             type="button"
             aria-label={t("visualEditor.typeAnywhereOnCanvas")}
             data-testid="draw-text-mode"
-            onClick={() => setTextMode(!textMode)}
+            onClick={() => {
+              if (!sending) setTextMode(!textMode);
+            }}
+            disabled={sending}
             className={cn(
               "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
               textMode
@@ -840,7 +974,7 @@ export function DrawOverlay({
             aria-label={t("visualEditor.undoStroke")}
             data-testid="draw-undo"
             onClick={undo}
-            disabled={!canUndo}
+            disabled={!canUndo || sending}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
           >
             <IconArrowBackUp className="h-3.5 w-3.5" />
@@ -857,7 +991,7 @@ export function DrawOverlay({
             aria-label={t("visualEditor.redoStroke")}
             data-testid="draw-redo"
             onClick={redo}
-            disabled={!canRedo}
+            disabled={!canRedo || sending}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
           >
             <IconArrowForwardUp className="h-3.5 w-3.5" />
@@ -874,7 +1008,9 @@ export function DrawOverlay({
             aria-label={t("visualEditor.clearAll")}
             data-testid="draw-clear-all"
             onClick={clear}
-            disabled={strokes.length === 0 && textAnnotations.length === 0}
+            disabled={
+              sending || (strokes.length === 0 && textAnnotations.length === 0)
+            }
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
           >
             <IconEraser className="h-3.5 w-3.5" />
@@ -888,12 +1024,17 @@ export function DrawOverlay({
       {/* Instruction input */}
       <Input
         value={instruction}
-        onChange={(e) => setInstruction(e.target.value)}
+        onChange={(e) => {
+          if (sending) return;
+          instructionRef.current = e.target.value;
+          setInstruction(e.target.value);
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && hasContent) send();
+          if (e.key === "Enter" && hasContent && !sending) send();
           if (e.key === "Escape") onClose();
         }}
         placeholder={t("visualEditor.tellAgentWhatToDo")}
+        disabled={sending}
         className="h-7 w-56 border-border bg-background text-xs"
       />
 
@@ -921,6 +1062,7 @@ export function DrawOverlay({
             aria-label={t("visualEditor.exitDrawMode")}
             data-testid="draw-exit"
             onClick={onClose}
+            disabled={sending}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3.5 w-3.5" />
@@ -935,9 +1077,13 @@ export function DrawOverlay({
     <div
       ref={containerRef}
       data-draw-overlay
+      aria-hidden={!visible}
       className={cn(
         "absolute inset-0 z-[100]",
-        canvasInteractive ? "pointer-events-auto" : "pointer-events-none",
+        visible ? "visible" : "invisible pointer-events-none",
+        canvasInteractive && !sending
+          ? "pointer-events-auto"
+          : "pointer-events-none",
       )}
     >
       {/* Drawing canvas */}
@@ -947,7 +1093,7 @@ export function DrawOverlay({
         className={cn(
           "absolute inset-0 h-full w-full touch-none",
           textMode ? "cursor-text" : "cursor-crosshair",
-          !canvasInteractive && "pointer-events-none",
+          (!canvasInteractive || sending) && "pointer-events-none",
         )}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -1006,6 +1152,7 @@ export function DrawOverlay({
                 ref={textInputRef}
                 value={textInput.value}
                 onChange={(e) =>
+                  !sending &&
                   setPendingTextInput((prev) =>
                     prev ? { ...prev, value: e.target.value } : null,
                   )
@@ -1037,6 +1184,7 @@ export function DrawOverlay({
                   }
                 }}
                 className="h-7 w-48 border-primary bg-background text-sm"
+                disabled={sending}
                 autoFocus
                 placeholder={t("visualEditor.typeAnnotationFancy")}
               />
@@ -1044,7 +1192,7 @@ export function DrawOverlay({
           );
         })()}
 
-      <DrawToolbarPortal>{toolbar}</DrawToolbarPortal>
+      {visible ? <DrawToolbarPortal>{toolbar}</DrawToolbarPortal> : null}
     </div>
   );
 }

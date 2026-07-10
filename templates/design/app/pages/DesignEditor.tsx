@@ -348,6 +348,7 @@ import {
 import {
   DESIGN_CHAT_STORAGE_KEY,
   sendToDesignAgentChat,
+  sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
   type DesignClipboardPayload,
@@ -4867,6 +4868,30 @@ function DesignEditor() {
   // into the same agent submission.
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  // Overview and focused canvases retain separate annotation batches. Each
+  // counter is bumped only for a deliberate close or a confirmed send; they
+  // must not share a signal, or closing a focused-screen batch would also
+  // erase preserved overview-board work while that overlay is hidden.
+  const [overviewAnnotationResetSignal, setOverviewAnnotationResetSignal] =
+    useState(0);
+  const [focusedAnnotationResetSignal, setFocusedAnnotationResetSignal] =
+    useState(0);
+  const [overviewAnnotationSending, setOverviewAnnotationSending] =
+    useState(false);
+  const overviewAnnotationSendingRef = useRef(false);
+  const [focusedAnnotationSending, setFocusedAnnotationSending] =
+    useState(false);
+  const focusedAnnotationSendingCountRef = useRef(0);
+  const handleFocusedAnnotationSendingChange = useCallback(
+    (sending: boolean) => {
+      focusedAnnotationSendingCountRef.current = Math.max(
+        0,
+        focusedAnnotationSendingCountRef.current + (sending ? 1 : -1),
+      );
+      setFocusedAnnotationSending(focusedAnnotationSendingCountRef.current > 0);
+    },
+    [],
+  );
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const [pngExporting, setPngExporting] = useState(false);
@@ -12164,14 +12189,27 @@ function DesignEditor() {
     setPinMode(false);
     setActiveTool("move");
     setMode("edit");
+    // Deliberate discard (X button or a confirmed Send) — see
+    // overviewAnnotationResetSignal's docblock. Entering a focused screen can
+    // hide this overlay, but must not clear its separate board-wide batch.
+    setOverviewAnnotationResetSignal((signal) => signal + 1);
+  }, []);
+
+  const handleExitFocusedDrawMode = useCallback(() => {
+    setDrawMode(false);
+    setPinMode(false);
+    setActiveTool("move");
+    setMode("edit");
+    setFocusedAnnotationResetSignal((signal) => signal + 1);
   }, []);
 
   const handleSendOverviewAnnotations = useCallback(
-    (
+    async (
       annotations: DrawAnnotation[],
       instruction: string,
       canvasSize: { width: number; height: number },
     ) => {
+      if (overviewAnnotationSendingRef.current) return;
       const container = canvasContainerRef.current;
       const viewportMap = container
         ? collectOverviewAnnotationViewportMap({
@@ -12196,12 +12234,19 @@ function DesignEditor() {
         viewportMap,
       });
 
+      overviewAnnotationSendingRef.current = true;
+      setOverviewAnnotationSending(true);
       try {
-        sendToDesignAgentChat({
+        const result = await sendToDesignAgentChatAndConfirm({
           message,
           submit: true,
           openSidebar: true,
         });
+        if (!result.delivered) {
+          throw new Error(
+            `Overview annotation message was not delivered to the agent chat (${result.reason ?? "unknown"})`,
+          );
+        }
         handleExitOverviewDrawMode();
       } catch (error) {
         console.error(
@@ -12209,6 +12254,9 @@ function DesignEditor() {
           error,
         );
         toast.error(t("designEditor.toasts.annotationSendError"));
+      } finally {
+        overviewAnnotationSendingRef.current = false;
+        setOverviewAnnotationSending(false);
       }
     },
     [
@@ -20790,6 +20838,17 @@ function DesignEditor() {
       return;
     }
     if (cancelActiveEditorDrag()) return;
+    // A delivery-confirmation wait freezes the complete annotation batch.
+    // Escape must not clear it while the submitted snapshot is in flight.
+    if (overviewAnnotationSending || focusedAnnotationSending) return;
+    // Escape is a deliberate annotate-mode exit, same as the overlay's X.
+    // Route it through the same per-surface clear semantics instead of merely
+    // hiding the overlay and leaving a stale batch to reappear later.
+    if (drawMode && mode === "annotate") {
+      if (viewMode === "overview") handleExitOverviewDrawMode();
+      else handleExitFocusedDrawMode();
+      return;
+    }
     // BP-DEEP item 5 — Framer-style click-to-target: Escape's first job when
     // a breakpoint is the active edit target is to return to Base, matching
     // "click the base frame / empty canvas" — mirrors the other early-return
@@ -20897,10 +20956,14 @@ function DesignEditor() {
     cancelActiveEditorDrag,
     drawMode,
     enterOverviewFromZoom,
+    focusedAnnotationSending,
     handleBreakpointBarSelect,
     keyboardShortcutsOpen,
     handleCloseKeyboardShortcuts,
+    handleExitFocusedDrawMode,
+    handleExitOverviewDrawMode,
     mode,
+    overviewAnnotationSending,
     pinMode,
     selectedElement,
     selectedLayerIdsState,
@@ -27965,14 +28028,6 @@ ${serializedHtml}
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
                       />
-                      {drawMode && mode === "annotate" ? (
-                        <SharedDrawOverlay
-                          visible
-                          zoom={100}
-                          onClose={handleExitOverviewDrawMode}
-                          onSend={handleSendOverviewAnnotations}
-                        />
-                      ) : null}
                       {/* §6.4 — the compact/full breakpoint bar itself now
                           renders as a non-overlapping chrome row ABOVE
                           canvasContainerRef (see the shared block right
@@ -28135,11 +28190,13 @@ ${serializedHtml}
                         tweakValues={cssVarValues}
                         drawMode={drawMode}
                         onExitDrawMode={() => {
-                          setDrawMode(false);
-                          setPinMode(false);
-                          setActiveTool("move");
-                          setMode("edit");
+                          handleExitFocusedDrawMode();
                         }}
+                        drawOverlayResetSignal={focusedAnnotationResetSignal}
+                        retainDrawOverlayWhenHidden
+                        onAnnotationSendingChange={
+                          handleFocusedAnnotationSendingChange
+                        }
                         pinMode={pinMode}
                         commentPinsHidden={commentsHidden}
                         onExitPinMode={() => {
@@ -28207,6 +28264,23 @@ ${serializedHtml}
                       )}
                     </>
                   )}
+                  {/* This overview annotation overlay is deliberately outside
+                      the overview/single subtree. Entering a focused screen
+                      hides it without unmounting it, so board-wide work is
+                      still available when the user returns. Its reset signal
+                      is separate from DesignCanvas's focused-screen batch. */}
+                  <SharedDrawOverlay
+                    visible={
+                      viewMode === "overview" && drawMode && mode === "annotate"
+                    }
+                    clearSignal={overviewAnnotationResetSignal}
+                    scopeKey="overview"
+                    retainSurfaceWhenHidden
+                    zoom={100}
+                    onClose={handleExitOverviewDrawMode}
+                    onSend={handleSendOverviewAnnotations}
+                    sending={overviewAnnotationSending}
+                  />
                 </div>
               </div>
             ) : (
