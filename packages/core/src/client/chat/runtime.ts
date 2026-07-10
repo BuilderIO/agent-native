@@ -1503,27 +1503,70 @@ function toolResultText(value: unknown): string {
   }
 }
 
+interface RuntimeContentProjection {
+  content: ContentPart[];
+  partsById: Map<string, Extract<ContentPart, { type: "text" | "reasoning" }>>;
+}
+
+function appendRuntimeContentPart(
+  projection: RuntimeContentProjection,
+  input: {
+    type: "text" | "reasoning";
+    text: string;
+    partId?: string;
+  },
+): void {
+  const key = input.partId ? `${input.type}:${input.partId}` : undefined;
+  const last = projection.content.at(-1);
+  let part = key ? projection.partsById.get(key) : undefined;
+  if (
+    !part &&
+    !key &&
+    last &&
+    (last.type === "text" || last.type === "reasoning") &&
+    last.type === input.type
+  ) {
+    part = last;
+  }
+  if (!part) {
+    part = { type: input.type, text: "" };
+    projection.content.push(part);
+    if (key) projection.partsById.set(key, part);
+  }
+  part.text += input.text;
+}
+
 function applyRuntimeEventToContent(
   event: AgentChatRuntimeEventBase,
-  content: ContentPart[],
+  projection: RuntimeContentProjection,
 ): ChatModelRunResult | null {
+  const { content } = projection;
   const typed = event as AgentChatRuntimeKnownEvent;
   if (typed.type === "message-start") {
     for (const part of typed.message.content) {
-      if (part.type === "text" && part.text) {
-        content.push({ type: "text", text: part.text });
+      if (
+        (part.type === "text" || part.type === "reasoning") &&
+        part.text
+      ) {
+        appendRuntimeContentPart(projection, {
+          type: part.type,
+          text: part.text,
+          partId: part.id,
+        });
       }
     }
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "message-delta") {
-    if (typed.delta.type === "text") {
-      const last = content[content.length - 1];
-      if (last?.type === "text") {
-        last.text += typed.delta.text;
-      } else {
-        content.push({ type: "text", text: typed.delta.text });
-      }
+    if (
+      typed.delta.type === "text" ||
+      typed.delta.type === "reasoning"
+    ) {
+      appendRuntimeContentPart(projection, {
+        type: typed.delta.type,
+        text: typed.delta.text,
+        partId: typed.delta.partId,
+      });
       return { content: [...content] } as ChatModelRunResult;
     }
     return null;
@@ -1716,10 +1759,13 @@ export function createAgentChatRuntimeAdapter(
         abortSignal,
         metadata: options.metadata,
       });
-      const content: ContentPart[] = [];
+      const projection: RuntimeContentProjection = {
+        content: [],
+        partsById: new Map(),
+      };
       try {
         for await (const event of turn.events) {
-          const result = applyRuntimeEventToContent(event, content);
+          const result = applyRuntimeEventToContent(event, projection);
           if (result) {
             const metadata = (result.metadata ?? {}) as Record<string, unknown>;
             const custom =
