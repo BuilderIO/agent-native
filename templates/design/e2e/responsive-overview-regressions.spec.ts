@@ -413,46 +413,46 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       screenId: string,
     ) => {
       await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
-        try {
-          await expect
-            .poll(() =>
-              page.evaluate((targetId) => {
-            const world = document.querySelector(
-              "[data-multi-screen-canvas-world]",
-            );
-            const target = document
-              .querySelector(`[data-frame-id="${CSS.escape(targetId)}"]`)
-              ?.querySelector("[data-screen-card]");
-            if (!world?.parentElement || !target) {
+      try {
+        await expect
+          .poll(() =>
+            page.evaluate((targetId) => {
+              const world = document.querySelector(
+                "[data-multi-screen-canvas-world]",
+              );
+              const target = document
+                .querySelector(`[data-frame-id="${CSS.escape(targetId)}"]`)
+                ?.querySelector("[data-screen-card]");
+              if (!world?.parentElement || !target) {
+                return JSON.stringify({
+                  intersects: false,
+                  targetId,
+                  availableFrameIds: Array.from(
+                    document.querySelectorAll("[data-frame-id]"),
+                  ).map((node) => node.getAttribute("data-frame-id")),
+                });
+              }
+              const canvas = world.parentElement.getBoundingClientRect();
+              const card = target.getBoundingClientRect();
               return JSON.stringify({
-                intersects: false,
+                intersects:
+                  card.right > canvas.left &&
+                  card.left < canvas.right &&
+                  card.bottom > canvas.top &&
+                  card.top < canvas.bottom,
                 targetId,
-                availableFrameIds: Array.from(
-                  document.querySelectorAll("[data-frame-id]"),
-                ).map((node) => node.getAttribute("data-frame-id")),
+                canvas: canvas.toJSON(),
+                card: card.toJSON(),
+                worldTransform: getComputedStyle(world).transform,
               });
-            }
-            const canvas = world.parentElement.getBoundingClientRect();
-            const card = target.getBoundingClientRect();
-            return JSON.stringify({
-              intersects:
-                card.right > canvas.left &&
-                card.left < canvas.right &&
-                card.bottom > canvas.top &&
-                card.top < canvas.bottom,
-              targetId,
-              canvas: canvas.toJSON(),
-              card: card.toJSON(),
-              worldTransform: getComputedStyle(world).transform,
-            });
-              }, screenId),
-            )
-            .toContain('"intersects":true');
-        } catch (error) {
-          throw new Error(
-            `${error instanceof Error ? error.message : String(error)}\ncamera transforms: ${cameraTransforms.join(" | ") || "none"}`,
-          );
-        }
+            }, screenId),
+          )
+          .toContain('"intersects":true');
+      } catch (error) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\ncamera transforms: ${cameraTransforms.join(" | ") || "none"}`,
+        );
+      }
       await page.waitForTimeout(250);
       expect(
         new Set(cameraTransforms.filter(Boolean)).size,
