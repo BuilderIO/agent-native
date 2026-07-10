@@ -28,6 +28,7 @@ const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
+const markTaskRetryableMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -71,12 +72,14 @@ vi.mock("../resources/store.js", () => ({
 }));
 
 vi.mock("./pending-tasks-store.js", () => ({
+  MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: vi.fn(),
   insertPendingTask: vi.fn(),
   isDuplicateEventError: vi.fn(() => false),
   markTaskCompleted: markTaskCompletedMock,
   markTaskFailed: markTaskFailedMock,
+  markTaskRetryable: markTaskRetryableMock,
 }));
 
 vi.mock("./webhook-handler.js", async () => {
@@ -162,6 +165,31 @@ const adapter: PlatformAdapter = {
     configured: true,
   }),
 };
+
+function claimedTask(attempts: number) {
+  return {
+    id: `task-attempt-${attempts}`,
+    platform: "fake",
+    externalThreadId: "fake-thread",
+    payload: JSON.stringify({
+      incoming: {
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "retry this message",
+        platformContext: {},
+        timestamp: Date.now(),
+      },
+    }),
+    ownerEmail: "owner+qa@example.com",
+    orgId: null,
+    status: "processing",
+    attempts,
+    errorMessage: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    completedAt: null,
+  };
+}
 
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -381,6 +409,54 @@ describe("integrations plugin routes", () => {
       "memory/MEMORY.md",
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
+  });
+
+  it("reschedules transient processor failures without terminally scrubbing the task", async () => {
+    process.env.NODE_ENV = "development";
+    claimPendingTaskMock.mockResolvedValueOnce(claimedTask(1));
+    processIntegrationTaskMock.mockRejectedValueOnce(
+      new Error("temporary downstream outage"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "task-attempt-1" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      "task-attempt-1",
+      "temporary downstream outage",
+    );
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+  });
+
+  it("terminally fails a processor task only after its retry budget is exhausted", async () => {
+    process.env.NODE_ENV = "development";
+    claimPendingTaskMock.mockResolvedValueOnce(claimedTask(3));
+    processIntegrationTaskMock.mockRejectedValueOnce(
+      new Error("permanent after retries"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "task-attempt-3" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(markTaskFailedMock).toHaveBeenCalledWith(
+      "task-attempt-3",
+      "permanent after retries",
+    );
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
   });
 
   it("defers scoped resource loading until after webhook acknowledgement", async () => {

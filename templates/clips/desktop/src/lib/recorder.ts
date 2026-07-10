@@ -55,6 +55,7 @@ import { waitForReadyRecordingAfterFinalizeError } from "../../../shared/finaliz
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
+import { finalizeAfterDurableBackup } from "./finalization-guard";
 import {
   createLocalRecordingFolderName,
   exportBlobChunksToLocalRecordingFile,
@@ -1661,6 +1662,15 @@ function showFinalizingFeedback() {
   );
 }
 
+async function releaseFinalizingFeedback() {
+  await invoke("set_recording_state", { active: false }).catch((err) =>
+    console.error("[clips-recorder] clear recording state failed:", err),
+  );
+  await invoke("hide_finalizing").catch((err) =>
+    console.error("[clips-recorder] hide_finalizing failed:", err),
+  );
+}
+
 async function claimNativeUploadOpen(recordingId: string): Promise<boolean> {
   return invoke<boolean>("native_fullscreen_claim_upload_open", {
     recordingId,
@@ -2210,18 +2220,12 @@ async function startNativeFullscreenRecording(
           id,
           `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
         );
-        invoke("hide_finalizing").catch((err) =>
-          console.error("[clips-recorder] hide_finalizing failed:", err),
-        );
         try {
           await Promise.race([
             recorderFinalized,
             new Promise<void>((resolve) => window.setTimeout(resolve, 15000)),
           ]);
           unlistenFinalized();
-          await invoke("set_recording_state", { active: false }).catch(
-            () => {},
-          );
 
           const capturedTranscript = await transcriptionCapture
             ?.stop()
@@ -2289,9 +2293,7 @@ async function startNativeFullscreenRecording(
           };
         } finally {
           streamCleanups.forEach((cleanup) => cleanup());
-          invoke("hide_finalizing").catch((err) =>
-            console.error("[clips-recorder] hide_finalizing failed:", err),
-          );
+          await releaseFinalizingFeedback();
         }
       })();
       return stopPromise;

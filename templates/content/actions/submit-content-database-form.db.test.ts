@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { getDbExec } from "@agent-native/core/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -45,6 +46,7 @@ async function seedFormDatabase() {
   const additionalBlocksId = `notes_${suffix}`;
   const priorityId = `priority_${suffix}`;
   const deadlineId = `deadline_${suffix}`;
+  const requesterId = `requester_${suffix}`;
   await db.insert(schema.documents).values({
     id: databaseDocumentId,
     ownerEmail: OWNER,
@@ -73,6 +75,7 @@ async function seedFormDatabase() {
             { key: primaryBlocksId, enabled: true, required: true },
             { key: priorityId, enabled: true, required: true },
             { key: deadlineId, enabled: true, required: false },
+            { key: requesterId, enabled: true, required: false },
             { key: additionalBlocksId, enabled: true, required: false },
           ],
         },
@@ -130,6 +133,16 @@ async function seedFormDatabase() {
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: requesterId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Requester",
+      type: "person",
+      position: 4,
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
   return {
     databaseId,
@@ -138,6 +151,7 @@ async function seedFormDatabase() {
     additionalBlocksId,
     priorityId,
     deadlineId,
+    requesterId,
   };
 }
 
@@ -153,6 +167,7 @@ describe("submit-content-database-form", () => {
           Description: "Clarify the enterprise story and update the hero.",
           Priority: "P1 — High",
           [seeded.deadlineId]: "2026-08-15",
+          Requester: "requester@example.com\npartner@example.com",
           "Internal notes": "Route through the web design queue.",
         },
       }),
@@ -187,6 +202,9 @@ describe("submit-content-database-form", () => {
     expect(
       values.find((value) => value.propertyId === seeded.deadlineId)?.valueJson,
     ).toContain("2026-08-15");
+    expect(
+      values.find((value) => value.propertyId === seeded.requesterId)?.valueJson,
+    ).toBe('["requester@example.com","partner@example.com"]');
 
     const [notes] = await db
       .select()
@@ -247,5 +265,45 @@ describe("submit-content-database-form", () => {
         }),
       ),
     ).rejects.toThrow('Unknown option "Extremely urgent"');
+  });
+
+  it("rolls back the document and item when an in-transaction property write fails", async () => {
+    const seeded = await seedFormDatabase();
+    const triggerName = `force_form_rollback_${Date.now()}`;
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE INSERT ON document_property_values
+       WHEN NEW.property_id = '${seeded.priorityId}'
+       BEGIN SELECT RAISE(ABORT, 'forced form rollback'); END`,
+    );
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          submitForm.run({
+            databaseId: seeded.databaseId,
+            viewId: "request-form",
+            title: "Rollback this row",
+            propertyValues: {
+              Description: "This write should be rolled back.",
+              Priority: "P0 — Urgent",
+            },
+          }),
+        ),
+      ).rejects.toThrow("forced form rollback");
+    } finally {
+      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
+
+    const db = getDb();
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.title, "Rollback this row"));
+    expect(document).toBeUndefined();
+    const items = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(items).toHaveLength(0);
   });
 });

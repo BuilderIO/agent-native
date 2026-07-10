@@ -210,4 +210,28 @@ describe("integration pending task store", () => {
       "discord-task-failed",
     ]);
   });
+
+  it("keeps the inbound payload when rescheduling a transient failure", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { markTaskRetryable } = await loadStore();
+
+    await markTaskRetryable("discord-task-retry", "temporary provider error");
+
+    const retryUpdate = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_pending_tasks"),
+      );
+    expect(retryUpdate?.sql).toContain("status = ?");
+    expect(retryUpdate?.sql).toContain("status = 'processing'");
+    expect(retryUpdate?.sql).not.toContain("payload");
+    expect(retryUpdate?.args).toEqual([
+      "pending",
+      expect.any(Number),
+      "temporary provider error",
+      "discord-task-retry",
+    ]);
+  });
 });
