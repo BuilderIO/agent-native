@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.94.0
+
+### Minor Changes
+
+- dfbbf30: Add scoped relay primitives for computer-capable devices, typed leased operations, durable approvals, replay protection, handle-only live-view events, and bounded binary-safe relay payloads.
+- dfbbf30: Add framework-wide OpenAI Realtime voice conversations with shared agent tools, actions, and navigation.
+- dfbbf30: Add owner-scoped follow-up, approval, denial, resume, and stop lifecycle controls for agent harness sessions.
+
+### Patch Changes
+
+- dfbbf30: Reduce idle hosted request volume by relaxing database sync polling between agent runs, waking event-driven application-state readers only when their values change, and avoiding duplicate action-query invalidation waves.
+- dfbbf30: Keep controlled settings pages in sync with organization hash links.
+- dfbbf30: Agent chat now uses Medium reasoning by default across supported models, migrates legacy Auto selections to Medium, avoids duplicate generic running status while reasoning streams, and renders completed reasoning directly inside the shared work summary.
+- dfbbf30: Allow explicitly marked Agent Native desktop child runs to receive their authenticated loopback computer-control MCP server without replacing user MCP configuration.
+- dfbbf30: Keep the optional server tokenizer out of browser production bundles, publish Dispatch's Operations route, simplify Dispatch's sidebar identity and chat history, and route design-task creation into structured intake.
+- dfbbf30: Honor organization and user Agent engine settings when Slack, Telegram, and other messaging integrations select their model provider and scoped API key.
+- dfbbf30: Group desktop settings navigation into clearer app, agent, workspace, and update sections.
+- dfbbf30: Add a batched application-state read helper so callers can load several exact keys with one database query.
+- dfbbf30: Export reusable composer controls for realtime voice sessions and a guarded single-tool execution helper that preserves normal validation, approval, timeout, journal, redaction, and refresh behavior.
+- dfbbf30: Make the active agent chat stop control immediately recognizable with a high-contrast circular treatment and filled stop icon.
+- dfbbf30: Stop offering Builder's unavailable Gemini 3.1 Flash-Lite preview model in agent chat and normalize existing selections back to the working default model.
+- dfbbf30: Validate converged collaborative text before persistence or broadcast so application-level guards can reject unsafe concurrent merges without exposing transient invalid state to connected clients.
+- dfbbf30: Keep Slack progress cards current during delegated agent calls, accept one scoped reply after requesting clarification, close deferred progress streams cleanly, and reserve framework integration control-plane routes from platform fallback handling.
+- dfbbf30: Enforce fail-closed computer and browser MCP policy checks in read-only Code runs.
+
 ## 0.93.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.1
+
+### Patch Changes
+
+- dfbbf30: Keep the optional server tokenizer out of browser production bundles, publish Dispatch's Operations route, simplify Dispatch's sidebar identity and chat history, and route design-task creation into structured intake.
+
 ## 0.14.0
 
 ### Minor Changes
