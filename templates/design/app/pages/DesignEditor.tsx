@@ -11373,14 +11373,17 @@ function DesignEditor() {
       );
       const explicitLocalMutation =
         !options.updatedAt && options.recordHistory !== false;
-      if (explicitLocalMutation) {
+      const mutationStartsAtUndoGeneration =
+        clipboardUndoBaseline === undefined ||
+        previousContent === clipboardUndoBaseline ||
+        nextContent === clipboardUndoBaseline;
+      if (explicitLocalMutation && mutationStartsAtUndoGeneration) {
         clipboardUndoBaselineRef.current.delete(activeFile.id);
       }
       const staleUntrackedReplay =
         clipboardUndoBaseline !== undefined &&
-        !options.updatedAt &&
-        options.recordHistory === false &&
-        nextContent !== clipboardUndoBaseline;
+        nextContent !== clipboardUndoBaseline &&
+        !mutationStartsAtUndoGeneration;
       if (staleUntrackedReplay) {
         // A pre-undo untracked rewrite arrived late. It is neither an explicit
         // user mutation nor an acknowledgement of the current generation.
@@ -11617,14 +11620,17 @@ function DesignEditor() {
         clipboardUndoBaselineRef.current.get(fileId);
       const explicitLocalMutation =
         !options.updatedAt && options.recordHistory !== false;
-      if (explicitLocalMutation) {
+      const mutationStartsAtUndoGeneration =
+        clipboardUndoBaseline === undefined ||
+        previousContent === clipboardUndoBaseline ||
+        nextContent === clipboardUndoBaseline;
+      if (explicitLocalMutation && mutationStartsAtUndoGeneration) {
         clipboardUndoBaselineRef.current.delete(fileId);
       }
       const staleUntrackedReplay =
         clipboardUndoBaseline !== undefined &&
-        !options.updatedAt &&
-        options.recordHistory === false &&
-        nextContent !== clipboardUndoBaseline;
+        nextContent !== clipboardUndoBaseline &&
+        !mutationStartsAtUndoGeneration;
       if (staleUntrackedReplay) {
         // Same generation rule as the active-file path above.
       } else if (!options.updatedAt || !clipboardLineage) {
