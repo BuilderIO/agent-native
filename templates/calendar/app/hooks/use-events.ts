@@ -436,6 +436,7 @@ export function useDeleteEvent() {
     },
     {
       id: string;
+      accountEmail?: string;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;

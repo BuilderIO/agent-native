@@ -89,6 +89,7 @@ import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
 } from "@/lib/event-form-utils";
+import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
 
@@ -653,11 +654,15 @@ export default function CalendarView() {
           const createdEventId = result?.id;
           if (createdEventId) {
             const undo = () => {
-              deleteEvent.mutate({
-                id: createdEventId,
-                scope: "single",
-                sendUpdates: "none",
-              });
+              deleteEvent.mutate(
+                buildDeleteEventMutationInput(
+                  {
+                    id: createdEventId,
+                    accountEmail: result.accountEmail ?? draft.accountEmail,
+                  },
+                  { scope: "single", sendUpdates: "none" },
+                ),
+              );
             };
             setUndoAction(undo);
           }
@@ -846,12 +851,11 @@ export default function CalendarView() {
           };
 
       deleteEvent.mutate(
-        {
-          id: ev.id,
+        buildDeleteEventMutationInput(ev, {
           scope: "single",
           ...guestNotification,
           removeOnly,
-        },
+        }),
         {
           onSuccess: () => {
             if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
@@ -1277,12 +1281,13 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (!ev || ev.title === "(No title)") {
-        deleteEvent.mutate({
-          id: eventId,
-          scope: "single",
-          sendUpdates: "none",
-        });
+      if (ev?.title === "(No title)") {
+        deleteEvent.mutate(
+          buildDeleteEventMutationInput(ev, {
+            scope: "single",
+            sendUpdates: "none",
+          }),
+        );
       }
     },
     [discardDraftEvent, events, deleteEvent],
@@ -1748,6 +1753,7 @@ export default function CalendarView() {
                 visibility: snapshot.visibility,
                 reminders: snapshot.reminders,
                 remindersUseDefault: snapshot.remindersUseDefault,
+                accountEmail: snapshot.accountEmail,
                 outOfOfficeProperties: snapshot.outOfOfficeProperties,
                 focusTimeProperties: snapshot.focusTimeProperties,
                 workingLocationProperties: snapshot.workingLocationProperties,
@@ -1759,7 +1765,7 @@ export default function CalendarView() {
               setSidebarEvent(null);
             }
             deleteEvent.mutate(
-              { id: eventId, ...options },
+              buildDeleteEventMutationInput(snapshot, options),
               {
                 onSuccess: () => {
                   setUndoAction(undo);
