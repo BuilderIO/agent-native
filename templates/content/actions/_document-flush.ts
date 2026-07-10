@@ -16,13 +16,13 @@ const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
 
 function parseAwarenessState(state: string): {
-  canFlushDocument?: boolean;
+  canFlushDocument?: unknown;
   visible?: boolean;
   user?: { email?: unknown };
 } | null {
   try {
     return JSON.parse(state) as {
-      canFlushDocument?: boolean;
+      canFlushDocument?: unknown;
       visible?: boolean;
       user?: { email?: unknown };
     };
@@ -31,26 +31,26 @@ function parseAwarenessState(state: string): {
   }
 }
 
-function awarenessSessionEmail(entry: {
+function awarenessFlushCandidate(entry: {
   clientId: number;
   state: string;
-}): string | null {
+}): { sessionEmail: string | null; required: boolean } | null {
   if (entry.clientId === AGENT_CLIENT_ID) return null;
   const state = parseAwarenessState(entry.state);
   if (!state || state.visible === false || !state.user) return null;
+  // New clients publish an exact boolean. `false` is a known read-only viewer
+  // and must never block. A missing field is a pre-deploy client which may be
+  // an editor, so offer it the old handshake on a best-effort basis. Invalid
+  // values are neither a trustworthy editor capability nor a legacy omission.
+  if (state.canFlushDocument !== true && state.canFlushDocument !== undefined) {
+    return null;
+  }
   const email = state.user.email;
-  return typeof email === "string" && email.trim() ? email.trim() : null;
-}
-
-function isActiveFlushCapableAwareness(entry: {
-  clientId: number;
-  state: string;
-}): boolean {
-  if (entry.clientId === AGENT_CLIENT_ID) return false;
-  const state = parseAwarenessState(entry.state);
-  return (
-    !!state?.user && state.visible !== false && state.canFlushDocument === true
-  );
+  return {
+    sessionEmail:
+      typeof email === "string" && email.trim() ? email.trim() : null,
+    required: state.canFlushDocument === true,
+  };
 }
 
 export async function flushOpenDocumentEditorToSql(args: {
@@ -62,17 +62,24 @@ export async function flushOpenDocumentEditorToSql(args: {
   // for an explicit request-id-matched acknowledgement.
   if (!(await hasCollabState(args.documentId))) return;
 
-  // Persisted Yjs state outlives browser tabs. Only require a handshake while
-  // at least one non-expired human awareness row explicitly says its editor can
-  // service the flush request. Viewers also publish awareness so they can see
-  // live cursors, but their read-only editor never polls this request. Treating
-  // viewer presence as a blocker would make pull/push/conflict actions time out
-  // even though SQL is already their authoritative snapshot.
+  // Persisted Yjs state outlives browser tabs. Modern clients distinguish
+  // editors (`true`) from viewers (`false`), so only the former are a hard
+  // freshness barrier. Pre-deploy tabs omit the field; they still know how to
+  // service this request, but may also be legacy viewers, so offer them the
+  // bounded handshake without failing if they stay silent. This preserves live
+  // legacy editor changes without making viewer-only tabs time out sync actions.
   const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
-  const flushCapableRows = awarenessRows.filter(isActiveFlushCapableAwareness);
-  if (flushCapableRows.length === 0) return;
-  const activeSessionEmails = flushCapableRows
-    .map(awarenessSessionEmail)
+  const flushCandidates = awarenessRows
+    .map(awarenessFlushCandidate)
+    .filter((candidate): candidate is NonNullable<typeof candidate> => {
+      return candidate !== null;
+    });
+  if (flushCandidates.length === 0) return;
+  const acknowledgementRequired = flushCandidates.some(
+    (candidate) => candidate.required,
+  );
+  const activeSessionEmails = flushCandidates
+    .map((candidate) => candidate.sessionEmail)
     .filter((email): email is string => !!email);
 
   const flushKey = `flush-request-${args.documentId}`;
@@ -91,6 +98,7 @@ export async function flushOpenDocumentEditorToSql(args: {
     ),
   );
   if (targetSessions.length === 0) {
+    if (!acknowledgementRequired) return;
     throw new Error("Could not identify the open document editor to flush.");
   }
 
@@ -112,6 +120,7 @@ export async function flushOpenDocumentEditorToSql(args: {
     (_session, index) => writes[index]?.status === "fulfilled",
   );
   if (writtenSessions.length === 0) {
+    if (!acknowledgementRequired) return;
     throw new Error("Could not ask the open document editor to save.");
   }
 
@@ -160,7 +169,7 @@ export async function flushOpenDocumentEditorToSql(args: {
   if (flushError) {
     throw new Error(flushError);
   }
-  if (!acknowledged) {
+  if (!acknowledged && acknowledgementRequired) {
     throw new Error(
       "The open document editor did not finish saving before sync timed out.",
     );
