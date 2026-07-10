@@ -35,7 +35,18 @@ export class IntegrationClientError extends Error {
 }
 
 async function readResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json().catch(() => null);
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    if (response.ok) {
+      throw new IntegrationClientError(
+        "Integration response was not valid JSON.",
+        response.status,
+      );
+    }
+    payload = null;
+  }
   if (response.ok) return payload as T;
 
   const error =

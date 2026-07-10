@@ -7,7 +7,8 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { getRouterParam, readRawBody, setResponseStatus } from "h3";
+import { getHeader, getRouterParam, setResponseStatus } from "h3";
+import type { H3Event } from "h3";
 import { z } from "zod";
 
 import { defineAction } from "../action.js";
@@ -209,6 +210,16 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
+function bytesToString(chunks: readonly Uint8Array[], byteCount: number): string {
+  const bytes = new Uint8Array(byteCount);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 function clampBytes(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(1, Math.min(Math.floor(value!), 1024 * 1024));
@@ -325,14 +336,92 @@ async function readBoundedResponse(
   response: Response,
   maxBytes: number,
 ): Promise<{ value: unknown; truncated: boolean }> {
-  const text = await response.text();
-  const truncated = byteLength(text) > maxBytes;
-  const bounded = truncated ? text.slice(0, maxBytes) : text;
+  const reader = response.body?.getReader();
+  if (!reader) return { value: "", truncated: false };
+
+  const chunks: Uint8Array[] = [];
+  let byteCount = 0;
+  let truncated = false;
+  const declaredLength = Number(response.headers.get("content-length"));
+  const declaredOversize =
+    Number.isFinite(declaredLength) && declaredLength > maxBytes;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength === 0) continue;
+
+      const remaining = maxBytes - byteCount;
+      if (value.byteLength > remaining) {
+        if (remaining > 0) chunks.push(value.subarray(0, remaining));
+        byteCount += remaining;
+        truncated = true;
+        await reader.cancel().catch(() => {});
+        break;
+      }
+
+      chunks.push(value);
+      byteCount += value.byteLength;
+      if (byteCount === maxBytes && declaredOversize) {
+        truncated = true;
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bounded = bytesToString(chunks, byteCount);
   try {
     return { value: JSON.parse(bounded), truncated };
   } catch {
     return { value: bounded, truncated };
   }
+}
+
+function payloadTooLarge(maxBytes: number): AutomationConnectorError {
+  return new AutomationConnectorError(
+    "payload_too_large",
+    `Callback exceeds the ${maxBytes}-byte limit.`,
+  );
+}
+
+async function readBoundedRequestBody(
+  event: H3Event,
+  maxBytes: number,
+): Promise<string> {
+  const contentLength = getHeader(event, "content-length");
+  if (contentLength) {
+    const declared = Number(contentLength);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw payloadTooLarge(maxBytes);
+    }
+  }
+
+  const body = event.req.body;
+  if (!body) return "";
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteCount = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength === 0) continue;
+      if (byteCount + value.byteLength > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw payloadTooLarge(maxBytes);
+      }
+      chunks.push(value);
+      byteCount += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return bytesToString(chunks, byteCount);
 }
 
 function shouldRetry(status: number): boolean {
@@ -470,10 +559,10 @@ export function createAutomationRuntime(
             `Workflow request to ${responseTarget(target)} timed out.`,
           );
         }
-        if (
-          attempt < attempts &&
-          !(lastError instanceof AutomationConnectorError)
-        ) {
+        const retryable =
+          abort.signal.aborted ||
+          !(lastError instanceof AutomationConnectorError);
+        if (attempt < attempts && retryable) {
           await new Promise((resolve) =>
             setTimeout(resolve, workflow.outbound!.retry?.retryDelayMs ?? 250),
           );
@@ -542,9 +631,10 @@ export function createAutomationRuntime(
       );
     }
 
-    const eventId =
-      input.headers.get(workflow.inbound.eventIdHeader ?? "x-event-id") ??
-      createHmac("sha256", workflow.id).update(input.rawBody).digest("hex");
+    const suppliedEventId = input.headers
+      .get(workflow.inbound.eventIdHeader ?? "x-event-id")
+      ?.trim();
+    let eventId: string;
     if (workflow.inbound.triggersAgentExecution) {
       if (!options.claimInboundEvent || !options.enqueueInboundEvent) {
         throw new AutomationConnectorError(
@@ -552,6 +642,13 @@ export function createAutomationRuntime(
           "Agent-triggering callbacks require durable idempotency and queue handlers.",
         );
       }
+      if (!suppliedEventId) {
+        throw new AutomationConnectorError(
+          "missing_idempotency",
+          "Agent-triggering callbacks require a stable provider event ID.",
+        );
+      }
+      eventId = suppliedEventId;
       const claimed = await options.claimInboundEvent({ workflow, eventId });
       if (!claimed) return { accepted: true, duplicate: true, eventId };
       let payload: unknown = input.rawBody;
@@ -561,6 +658,10 @@ export function createAutomationRuntime(
         // A plain-text callback is permitted; the payload bound above still applies.
       }
       await options.enqueueInboundEvent({ workflow, eventId, payload });
+    } else {
+      eventId =
+        suppliedEventId ??
+        createHmac("sha256", workflow.id).update(input.rawBody).digest("hex");
     }
     return { accepted: true, duplicate: false, eventId };
   }
@@ -617,14 +718,28 @@ export function createInvokeAutomationWorkflowAction(
  * durably enqueues work before returning a quick acknowledgement.
  */
 export function createAutomationCallbackHandler(runtime: AutomationRuntime) {
-  return async (event: Parameters<typeof readRawBody>[0]) => {
+  return async (event: H3Event) => {
     const workflowId = getRouterParam(event, "workflowId");
     if (!workflowId) {
       setResponseStatus(event, 404);
       return { error: "Unknown automation workflow." };
     }
-    const rawBody = (await readRawBody(event)) ?? "";
     try {
+      const workflow = runtime.getWorkflow(workflowId);
+      if (
+        !workflow?.inbound ||
+        !workflow.capabilities.receivesCallback
+      ) {
+        throw new AutomationConnectorError(
+          workflow ? "unsupported_direction" : "unknown_workflow",
+          "Unknown automation callback.",
+        );
+      }
+      const maxRequestBytes = clampBytes(
+        workflow.inbound.maxRequestBytes,
+        DEFAULT_MAX_REQUEST_BYTES,
+      );
+      const rawBody = await readBoundedRequestBody(event, maxRequestBytes);
       const result = await runtime.receiveCallback({
         workflowId,
         rawBody,

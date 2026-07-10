@@ -38,8 +38,6 @@ function shouldRefuseWhenSecretMissing(): boolean {
  * - WHATSAPP_ACCESS_TOKEN — Permanent access token from Meta
  * - WHATSAPP_VERIFY_TOKEN — Custom token for webhook verification
  * - WHATSAPP_PHONE_NUMBER_ID — Phone number ID from Meta dashboard
- *
- * Optional env vars:
  * - WHATSAPP_APP_SECRET — App secret for signature verification
  */
 export function whatsappAdapter(): PlatformAdapter {
@@ -232,6 +230,13 @@ export function whatsappAdapter(): PlatformAdapter {
       };
     },
 
+    getLegacyExternalThreadIds(incoming: IncomingMessage): string[] {
+      const from = incoming.platformContext.from ?? incoming.senderId;
+      return typeof from === "string" || typeof from === "number"
+        ? [String(from)]
+        : [];
+    },
+
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
@@ -291,7 +296,9 @@ export function whatsappAdapter(): PlatformAdapter {
       const hasPhoneNumberId = !!(await resolveSecret(
         "WHATSAPP_PHONE_NUMBER_ID",
       ));
-      const configured = hasAccessToken && hasVerifyToken && hasPhoneNumberId;
+      const hasAppSecret = !!(await resolveSecret("WHATSAPP_APP_SECRET"));
+      const configured =
+        hasAccessToken && hasVerifyToken && hasPhoneNumberId && hasAppSecret;
 
       return {
         platform: "whatsapp",
@@ -302,9 +309,10 @@ export function whatsappAdapter(): PlatformAdapter {
           hasAccessToken,
           hasVerifyToken,
           hasPhoneNumberId,
+          hasAppSecret,
         },
         error: !configured
-          ? "Save WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, and WHATSAPP_PHONE_NUMBER_ID in settings"
+          ? "Save WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_APP_SECRET in settings"
           : undefined,
       };
     },

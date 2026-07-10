@@ -38,8 +38,6 @@ function shouldRefuseWhenSecretMissing(): boolean {
  *
  * Required env vars:
  * - TELEGRAM_BOT_TOKEN — Bot token from @BotFather
- *
- * Optional env vars:
  * - TELEGRAM_WEBHOOK_SECRET — Secret token for webhook verification
  */
 export function telegramAdapter(): PlatformAdapter {
@@ -186,6 +184,13 @@ export function telegramAdapter(): PlatformAdapter {
       };
     },
 
+    getLegacyExternalThreadIds(incoming: IncomingMessage): string[] {
+      const chatId = incoming.platformContext.chatId;
+      return typeof chatId === "string" || typeof chatId === "number"
+        ? [String(chatId)]
+        : [];
+    },
+
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
@@ -302,6 +307,10 @@ export function telegramAdapter(): PlatformAdapter {
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       const hasToken = !!token;
+      const hasWebhookSecret = !!(await resolveSecret(
+        "TELEGRAM_WEBHOOK_SECRET",
+      ));
+      const configured = hasToken && hasWebhookSecret;
 
       let botName: string | undefined;
       if (hasToken) {
@@ -321,12 +330,15 @@ export function telegramAdapter(): PlatformAdapter {
         platform: "telegram",
         label: "Telegram",
         enabled: false, // overridden by plugin
-        configured: hasToken,
+        configured,
         details: {
           hasToken,
+          hasWebhookSecret,
           botUsername: botName,
         },
-        error: !hasToken ? "Save TELEGRAM_BOT_TOKEN in settings" : undefined,
+        error: !configured
+          ? "Save TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in settings"
+          : undefined,
       };
     },
   };
