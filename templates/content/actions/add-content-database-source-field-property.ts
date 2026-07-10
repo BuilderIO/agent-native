@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -368,24 +368,6 @@ export default defineAction({
       throw new Error("The title source field is already mapped to Name.");
     }
 
-    const now = new Date().toISOString();
-    const visibility = normalizePropertyVisibility(undefined);
-    const [maxPos] = await db
-      .select({
-        max: sql<number>`COALESCE(MAX(position), -1)`,
-      })
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        and(
-          eq(
-            schema.documentPropertyDefinitions.ownerEmail,
-            database.ownerEmail,
-          ),
-          eq(schema.documentPropertyDefinitions.databaseId, database.id),
-        ),
-      );
-    const propertyId = nanoid();
-
     // A federated secondary source's rows have no local document (they join by
     // canonical key), so we don't materialize their values into
     // documentPropertyValues — the read path overlays them per row at query
@@ -401,7 +383,7 @@ export default defineAction({
     }
     const isSecondary = federationRole === "secondary";
 
-    let sourceRows = isSecondary
+    const initialSourceRows = isSecondary
       ? []
       : await db
           .select()
@@ -410,7 +392,10 @@ export default defineAction({
     const shouldRefreshBuilderField =
       !isSecondary &&
       source.sourceType === "builder-cms" &&
-      sourceRows.some((row) => !hasSourceFieldValue(row, field.sourceFieldKey));
+      initialSourceRows.some(
+        (row) => !hasSourceFieldValue(row, field.sourceFieldKey),
+      );
+    let builderEntries: BuilderCmsSourceEntry[] | null = null;
     if (shouldRefreshBuilderField) {
       // Read before writing so a Builder outage cannot leave behind a cleanly
       // reported but empty property. Start at zero even when the source's
@@ -419,7 +404,10 @@ export default defineAction({
       const builderRead = await readBuilderCmsContentEntries({
         model: source.sourceTable,
         fieldPaths: [field.sourceFieldKey],
-        limit: Math.max(BUILDER_FIELD_REFRESH_MINIMUM_LIMIT, sourceRows.length),
+        limit: Math.max(
+          BUILDER_FIELD_REFRESH_MINIMUM_LIMIT,
+          initialSourceRows.length,
+        ),
         offset: 0,
       });
       if (builderRead.state !== "live") {
@@ -428,145 +416,218 @@ export default defineAction({
             "Builder CMS could not refresh this field. No property was created.",
         );
       }
-      if (sourceRows.length > 0 && builderRead.entries.length === 0) {
+      if (initialSourceRows.length > 0 && builderRead.entries.length === 0) {
         throw new Error(
           "Builder CMS returned no entries for this source. No property was created; refresh the source and try again.",
         );
       }
-      const merged = mergeBuilderFieldIntoSourceRows({
-        rows: sourceRows,
-        entries: builderRead.entries,
-        sourceTable: source.sourceTable,
-        sourceFieldKey: field.sourceFieldKey,
-        now,
-      });
-      if (merged.matchedMissingRows === 0) {
-        throw new Error(
-          "Builder CMS entries did not match the stored source rows. No property was created; refresh the source and try again.",
-        );
+      builderEntries = builderRead.entries;
+    }
+
+    // Keep the local snapshot, property definition, mapping, and materialized
+    // values atomic. Re-read rows after the provider request so a concurrent
+    // source refresh cannot be overwritten by the older pre-request snapshot.
+    return await db.transaction(async (tx) => {
+      const now = new Date().toISOString();
+      const visibility = normalizePropertyVisibility(undefined);
+      const propertyId = nanoid();
+      const [currentField] = await tx
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+      if (!currentField) throw new Error("Source field not found.");
+      if (currentField.propertyId) {
+        throw new Error("Source field is already mapped to a property.");
       }
-      if (
-        merged.matchedMissingRows < merged.missingRows &&
-        builderRead.entries.length >= builderRead.progress.requestedLimit
+      if (currentField.mappingType === "title") {
+        throw new Error("The title source field is already mapped to Name.");
+      }
+
+      let sourceRows = isSecondary
+        ? []
+        : await tx
+            .select()
+            .from(schema.contentDatabaseSourceRows)
+            .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      if (builderEntries) {
+        const merged = mergeBuilderFieldIntoSourceRows({
+          rows: sourceRows,
+          entries: builderEntries,
+          sourceTable: source.sourceTable,
+          sourceFieldKey: currentField.sourceFieldKey,
+          now,
+        });
+        if (merged.matchedMissingRows < merged.missingRows) {
+          throw new Error(
+            "Builder CMS did not return entries for every stored source row. No property was created; refresh the source and try again.",
+          );
+        }
+        for (let index = 0; index < merged.rows.length; index += 1) {
+          const currentRow = sourceRows[index];
+          const mergedRow = merged.rows[index];
+          if (
+            !currentRow ||
+            !mergedRow ||
+            currentRow.sourceValuesJson === mergedRow.sourceValuesJson
+          ) {
+            continue;
+          }
+          const [updatedRow] = await tx
+            .update(schema.contentDatabaseSourceRows)
+            .set({
+              sourceValuesJson: mergedRow.sourceValuesJson,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.id, currentRow.id),
+                eq(
+                  schema.contentDatabaseSourceRows.sourceValuesJson,
+                  currentRow.sourceValuesJson,
+                ),
+              ),
+            )
+            .returning({ id: schema.contentDatabaseSourceRows.id });
+          if (!updatedRow) {
+            throw new Error(
+              "The Builder source changed while adding this property. No property was created; try again.",
+            );
+          }
+        }
+        sourceRows = merged.rows;
+      } else if (
+        source.sourceType === "builder-cms" &&
+        sourceRows.some(
+          (row) => !hasSourceFieldValue(row, currentField.sourceFieldKey),
+        )
       ) {
         throw new Error(
-          "Builder CMS could not refresh this field for every stored source row within the read limit. No property was created; refresh the source and try again.",
+          "The Builder source changed while adding this property. No property was created; try again.",
         );
       }
-      const refreshedRows = merged.rows.filter((row, index) => {
-        return row.sourceValuesJson !== sourceRows[index]?.sourceValuesJson;
+
+      const builderMetadata = builderMetadataForSourceField({
+        sourceFieldKey: currentField.sourceFieldKey,
+        sourceMetadataJson: source.metadataJson,
       });
-      if (refreshedRows.length > 0) {
-        await db
-          .insert(schema.contentDatabaseSourceRows)
-          .values(refreshedRows)
-          .onConflictDoUpdate({
-            target: schema.contentDatabaseSourceRows.id,
-            set: {
-              sourceValuesJson: sql`excluded.source_values_json`,
-              updatedAt: sql`excluded.updated_at`,
-            },
-          });
-      }
-      sourceRows = merged.rows;
-    }
-    const builderMetadata = builderMetadataForSourceField({
-      sourceFieldKey: field.sourceFieldKey,
-      sourceMetadataJson: source.metadataJson,
-    });
-    const type = propertyTypeForSourceField(
-      field.sourceFieldType,
-      builderMetadata,
-    );
-    const options = sourceFieldPropertyOptions({
-      type,
-      metadata: builderMetadata,
-      rows: sourceRows,
-      sourceFieldKey: field.sourceFieldKey,
-    });
-
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
-      ownerEmail: database.ownerEmail,
-      orgId: database.orgId ?? null,
-      databaseId: database.id,
-      name: field.sourceFieldLabel,
-      type,
-      visibility,
-      optionsJson: serializePropertyOptions(options),
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await db
-      .update(schema.contentDatabaseSourceFields)
-      .set({
-        propertyId,
-        localFieldKey: propertyId,
-        mappingType: "property",
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceFields.id, field.id));
-
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
-
-    const itemValues = sourceFieldPropertyValuesFromRows(
-      sourceRows,
-      field.sourceFieldKey,
-      type,
-      options,
-    );
-    if (itemValues.length > 0) {
-      for (const chunk of chunks(itemValues, 200)) {
-        await db.insert(schema.documentPropertyValues).values(
-          chunk.map((row) => ({
-            id: nanoid(),
-            ownerEmail: database.ownerEmail,
-            documentId: row.documentId,
-            propertyId,
-            valueJson: serializePropertyValue(row.value),
-            createdAt: now,
-            updatedAt: now,
-          })),
+      const type = propertyTypeForSourceField(
+        currentField.sourceFieldType,
+        builderMetadata,
+      );
+      const options = sourceFieldPropertyOptions({
+        type,
+        metadata: builderMetadata,
+        rows: sourceRows,
+        sourceFieldKey: currentField.sourceFieldKey,
+      });
+      const [maxPos] = await tx
+        .select({
+          max: sql<number>`COALESCE(MAX(position), -1)`,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
+            ),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          ),
         );
-      }
-    }
+      const position = (maxPos?.max ?? -1) + 1;
 
-    const sourceField = serializeSourceField(
-      {
-        ...field,
-        propertyId,
-        localFieldKey: propertyId,
-        mappingType: "property",
+      await tx.insert(schema.documentPropertyDefinitions).values({
+        id: propertyId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId ?? null,
+        databaseId: database.id,
+        name: currentField.sourceFieldLabel,
+        type,
+        visibility,
+        optionsJson: serializePropertyOptions(options),
+        position,
+        createdAt: now,
         updatedAt: now,
-      },
-      field.sourceFieldLabel,
-    );
+      });
 
-    return {
-      databaseId: database.id,
-      documentId: database.documentId,
-      property: {
-        definition: {
-          id: propertyId,
-          databaseId: database.id,
-          name: field.sourceFieldLabel,
-          type,
-          visibility,
-          options,
-          position: (maxPos?.max ?? -1) + 1,
-          createdAt: now,
+      const [mappedField] = await tx
+        .update(schema.contentDatabaseSourceFields)
+        .set({
+          propertyId,
+          localFieldKey: propertyId,
+          mappingType: "property",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.id, currentField.id),
+            isNull(schema.contentDatabaseSourceFields.propertyId),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceFields.id });
+      if (!mappedField) {
+        throw new Error("Source field is already mapped to a property.");
+      }
+
+      await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(eq(schema.contentDatabaseSources.id, source.id));
+
+      const itemValues = sourceFieldPropertyValuesFromRows(
+        sourceRows,
+        currentField.sourceFieldKey,
+        type,
+        options,
+      );
+      if (itemValues.length > 0) {
+        for (const chunk of chunks(itemValues, 200)) {
+          await tx.insert(schema.documentPropertyValues).values(
+            chunk.map((row) => ({
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId: row.documentId,
+              propertyId,
+              valueJson: serializePropertyValue(row.value),
+              createdAt: now,
+              updatedAt: now,
+            })),
+          );
+        }
+      }
+
+      const sourceField = serializeSourceField(
+        {
+          ...currentField,
+          propertyId,
+          localFieldKey: propertyId,
+          mappingType: "property",
           updatedAt: now,
         },
-        value: null,
-        editable: true,
-      },
-      sourceField,
-      itemValues,
-    };
+        currentField.sourceFieldLabel,
+      );
+
+      return {
+        databaseId: database.id,
+        documentId: database.documentId,
+        property: {
+          definition: {
+            id: propertyId,
+            databaseId: database.id,
+            name: currentField.sourceFieldLabel,
+            type,
+            visibility,
+            options,
+            position,
+            createdAt: now,
+            updatedAt: now,
+          },
+          value: null,
+          editable: true,
+        },
+        sourceField,
+        itemValues,
+      };
+    });
   },
 });

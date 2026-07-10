@@ -585,6 +585,185 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(propertyValues).toHaveLength(2);
   });
 
+  it("preserves a concurrent source field update while refreshing Topics", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    let notifyBuilderReadStarted: () => void = () => {};
+    const builderReadStarted = new Promise<void>((resolve) => {
+      notifyBuilderReadStarted = resolve;
+    });
+    let releaseBuilderRead: () => void = () => {};
+    const builderReadReleased = new Promise<void>((resolve) => {
+      releaseBuilderRead = resolve;
+    });
+    vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    ).mockImplementation(async () => {
+      notifyBuilderReadStarted();
+      await builderReadReleased;
+      return {
+        state: "live" as const,
+        entries: [
+          {
+            id: f.rows[0].entryId,
+            model: "blog-article",
+            title: f.rows[0].title,
+            urlPath: "/first-article",
+            updatedAt: f.now,
+            sourceValues: { "data.topics": ["Agent Native"] },
+          },
+          {
+            id: f.rows[1].entryId,
+            model: "blog-article",
+            title: f.rows[1].title,
+            urlPath: "/second-article",
+            updatedAt: f.now,
+            sourceValues: { "data.topics": ["Developer Experience"] },
+          },
+        ],
+        fetchedAt: f.now,
+        message: null,
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 2,
+          fetchedEntryCount: 2,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api" as const,
+        },
+      };
+    });
+
+    const addPromise = asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+    await builderReadStarted;
+
+    const db = getDb();
+    const [rowDuringRead] = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.sourceRowId, f.rows[0].entryId),
+      );
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          ...JSON.parse(rowDuringRead.sourceValuesJson),
+          "data.concurrent": "preserve me",
+        }),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.id, rowDuringRead.id));
+    releaseBuilderRead();
+
+    const result = await addPromise;
+    expect(result.itemValues).toHaveLength(2);
+    const rowsAfterAdd = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    const valuesBySourceRowId = new Map(
+      rowsAfterAdd.map((row) => [
+        row.sourceRowId,
+        JSON.parse(row.sourceValuesJson) as Record<string, unknown>,
+      ]),
+    );
+    expect(valuesBySourceRowId.get(f.rows[0].entryId)).toMatchObject({
+      "data.concurrent": "preserve me",
+      "data.topics": ["Agent Native"],
+    });
+    expect(valuesBySourceRowId.get(f.rows[1].entryId)).toMatchObject({
+      "data.topics": ["Developer Experience"],
+    });
+  });
+
+  it("leaves every local write untouched when Builder omits a stored row", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    ).mockResolvedValue({
+      state: "live" as const,
+      entries: [
+        {
+          id: f.rows[0].entryId,
+          model: "blog-article",
+          title: f.rows[0].title,
+          urlPath: "/first-article",
+          updatedAt: f.now,
+          sourceValues: { "data.topics": ["Agent Native"] },
+        },
+      ],
+      fetchedAt: f.now,
+      message: null,
+      progress: {
+        requestedLimit: 500,
+        pageSize: 100,
+        startOffset: 0,
+        nextOffset: 1,
+        fetchedEntryCount: 1,
+        hasMore: false,
+        partial: false,
+        readMode: "builder-api" as const,
+      },
+    });
+
+    await expect(
+      asOwner(() =>
+        addSourceFieldPropertyAction.run({
+          documentId: f.databaseDocId,
+          sourceFieldId: f.fieldId,
+        }),
+      ),
+    ).rejects.toThrow(/every stored source row/i);
+
+    const db = getDb();
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    const [field] = await db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fieldId));
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        inArray(
+          schema.documentPropertyValues.documentId,
+          f.rows.map((row) => row.documentId),
+        ),
+      );
+    const sourceRows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    expect(properties).toHaveLength(0);
+    expect(field).toMatchObject({
+      propertyId: null,
+      localFieldKey: "data.topics",
+      updatedAt: f.now,
+    });
+    expect(source.updatedAt).toBe(f.now);
+    expect(propertyValues).toHaveLength(0);
+    expect(sourceRows.map((row) => JSON.parse(row.sourceValuesJson))).toEqual(
+      f.rows.map((row) => ({ "data.title": row.title })),
+    );
+    expect(sourceRows.every((row) => row.updatedAt === f.now)).toBe(true);
+  });
+
   it("leaves no property, mapping, values, or snapshot mutation when the Builder read fails", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     vi.spyOn(
