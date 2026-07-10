@@ -10,7 +10,7 @@ import {
   ensureIndexExists,
 } from "../db/ddl-guard.js";
 import { isDuplicateColumnError } from "../db/migrations.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
@@ -28,6 +28,7 @@ function buildCreateSql(): string {
     external_thread_id TEXT NOT NULL,
     incoming_payload TEXT NOT NULL,
     placeholder_ref TEXT,
+    progress_ref TEXT,
     owner_email TEXT NOT NULL,
     org_id TEXT,
     agent_name TEXT NOT NULL,
@@ -76,6 +77,11 @@ async function ensureTable(): Promise<void> {
           "dedupe_key",
           `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
         );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+        );
         await ensureIndexExists(
           "idx_a2a_continuations_dedupe_key",
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
@@ -101,6 +107,7 @@ async function ensureTable(): Promise<void> {
       );
       await addColumnIfMissing("a2a_auth_token", "TEXT");
       await addColumnIfMissing("dedupe_key", "TEXT");
+      await addColumnIfMissing("progress_ref", "TEXT");
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
@@ -142,6 +149,7 @@ export interface A2AContinuation {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef: string | null;
+  progressRef: PlatformRunProgressRef | null;
   ownerEmail: string;
   orgId: string | null;
   agentName: string;
@@ -158,6 +166,44 @@ export interface A2AContinuation {
   completedAt: number | null;
 }
 
+const MAX_PROGRESS_REF_KIND_CHARS = 128;
+const MAX_PROGRESS_REF_STREAM_TS_CHARS = 256;
+
+/**
+ * Keep only the tiny, adapter-owned continuation reference. Invalid rows are
+ * treated as unavailable rather than throwing during a retry sweep.
+ */
+function parseProgressRef(value: unknown): PlatformRunProgressRef | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const { kind, streamTs } = parsed as Record<string, unknown>;
+    if (
+      typeof kind !== "string" ||
+      typeof streamTs !== "string" ||
+      kind.length === 0 ||
+      streamTs.length === 0 ||
+      kind.length > MAX_PROGRESS_REF_KIND_CHARS ||
+      streamTs.length > MAX_PROGRESS_REF_STREAM_TS_CHARS
+    ) {
+      return null;
+    }
+    return { kind, streamTs };
+  } catch {
+    return null;
+  }
+}
+
+function serializeProgressRef(value: unknown): string | null {
+  const parsed = parseProgressRef(
+    typeof value === "string" ? value : JSON.stringify(value),
+  );
+  return parsed ? JSON.stringify(parsed) : null;
+}
+
 function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
   return {
     id: row.id as string,
@@ -166,6 +212,7 @@ function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
     externalThreadId: row.external_thread_id as string,
     incoming: JSON.parse(row.incoming_payload as string) as IncomingMessage,
     placeholderRef: (row.placeholder_ref as string | null) ?? null,
+    progressRef: parseProgressRef(row.progress_ref),
     ownerEmail: row.owner_email as string,
     orgId: (row.org_id as string | null) ?? null,
     agentName: row.agent_name as string,
@@ -190,6 +237,7 @@ export async function insertA2AContinuation(input: {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef?: string | null;
+  progressRef?: PlatformRunProgressRef | null;
   ownerEmail: string;
   orgId?: string | null;
   agentName: string;
@@ -203,14 +251,15 @@ export async function insertA2AContinuation(input: {
   const now = Date.now();
   const id = `a2a-cont-${now}-${Math.random().toString(36).slice(2, 8)}`;
   const payload = JSON.stringify(input.incoming);
+  const progressRef = serializeProgressRef(input.progressRef);
 
   try {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
+         placeholder_ref, progress_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -218,6 +267,7 @@ export async function insertA2AContinuation(input: {
         input.externalThreadId,
         payload,
         input.placeholderRef ?? null,
+        progressRef,
         input.ownerEmail,
         input.orgId ?? null,
         input.agentName,
@@ -462,7 +512,7 @@ export async function completeA2AContinuation(id: string): Promise<void> {
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, updated_at = ?, completed_at = ?,
-              incoming_payload = ?, a2a_auth_token = NULL
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status IN ('processing', 'delivering', 'completed')`,
     args: ["completed", now, now, "{}", id],
   });
@@ -478,7 +528,7 @@ export async function failA2AContinuation(
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, updated_at = ?, error_message = ?,
-              incoming_payload = ?, a2a_auth_token = NULL
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status <> 'completed'`,
     args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });

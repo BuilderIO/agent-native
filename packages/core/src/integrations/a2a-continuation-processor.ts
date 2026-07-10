@@ -18,7 +18,11 @@ import {
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
 import { signInternalToken } from "./internal-token.js";
-import type { PlatformAdapter } from "./types.js";
+import type {
+  OutgoingMessage,
+  PlatformAdapter,
+  PlatformRunProgress,
+} from "./types.js";
 
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-continuation`;
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
@@ -150,6 +154,8 @@ async function processClaimedContinuation(
     return;
   }
 
+  const progress = await resumeA2AContinuationProgress(continuation, adapter);
+
   const auth = await signContinuationToken(continuation);
   const client = new A2AClient(continuation.agentUrl, auth.apiKey, {
     requestTimeoutMs: POLL_REQUEST_TIMEOUT_MS,
@@ -162,6 +168,7 @@ async function processClaimedContinuation(
     while (Date.now() < deadline) {
       task = await client.getTask(continuation.a2aTaskId);
       if (TERMINAL_STATES.has(task.status.state)) break;
+      await reportA2AContinuationProgress(continuation, progress, task);
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
   } catch (err) {
@@ -171,6 +178,7 @@ async function processClaimedContinuation(
           continuation,
           adapter,
           remotePollFailureReason(continuation),
+          progress,
         );
         return;
       }
@@ -182,6 +190,7 @@ async function processClaimedContinuation(
         continuation,
         adapter,
         err instanceof Error ? err.message : String(err),
+        progress,
       );
       return;
     }
@@ -190,24 +199,12 @@ async function processClaimedContinuation(
   }
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
-    const recoverableArtifactText = extractRecoverableArtifactText(task);
-    if (recoverableArtifactText) {
-      await deliverAndCompleteA2AContinuation(
-        continuation,
-        adapter,
-        formatContinuationArtifactText(
-          recoverableArtifactText,
-          continuation.agentUrl,
-        ),
-      );
-      return;
-    }
-
     if (shouldStopPollingRemoteTask(continuation)) {
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
         remotePollFailureReason(continuation),
+        progress,
       );
       return;
     }
@@ -219,7 +216,7 @@ async function processClaimedContinuation(
     const reason =
       extractTaskText(task) ||
       `Remote A2A task ${continuation.a2aTaskId} ended with state ${task.status.state}`;
-    await notifyAndFailA2AContinuation(continuation, adapter, reason);
+    await notifyAndFailA2AContinuation(continuation, adapter, reason, progress);
     return;
   }
 
@@ -232,11 +229,64 @@ async function processClaimedContinuation(
       continuation,
       adapter,
       `Remote A2A task ${continuation.a2aTaskId} completed without text`,
+      progress,
     );
     return;
   }
 
-  await deliverAndCompleteA2AContinuation(continuation, adapter, text);
+  await deliverAndCompleteA2AContinuation(
+    continuation,
+    adapter,
+    text,
+    progress,
+  );
+}
+
+async function resumeA2AContinuationProgress(
+  continuation: A2AContinuation,
+  adapter: PlatformAdapter,
+): Promise<PlatformRunProgress | null> {
+  if (!continuation.progressRef || !adapter.resumeRunProgress) return null;
+  try {
+    const progress = await adapter.resumeRunProgress(
+      continuation.incoming,
+      continuation.progressRef,
+    );
+    if (!progress) return null;
+    await progress.onEvent({
+      type: "agent_call_progress",
+      agent: continuation.agentName,
+      state: "working",
+      elapsedSeconds: Math.max(
+        0,
+        Math.round((Date.now() - continuation.createdAt) / 1_000),
+      ),
+      detail: "Continuing in the background",
+    });
+    return progress;
+  } catch {
+    // A continuation still has a normal reply fallback. Do not log the
+    // opaque provider reference or the inbound message payload.
+    return null;
+  }
+}
+
+async function reportA2AContinuationProgress(
+  continuation: A2AContinuation,
+  progress: PlatformRunProgress | null,
+  task: Task,
+): Promise<void> {
+  if (!progress) return;
+  await progress.onEvent({
+    type: "agent_call_progress",
+    agent: continuation.agentName,
+    state: task.status.state,
+    elapsedSeconds: Math.max(
+      0,
+      Math.round((Date.now() - continuation.createdAt) / 1_000),
+    ),
+    detail: "Still working on the delegated request",
+  });
 }
 
 async function waitForContinuationDue(
@@ -262,6 +312,7 @@ async function notifyAndFailA2AContinuation(
   continuation: A2AContinuation,
   adapter: PlatformAdapter,
   reason: string,
+  progress: PlatformRunProgress | null = null,
 ): Promise<void> {
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
@@ -273,11 +324,14 @@ async function notifyAndFailA2AContinuation(
     reason,
   );
   try {
+    const outgoing = adapter.formatAgentResponse(message);
     await withTimeout(
-      adapter.sendResponse(
-        adapter.formatAgentResponse(message),
-        deliveryContinuation.incoming,
-        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
+      deliverA2AContinuationResponse(
+        adapter,
+        deliveryContinuation,
+        outgoing,
+        progress,
+        "error",
       ),
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} failure notification timed out`,
@@ -296,6 +350,7 @@ async function deliverAndCompleteA2AContinuation(
   continuation: A2AContinuation,
   adapter: PlatformAdapter,
   text: string,
+  progress: PlatformRunProgress | null = null,
 ): Promise<void> {
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
@@ -303,11 +358,14 @@ async function deliverAndCompleteA2AContinuation(
   if (!deliveryContinuation) return;
 
   try {
+    const outgoing = adapter.formatAgentResponse(text);
     await withTimeout(
-      adapter.sendResponse(
-        adapter.formatAgentResponse(text),
-        deliveryContinuation.incoming,
-        { placeholderRef: deliveryContinuation.placeholderRef ?? undefined },
+      deliverA2AContinuationResponse(
+        adapter,
+        deliveryContinuation,
+        outgoing,
+        progress,
+        "done",
       ),
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
@@ -325,6 +383,27 @@ async function deliverAndCompleteA2AContinuation(
   }
 
   await completeAfterSuccessfulDelivery(deliveryContinuation);
+}
+
+async function deliverA2AContinuationResponse(
+  adapter: PlatformAdapter,
+  continuation: A2AContinuation,
+  message: OutgoingMessage,
+  progress: PlatformRunProgress | null,
+  status: "done" | "error",
+): Promise<void> {
+  if (progress) {
+    await progress.onEvent({
+      type: "agent_call",
+      agent: continuation.agentName,
+      status,
+    });
+    await progress.complete(message);
+    return;
+  }
+  await adapter.sendResponse(message, continuation.incoming, {
+    placeholderRef: continuation.placeholderRef ?? undefined,
+  });
 }
 
 async function rescheduleAndRedispatchA2AContinuation(
@@ -522,13 +601,6 @@ function extractTaskText(task: Task): string {
     })
     .map((part) => part.text)
     .join("\n");
-}
-
-function extractRecoverableArtifactText(task: Task | null): string {
-  if (!task?.status.message?.metadata?.agentNativeRecoverableArtifacts) {
-    return "";
-  }
-  return extractTaskText(task);
 }
 
 function formatContinuationArtifactText(

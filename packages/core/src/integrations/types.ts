@@ -181,12 +181,31 @@ export interface PlatformAdapterCapabilities {
 }
 
 export interface PlatformRunProgress {
+  /**
+   * Opaque, provider-owned reference for resuming this progress surface from a
+   * durable continuation. It deliberately contains no user content,
+   * credentials, or provider payload.
+   */
+  ref?: PlatformRunProgressRef;
   /** Receive normalized agent events. Implementations should throttle writes. */
   onEvent(event: AgentChatEvent): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
   complete(message: OutgoingMessage): Promise<void>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
   fail?(message: string): Promise<void>;
+}
+
+/**
+ * Safe, minimal reference to a provider-native run-progress surface.
+ *
+ * The field values are opaque to the framework. Adapters may use `kind` to
+ * distinguish their own resume strategy and `streamTs` to identify the
+ * provider-side stream. No incoming message text, platform payload, or
+ * credential belongs here.
+ */
+export interface PlatformRunProgressRef {
+  kind: string;
+  streamTs: string;
 }
 
 export interface ImmediateWebhookResponse {
@@ -302,6 +321,17 @@ export interface PlatformAdapter {
   /** Start a provider-native progress/streaming surface for an agent run. */
   startRunProgress?(
     incoming: IncomingMessage,
+  ): Promise<PlatformRunProgress | null>;
+
+  /**
+   * Reattach a durable continuation to a provider-native progress surface
+   * previously started by this adapter. Adapters that cannot resume a native
+   * surface should omit this and the continuation will use its normal reply
+   * path instead.
+   */
+  resumeRunProgress?(
+    incoming: IncomingMessage,
+    ref: PlatformRunProgressRef,
   ): Promise<PlatformRunProgress | null>;
 
   /**
