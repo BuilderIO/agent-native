@@ -100,6 +100,7 @@ describe("integration webhook handler", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -160,6 +161,40 @@ describe("integration webhook handler", () => {
 
     expect(insertPendingTaskMock).toHaveBeenCalledOnce();
     expect(result).toEqual({ status: 200, body: { type: 5 } });
+  });
+
+  it("bounds dispatch settling for providers with a 3-second acknowledgement deadline", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    const incoming = createIncoming(1004);
+    const adapter = {
+      ...createAdapter(),
+      capabilities: { deferredWebhookResponse: true },
+      getImmediateWebhookResponse: () => ({
+        status: 200,
+        body: { type: 5 },
+      }),
+    };
+    let settled = false;
+    const response = handleWebhook(createEvent(), {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.advanceTimersByTimeAsync(249);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(response).resolves.toEqual({
+      status: 200,
+      body: { type: 5 },
+    });
   });
 
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {

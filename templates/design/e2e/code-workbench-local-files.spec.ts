@@ -10,7 +10,7 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "../../../packages/core/src/cli/design-connect";
-import { appPath, gotoEditor } from "./helpers";
+import { appPath } from "./helpers";
 
 let baseURL = "http://127.0.0.1:9333";
 let designId = "";
@@ -118,7 +118,12 @@ test.afterAll(async ({ request }) => {
 test("lists the spawned folder, preserves dirty buffers, and saves a local file", async ({
   page,
 }) => {
-  await gotoEditor(page, designId);
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByRole("button", { name: "Code", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Code", exact: true }).click();
 
   const rootName = path.basename(rootPath);

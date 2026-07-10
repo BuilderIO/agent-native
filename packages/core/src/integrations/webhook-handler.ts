@@ -55,6 +55,7 @@ import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { PlatformAdapter, IncomingMessage } from "./types.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
+const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 250;
 
 type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
 
@@ -376,10 +377,13 @@ async function enqueueAndDispatch(
   }).catch((err) => {
     console.error("[integrations] Failed to dispatch processor request:", err);
   });
+  const settleWaitMs = options.adapter.capabilities?.deferredWebhookResponse
+    ? DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS
+    : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
   await Promise.race([
     dispatchPromise,
     new Promise<void>((resolve) =>
-      setTimeout(resolve, PROCESSOR_DISPATCH_SETTLE_WAIT_MS),
+      setTimeout(resolve, settleWaitMs),
     ),
   ]);
 }
