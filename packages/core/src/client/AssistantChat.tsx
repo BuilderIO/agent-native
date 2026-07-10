@@ -354,6 +354,27 @@ function activeRunMatchesThread(
   return Boolean(threadId && state?.threadId === threadId && state.runId);
 }
 
+export function assistantMessageRunId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { runId?: unknown }; runId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.runId === "string"
+    ? metadata.custom.runId
+    : typeof metadata?.runId === "string"
+      ? metadata.runId
+      : undefined;
+}
+
+export function shouldAcceptRunError(args: {
+  errorRunId?: string;
+  activeRunId?: string;
+  latestAssistantRunId?: string;
+}): boolean {
+  if (!args.errorRunId) return true;
+  const expectedRunId = args.activeRunId ?? args.latestAssistantRunId;
+  return !expectedRunId || args.errorRunId === expectedRunId;
+}
+
 function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
@@ -3260,6 +3281,16 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:loop-limit", handler);
   }, [tabId]);
 
+  const latestAssistantRunId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== "assistant") continue;
+      const runId = assistantMessageRunId(message);
+      if (runId) return runId;
+    }
+    return undefined;
+  }, [messages]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as RunErrorInfo & {
@@ -3267,6 +3298,19 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
+      const activeRun = getActiveRun();
+      const activeRunId = activeRunMatchesThread(activeRun, threadId)
+        ? activeRun?.runId
+        : undefined;
+      if (
+        !shouldAcceptRunError({
+          errorRunId: detail.runId,
+          activeRunId,
+          latestAssistantRunId,
+        })
+      ) {
+        return;
+      }
       const stopped = userStoppedRunRef.current;
       if (
         stopped &&
@@ -3286,7 +3330,7 @@ const AssistantChatInner = forwardRef<
     };
     window.addEventListener("agent-chat:run-error", handler);
     return () => window.removeEventListener("agent-chat:run-error", handler);
-  }, [tabId]);
+  }, [latestAssistantRunId, tabId, threadId]);
 
   // Real activity means the next chunk has started. Surface longer-lived
   // activity such as "Still generating image" so active-run reconnects do not

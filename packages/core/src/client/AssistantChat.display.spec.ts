@@ -22,6 +22,7 @@ import { clearActiveRun, getActiveRun } from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
+  assistantMessageRunId,
   assistantUiRecoverableRenderErrorKind,
   dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
@@ -34,6 +35,7 @@ import {
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
@@ -100,6 +102,42 @@ describe("latestNonRecoveryUserMessageText", () => {
 
     expect(latestNonRecoveryUserMessageText(messages)).toBe(
       "Build a CS operations tool",
+    );
+  });
+});
+
+describe("shouldAcceptRunError", () => {
+  it("rejects an identified error from an older run", () => {
+    expect(
+      shouldAcceptRunError({
+        errorRunId: "run-old",
+        latestAssistantRunId: "run-current",
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts errors from the active run", () => {
+    expect(
+      shouldAcceptRunError({
+        errorRunId: "run-current",
+        activeRunId: "run-current",
+        latestAssistantRunId: "run-old",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts errors without a run id", () => {
+    expect(shouldAcceptRunError({ latestAssistantRunId: "run-current" })).toBe(
+      true,
+    );
+  });
+
+  it("reads live and persisted assistant run ids", () => {
+    expect(
+      assistantMessageRunId({ metadata: { custom: { runId: "run-live" } } }),
+    ).toBe("run-live");
+    expect(assistantMessageRunId({ metadata: { runId: "run-saved" } })).toBe(
+      "run-saved",
     );
   });
 });
