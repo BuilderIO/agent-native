@@ -101,7 +101,8 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Optional (only if you change defaults):",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_API_KEY (secret) + VISUAL_RECAP_AGENT=openai-compatible + VISUAL_RECAP_BASE_URL (variable) — use DeepSeek, Kimi, or any OpenAI-compatible API",
-  "  VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING (variables) — pin the model (e.g. gpt-5.6-sol) and reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
+  "  VISUAL_RECAP_MODEL (variable, required for openai-compatible) — provider model id; optional override for Claude/Codex",
+  "  VISUAL_RECAP_REASONING (variable) — reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -446,8 +447,68 @@ export interface RecapSetupPlan {
   workflowPath: string;
   workflowExists: boolean;
   requiredSecrets: string[];
+  requiredVariables: readonly RecapVariableRequirement[];
+  variableProblems: RecapVariableProblem[];
   variableValues: Record<string, string>;
   secretValues: Record<string, string | undefined>;
+}
+
+export interface RecapVariableRequirement {
+  name: "VISUAL_RECAP_BASE_URL" | "VISUAL_RECAP_MODEL";
+  example: string;
+}
+
+export interface RecapVariableProblem {
+  requirement: RecapVariableRequirement;
+  reason: string;
+}
+
+const OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS = [
+  {
+    name: "VISUAL_RECAP_BASE_URL",
+    example: "https://provider.example/v1",
+  },
+  { name: "VISUAL_RECAP_MODEL", example: "provider-model-id" },
+] as const satisfies readonly RecapVariableRequirement[];
+
+const RECAP_MODEL_PATTERN = /^[a-zA-Z0-9._-]{1,80}$/;
+
+export function validateOpenAiCompatibleRecapVariables(input: {
+  baseUrl?: string;
+  model?: string;
+}): RecapVariableProblem[] {
+  const [baseUrlRequirement, modelRequirement] =
+    OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS;
+  const problems: RecapVariableProblem[] = [];
+  const baseUrl = input.baseUrl?.trim() || "";
+  const rawModel = input.model || "";
+  const model = rawModel.trim();
+
+  try {
+    const parsed = normalizeOpenAiBaseUrl(baseUrl);
+    if (!parsed) throw new Error("empty");
+  } catch {
+    problems.push({
+      requirement: baseUrlRequirement,
+      reason:
+        "VISUAL_RECAP_BASE_URL must be a valid http(s) URL without credentials",
+    });
+  }
+
+  if (!model) {
+    problems.push({
+      requirement: modelRequirement,
+      reason: "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
+    });
+  } else if (!RECAP_MODEL_PATTERN.test(rawModel)) {
+    problems.push({
+      requirement: modelRequirement,
+      reason:
+        "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+    });
+  }
+
+  return problems;
 }
 
 export function buildRecapSetupPlan(input: {
@@ -463,6 +524,10 @@ export function buildRecapSetupPlan(input: {
   );
   const agent = normalizeRecapAgent(input.agent || env.VISUAL_RECAP_AGENT);
   const requiredSecrets = recapRequiredSecrets(agent);
+  const requiredVariables =
+    agent === "openai-compatible"
+      ? OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS
+      : [];
   const planToken =
     envValue(env, "PLAN_RECAP_TOKEN") ?? planTokenFromLocalStore(appUrl);
   const llmSecretName =
@@ -485,6 +550,13 @@ export function buildRecapSetupPlan(input: {
     const baseUrl = envValue(env, "VISUAL_RECAP_BASE_URL");
     if (baseUrl) variableValues.VISUAL_RECAP_BASE_URL = baseUrl;
   }
+  const variableProblems =
+    agent === "openai-compatible"
+      ? validateOpenAiCompatibleRecapVariables({
+          baseUrl: variableValues.VISUAL_RECAP_BASE_URL,
+          model: variableValues.VISUAL_RECAP_MODEL,
+        })
+      : [];
   return {
     agent,
     appUrl,
@@ -495,6 +567,8 @@ export function buildRecapSetupPlan(input: {
     ),
     workflowExists: fs.existsSync(recapWorkflowFile(input.baseDir)),
     requiredSecrets,
+    requiredVariables,
+    variableProblems,
     variableValues,
     secretValues: {
       PLAN_RECAP_TOKEN: planToken,
@@ -615,7 +689,12 @@ function runSetup(args: Record<string, string | boolean>): void {
       }
     }
 
+    const invalidVariableNames = new Set(
+      plan.variableProblems.map((problem) => problem.requirement.name),
+    );
     for (const [name, value] of Object.entries(plan.variableValues)) {
+      if (invalidVariableNames.has(name as RecapVariableRequirement["name"]))
+        continue;
       const status = setGithubVariable(name, value, repo, dryRun);
       if (status === "set") {
         lines.push(`  ${name}: set to ${value}.`);
@@ -628,15 +707,17 @@ function runSetup(args: Record<string, string | boolean>): void {
         );
       }
     }
-    if (
-      plan.agent === "openai-compatible" &&
-      !plan.variableValues.VISUAL_RECAP_BASE_URL
-    ) {
-      lines.push("  VISUAL_RECAP_BASE_URL: missing value.");
+    for (const problem of plan.variableProblems) {
+      const { requirement } = problem;
+      const hasValue = Boolean(plan.variableValues[requirement.name]);
+      lines.push(
+        `  ${requirement.name}: ${hasValue ? "invalid value" : "missing value"}.`,
+      );
+      lines.push(`    ${problem.reason}.`);
       lines.push(
         `    Set manually: ${commandForMissingVariable(
-          "VISUAL_RECAP_BASE_URL",
-          "https://provider.example/v1",
+          requirement.name,
+          requirement.example,
           repo,
         )}`,
       );
@@ -731,17 +812,31 @@ function runDoctor(args: Record<string, string | boolean>): void {
   } else {
     const configuredAgent = variables.get("VISUAL_RECAP_AGENT") || "claude";
     lines.push(`[ok] Recap backend variable: ${configuredAgent}.`);
-    if (plan.agent === "openai-compatible") {
-      const baseUrl = variables.get("VISUAL_RECAP_BASE_URL");
-      if (baseUrl) {
-        lines.push("[ok] OpenAI-compatible base URL configured.");
+    const remoteVariableProblems =
+      plan.agent === "openai-compatible"
+        ? validateOpenAiCompatibleRecapVariables({
+            baseUrl: variables.get("VISUAL_RECAP_BASE_URL"),
+            model: variables.get("VISUAL_RECAP_MODEL"),
+          })
+        : [];
+    const problemsByName = new Map(
+      remoteVariableProblems.map((problem) => [
+        problem.requirement.name,
+        problem,
+      ]),
+    );
+    for (const requirement of plan.requiredVariables) {
+      const problem = problemsByName.get(requirement.name);
+      if (!problem) {
+        lines.push(`[ok] GitHub variable configured: ${requirement.name}.`);
       } else {
         ok = false;
-        lines.push("[missing] OpenAI-compatible base URL variable missing.");
+        const hasValue = Boolean(variables.get(requirement.name)?.trim());
+        lines.push(`[${hasValue ? "invalid" : "missing"}] ${problem.reason}.`);
         lines.push(
           `  Set it with: ${commandForMissingVariable(
-            "VISUAL_RECAP_BASE_URL",
-            "https://provider.example/v1",
+            requirement.name,
+            requirement.example,
             repo,
           )}`,
         );
@@ -3443,24 +3538,22 @@ export function evaluateRecapGate(input: RecapGateInput): {
       reasons.push(
         "VISUAL_RECAP_API_KEY not configured (openai-compatible backend)",
       );
-    if (!input.model?.trim())
-      reasons.push(
-        "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
-      );
-    try {
-      const parsed = normalizeOpenAiBaseUrl(input.baseUrl ?? "");
-      if (!parsed) throw new Error("empty");
-    } catch {
-      reasons.push(
-        "VISUAL_RECAP_BASE_URL must be a valid http(s) URL without credentials",
-      );
-    }
+    reasons.push(
+      ...validateOpenAiCompatibleRecapVariables({
+        baseUrl: input.baseUrl,
+        model: input.model,
+      }).map((problem) => problem.reason),
+    );
   }
 
   // Validate VISUAL_RECAP_MODEL if set — an unchecked value could be injected by
   // a repo settings writer and passed straight to the agent CLI.
   const model = input.model || "";
-  if (model && !/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+  if (
+    agent !== "openai-compatible" &&
+    model &&
+    !RECAP_MODEL_PATTERN.test(model)
+  ) {
     reasons.push(
       "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
     );
@@ -4428,7 +4521,8 @@ Usage:
     commands; secret values are sent to gh through stdin, never argv.
   npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
-    repo access, and required GitHub Actions secrets for the selected backend.
+    repo access, and required GitHub Actions secrets and variables for the
+    selected backend, including provider-variable validity.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {

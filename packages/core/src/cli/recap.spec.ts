@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
+  PR_VISUAL_RECAP_SETUP,
   RECAP_DIFF_BYTE_CAP,
   appendGateSkipLine,
   buildRecapFailureDiagnostic,
@@ -39,6 +40,7 @@ import {
   readVisualRecapSkillBundle,
   readRecapSourcePayload,
   resolveGitHubPullRequestAuthor,
+  runRecap,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
   runShot,
@@ -717,6 +719,16 @@ describe("recap direct publish", () => {
 });
 
 describe("recap setup planning", () => {
+  it("documents the model as required for compatible providers", () => {
+    const guidance = PR_VISUAL_RECAP_SETUP.join("\n");
+    expect(guidance).toContain(
+      "VISUAL_RECAP_MODEL (variable, required for openai-compatible)",
+    );
+    expect(guidance).not.toContain(
+      "VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING",
+    );
+  });
+
   it("normalizes the supported recap agents", () => {
     expect(normalizeRecapAgent(undefined)).toBe("claude");
     expect(normalizeRecapAgent("Codex")).toBe("codex");
@@ -804,6 +816,14 @@ describe("recap setup planning", () => {
         "PLAN_RECAP_TOKEN",
         "VISUAL_RECAP_API_KEY",
       ]);
+      expect(plan.requiredVariables).toEqual([
+        {
+          name: "VISUAL_RECAP_BASE_URL",
+          example: "https://provider.example/v1",
+        },
+        { name: "VISUAL_RECAP_MODEL", example: "provider-model-id" },
+      ]);
+      expect(plan.variableProblems).toEqual([]);
       expect(plan.variableValues).toMatchObject({
         VISUAL_RECAP_AGENT: "openai-compatible",
         VISUAL_RECAP_BASE_URL: "https://api.moonshot.ai/v1",
@@ -814,6 +834,90 @@ describe("recap setup planning", () => {
       );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tells compatible-provider users when the required model is missing", async () => {
+    const previous = {
+      PLAN_RECAP_TOKEN: process.env.PLAN_RECAP_TOKEN,
+      VISUAL_RECAP_API_KEY: process.env.VISUAL_RECAP_API_KEY,
+      VISUAL_RECAP_BASE_URL: process.env.VISUAL_RECAP_BASE_URL,
+      VISUAL_RECAP_MODEL: process.env.VISUAL_RECAP_MODEL,
+    };
+    process.env.PLAN_RECAP_TOKEN = "example-plan-token";
+    process.env.VISUAL_RECAP_API_KEY = "example-compatible-key";
+    process.env.VISUAL_RECAP_BASE_URL = "https://api.example.com/v1";
+    delete process.env.VISUAL_RECAP_MODEL;
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--agent",
+        "openai-compatible",
+        "--dry-run",
+      ]);
+
+      expect(writes.join("")).toContain("VISUAL_RECAP_MODEL: missing value.");
+    } finally {
+      stdout.mockRestore();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("does not configure an invalid compatible-provider model", async () => {
+    const previous = {
+      PLAN_RECAP_TOKEN: process.env.PLAN_RECAP_TOKEN,
+      VISUAL_RECAP_API_KEY: process.env.VISUAL_RECAP_API_KEY,
+      VISUAL_RECAP_BASE_URL: process.env.VISUAL_RECAP_BASE_URL,
+      VISUAL_RECAP_MODEL: process.env.VISUAL_RECAP_MODEL,
+    };
+    process.env.PLAN_RECAP_TOKEN = "example-plan-token";
+    process.env.VISUAL_RECAP_API_KEY = "example-compatible-key";
+    process.env.VISUAL_RECAP_BASE_URL = "https://api.example.com/v1";
+    process.env.VISUAL_RECAP_MODEL = "bad model!";
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--agent",
+        "openai-compatible",
+        "--dry-run",
+      ]);
+
+      const output = writes.join("");
+      expect(output).toContain(
+        "invalid VISUAL_RECAP_MODEL value (must match [a-zA-Z0-9._-]{1,80})",
+      );
+      expect(output).not.toContain(
+        "VISUAL_RECAP_MODEL: would set to bad model!.",
+      );
+    } finally {
+      stdout.mockRestore();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   });
 });
