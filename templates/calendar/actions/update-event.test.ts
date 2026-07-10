@@ -148,6 +148,12 @@ describe("update-event working locations", () => {
           homeOffice: {},
         },
       }),
+      {
+        account: {
+          ownerEmail: "owner@example.com",
+          accountEmail: "owner@example.com",
+        },
+      },
     );
     expect(createEventMock.mock.calls[0]?.[0]).not.toHaveProperty("recurrence");
     expect(createEventMock.mock.calls[0]?.[0]).not.toHaveProperty(
@@ -155,7 +161,10 @@ describe("update-event working locations", () => {
     );
     expect(deleteEventMock).toHaveBeenCalledWith(
       "instance-20260707",
-      "owner@example.com",
+      {
+        ownerEmail: "owner@example.com",
+        accountEmail: "owner@example.com",
+      },
       { scope: "single" },
     );
     expect(updateEventMock).not.toHaveBeenCalled();
@@ -218,7 +227,10 @@ describe("update-event working locations", () => {
     expect(deleteEventMock).toHaveBeenNthCalledWith(
       2,
       "working-location-override",
-      "owner@example.com",
+      {
+        ownerEmail: "owner@example.com",
+        accountEmail: "owner@example.com",
+      },
       { scope: "single" },
     );
   });

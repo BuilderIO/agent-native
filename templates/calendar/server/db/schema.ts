@@ -21,6 +21,8 @@ export const bookings = table("bookings", {
   meetingLink: text("meeting_link"),
   /** Google Calendar event created for this booking, if any */
   googleEventId: text("google_event_id"),
+  /** Connected calendar account that owns the provider event, if any */
+  calendarAccountId: text("calendar_account_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
   status: text("status", { enum: ["confirmed", "cancelled"] })

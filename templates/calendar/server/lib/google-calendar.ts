@@ -575,6 +575,54 @@ export async function getClient(
   return { accessToken };
 }
 
+export interface GoogleAccountSelection {
+  ownerEmail: string;
+  accountEmail: string;
+}
+
+export async function getDefaultAccountSelection(
+  ownerEmail: string,
+): Promise<GoogleAccountSelection> {
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const account =
+    accounts.find(
+      (candidate) =>
+        candidate.accountId.trim().toLowerCase() ===
+        ownerEmail.trim().toLowerCase(),
+    ) ?? accounts[0];
+  if (!account) {
+    throw new Error(
+      "Google Calendar not connected. Connect via Settings first.",
+    );
+  }
+  return { ownerEmail, accountEmail: account.accountId };
+}
+
+/** Resolve one connected Google account beneath its signed-in owner. */
+export async function getClientForAccount({
+  ownerEmail,
+  accountEmail,
+}: GoogleAccountSelection): Promise<{ accessToken: string }> {
+  const normalizedAccountEmail = accountEmail.trim().toLowerCase();
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const account = accounts.find(
+    (candidate) =>
+      candidate.accountId.trim().toLowerCase() === normalizedAccountEmail,
+  );
+  if (!account) {
+    throw new Error(
+      `Google Calendar account not connected for this user: ${accountEmail}`,
+    );
+  }
+
+  const accessToken = await getValidAccessToken(
+    account.accountId,
+    account.tokens as unknown as GoogleTokens,
+    ownerEmail,
+  );
+  return { accessToken };
+}
+
 /**
  * Get OAuth credentials. When `forEmail` is provided, returns only that
  * user's credentials (multi-user mode). Otherwise returns an empty array.
@@ -1007,14 +1055,9 @@ export async function listOverlayEvents(
 
 export async function getEvent(
   googleEventId: string,
-  accountEmail: string,
+  account: GoogleAccountSelection,
 ): Promise<CalendarEvent> {
-  const client = await getClient(accountEmail);
-  if (!client) {
-    throw new Error(
-      `Google Calendar account not connected: ${accountEmail || "selected account"}`,
-    );
-  }
+  const client = await getClientForAccount(account);
 
   const event = await calendarGetEvent(
     client.accessToken,
@@ -1036,7 +1079,7 @@ export async function getEvent(
     source: "google",
     googleEventId: event.id || undefined,
     htmlLink: event.htmlLink || undefined,
-    accountEmail,
+    accountEmail: account.accountEmail,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
     ...mapColor(event),
@@ -1061,7 +1104,8 @@ export async function getEvent(
 
 export async function createEvent(
   event: CalendarEvent,
-  opts?: {
+  opts: {
+    account: GoogleAccountSelection;
     addGoogleMeet?: boolean;
     sendUpdates?: "all" | "externalOnly" | "none";
   },
@@ -1071,8 +1115,7 @@ export async function createEvent(
   meetLink?: string;
   conferenceData?: CalendarEvent["conferenceData"];
 }> {
-  const client = await getClient(event.accountEmail);
-  if (!client) return {};
+  const client = await getClientForAccount(opts.account);
   if (
     (event.eventType === "outOfOffice" || event.eventType === "focusTime") &&
     event.allDay
@@ -1135,7 +1178,8 @@ export async function createEvent(
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
-  options?: {
+  options: {
+    account: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
     addGoogleMeet?: boolean;
     scope?: UpdateEventScope;
@@ -1146,12 +1190,7 @@ export async function updateEvent(
   conferenceData?: CalendarEvent["conferenceData"];
   attendees?: CalendarEvent["attendees"];
 }> {
-  const client = await getClient(event.accountEmail);
-  if (!client) {
-    throw new Error(
-      `Google Calendar account not connected: ${event.accountEmail ?? "selected account"}`,
-    );
-  }
+  const client = await getClientForAccount(options.account);
 
   let targetEventId = googleEventId;
   let eventPatch = event;
@@ -1282,18 +1321,13 @@ export async function updateEvent(
 
 export async function deleteEvent(
   googleEventId: string,
-  accountEmail?: string,
+  account: GoogleAccountSelection,
   options?: {
     scope?: "single" | "all" | "thisAndFollowing";
     sendUpdates?: "all" | "none";
   },
 ): Promise<void> {
-  const client = await getClient(accountEmail);
-  if (!client) {
-    throw new Error(
-      `Google Calendar account not connected: ${accountEmail ?? "selected account"}`,
-    );
-  }
+  const client = await getClientForAccount(account);
 
   const scope = options?.scope || "single";
   const sendUpdates = options?.sendUpdates;
@@ -1388,16 +1422,13 @@ export async function deleteEvent(
  */
 export async function removeEventFromCalendar(
   googleEventId: string,
-  accountEmail: string,
+  account: GoogleAccountSelection,
   options?: {
     scope?: "single" | "all" | "thisAndFollowing";
     sendUpdates?: "all" | "none";
   },
 ): Promise<void> {
-  const client = await getClient(accountEmail);
-  if (!client) {
-    throw new Error(`Google Calendar account not connected: ${accountEmail}`);
-  }
+  const client = await getClientForAccount(account);
 
   const scope = options?.scope || "single";
   const sendUpdates = options?.sendUpdates;
@@ -1474,22 +1505,19 @@ async function rsvpSingleEvent(
 export async function rsvpEvent(
   googleEventId: string,
   responseStatus: "accepted" | "declined" | "tentative",
-  accountEmail: string,
+  account: GoogleAccountSelection,
   scope: "single" | "all" | "thisAndFollowing" = "single",
   comment?: string,
   sendUpdates?: string,
 ): Promise<void> {
-  const client = await getClient(accountEmail);
-  if (!client) {
-    throw new Error(`Google Calendar account not connected: ${accountEmail}`);
-  }
+  const client = await getClientForAccount(account);
 
   if (scope === "single") {
     await rsvpSingleEvent(
       client.accessToken,
       googleEventId,
       responseStatus,
-      accountEmail,
+      account.accountEmail,
       comment,
       sendUpdates,
     );
@@ -1511,7 +1539,7 @@ export async function rsvpEvent(
       client.accessToken,
       recurringEventId,
       responseStatus,
-      accountEmail,
+      account.accountEmail,
       comment,
       sendUpdates,
     );
@@ -1546,7 +1574,7 @@ export async function rsvpEvent(
         client.accessToken,
         e.id,
         responseStatus,
-        accountEmail,
+        account.accountEmail,
         comment,
         sendUpdates,
       ),

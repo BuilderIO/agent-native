@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { getEventDisplayColor } from "@/lib/event-colors";
+import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import {
   sanitizeHtml,
   stripGcalInviteHtml,
@@ -136,6 +137,7 @@ export function EventDialog({
     updateEvent.mutate(
       {
         id: event.id,
+        accountEmail: event.accountEmail,
         ...updates,
         ...guestNotification,
       },
@@ -162,7 +164,7 @@ export function EventDialog({
       });
       if (!guestNotification) return;
       deleteEvent.mutate(
-        { id: event.id, ...guestNotification },
+        buildDeleteEventMutationInput(event, guestNotification),
         {
           onSuccess: () => {
             toast.success(t("eventDialog.eventDeleted"));

@@ -59,6 +59,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -71,8 +72,12 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
+import { shouldShowEventAccountSelector } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   attachmentsToDrafts,
@@ -110,6 +115,7 @@ import {
 
 const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
 const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
+const EMPTY_CONNECTED_ACCOUNTS: Array<{ email: string }> = [];
 
 function buildEventDetailSlotContext(event: CalendarEvent) {
   return {
@@ -396,6 +402,68 @@ function formatEventDateRange(start: string, end: string, allDay?: boolean) {
   return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 }
 
+function DraftEventAccountSelect({
+  event,
+  onAccountChange,
+}: {
+  event: CalendarEvent;
+  onAccountChange: (accountEmail: string) => void;
+}) {
+  const t = useT();
+  const googleStatus = useGoogleAuthStatus();
+  const connectedAccounts =
+    googleStatus.data?.accounts ?? EMPTY_CONNECTED_ACCOUNTS;
+  const connectedAccountEmails = useMemo(
+    () => connectedAccounts.map((account) => account.email),
+    [connectedAccounts],
+  );
+  const { prefs: viewPrefs } = useViewPreferences();
+
+  if (
+    !shouldShowEventAccountSelector(connectedAccounts) ||
+    !event.accountEmail
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <IconCalendarTime className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Select value={event.accountEmail} onValueChange={onAccountChange}>
+        <SelectTrigger
+          aria-label={t("navigation.calendar")}
+          className="h-8 flex-1 text-sm"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {connectedAccounts.map((account) => (
+              <SelectItem key={account.email} value={account.email}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{
+                      backgroundColor:
+                        viewPrefs.accountColors[account.email] ??
+                        viewPrefs.singleColor ??
+                        defaultColorForAccount(
+                          account.email,
+                          connectedAccountEmails,
+                        ),
+                    }}
+                  />
+                  <span className="truncate">{account.email}</span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
@@ -404,9 +472,9 @@ interface EventDetailPopoverProps {
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
-  onTitleSave?: (eventId: string, title: string) => void;
+  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
-  onDismissNew?: (eventId: string) => void;
+  onDismissNew?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {
@@ -1173,12 +1241,12 @@ export function EventDetailPopover({
         ? { title: editingTitle.trim() }
         : undefined;
     if (updates) {
-      onTitleSave?.(event.id, updates.title);
+      onTitleSave?.(event.id, updates.title, event.accountEmail);
       setIsEditingTitle(false);
       isNewEventRef.current = false;
     }
     onDraftCreate(event.id, updates);
-  }, [editingTitle, event.id, isEditingTitle, onDraftCreate, onTitleSave]);
+  }, [editingTitle, event, isEditingTitle, onDraftCreate, onTitleSave]);
 
   // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
@@ -1225,7 +1293,7 @@ export function EventDetailPopover({
         // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle && trimmedTitle !== "(No title)") {
-            onTitleSave?.(event.id, trimmedTitle);
+            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1252,7 +1320,7 @@ export function EventDetailPopover({
           (!trimmedTitle || trimmedTitle === "(No title)") &&
           onDismissNew
         ) {
-          onDismissNew(event.id);
+          onDismissNew(event.id, event.accountEmail);
         }
 
         setEditingField(null);
@@ -1265,6 +1333,7 @@ export function EventDetailPopover({
       isEditingTitle,
       editingTitle,
       event.id,
+      event.accountEmail,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1378,7 +1447,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== "(No title)") {
-                        onTitleSave?.(event.id, trimmed);
+                        onTitleSave?.(event.id, trimmed, event.accountEmail);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1408,7 +1477,7 @@ export function EventDetailPopover({
                       trimmed !== "(No title)" &&
                       trimmed !== event.title
                     ) {
-                      onTitleSave?.(event.id, trimmed);
+                      onTitleSave?.(event.id, trimmed, event.accountEmail);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
@@ -1431,6 +1500,15 @@ export function EventDetailPopover({
             </div>
 
             <div className="px-4 space-y-1">
+              {isDraft && (
+                <DraftEventAccountSelect
+                  event={event}
+                  onAccountChange={(accountEmail) =>
+                    onDraftUpdate?.(event.id, { accountEmail })
+                  }
+                />
+              )}
+
               {/* Time — editable */}
               {editingField === "time" ? (
                 <div className="flex items-start gap-3 py-1.5">

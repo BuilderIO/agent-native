@@ -1,10 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { emit } from "@agent-native/core/event-bus";
-import {
-  buildDeepLink,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -24,6 +20,7 @@ import {
   googleColorIdInput,
   ensureOrganizerInAttendees,
   normalizeAttendees,
+  resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
@@ -109,7 +106,9 @@ export default defineAction({
     accountEmail: z
       .string()
       .optional()
-      .describe("Account email to create the event on"),
+      .describe(
+        "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
+      ),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -131,19 +130,7 @@ export default defineAction({
       );
     }
 
-    // Resolve account email
-    let acctEmail = email;
-    if (args.accountEmail && args.accountEmail !== email) {
-      const status = await googleCalendar.getAuthStatus(
-        email,
-        getRequestOrgId(),
-      );
-      const isOwned = status.accounts.some(
-        (a) => a.email === args.accountEmail,
-      );
-      if (!isOwned) throw new Error("Account not owned by current user");
-      acctEmail = args.accountEmail;
-    }
+    const acctEmail = await resolveOwnedAccountEmail(args.accountEmail, email);
 
     const attendees = ensureOrganizerInAttendees(
       normalizeAttendees(args.attendees),
@@ -195,6 +182,7 @@ export default defineAction({
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
+      account: { ownerEmail: email, accountEmail: acctEmail },
       addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
         addGoogleMeet: args.addGoogleMeet,
         addZoom: args.addZoom,

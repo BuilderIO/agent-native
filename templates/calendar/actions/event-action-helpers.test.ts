@@ -1,16 +1,53 @@
 import { describe, expect, it, vi } from "vitest";
 
+const getAuthStatusMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: () => undefined,
   getRequestUserEmail: () => "test@example.com",
 }));
 
-vi.mock("../server/lib/google-calendar.js", () => ({}));
+vi.mock("../server/lib/google-calendar.js", () => ({
+  getAuthStatus: getAuthStatusMock,
+}));
 
 import {
   buildStatusEventFields,
   ensureOrganizerInAttendees,
   validateStatusEventTiming,
+  resolveOwnedAccountEmail,
 } from "./event-action-helpers";
+
+describe("resolveOwnedAccountEmail", () => {
+  it("accepts a connected secondary account beneath the signed-in owner", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [
+        { email: "owner@example.com" },
+        { email: "secondary@example.com" },
+      ],
+    });
+
+    await expect(
+      resolveOwnedAccountEmail("secondary@example.com", "owner@example.com"),
+    ).resolves.toBe("secondary@example.com");
+  });
+
+  it("rejects missing or ambiguous account choices", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [
+        { email: "owner@example.com" },
+        { email: "secondary@example.com" },
+      ],
+    });
+
+    await expect(
+      resolveOwnedAccountEmail(undefined, "owner@example.com"),
+    ).rejects.toThrow("Multiple Google Calendar accounts are connected");
+    await expect(
+      resolveOwnedAccountEmail("missing@example.com", "owner@example.com"),
+    ).rejects.toThrow("Account not owned by current user");
+  });
+});
 
 describe("ensureOrganizerInAttendees", () => {
   it("leaves empty or solo events unchanged", () => {

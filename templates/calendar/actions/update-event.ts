@@ -276,10 +276,10 @@ export default defineAction({
 
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
-      existingEvent ??= await googleCalendar.getEvent(
-        googleEventId,
+      existingEvent ??= await googleCalendar.getEvent(googleEventId, {
+        ownerEmail,
         accountEmail,
-      );
+      });
       return existingEvent;
     };
 
@@ -446,41 +446,48 @@ export default defineAction({
         );
       }
       const now = new Date().toISOString();
-      const replacement = await googleCalendar.createEvent({
-        id: "",
-        title: workingLocationTitle(updates.workingLocationProperties!),
-        description: "",
-        start: existingEvent!.start,
-        end: existingEvent!.end,
-        startTimeZone: existingEvent!.startTimeZone,
-        endTimeZone: existingEvent!.endTimeZone,
-        location: "",
-        allDay: existingEvent!.allDay,
-        source: "google",
-        accountEmail,
-        colorId: existingEvent!.colorId,
-        transparency: "transparent",
-        visibility: "public",
-        status: "confirmed",
-        eventType: "workingLocation",
-        workingLocationProperties: updates.workingLocationProperties,
-        createdAt: now,
-        updatedAt: now,
-      });
+      const replacement = await googleCalendar.createEvent(
+        {
+          id: "",
+          title: workingLocationTitle(updates.workingLocationProperties!),
+          description: "",
+          start: existingEvent!.start,
+          end: existingEvent!.end,
+          startTimeZone: existingEvent!.startTimeZone,
+          endTimeZone: existingEvent!.endTimeZone,
+          location: "",
+          allDay: existingEvent!.allDay,
+          source: "google",
+          accountEmail,
+          colorId: existingEvent!.colorId,
+          transparency: "transparent",
+          visibility: "public",
+          status: "confirmed",
+          eventType: "workingLocation",
+          workingLocationProperties: updates.workingLocationProperties,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { account: { ownerEmail, accountEmail } },
+      );
       if (!replacement.id) {
         throw new Error(
           "Google did not return an id for the working location.",
         );
       }
       try {
-        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
-          scope: "single",
-        });
+        await googleCalendar.deleteEvent(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          { scope: "single" },
+        );
       } catch (error) {
         try {
-          await googleCalendar.deleteEvent(replacement.id, accountEmail, {
-            scope: "single",
-          });
+          await googleCalendar.deleteEvent(
+            replacement.id,
+            { ownerEmail, accountEmail },
+            { scope: "single" },
+          );
         } catch (cleanupError) {
           console.error(
             "Failed to clean up a working-location replacement after the original occurrence could not be cancelled.",
@@ -497,6 +504,7 @@ export default defineAction({
       };
     } else {
       result = await googleCalendar.updateEvent(googleEventId, updates, {
+        account: { ownerEmail, accountEmail },
         sendUpdates:
           args.sendUpdates ??
           (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0

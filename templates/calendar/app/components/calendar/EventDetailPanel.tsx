@@ -69,7 +69,7 @@ interface EventDetailPanelProps {
   event: CalendarEvent | null;
   onClose: () => void;
   onDelete: (eventId: string) => void;
-  onTitleSave?: (eventId: string, title: string) => void;
+  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
 }
 
 function formatDuration(start: string, end: string): string {
@@ -335,7 +335,7 @@ export function EventDetailPanel({
                         e.preventDefault();
                         const trimmed = editingTitle.trim();
                         if (trimmed && trimmed !== event.title) {
-                          onTitleSave?.(event.id, trimmed);
+                          onTitleSave?.(event.id, trimmed, event.accountEmail);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -347,7 +347,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== event.title) {
-                        onTitleSave?.(event.id, trimmed);
+                        onTitleSave?.(event.id, trimmed, event.accountEmail);
                       }
                       setIsEditingTitle(false);
                     }}
