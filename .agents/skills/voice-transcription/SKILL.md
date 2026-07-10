@@ -46,8 +46,11 @@ from the dictation providers below. It requires the authenticated user's
 configuration, and keeps the key out of browser code.
 
 - Starting voice mode collapses the chat into a persistent bottom-end speech
-  orb. Clicking the orb shows or hides chat without ending the session; ending
-  the session is a separate, explicit control.
+  orb. The orb stays visible above the chat even when the chat opens
+  automatically. Clicking it shows or hides chat without ending the session;
+  ending the session is a separate, explicit control.
+- The orb's compact waveform must reflect actual microphone or assistant audio
+  activity. It is an audio-level indicator, not a decorative animation.
 - Semantic VAD keeps listening, starts responses automatically, and supports
   barge-in while the agent is speaking.
 - Function calls must cross the authenticated realtime tool bridge and enter
@@ -57,9 +60,12 @@ configuration, and keeps the key out of browser code.
 - Preserve the active browser-tab id in request context so `set-url`,
   `set-search-params`, `view-screen`, and tab-scoped application state affect
   the app the user is actually speaking to.
-- Do not persist audio. Store only compact lifecycle and latest-transcript
-  context at `application_state["realtime-voice-session"]`; delete it when the
-  session ends.
+- Do not persist audio or interim transcript deltas. Append completed user and
+  assistant utterances as ordinary text messages to the exact chat thread
+  captured when the session starts. Ending voice mode opens that chat so the
+  user can continue over text. Store only compact lifecycle and latest context
+  at `application_state["realtime-voice-session"]`; delete it when the session
+  ends.
 - Missing-key failures should open Settings focused on the user-scoped
   `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 
