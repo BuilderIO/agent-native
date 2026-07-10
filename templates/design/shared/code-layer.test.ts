@@ -1494,6 +1494,49 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedIdx).toBeGreaterThan(templateCloseIdx);
   });
 
+  it("no-anchor body-append strips absolute positioning when the destination <body> is a flex container", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me" style="position: absolute; left: 24px; top: 48px; color: red">Move</div></body>`;
+    const destHtml = `<body style="display: flex; flex-direction: column; gap: 16px"><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Same normalization as the anchored `placement: "inside"` branch: the
+    // moved node becomes a flow child of the flex body, so its stale
+    // absolute offsets must be stripped or it renders detached from the
+    // body's ordering/gap/alignment.
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(-1);
+    const movedTag = result.destHtml.slice(
+      result.destHtml.lastIndexOf("<", movedIdx),
+      result.destHtml.indexOf(">", movedIdx) + 1,
+    );
+    expect(movedTag).not.toContain("position: absolute");
+    expect(movedTag).not.toContain("left:");
+    expect(movedTag).not.toContain("top:");
+    // Non-positioning styles on the moved root survive.
+    expect(movedTag).toContain("color: red");
+  });
+
+  it("no-anchor body-append keeps absolute positioning when the destination <body> is a plain flow container", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me" style="position: absolute; left: 24px; top: 48px">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // A non-flex/grid body is a normal positioning context; the moved node's
+    // explicit absolute placement is intentional and must be preserved.
+    expect(result.destHtml).toContain("position: absolute");
+    expect(result.destHtml).toContain("left: 24px");
+  });
+
   it("anchored insert (placement inside) never lands inside a nested <template> even when the anchor itself precedes templates", () => {
     const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
     const destHtml =
@@ -1998,6 +2041,41 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background-image");
+  });
+
+  it("keeps quoted image URLs intact across sequential style patches", () => {
+    const imagePatch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value:
+        'url("https://example.com/fill.png") /* agent-native-image-fit:tile */',
+    } as EditIntent);
+    const repeatPatch = applyVisualEdit(imagePatch.content, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundRepeat",
+      value: "repeat",
+    } as EditIntent);
+    const positionPatch = applyVisualEdit(repeatPatch.content, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundPosition",
+      value: "top left",
+    } as EditIntent);
+
+    expect(positionPatch.result.status).toBe("applied");
+    expect(positionPatch.content).toContain(
+      "url(&quot;https://example.com/fill.png&quot;)",
+    );
+    expect(positionPatch.content).not.toContain("&amp;quot;");
+    const projection = buildCodeLayerProjection(positionPatch.content);
+    const button = projection.nodes.find((node) => node.tag === "button");
+    expect(button?.style["background-image"]).toContain(
+      'url("https://example.com/fill.png")',
+    );
+    expect(button?.style["background-repeat"]).toBe("repeat");
+    expect(button?.style["background-position"]).toBe("top left");
   });
 
   it("rejects a backgroundImage url() with a javascript: scheme", () => {

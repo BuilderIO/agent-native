@@ -377,7 +377,9 @@ export function useMeetingTranscription({
         };
 
         // Resume the engine that initial start settled on (no fallback here —
-        // the engine choice was already made below).
+        // the engine choice was already made below). Never add a second
+        // VoiceProcessingIO stack beside the meeting app: it can alter the
+        // microphone level that remote participants receive.
         const startAudio = async () => {
           await restartTranscriptionEngine(
             session.engine,
@@ -386,6 +388,7 @@ export function useMeetingTranscription({
               label: selectedMicLabel,
             },
             true,
+            false,
           );
         };
 
@@ -556,6 +559,10 @@ export function useMeetingTranscription({
 
         session.engine = await startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
+          // macOS 15+ uses ScreenCaptureKit's independent microphone output.
+          // The legacy fallback must also remain a raw tap so Zoom/Meet/Teams
+          // stay in sole control of their live-call voice processing.
+          voiceProcessing: false,
         });
 
         await invoke("silence_detector_start", {

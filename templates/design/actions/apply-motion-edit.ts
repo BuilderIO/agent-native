@@ -32,7 +32,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
-  readLiveSourceFile,
+  prepareInlineSourceEdit,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -51,7 +51,6 @@ import {
   readTimelinePlaybackMode,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── DoS-guard caps ──────────────────────────────────────────────────────────
 //
@@ -343,7 +342,15 @@ export default defineAction({
       .describe(
         "Current open editor HTML for the target file. When supplied, the " +
           "managed motion CSS is patched into this content instead of the " +
-          "last SQL snapshot so in-flight local edits are preserved.",
+          "last SQL snapshot so in-flight local edits are preserved. " +
+          "revision must also be supplied.",
+      ),
+    revision: z
+      .string()
+      .optional()
+      .describe(
+        "design_files.updatedAt value the currentContent is based on. " +
+          "Required when currentContent is supplied.",
       ),
   }),
   run: async ({
@@ -357,6 +364,7 @@ export default defineAction({
     defaultEase,
     includeContent,
     currentContent: currentContentInput,
+    revision,
   }) => {
     const access = await assertAccess("design", designId, "editor");
 
@@ -378,6 +386,7 @@ export default defineAction({
         filename: schema.designFiles.filename,
         fileType: schema.designFiles.fileType,
         content: schema.designFiles.content,
+        updatedAt: schema.designFiles.updatedAt,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -398,40 +407,25 @@ export default defineAction({
     const fileId = file.id;
     const resolvedSourceRef = sourceRef ?? fileId;
 
-    // The EDITABLE base for compiling/injecting CSS: prefer the caller's
-    // in-flight editor snapshot when supplied (currentContentInput), else the
-    // LIVE collab-authoritative content for this file (not the raw SQL row —
-    // a live editor's Y.Text may be ahead of the last SQL snapshot). Either
-    // way, `baseVersionHash` is computed from the EXACT string chosen as the
-    // base, at this same point in time, so it faithfully represents "what
-    // this transform's base was" for the persist's optimistic-concurrency
-    // check below — never a fresh re-hash of already-transformed content
-    // (that would trivially match itself and prove nothing raced).
-    let currentContent: string;
-    let baseVersionHash: string;
-    if (currentContentInput !== undefined) {
-      // Caller supplied their own editor snapshot as the patch base. It may
-      // already be stale relative to the live doc — that's fine.
-      // writeInlineSourceFile's own guard (via readLiveSourceFile at write
-      // time) correctly rejects the write if this base no longer matches
-      // live state, exactly as designed for every other caller-supplied-base
-      // action (see apply-component-prop-edit.ts / apply-shader-fill.ts).
-      currentContent = currentContentInput;
-      baseVersionHash = sourceContentHash(currentContent);
-    } else {
-      const workspaceFileForRead: SourceWorkspaceFile = {
+    // Keep the transform working copy separate from the live version it may
+    // replace. A caller snapshot can legitimately contain unsaved local edits
+    // beyond the matching SQL revision; the write CAS must guard the observed
+    // live base, not incorrectly hash those unsaved edits as if already live.
+    const prepared = await prepareInlineSourceEdit({
+      file: {
         id: file.id,
         designId: file.designId,
         filename: file.filename,
         fileType: file.fileType,
         content: file.content,
         createdAt: null,
-        updatedAt: null,
-      };
-      const live = await readLiveSourceFile(workspaceFileForRead);
-      currentContent = live.content;
-      baseVersionHash = live.versionHash;
-    }
+        updatedAt: file.updatedAt,
+      },
+      currentContent: currentContentInput,
+      revision,
+    });
+    const currentContent = prepared.content;
+    const baseVersionHash = prepared.expectedVersionHash;
 
     // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
     const inputTracks = tracks as MotionTrack[];

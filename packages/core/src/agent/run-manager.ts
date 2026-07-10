@@ -16,6 +16,7 @@ import {
   bumpRunProgress,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  shouldRedispatchUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
   getLastTerminalRunEvent,
@@ -1469,10 +1470,36 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       // past the tight grace means the bg-fn worker never started — a silent
       // async-worker death that the 202-ack inline fallback can't catch. Reap it
       // early and recoverably (background_worker_never_started) so the run no
-      // longer hangs for the full 90s window and the client's recoverable-error
-      // path can re-drive the turn. Only fires when there is provably no live
-      // worker; a claimed/heartbeating run is left alone by the conditional SQL.
-      if (sqlRun.dispatchMode === "background") {
+      // longer hangs for the full 90s window. Only fires when there is provably
+      // no live worker; a claimed/heartbeating run is left alone by the
+      // conditional SQL.
+      //
+      // REDISPATCH-BOUND GUARD (must be kept in lockstep with the "Unclaimed
+      // background-run sweep" in agent-chat-plugin.ts and with
+      // chainServerDrivenContinuation's deferral in production-agent.ts — do NOT
+      // remove this guard without reading those two sites):
+      // `chainServerDrivenContinuation` now DEFERS a dispatch-failed successor
+      // instead of erroring it — it leaves the row status='running',
+      // dispatch_mode='background' with its dispatch_payload intact so the sweep
+      // can silently redispatch it. This client poll runs every ~1s while a
+      // client is connected, so without this guard it would reap that deferred
+      // successor at the 25s unclaimed grace — long before the ~2-min sweep —
+      // converting the intended SILENT server-side recovery into a user-visible
+      // `background_worker_never_started` manual-retry error (that terminal
+      // reason does NOT auto-continue in the client follow loop; only `stale_run`
+      // does). While the successor is still inside its redispatch bound we skip
+      // this reap and leave it for the sweep. The outer backstops still bound it:
+      // `reapIfStale` below reaps a heartbeat-stale background row at 90s
+      // (BACKGROUND_RUN_STALE_MS) to the recoverable `stale_run` — which the
+      // follow loop AUTO-continues — and once the redispatch bound is exceeded
+      // this reap fires loudly as before. So recovery stays automatic in the
+      // common case and loud failure is only moved later, never removed.
+      if (
+        sqlRun.dispatchMode === "background" &&
+        !shouldRedispatchUnclaimedBackgroundRun({
+          startedAt: sqlRun.startedAt,
+        })
+      ) {
         const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
           () => false,
         );

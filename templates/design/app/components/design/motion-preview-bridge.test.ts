@@ -35,6 +35,8 @@ function loadBridge(): {
   sendMessage: (data: unknown) => void;
   /** Register a fake element addressable by data-agent-native-node-id. */
   addElement: (nodeId: string) => FakeElement;
+  /** Simulate the node leaving the document (e.g. replaced by a host edit). */
+  removeElement: (nodeId: string) => void;
 } {
   // Import the compiled bridge string from the generated module. Using
   // require() so the import is synchronous and the function can be called
@@ -83,6 +85,15 @@ function loadBridge(): {
       const m = /\[data-agent-native-node-id="([^"]+)"\]/.exec(selector);
       return m ? (elements.get(m[1]) ?? null) : null;
     },
+    // The bridge's element cache (resolveTrackElement) checks
+    // `document.contains(cached)` before trusting a cached lookup, so the
+    // fake document needs to answer that too — "contained" here means
+    // still registered in this test's `elements` map (removeElement below
+    // simulates the node leaving the document, e.g. a host-applied edit
+    // replacing it).
+    contains(node: unknown): boolean {
+      return Array.from(elements.values()).includes(node as FakeElement);
+    },
   };
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -102,6 +113,9 @@ function loadBridge(): {
       const el: FakeElement = { style: {} };
       elements.set(nodeId, el);
       return el;
+    },
+    removeElement: (nodeId: string) => {
+      elements.delete(nodeId);
     },
   };
 }
@@ -370,6 +384,50 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     // Clear restores the original inline value.
     fresh.sendMessage({ type: "motion-preview-clear" });
     expect(el.style.opacity).toBe("");
+  });
+
+  it("caches the resolved element across preview ticks but re-resolves once it leaves the document", () => {
+    // Perf regression coverage: applyPreview used to call
+    // document.querySelector for every track on every single "motion-preview"
+    // tick (one per parent rAF frame), even though the target element almost
+    // never changes between ticks. Assert the cache (a) is actually used —
+    // repeated ticks with the node still present must keep hitting the SAME
+    // element instance — and (b) is safely invalidated when the node is no
+    // longer in the document (e.g. a host-applied edit replaced it), so a
+    // stale cached reference can never silently swallow further updates.
+    const fresh = loadBridge();
+    const originalEl = fresh.addElement("hero");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.25, durationMs: 1000 });
+    expect(originalEl.style.opacity).toBe("0.25");
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+    expect(originalEl.style.opacity).toBe("0.5");
+
+    // The node is replaced (removed, then a NEW element re-registered under
+    // the same nodeId) without any "motion-load-tracks" reload in between —
+    // exactly what a live DOM patch looks like from the bridge's perspective.
+    fresh.removeElement("hero");
+    const replacementEl = fresh.addElement("hero");
+    fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 1000 });
+
+    // The stale cached element must NOT keep receiving updates...
+    expect(originalEl.style.opacity).toBe("0.5");
+    // ...the NEW element must, proving the cache re-resolved instead of
+    // silently no-oping against a detached reference.
+    expect(replacementEl.style.opacity).toBe("0.75");
   });
 
   it("previews modern individual transform properties (translate/scale/rotate)", () => {

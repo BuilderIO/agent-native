@@ -2232,11 +2232,14 @@ async function startNativeFullscreenRecording(
             );
           }
 
-          const chromeCmd = wantsCamera
-            ? "hide_recording_chrome"
-            : "hide_overlays";
-          await invoke(chromeCmd).catch((err) =>
-            console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
+          // The finalizing window owns the whole stop -> optimized upload ->
+          // browser-open gap. Only tear down recording chrome here; the outer
+          // finally closes finalizing after the clip has opened or failed.
+          await invoke("hide_recording_chrome").catch((err) =>
+            console.error(
+              "[clips-recorder] hide_recording_chrome failed:",
+              err,
+            ),
           );
           await invoke("native_fullscreen_capture_thumbnail", {
             serverUrl: params.serverUrl,

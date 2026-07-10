@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
+import { selectionColorValues } from "./edit-panel/document-colors";
 import { extractDocumentColorPalette } from "./EditPanel";
+import type { ElementInfo } from "./types";
+
+function fakeElement(computedStyles: Record<string, string>): ElementInfo {
+  return {
+    tagName: "DIV",
+    classes: [],
+    computedStyles,
+    boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    isFlexChild: false,
+    isFlexContainer: false,
+  };
+}
 
 describe("extractDocumentColorPalette", () => {
   it("collects hex colors from inline styles across multiple files", () => {
@@ -115,5 +128,79 @@ describe("extractDocumentColorPalette", () => {
         { id: "f", content: '<div style="color: rgb(not, a, color)">' },
       ]),
     ).not.toThrow();
+  });
+});
+
+describe("selectionColorValues", () => {
+  it("skips the literal transparent spellings (existing behavior)", () => {
+    const values = selectionColorValues(
+      fakeElement({
+        color: "rgb(0, 0, 0)",
+        backgroundColor: "transparent",
+        borderColor: "rgba(0, 0, 0, 0)",
+        outlineColor: "",
+      }),
+    );
+
+    expect(values).toEqual([{ property: "color", value: "rgb(0, 0, 0)" }]);
+  });
+
+  it("skips any other zero-alpha color, not just the two literal spellings", () => {
+    // Regression: this used to only filter the exact strings "transparent"
+    // and "rgba(0, 0, 0, 0)" — a zero-alpha color with any other RGB
+    // channels or formatting (e.g. a non-black rgba, or hsla) slipped
+    // through as a bogus, effectively-invisible "selection color" swatch.
+    const values = selectionColorValues(
+      fakeElement({
+        color: "rgb(0, 0, 0)",
+        backgroundColor: "rgba(255, 0, 0, 0)",
+        borderColor: "hsla(210, 50%, 50%, 0)",
+        outlineColor: "rgba(0,0,0,0)",
+      }),
+    );
+
+    expect(values).toEqual([{ property: "color", value: "rgb(0, 0, 0)" }]);
+  });
+
+  it("keeps visible colors with non-zero alpha", () => {
+    const values = selectionColorValues(
+      fakeElement({
+        color: "#111111",
+        backgroundColor: "rgba(255, 0, 0, 0.5)",
+        borderColor: "",
+        outlineColor: "",
+      }),
+    );
+
+    expect(values).toEqual([
+      { property: "color", value: "#111111" },
+      { property: "backgroundColor", value: "rgba(255, 0, 0, 0.5)" },
+    ]);
+  });
+
+  it("dedupes equal colors across properties", () => {
+    const values = selectionColorValues(
+      fakeElement({
+        color: "#111111",
+        backgroundColor: "#111111",
+        borderColor: "#111111",
+        outlineColor: "",
+      }),
+    );
+
+    expect(values).toEqual([{ property: "color", value: "#111111" }]);
+  });
+
+  it("keeps unparseable non-color values through (e.g. a Mixed sentinel)", () => {
+    const values = selectionColorValues(
+      fakeElement({
+        color: "Mixed",
+        backgroundColor: "",
+        borderColor: "",
+        outlineColor: "",
+      }),
+    );
+
+    expect(values).toEqual([{ property: "color", value: "Mixed" }]);
   });
 });

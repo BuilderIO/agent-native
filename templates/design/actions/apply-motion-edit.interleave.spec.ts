@@ -391,6 +391,27 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(finalLive.content).toContain("data-agent-native-motion");
   });
 
+  it("preserves an unsaved caller working copy when its revision still matches the unchanged live base", async () => {
+    const workingCopy = baseDoc().replace(
+      "Caption text",
+      "Caption text (unsaved locally)",
+    );
+
+    const result = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: oneTrack(),
+      durationMs: 500,
+      currentContent: workingCopy,
+      revision: "2026-07-06T00:00:00.000Z",
+    } as never);
+
+    expect(result.persisted).toBe(true);
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("Caption text (unsaved locally)");
+    expect(finalLive.content).toContain("data-agent-native-motion");
+  });
+
   it("rejects (loud, not silent) when a concurrent write lands using a caller-supplied stale currentContent base", async () => {
     // The action supports a caller-supplied `currentContent` param used
     // instead of the live read as the patch base. If that base has gone

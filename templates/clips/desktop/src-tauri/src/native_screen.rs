@@ -2254,7 +2254,7 @@ fn preferred_default_microphone_device(devices: &[AudioInputDevice]) -> Option<A
 }
 
 #[cfg(target_os = "macos")]
-fn resolve_microphone_capture_device(
+pub(crate) fn resolve_microphone_capture_device(
     device_id: Option<&str>,
     device_label: Option<&str>,
 ) -> Result<Option<AudioInputDevice>, String> {

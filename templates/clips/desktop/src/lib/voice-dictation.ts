@@ -1254,6 +1254,9 @@ export function installDesktopVoiceDictation(
         micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
         micDeviceLabel: micDeviceLabel || null,
         captureSystem: false,
+        // Short, standalone dictation sessions benefit from Apple's AEC/AGC.
+        // Meeting and recording capture explicitly keep this disabled.
+        voiceProcessing: true,
         owner: "dictation",
       });
       console.log("[voice-dictation] audio_transcription_start ok");

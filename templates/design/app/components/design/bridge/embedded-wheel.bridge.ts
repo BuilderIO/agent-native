@@ -24,6 +24,8 @@
  * Protocol (parent → iframe):
  *
  *   { type: 'embedded-canvas-pan-mode', leftButtonEnabled }
+ *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
+ *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
  *
  * Rules:
@@ -244,6 +246,11 @@ declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
     }
     if (e.data.type === "embedded-canvas-pan-mode") {
       leftButtonEnabled = !!e.data.leftButtonEnabled;
+      return;
+    }
+    if (e.data.type === "embedded-canvas-gesture-mode") {
+      wheelEnabled = !!e.data.wheelEnabled;
+      spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
     }
   }
 

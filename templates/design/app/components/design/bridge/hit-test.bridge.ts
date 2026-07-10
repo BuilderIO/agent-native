@@ -251,7 +251,12 @@
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (primitive !== "rectangle" && primitive !== "rect") return false;
+    if (
+      primitive !== "rectangle" &&
+      primitive !== "rect" &&
+      primitive !== "frame"
+    )
+      return false;
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }

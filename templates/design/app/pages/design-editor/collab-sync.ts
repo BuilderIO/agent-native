@@ -41,3 +41,18 @@ export function resolveScreenCollabSyncTarget({
     overviewDocConnected && overviewPresenceFileId === fileId;
   return { writeLiveDoc, syncCollab: !writeLiveDoc };
 }
+
+/** A local transaction already updated the preview optimistically, and a
+ * same-content remote transaction is only an acknowledgement echo. Only a
+ * genuinely different remote snapshot should touch the live document. */
+export function shouldApplyRemotePreviewContent({
+  isLocalEdit,
+  previousContent,
+  nextContent,
+}: {
+  isLocalEdit: boolean;
+  previousContent: string | null;
+  nextContent: string;
+}): boolean {
+  return !isLocalEdit && nextContent !== previousContent;
+}

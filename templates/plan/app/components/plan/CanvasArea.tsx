@@ -41,8 +41,6 @@ const useIsomorphicLayoutEffect =
 const DEFAULT_VIEW = { zoom: 0.72, pan: { x: 96, y: 64 } };
 const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 2.4;
-/** Notched mouse-wheel fixed-ratio step (design-canvas.jsx feel). */
-const WHEEL_ZOOM_STEP = 0.16;
 /** Trackpad pinch sensitivity. */
 const PINCH_ZOOM_SENSITIVITY = 0.01;
 /** Base CSS grid cell, scaled by zoom. */
@@ -534,9 +532,11 @@ export function CanvasArea({
     [buildMarkupContext, onCanvasMarkupCreate, pendingMarkup],
   );
 
-  // Wheel: cursor-over-canvas never scrolls the page. Notched wheel zooms with
-  // a fixed ratio per click; ctrl/cmd/alt (or trackpad pinch) zoom at the
-  // cursor; everything else pans.
+  // Wheel: cursor-over-canvas never scrolls the page. Match Figma's input
+  // contract: unmodified wheel/trackpad gestures always pan, while an explicit
+  // ctrl/cmd modifier (including the ctrlKey emitted by trackpad pinch) zooms
+  // at the cursor. Never infer zoom intent from the delta shape — trackpad pan
+  // momentum can look exactly like a notched mouse wheel near a canvas edge.
   useEffect(() => {
     const element = viewportRef.current;
     if (!element) return;
@@ -559,24 +559,12 @@ export function CanvasArea({
       const deltaX = event.deltaX * lineScale;
       const deltaY = event.deltaY * lineScale;
 
-      // Notched mouse wheel: line-mode, or large integer pixel deltas with no
-      // horizontal component (Chrome/Safari). Fixed-ratio step per click.
-      const isNotchedWheel =
-        event.deltaMode !== 0 ||
-        (event.deltaX === 0 &&
-          Number.isInteger(event.deltaY) &&
-          Math.abs(event.deltaY) >= 40);
-
-      if (event.ctrlKey || event.metaKey || event.altKey) {
+      if (event.ctrlKey || event.metaKey) {
         // Trackpad pinch / explicit zoom modifier — smooth exponential.
         zoomByFactor(Math.exp(-deltaY * PINCH_ZOOM_SENSITIVITY), anchor);
         return;
       }
-      if (isNotchedWheel) {
-        zoomByFactor(Math.exp(-Math.sign(deltaY) * WHEEL_ZOOM_STEP), anchor);
-        return;
-      }
-      // Trackpad two-finger scroll → pan.
+      // Mouse wheel / trackpad two-finger scroll -> pan.
       updateView((current) => ({
         ...current,
         pan: {

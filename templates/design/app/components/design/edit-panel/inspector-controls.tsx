@@ -104,6 +104,46 @@ export function SectionIconToggle({
 }
 
 /**
+ * Compute the next `overIndex` for a dragover event on `hoverIndex`, given the
+ * index of the row currently being dragged. Hovering back over the dragged
+ * row itself has no meaningful drop position (dropping there is always a
+ * no-op — see `resolveRowDrop`), so this returns `null` to clear the
+ * indicator rather than echoing back `hoverIndex`, which would otherwise
+ * render a stray "before" drop-indicator line on the dragged row itself.
+ *
+ * Pure — exported for tests.
+ */
+export function nextRowDragOverIndex(
+  hoverIndex: number,
+  dragIndex: number,
+): number | null {
+  return hoverIndex === dragIndex ? null : hoverIndex;
+}
+
+/**
+ * Resolve a drop into a `{ from, to }` pair, or `null` for a no-op drop.
+ *
+ * Both `from` (the row that started the drag) and `to` (the row dropped on)
+ * are re-validated against `count` — the CURRENT live row count at drop time
+ * — rather than trusted from the drag-start snapshot. The underlying array
+ * can shrink mid-drag (e.g. an external update removes rows while the
+ * pointer is still down); re-checking only `to` and not `from` would let a
+ * stale drag-start index (captured before the shrink) reach the caller's
+ * `onReorder` out of bounds.
+ *
+ * Pure — exported for tests.
+ */
+export function resolveRowDrop(
+  from: number | null,
+  to: number,
+  count: number,
+): { from: number; to: number } | null {
+  if (from == null || from === to) return null;
+  if (from < 0 || from >= count || to < 0 || to >= count) return null;
+  return { from, to };
+}
+
+/**
  * Minimal pointer-based reorder for a flat row list (fill layers, shadow
  * layers). Deliberately not shared with LayersPanel.tsx's tree-drag logic —
  * that implementation is coupled to nested/multi-select layer nodes, while
@@ -127,17 +167,17 @@ export function useRowDragReorder(
       if (dragIndex == null) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
-      if (index !== overIndex) setOverIndex(index);
+      const next = nextRowDragOverIndex(index, dragIndex);
+      if (next !== overIndex) setOverIndex(next);
     },
     onDrop: (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       const from = dragIndex;
       setDragIndex(null);
       setOverIndex(null);
-      if (from == null || from === index) return;
-      const { count: liveCount, onReorder: liveOnReorder } = liveRef.current;
-      if (index < 0 || index >= liveCount) return;
-      liveOnReorder(from, index);
+      const resolved = resolveRowDrop(from, index, liveRef.current.count);
+      if (!resolved) return;
+      liveRef.current.onReorder(resolved.from, resolved.to);
     },
   });
 

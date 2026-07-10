@@ -383,6 +383,7 @@ const messages = {
     searchPlaceholder: "Transcrição da pesquisa",
     copyTranscript: "Copiar transcrição",
     downloadSrt: "Baixe .srt",
+    regenerate: "Gerar transcrição novamente",
     cleanupRunning: "Limpando a transcrição em segundo plano.",
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",

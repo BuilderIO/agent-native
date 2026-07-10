@@ -1228,50 +1228,33 @@ function projectionsOverlap(
  * For `origin.rotation` falsy this is identical to calling
  * `resizeFrameFromDelta` directly.
  */
-export function resizeRotatedFrameFromDelta(
+/**
+ * Shared re-anchor step used by both resizeRotatedFrameFromDelta and its
+ * snap-aware counterpart below: given the frame's ORIGIN geometry (still
+ * carrying its rotation) and a candidate RESIZED-LOCAL geometry (unrotated,
+ * already grown/shrunk along the frame's own local axes — optionally
+ * adjusted by a snap pass in between), translates the resized-local geometry
+ * so the same handle-opposite anchor point (or the frame's own center, for
+ * an alt/option "resize from center" drag) stays fixed in WORLD space once
+ * rotation is re-applied. See resizeRotatedFrameFromDelta's original inline
+ * comment (kept there) for why alt-resize anchors on the center instead of
+ * the opposite corner/edge.
+ */
+function reanchorRotatedResizeToWorld(
   origin: FrameGeometry,
   handle: ResizeHandle,
-  worldDx: number,
-  worldDy: number,
-  options: ResizeFrameOptions = {},
+  degrees: number,
+  resizedLocal: FrameGeometry,
+  options: Pick<ResizeFrameOptions, "resizeFromCenter">,
 ): FrameGeometry {
-  const degrees = origin.rotation ?? 0;
-  if (!degrees) {
-    return resizeFrameFromDelta(origin, handle, worldDx, worldDy, options);
-  }
-
   const originCenter = {
     x: origin.x + origin.width / 2,
     y: origin.y + origin.height / 2,
   };
-  // Alt/option resize (`resizeFromCenter`) already grows the frame
-  // symmetrically about its own center in LOCAL space (resizeFrameFromDelta
-  // below keeps the center fixed on both axes for that mode). To keep that
-  // center fixed in WORLD space too — matching Figma, where alt-resizing a
-  // rotated frame grows around its visual center rather than pivoting off an
-  // opposite corner — the re-anchor step below must use the center as its
-  // fixed point instead of the handle's opposite corner/edge. Using the
-  // center as the anchor is a no-op for the rotation (a point rotates around
-  // itself unchanged), so it stays put in world space by construction.
-  // Non-center (default) resizes keep anchoring on the opposite corner/edge
-  // so that world-fixed-anchor behavior is unchanged.
   const anchorLocalBefore = options.resizeFromCenter
     ? originCenter
     : getResizeAnchorPoint(origin, handle);
   const anchorWorld = rotatePoint(anchorLocalBefore, originCenter, degrees);
-
-  // Map the world-space pointer delta into the frame's own unrotated axes so
-  // dragging "outward along the handle" behaves the same regardless of how
-  // the frame is rotated.
-  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
-
-  const resizedLocal = resizeFrameFromDelta(
-    { ...origin, rotation: undefined },
-    handle,
-    localDelta.x,
-    localDelta.y,
-    options,
-  );
 
   const centerAfterLocal = {
     x: resizedLocal.x + resizedLocal.width / 2,
@@ -1295,6 +1278,221 @@ export function resizeRotatedFrameFromDelta(
     x: resizedLocal.x + translation.x,
     y: resizedLocal.y + translation.y,
     rotation: degrees,
+  };
+}
+
+export function resizeRotatedFrameFromDelta(
+  origin: FrameGeometry,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  options: ResizeFrameOptions = {},
+): FrameGeometry {
+  const degrees = origin.rotation ?? 0;
+  if (!degrees) {
+    return resizeFrameFromDelta(origin, handle, worldDx, worldDy, options);
+  }
+
+  // Map the world-space pointer delta into the frame's own unrotated axes so
+  // dragging "outward along the handle" behaves the same regardless of how
+  // the frame is rotated.
+  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
+
+  const resizedLocal = resizeFrameFromDelta(
+    { ...origin, rotation: undefined },
+    handle,
+    localDelta.x,
+    localDelta.y,
+    options,
+  );
+
+  return reanchorRotatedResizeToWorld(
+    origin,
+    handle,
+    degrees,
+    resizedLocal,
+    options,
+  );
+}
+
+/** Resize handles in clockwise screen order (y grows downward), so rotating a
+ *  handle by one 90° quadrant clockwise is a +2 step through this ring. */
+const RESIZE_HANDLES_CLOCKWISE: readonly ResizeHandle[] = [
+  "n",
+  "ne",
+  "e",
+  "se",
+  "s",
+  "sw",
+  "w",
+  "nw",
+];
+
+/** Maps a local resize handle to the world-space direction it points after
+ *  rotating the frame clockwise by `quadrants` 90° steps (CSS-positive
+ *  rotation is clockwise on screen): at 90°, the local east handle points
+ *  due south in world space, so "e" → "s". */
+function rotateHandleByQuadrants(
+  handle: ResizeHandle,
+  quadrants: number,
+): ResizeHandle {
+  const index = RESIZE_HANDLES_CLOCKWISE.indexOf(handle);
+  return RESIZE_HANDLES_CLOCKWISE[(index + 2 * ((quadrants % 4) + 4)) % 8]!;
+}
+
+/**
+ * Beyond this many degrees away from the nearest axis-aligned orientation
+ * (0/90/180/270), resize snapping is skipped for rotated frames: the frame's
+ * true edges diverge too far from any axis-aligned box for edge/center
+ * alignment against siblings to mean anything, and a wrong-axis guide is
+ * worse than none.
+ */
+const ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES = 30;
+
+/**
+ * Rotation-aware counterpart to resizeRotatedFrameFromDelta that also snaps
+ * to nearby stationary siblings, matching computeResizeSnap's contract for
+ * the unrotated group-resize path (CV-style: same threshold/guide shape).
+ *
+ * How rotated snapping works (see WORK ITEM 2 in the canvas bug pass this was
+ * added for, reworked in the pre-ship review): the unsnapped rotated resize
+ * is computed first, then its actual world-space AABB is snapped against
+ * stationary siblings' world bounds with the exact same computeResizeSnap
+ * machinery a non-rotated resize uses — with the resize handle mapped into
+ * its world orientation by the frame's nearest 90° quadrant (at ~90° the
+ * local east edge faces due south in world space, so "e" snaps the AABB's
+ * bottom edge; at ~180° it faces west; etc.). Any snap offset is then fed
+ * back into the rotated resize as extra world pointer travel, so anchoring
+ * stays exact. This is edge-exact at 0/90/180/270 (the AABB edges ARE the
+ * frame's edges there) and approximate in between (pointer travel maps to
+ * AABB-edge movement with a cos² factor); once the rotation is more than
+ * ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES from every axis-aligned
+ * orientation, snapping is skipped entirely (no guides) rather than snapping
+ * an axis that no longer matches what the user sees.
+ */
+export function resizeRotatedFrameFromDeltaWithSnap(
+  origin: FrameGeometry,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  stationary: FrameEntry[],
+  snapOptions: ResizeSnapOptions,
+  options: ResizeFrameOptions = {},
+): { frame: FrameGeometry; guides: AlignmentGuide[] } {
+  const degrees = origin.rotation ?? 0;
+  if (!degrees) {
+    const resizedLocal = resizeFrameFromDelta(
+      origin,
+      handle,
+      worldDx,
+      worldDy,
+      options,
+    );
+    return computeResizeSnap(resizedLocal, stationary, handle, snapOptions);
+  }
+
+  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
+
+  const resizedLocal = resizeFrameFromDelta(
+    { ...origin, rotation: undefined },
+    handle,
+    localDelta.x,
+    localDelta.y,
+    options,
+  );
+
+  // Snapping is skipped outright for a rotated frame whenever the caller's
+  // aspect-preserve flag is set (shift-held or the K scale tool):
+  // independently snapping x and y against the local-bounds approximation
+  // above would distort the locked ratio the aspect-preserving resize above
+  // just computed, and computeAspectPreservingResizeSnap's own single-locked-
+  // ratio reasoning only holds against the frame's true (rotated) shape, not
+  // this approximation. No snap beats a wrong one here.
+  if (snapOptions.preserveAspectRatio || snapOptions.bypass) {
+    return {
+      frame: reanchorRotatedResizeToWorld(
+        origin,
+        handle,
+        degrees,
+        resizedLocal,
+        options,
+      ),
+      guides: [],
+    };
+  }
+
+  const unsnapped = reanchorRotatedResizeToWorld(
+    origin,
+    handle,
+    degrees,
+    resizedLocal,
+    options,
+  );
+
+  // Map the resize handle into its world orientation by the nearest 90°
+  // quadrant (see the doc comment above). Far off-axis, skip snapping
+  // outright — a wrong-axis snap/guide is worse than none.
+  const normalizedDegrees = ((degrees % 360) + 360) % 360;
+  const nearestQuadrant = Math.round(normalizedDegrees / 90) % 4;
+  const offAxisDegrees = Math.abs(
+    normalizedDegrees - Math.round(normalizedDegrees / 90) * 90,
+  );
+  if (offAxisDegrees > ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES) {
+    return { frame: unsnapped, guides: [] };
+  }
+
+  const worldHandle = rotateHandleByQuadrants(handle, nearestQuadrant);
+  const aabb = getRotatedFrameAABB(unsnapped);
+  const worldBox: FrameGeometry = {
+    x: aabb.left,
+    y: aabb.top,
+    width: aabb.width,
+    height: aabb.height,
+  };
+  // Min sizes are per-axis, so they swap with the axes at 90/270.
+  const worldSnapOptions =
+    nearestQuadrant % 2 === 1
+      ? {
+          ...snapOptions,
+          minWidth: snapOptions.minHeight,
+          minHeight: snapOptions.minWidth,
+        }
+      : snapOptions;
+
+  const snap = computeResizeSnap(
+    worldBox,
+    stationary,
+    worldHandle,
+    worldSnapOptions,
+  );
+  if (snap.guides.length === 0) {
+    return { frame: unsnapped, guides: [] };
+  }
+
+  // The snap moved the dragged world edge(s) of the AABB; express that
+  // movement as extra world pointer travel and recompute the rotated resize,
+  // so the anchor-fixing translation stays exact instead of being applied to
+  // an already-snapped box.
+  const snapDx = handleAffectsEast(worldHandle)
+    ? snap.frame.x + snap.frame.width - (worldBox.x + worldBox.width)
+    : handleAffectsWest(worldHandle)
+      ? snap.frame.x - worldBox.x
+      : 0;
+  const snapDy = handleAffectsSouth(worldHandle)
+    ? snap.frame.y + snap.frame.height - (worldBox.y + worldBox.height)
+    : handleAffectsNorth(worldHandle)
+      ? snap.frame.y - worldBox.y
+      : 0;
+
+  return {
+    frame: resizeRotatedFrameFromDelta(
+      origin,
+      handle,
+      worldDx + snapDx,
+      worldDy + snapDy,
+      options,
+    ),
+    guides: snap.guides,
   };
 }
 

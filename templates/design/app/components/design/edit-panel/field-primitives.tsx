@@ -20,15 +20,28 @@ import {
   type ScrubInputChangeMeta,
 } from "../inspector";
 import type { ElementInfo } from "../types";
+import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import {
   resolveBreakpointOverride,
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
+  type StyleChangeMeta,
   type StyleChangeHandler,
   type StylesChangeHandler,
 } from "./style-change-types";
 import { parseNumericValue, sidesAreLinked } from "./style-options";
+
+/**
+ * The CSS length DesignSpacingControl commits for one side's scrub/typed
+ * value. Rounds to one decimal place (not a whole pixel) to match the
+ * `precision={1}` the four per-side ScrubInput fields below advertise — see
+ * `roundToOneDecimal`'s docstring on why 0.5-unit values must survive the
+ * round trip. Exported so the precision contract is unit-testable directly.
+ */
+export function resolveSpacingSideValue(value: number): string {
+  return `${roundToOneDecimal(value)}px`;
+}
 
 export function DesignSpacingControl({
   label,
@@ -47,14 +60,19 @@ export function DesignSpacingControl({
     bottom: parseNumericValue(values.bottom || "0"),
     left: parseNumericValue(values.left || "0"),
   };
-  const linkedValue = Math.round(
+  const linkedValue = roundToOneDecimal(
     (numeric.top + numeric.right + numeric.bottom + numeric.left) / 4,
   );
   const setSide = (
     side: "Top" | "Right" | "Bottom" | "Left",
     value: number,
   ) => {
-    onChange(side, `${Math.round(value)}px`);
+    // Was `Math.round(value)`, which silently floored every typed/scrubbed
+    // 0.5px value to a whole pixel — contradicting the `precision={1}` these
+    // fields advertise (below) and diverging from every other ScrubInput
+    // commit site in this panel (position X/Y, stroke weight, font size all
+    // use roundToOneDecimal).
+    onChange(side, resolveSpacingSideValue(value));
   };
   const setAll = (value: number) => {
     (["Top", "Right", "Bottom", "Left"] as const).forEach((side) =>
@@ -98,6 +116,7 @@ export function DesignSpacingControl({
           onChange={setAll}
           unit="px"
           min={0}
+          precision={1}
           labelClassName="w-16"
           inputClassName="h-6"
         />
@@ -304,12 +323,13 @@ export function commitStylePatch(
   styles: Record<string, string>,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
+  meta?: StyleChangeMeta,
 ) {
   if (onStylesChange) {
-    onStylesChange(styles);
+    onStylesChange(styles, meta);
     return;
   }
   Object.entries(styles).forEach(([property, value]) => {
-    onStyleChange(property, value);
+    onStyleChange(property, value, meta);
   });
 }

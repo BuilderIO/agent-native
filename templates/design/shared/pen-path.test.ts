@@ -241,6 +241,25 @@ describe("pen path helpers", () => {
       expect(snapped).toEqual({ x: 100, y: 0 });
     });
 
+    it("snaps to the nearest anchor when multiple anchors are within the hit radius", () => {
+      const path = appendPenNode(
+        appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+        createCornerNode({ x: 100, y: 0 }),
+      );
+
+      // (55, 0) is 55px from the first anchor and 45px from the second —
+      // both within the 60px hit radius, but the second is closer. The
+      // first anchor happens to come first in node order, so a naive
+      // "first match wins" scan (rather than nearest-match, as
+      // hitTestPenAnchor already does) would incorrectly snap there
+      // instead.
+      const snapped = snapPenAnchorPoint({ x: 55, y: 0 }, path, {
+        hitRadius: 60,
+        zoom: 50,
+      });
+      expect(snapped).toEqual({ x: 100, y: 0 });
+    });
+
     it("does not snap to an anchor outside the hit radius", () => {
       const path = appendPenNode(null, createCornerNode({ x: 0, y: 0 }));
       const snapped = snapPenAnchorPoint({ x: 50, y: 50 }, path, {

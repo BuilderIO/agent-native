@@ -25,6 +25,7 @@ import {
   type CanvasFrameGeometry,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import {
   makeLocalhostRouteId,
   titleFromRoutePath,
@@ -488,6 +489,18 @@ export default defineAction({
       height: number;
     }> = [];
     const placementIntents: PlacementIntent[] = [];
+    // Duplicate-route guard: `existingFiles`/`existingByFilename`/the
+    // route-candidate lookups below are all snapshotted ONCE above the loop
+    // and never refreshed as new files are inserted mid-loop, so two entries
+    // in the SAME `requestedRoutes` call that resolve to the same route
+    // (repeated `paths`, or a `routeId` and a `path` naming the same route)
+    // each independently see "no existing match" and each insert a fresh
+    // `design_files` row — two overlapping screens for one route. Track
+    // routeIds already processed THIS call (keyed with width/height so an
+    // intentional multi-viewport request for the same route still creates
+    // its distinct variants) and skip later duplicates outright.
+    const seenRouteRequestKeys = new Set<string>();
+    let placementIndex = 0;
 
     for (let index = 0; index < requestedRoutes.length; index += 1) {
       const input = requestedRoutes[index]!;
@@ -505,6 +518,9 @@ export default defineAction({
       );
       const routeId =
         input.routeId ?? manifestRoute?.id ?? makeLocalhostRouteId(path);
+      const routeRequestKey = `${routeId}::${input.width ?? ""}x${input.height ?? ""}`;
+      if (seenRouteRequestKeys.has(routeRequestKey)) continue;
+      seenRouteRequestKeys.add(routeRequestKey);
       const title =
         input.title ?? manifestRoute?.title ?? titleFromRoutePath(path);
       const sourceFile = input.sourceFile ?? manifestRoute?.sourceFile;
@@ -619,7 +635,9 @@ export default defineAction({
       const filename =
         existing?.filename ??
         uniqueFilename(path, usedFilenames, preferredFilename);
-      const fileId = existing?.id ?? nanoid();
+      // Reassigned below if a concurrent request wins the insert race for
+      // this exact (designId, filename) pair — see the `else` branch.
+      let fileId = existing?.id ?? nanoid();
       const existingScreenMetadata = existing
         ? metadataForFile(
             existing.id,
@@ -656,16 +674,50 @@ export default defineAction({
           await seedFromText(existing.id, url);
         }
       } else {
-        await db.insert(schema.designFiles).values({
-          id: fileId,
-          designId,
-          filename,
-          fileType: "html",
-          content: url,
-          createdAt: now,
-          updatedAt: now,
-        });
-        await seedFromText(fileId, url);
+        try {
+          await db.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: "html",
+            content: url,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await seedFromText(fileId, url);
+        } catch (err) {
+          if (!isUniqueConstraintViolation(err)) throw err;
+          // Cross-request race: this snapshot's `existingFiles` query ran
+          // before a concurrent add-localhost-screens call (for the same
+          // route) committed its own insert, so both requests independently
+          // computed the same deterministic filename and both tried to
+          // create it. The `design_files_design_filename_unique_idx` unique
+          // index (see server/plugins/db.ts) turns the loser's insert into
+          // this error instead of a silent duplicate screen. Recover by
+          // adopting whichever row actually won the race and updating its
+          // content, the same way the `existing` branch above does.
+          const [winner] = await db
+            .select()
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                eq(schema.designFiles.filename, filename),
+              ),
+            )
+            .limit(1);
+          if (!winner) throw err;
+          fileId = winner.id;
+          await db
+            .update(schema.designFiles)
+            .set({ content: url, fileType: "html", updatedAt: now })
+            .where(eq(schema.designFiles.id, winner.id));
+          if (await hasCollabState(winner.id)) {
+            await applyText(winner.id, url, "content", "agent");
+          } else {
+            await seedFromText(winner.id, url);
+          }
+        }
       }
 
       savedScreens.push({
@@ -688,12 +740,13 @@ export default defineAction({
         x:
           input.x ??
           existingFrame?.x ??
-          layoutStartX + index * (width + layoutGap),
+          layoutStartX + placementIndex * (width + layoutGap),
         y: input.y ?? existingFrame?.y ?? layoutStartY,
         width,
         height,
-        z: input.z ?? existingFrame?.z ?? index,
+        z: input.z ?? existingFrame?.z ?? placementIndex,
       };
+      placementIndex += 1;
       placementIntents.push({
         fileId,
         filename,

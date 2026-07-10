@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   assertAccess: vi.fn(),
+  flushOpenDocumentEditorToSql: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -15,7 +16,12 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+vi.mock("./_document-flush.js", () => ({
+  flushOpenDocumentEditorToSql: mocks.flushOpenDocumentEditorToSql,
+}));
+
 import {
+  flushNotionDocumentEditor,
   getCurrentNotionOwner,
   getNotionDocumentOwner,
   resolveDocumentId,
@@ -25,6 +31,7 @@ beforeEach(() => {
   mocks.getRequestOrgId.mockReset();
   mocks.getRequestUserEmail.mockReset();
   mocks.assertAccess.mockReset();
+  mocks.flushOpenDocumentEditorToSql.mockReset();
 });
 
 describe("getCurrentNotionOwner", () => {
@@ -100,6 +107,19 @@ describe("getNotionDocumentOwner", () => {
     await expect(getNotionDocumentOwner("doc-1")).rejects.toThrow(
       "No access to document doc-1",
     );
+  });
+});
+
+describe("flushNotionDocumentEditor", () => {
+  it("flushes the open editor under the document owner's session", async () => {
+    mocks.flushOpenDocumentEditorToSql.mockResolvedValue(undefined);
+
+    await flushNotionDocumentEditor("doc-1", "owner@example.com");
+
+    expect(mocks.flushOpenDocumentEditorToSql).toHaveBeenCalledWith({
+      documentId: "doc-1",
+      ownerEmail: "owner@example.com",
+    });
   });
 });
 

@@ -14,7 +14,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { commitElementMinMax, isTextElement } from "./element-classification";
+import {
+  commitElementMinMax,
+  isContainerElement,
+  isTextElement,
+} from "./element-classification";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -123,6 +127,94 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+describe("isContainerElement — primitive inspector layout semantics", () => {
+  it("treats empty rectangle and frame primitives as containers", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "rectangle",
+          sourceId: "draft-rect-1",
+          childElementCount: 0,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "frame",
+          sourceId: "draft-frame-1",
+          childElementCount: 0,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not mistake a flex-backed T-tool primitive for a container", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "text",
+          sourceId: "draft-text-1",
+          isFlexContainer: true,
+          childElementCount: 0,
+          textContent: "Label",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps div-backed non-container drawing primitives as leaves", () => {
+    for (const primitiveKind of [
+      "ellipse",
+      "line",
+      "arrow",
+      "polygon",
+      "star",
+      "path",
+    ]) {
+      expect(
+        isContainerElement(
+          makeElement({ primitiveKind, childElementCount: 0 }),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  // Regression: the `isTextElement(element)) return false` short-circuit
+  // added to fix the flex-backed T-tool text primitive case above (a real
+  // `primitiveKind: "text"` marker) was too broad — it also ran
+  // `isTextElement`'s generic childless-div-with-text fallback, which has
+  // nothing to do with the T-tool and matches any ordinary content div with
+  // no primitive/tag/id marker at all. That silently stripped the
+  // Flow/Padding/Auto-layout sections from ordinary Tailwind pill/badge/
+  // button-label divs — ubiquitous in generated markup — even though they
+  // hit `isFlexContainer`/`CONTAINER_TAGS` and were correctly treated as
+  // containers before that short-circuit existed.
+  it("still treats a childless flex div with its own text as a container (no primitive markers at all)", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          isFlexContainer: true,
+          childElementCount: 0,
+          textContent: "3 new",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("still treats a plain childless div with its own text and container-ish classes as a container", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          classes: ["inline-flex", "items-center", "rounded-full", "px-3"],
+          childElementCount: 0,
+          textContent: "Badge label",
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

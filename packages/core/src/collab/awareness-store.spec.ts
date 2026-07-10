@@ -89,6 +89,7 @@ import {
   _resetAwarenessStoreForTests,
   deleteAwarenessRow,
   loadAwarenessRows,
+  loadAwarenessRowsStrict,
   upsertAwarenessRow,
 } from "./awareness-store.js";
 
@@ -167,5 +168,8 @@ describe("awareness-store", () => {
     ).resolves.toBeUndefined();
     await expect(deleteAwarenessRow("doc-6", 1)).resolves.toBeUndefined();
     await expect(loadAwarenessRows("doc-6")).resolves.toEqual([]);
+    await expect(loadAwarenessRowsStrict("doc-6")).rejects.toThrow(
+      "db not configured",
+    );
   });
 });

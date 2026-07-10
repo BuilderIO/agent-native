@@ -55,6 +55,7 @@ interface Captured {
   editor: Editor | null;
   emitted: string[];
   setContentCalls: number;
+  registerEmitted?: (markdown: string) => boolean;
 }
 
 function makeHarness() {
@@ -100,6 +101,7 @@ function makeHarness() {
       },
     });
     guardsRef.current = guards;
+    captured.registerEmitted = guards.registerEmitted;
 
     return React.createElement("div", null);
   }
@@ -268,6 +270,64 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# V1 content");
+  });
+
+  it("applies a newer authoritative revert that matches a prior mount-time emission", async () => {
+    const { captured, Harness } = makeHarness();
+
+    render(root, Harness, {
+      value: "# V1 content",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+    });
+    await flush();
+    render(root, Harness, {
+      value: "# V2 content",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+    });
+    await flush();
+    expect(getEditorMarkdown(captured.editor!)).toBe("# V2 content");
+
+    // A collab mount/schema-normalization transaction can emit the old V1
+    // bytes even though the authoritative apply has already moved the editor
+    // to V2. Record that echo without focusing/typing in the editor.
+    expect(captured.registerEmitted?.("# V1 content")).toBe(true);
+
+    render(root, Harness, {
+      value: "# V1 content",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+    });
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("# V1 content");
+  });
+
+  it("ignores local-looking editor updates until collaborative seeding completes", async () => {
+    const results: boolean[] = [];
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      const guards = useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        collabSynced: false,
+        value: "authoritative content",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+      });
+      if (editor && results.length === 0) {
+        results.push(guards.shouldIgnoreUpdate(editor.state.tr));
+      }
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+
+    expect(results).toEqual([true]);
   });
 
   it("refuses to persist an empty doc in collab mode (registerEmitted guard)", async () => {

@@ -2,8 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import { executeProviderApiRequest } from "../server/lib/provider-api.js";
-
-const FIGMA_FILE_KEY_RE = /^[A-Za-z0-9_-]{8,}$/;
+import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const FigmaRenderFormatSchema = z.enum(["svg", "png"]).default("svg");
 
@@ -77,28 +76,6 @@ function stringValue(value: unknown): string | null {
 
 function numberOrDefault(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-export function parseFigmaFileKey(input: string | undefined): string | null {
-  const value = input?.trim();
-  if (!value) return null;
-  if (FIGMA_FILE_KEY_RE.test(value)) return value;
-
-  try {
-    const url = new URL(value);
-    const parts = url.pathname.split("/").filter(Boolean);
-    for (const segment of ["design", "file", "proto"]) {
-      const index = parts.indexOf(segment);
-      if (index >= 0) {
-        const candidate = parts[index + 1];
-        if (candidate && FIGMA_FILE_KEY_RE.test(candidate)) return candidate;
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
 }
 
 function figmaNodeUrl(

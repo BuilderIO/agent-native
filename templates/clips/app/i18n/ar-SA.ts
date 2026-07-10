@@ -379,6 +379,7 @@ const messages = {
     searchPlaceholder: "نص البحث",
     copyTranscript: "نسخ النص",
     downloadSrt: "تحميل .srt",
+    regenerate: "إعادة إنشاء النص",
     cleanupRunning: "تنظيف النص في الخلفية.",
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",

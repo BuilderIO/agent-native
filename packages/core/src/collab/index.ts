@@ -126,6 +126,10 @@ export {
   type AwarenessEntry,
   type AwarenessChangeEvent,
 } from "./awareness.js";
+export {
+  loadAwarenessRows,
+  loadAwarenessRowsStrict,
+} from "./awareness-store.js";
 
 // Presence kit
 export {

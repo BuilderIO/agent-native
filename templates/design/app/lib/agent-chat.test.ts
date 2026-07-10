@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
 const sendToAgentChatMock = vi.hoisted(() => vi.fn(() => "tab-design"));
+const sendToAgentChatAndConfirmMock = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve({ tabId: "tab-design", delivered: true })),
+);
 
 vi.mock("@agent-native/core/client", () => ({
   sendToAgentChat: sendToAgentChatMock,
+  sendToAgentChatAndConfirm: sendToAgentChatAndConfirmMock,
 }));
 
-import { DESIGN_CHAT_STORAGE_KEY, sendToDesignAgentChat } from "./agent-chat";
+import {
+  DESIGN_CHAT_STORAGE_KEY,
+  sendToDesignAgentChat,
+  sendToDesignAgentChatAndConfirm,
+} from "./agent-chat";
 
 describe("Design agent chat routing", () => {
   it("namespaces Design chat state", () => {
@@ -26,5 +34,26 @@ describe("Design agent chat routing", () => {
       submit: true,
       chatTarget: "local",
     });
+  });
+
+  it("forces the ack-confirmed handoff to the local app chat and returns delivery status", async () => {
+    const result = await sendToDesignAgentChatAndConfirm(
+      {
+        message: "Apply this annotation",
+        submit: true,
+        chatTarget: "auto",
+      },
+      { timeoutMs: 1234 },
+    );
+
+    expect(result).toEqual({ tabId: "tab-design", delivered: true });
+    expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledWith(
+      {
+        message: "Apply this annotation",
+        submit: true,
+        chatTarget: "local",
+      },
+      { timeoutMs: 1234 },
+    );
   });
 });

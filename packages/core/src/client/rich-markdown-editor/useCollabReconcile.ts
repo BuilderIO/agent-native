@@ -385,6 +385,8 @@ export function useCollabReconcile({
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
+      const typingRecently =
+        editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
 
       // Doc-equivalence skip. Never re-apply content the editor already
       // represents — comparing by DOC EQUIVALENCE, not raw strings/timestamps:
@@ -407,11 +409,15 @@ export function useCollabReconcile({
       //      `<p>` → `&lt;p&gt;` → `&amp;lt;p&amp;gt;` escalation.
       if (
         currentMarkdown === normalizedValue ||
-        value === lastEmittedRef.current ||
-        // A stale-but-recent echo of our own (possibly partial) save — applying
-        // it would clobber the freshly-typed tail. External edits never match.
-        recentEmittedRef.current.includes(value) ||
-        recentEmittedRef.current.includes(normalizedValue) ||
+        (typingRecently &&
+          // A stale echo of our own (possibly partial) save while the user is
+          // actively typing would clobber the fresh tail. Outside active
+          // typing, the same bytes can be a deliberate newer external revert
+          // (history restore / provider conflict choice) and must be allowed
+          // through even if mount-time normalization emitted them.
+          (value === lastEmittedRef.current ||
+            recentEmittedRef.current.includes(value) ||
+            recentEmittedRef.current.includes(normalizedValue))) ||
         (editorUnchangedSinceApply &&
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
@@ -442,8 +448,6 @@ export function useCollabReconcile({
       // for non-idempotent input, fight every keystroke. Newer external content
       // retries so it still lands once they pause; older-or-equal content is a
       // stale poll and is dropped outright while focused.
-      const typingRecently =
-        editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
       if (typingRecently) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
@@ -549,6 +553,13 @@ export function useCollabReconcile({
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current) return true;
+    // Collaboration can emit schema/default-paragraph transactions while the
+    // persisted Y.Doc is still loading and before the authoritative value has
+    // seeded/reconciled. Never let those transient pre-seed updates reach an
+    // app's local mirror or autosave path (Content serializes an empty paragraph
+    // as `<empty-block/>`, which is non-empty text and bypasses the generic
+    // registerEmitted empty-string guard).
+    if (collab && !seededRef.current) return true;
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
       return true;
     }

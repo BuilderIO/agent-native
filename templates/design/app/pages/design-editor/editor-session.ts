@@ -18,3 +18,36 @@ export function createEditorSaveOperationSource(
 
 /** Yjs origin tracked by the local undo manager. */
 export const LOCAL_EDIT_ORIGIN = `${TAB_ID}:local`;
+
+/**
+ * TIE-BREAK: decides whether polled DB content should be adopted into the
+ * live editor during the file-content reconcile effect (DesignEditor.tsx).
+ * Callers only reach this decision once BOTH of the effect's own
+ * "already reflecting this exact content" early-returns have already ruled
+ * out `dbContent` matching what's currently rendered — so every call here
+ * represents a genuine content difference.
+ *
+ * A strict `dbUpdatedAt > applied` used to be the only "is this newer"
+ * check, which silently DROPPED a real external write whenever it landed in
+ * the same millisecond as the previously-applied one (timestamp
+ * resolution) — the tie was never treated as "newer," so the second write's
+ * content just never rendered. That's only safe to fix by treating a tie as
+ * adoptable while `agentActive` is false: when the agent IS active, a tied
+ * timestamp with different content is more likely a live self-echo race
+ * (the agent's own Yjs-tracked edit still mid-flight), which the caller's
+ * `staleAgentEchoPossible` debounced recovery timer already handles
+ * separately and more carefully — forcing immediate adoption for that case
+ * too would skip the debounce and reintroduce the exact race it exists to
+ * prevent.
+ */
+export function shouldAdoptExternalReconcileContent(args: {
+  appliedUpdatedAt: string | null | undefined;
+  dbUpdatedAt: string | null | undefined;
+  agentActive: boolean;
+}): boolean {
+  const { appliedUpdatedAt, dbUpdatedAt, agentActive } = args;
+  if (!appliedUpdatedAt) return true;
+  if (!dbUpdatedAt) return false;
+  if (dbUpdatedAt > appliedUpdatedAt) return true;
+  return dbUpdatedAt === appliedUpdatedAt && !agentActive;
+}

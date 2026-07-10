@@ -74,6 +74,13 @@ export function resolveLineHeight(
     if (Number.isFinite(lhPx) && Number.isFinite(fsPx) && fsPx > 0) {
       return Math.round((lhPx / fsPx) * 100) / 100;
     }
+    // A px-computed line-height that we can't divide by a valid font-size
+    // (missing/invalid fontSize) must NOT fall through to the unitless-ratio
+    // parse below — `parseFloat("19.2px")` silently reads as `19.2`, which
+    // would render as a wildly wrong multiplier (e.g. "19.2") instead of a
+    // sane ~1.2 ratio. Fall back to the same default the empty/"normal" case
+    // above uses.
+    return 1.2;
   }
   const numeric = parseFloat(lh);
   return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;

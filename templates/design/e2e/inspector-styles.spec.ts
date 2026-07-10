@@ -12,9 +12,6 @@ import {
 
 let designId: string;
 
-const DATA_URI_1X1_PNG =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1uoAAAAASUVORK5CYII=";
-
 test.beforeAll(async () => {
   designId = await readSeedDesignId();
 });
@@ -138,6 +135,27 @@ async function selectedElementStyle(
     );
 }
 
+async function resolvedColorChannels(
+  page: Page,
+  value: string,
+): Promise<{ rgb: [number, number, number]; alpha: number }> {
+  return page.evaluate((color) => {
+    const probe = document.createElement("span");
+    probe.style.color = color;
+    document.body.append(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    const channels = resolved.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    if (channels.length < 3) {
+      throw new Error(`Could not resolve color channels for ${color}`);
+    }
+    return {
+      rgb: [channels[0]!, channels[1]!, channels[2]!],
+      alpha: channels[3] ?? 1,
+    };
+  }, value);
+}
+
 test("page background supports gradient edits", async ({ page }) => {
   await page.keyboard.press("Escape");
   const pageSection = pagePropertiesSection(page);
@@ -156,7 +174,7 @@ test("page background supports gradient edits", async ({ page }) => {
     .toContain("25%");
 });
 
-test("page background exposes image controls and accepts a tiled data URL", async ({
+test("page background exposes image controls and accepts a tiled image URL", async ({
   page,
 }) => {
   await page.keyboard.press("Escape");
@@ -165,18 +183,29 @@ test("page background exposes image controls and accepts a tiled data URL", asyn
 
   await openColorPicker(pageSection);
   await choosePaintType(page, "Image");
-  await setScrubInput(page, "Image URL", DATA_URI_1X1_PNG);
+  await setScrubInput(page, "Image URL", "/icon-180.svg");
   await page.getByRole("combobox", { name: "Fill", exact: true }).click();
   await page.getByRole("option", { name: "Tile", exact: true }).click();
 
   await expect
     .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
-    .toContain("data:image/png;base64");
+    .toContain("/icon-180.svg");
   await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-repeat"))
+    .poll(() => readInlineStyle(page, bodyElement(page), "background-image"))
+    .toContain("linear-gradient");
+  await expect
+    .poll(async () =>
+      (await readInlineStyle(page, bodyElement(page), "background-repeat"))
+        .split(",")[0]
+        ?.trim(),
+    )
     .toBe("repeat");
   await expect
-    .poll(() => readInlineStyle(page, bodyElement(page), "background-position"))
+    .poll(async () =>
+      (await readInlineStyle(page, bodyElement(page), "background-position"))
+        .split(",")[0]
+        ?.trim(),
+    )
     .toBe("left top");
 });
 
@@ -200,6 +229,7 @@ test("text fills hide and restore without losing the original color", async ({
     "color",
   );
   expect(initialColor).not.toBe("");
+  const initialChannels = await resolvedColorChannels(page, initialColor);
 
   await expect(hideFillButton).toBeVisible();
   await expect(
@@ -208,8 +238,15 @@ test("text fills hide and restore without losing the original color", async ({
 
   await hideFillButton.click();
   await expect
-    .poll(() => selectedElementStyle(page, "E2E Hero Heading", "color"))
-    .toBe("transparent");
+    .poll(async () => {
+      const hiddenColor = await selectedElementStyle(
+        page,
+        "E2E Hero Heading",
+        "color",
+      );
+      return resolvedColorChannels(page, hiddenColor);
+    })
+    .toEqual({ rgb: initialChannels.rgb, alpha: 0 });
   await expect(showFillButton).toBeVisible();
 
   await showFillButton.click();

@@ -248,6 +248,92 @@ design-system indexing just to insert a component. Use
 component/component set with provenance. Styles and variables still belong in
 the Builder-backed design-system path above.
 
+### Import from Figma (pixel-accurate frame import)
+
+**When the user pastes a Figma frame/screen link and wants a real, editable
+Design screen** (not a rendered image, not a component insert), use
+`import-figma-frame` instead of `list-figma-library-assets` +
+`insert-figma-library-asset`:
+
+```bash
+pnpm action import-figma-frame --figmaUrl "https://www.figma.com/design/<fileKey>/<name>?node-id=<id>"
+# or
+pnpm action import-figma-frame --fileKey "<fileKey>" --nodeId "12:34" --designId "<designId>"
+```
+
+- Accepts a full Figma URL (design/file/proto share links, including
+  `/branch/<key>/` branch URLs — the branch's own key is used automatically) or
+  an explicit `fileKey` + `nodeId`. If `nodeId` is omitted, the file's first
+  top-level frame is imported.
+- Maps the node tree to real HTML/CSS: exact position/size, auto-layout as
+  flexbox, text (font, line-height, letter-spacing, case, decoration, align),
+  fills (solid/gradient/image, correctly layered and gradient-angle-derived,
+  not a default angle), strokes (including the CENTER/INSIDE/OUTSIDE
+  distinction), per-corner radii, shadows/blur, opacity, and blend modes.
+  Vector networks, boolean operations, and other structurally unsupported node
+  types are rendered as an exact PNG at 2x scale instead of an approximated
+  shape guess.
+- Saves the result as a new screen via the same import path as other Design
+  imports (`saveImportedDesignFiles`), placed on the overview canvas.
+- Returns a `fidelityReport` — `exactCount`, `approximated` (properties CSS
+  can only approximate: rotation, per-side stroke weights, radial/angular/
+  diamond gradients, blur radius scale), and `imageFallbacks` (subtrees
+  rendered as PNG instead of structural HTML). Read this back to the user when
+  a design has non-trivial fallbacks so they know what to expect if they later
+  edit that subtree.
+- After import, treat the screen like any other: `view-screen`,
+  `get-design-snapshot`, `apply-visual-edit` / `edit-design` all work normally
+  on it.
+- For a file's published FILL/TEXT/EFFECT/GRID styles (name, description, node
+  id — not full token values), use `get-figma-styles` with `fileUrl`/`fileKey`.
+  This is the file's Styles panel, not the Enterprise Variables API; full
+  design-token extraction still routes through the Builder-backed
+  `index-design-system-with-builder` path above.
+
+#### Paste from Figma (Cmd+C/Cmd+V) vs. a copied frame link
+
+A plain clipboard paste (Cmd+C in Figma, Cmd+V on the Design canvas) is
+handled separately from `import-figma-frame`, because a clipboard paste and a
+copied frame **link** carry fundamentally different information:
+
+- **A copied frame link** (`?node-id=...`) names an exact node. Always exact —
+  use `import-figma-frame`.
+- **A plain clipboard paste** only carries Figma's `figmeta` marker, which is
+  `{fileKey, pasteID, dataType}` — **no node id at all**, and `pasteID` is an
+  ephemeral, server-side identifier that the public REST API can't resolve
+  back to a node. So a clipboard paste can only ever get an exact node import
+  on a **best-effort match**, never a guarantee.
+
+The canvas paste listener (`app/lib/figma-clipboard.ts` +
+`import-figma-clipboard`) handles this automatically:
+
+1. Decodes `figmeta` from the pasted HTML client-side
+   (`extractFigmeta`/`resolveFigmaPasteImportCall`) to decide whether to call
+   `import-figma-clipboard` (figmeta present) or the legacy
+   `import-design-source` HTML path (no figmeta — not a Figma paste, or an
+   older Figma client that doesn't emit the marker).
+2. `import-figma-clipboard` fetches the file's shallow structure (top-level
+   frames + their direct children, `server/lib/figma-node-import.ts`'s
+   `fetchFileStructure(fileKey, 3)`) and heuristically matches it against the
+   pasted content's visible text (`server/lib/figma-clipboard-match.ts`):
+   a frame is only imported when its **name** or at least **two distinct
+   text-layer contents** appear verbatim in the paste. Anything ambiguous or
+   unmatched imports **nothing structural** — it never guesses and never
+   imports the whole file uninvited.
+3. On a confident match, the matched node(s) are fetched and mapped through
+   the same `buildScreenFilesFromFigmaNodes` core `import-figma-frame` uses
+   (`strategy: "restNodes"` in the result, with a `fidelityReport`).
+4. Otherwise it falls back to the legacy visible-HTML paste
+   (`strategy: "htmlFallback"`), and reports why via `matchStatus`
+   (`"ambiguous"`, `"none"`, or `"error"`) and `figmaApiKeyMissing` (no
+   `FIGMA_ACCESS_TOKEN` configured). The canvas paste toast surfaces a hint in
+   both cases: connect the Figma access token, or paste a frame **link**
+   instead for a guaranteed-exact import.
+
+Tell users who want guaranteed pixel-exact imports to copy a frame **link**
+("Copy link to selection" in Figma), not just Cmd+C — a plain paste is
+convenient but only best-effort.
+
 ### Source: Brand Analysis (combines website + notes)
 
 ```bash

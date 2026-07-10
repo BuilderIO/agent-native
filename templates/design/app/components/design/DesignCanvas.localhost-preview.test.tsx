@@ -47,6 +47,127 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("hands a successful overview registration to Full view without a placeholder reload or URL-only frame", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Live chat</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const previewUrl = "http://localhost:5173/chat";
+    let resolveSecondRegistration!: (response: Response) => void;
+    const secondRegistration = new Promise<Response>((resolve) => {
+      resolveSecondRegistration = resolve;
+    });
+    let registrationCount = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (!url.endsWith("/live-edit-bridge")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
+      registrationCount += 1;
+      if (registrationCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ ok: true, bridgeInstanceId: "instance-1" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return secondRegistration;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const renderCanvas = async (overview: boolean) => {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content={previewUrl}
+            contentKey="screen-chat"
+            screenId="screen-chat"
+            sourceType="localhost"
+            bridgeUrl={bridgeUrl}
+            previewToken="handoff-preview-token"
+            externalSnapshotHtml="<!doctype html><html><body><main>Chat preview</main></body></html>"
+            zoom={100}
+            deviceFrame="none"
+            embeddedFrame={
+              overview
+                ? {
+                    viewportWidth: 390,
+                    viewportHeight: 844,
+                    displayWidth: 390,
+                    displayHeight: 844,
+                  }
+                : undefined
+            }
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+    };
+
+    await renderCanvas(true);
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await renderCanvas(false);
+
+    // The second registration is deliberately unresolved. Full view must
+    // still mount the one real live-edit URL immediately from the successful
+    // overview handoff, never an empty srcdoc that is replaced later.
+    const focusedIframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    expect(focusedIframe?.getAttribute("src")).toContain("/live-edit?");
+    expect(focusedIframe?.getAttribute("srcdoc")).toBeNull();
+    const fallback = container.querySelector<HTMLIFrameElement>(
+      "[data-live-edit-transition-fallback]",
+    );
+    expect(fallback?.getAttribute("srcdoc")).toContain("Chat preview");
+    expect(fallback?.getAttribute("srcdoc")).not.toBe(previewUrl);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready" },
+          origin: bridgeUrl,
+          source: focusedIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
+    expect(container.querySelector("[data-design-preview-iframe]")).toBe(
+      focusedIframe,
+    );
+
+    resolveSecondRegistration(
+      new Response(
+        JSON.stringify({ ok: true, bridgeInstanceId: "instance-1" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  });
+
   it("hydrates source HTML in parallel without replacing the keyed live iframe", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

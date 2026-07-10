@@ -903,6 +903,8 @@ export default function ShareRoute() {
               <ShareRecordingPopover
                 recordingId={recording.id}
                 recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}

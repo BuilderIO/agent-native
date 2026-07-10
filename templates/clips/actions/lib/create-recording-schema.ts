@@ -62,8 +62,10 @@ export const createRecordingSchema = z.object({
     .describe("Height of the recording in pixels (may be 0 until finalized)"),
   visibility: z
     .enum(["private", "org", "public"])
-    .optional()
-    .describe("Initial share visibility for the recording"),
+    .default("public")
+    .describe(
+      "Initial share visibility for the recording (defaults to public)",
+    ),
   mimeType: z
     .string()
     .optional()
@@ -74,7 +76,7 @@ export const createRecordingSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Request the resumable streaming upload path. Deployments must also set CLIPS_ENABLE_STREAMING_UPLOAD; otherwise recordings use the buffered fallback.",
+      "Request the resumable streaming upload path. Hosted deployments use it automatically because SQL chunk buffering is unavailable; local deployments can opt in with CLIPS_ENABLE_STREAMING_UPLOAD.",
     ),
   streamingUploadClient: z
     .enum(["desktop-native"])

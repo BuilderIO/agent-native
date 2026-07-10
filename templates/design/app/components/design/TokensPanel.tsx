@@ -108,15 +108,31 @@ export interface TokensPanelProps {
 // ---------------------------------------------------------------------------
 
 /** True when the value looks like an opaque colour we can render as a swatch. */
-function isColorValue(value: string): boolean {
+export function isColorValue(value: string): boolean {
   const v = value.trim();
   return (
-    /^#[0-9a-fA-F]{3,8}$/.test(v) ||
+    // Valid CSS hex-color lengths are exactly 3, 4, 6, or 8 digits (#rgb,
+    // #rgba, #rrggbb, #rrggbbaa) — a bare `{3,8}` range also matched
+    // malformed 5- and 7-digit strings, which render as a blank swatch
+    // instead of falling back to the neutral type icon.
+    /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ||
     /^rgba?\(/.test(v) ||
     /^hsla?\(/.test(v) ||
     /^oklch\(/.test(v) ||
     /^color\(/.test(v)
   );
+}
+
+/**
+ * Normalizes user-typed CSS custom-property input for the manual "Add one
+ * token" flow: trims surrounding whitespace first, then ensures a `--`
+ * prefix. Trimming before the prefix check matters — a leading space (e.g.
+ * pasted input) would otherwise fail `startsWith("--")` and produce a
+ * doubled-up, server-rejected name like `-- --foo`.
+ */
+export function normalizeCssVarName(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.startsWith("--") ? trimmed : `--${trimmed}`;
 }
 
 /** Type label + icon for a section header. */
@@ -146,7 +162,6 @@ function typeLabel(type: DesignToken["type"]): {
 
 interface TokenRowProps {
   token: DesignToken;
-  onEdit: (cssVar: string, value: string) => void;
   editing: boolean;
   editDraft: string;
   onDraftChange: (v: string) => void;
@@ -272,7 +287,6 @@ interface TokenGroupSectionProps {
   onDraftChange: (v: string) => void;
   onCommit: () => void;
   onCancelEdit: () => void;
-  onEdit: (cssVar: string, value: string) => void;
 }
 
 function TokenGroupSection({
@@ -283,7 +297,6 @@ function TokenGroupSection({
   onDraftChange,
   onCommit,
   onCancelEdit,
-  onEdit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { label, Icon } = typeLabel(group.type);
@@ -321,7 +334,6 @@ function TokenGroupSection({
               onCommit={onCommit}
               onStartEdit={() => onStartEdit(token.cssVar, token.value)}
               onCancelEdit={onCancelEdit}
-              onEdit={onEdit}
             />
           ))}
         </div>
@@ -364,12 +376,12 @@ function NewTokenPopover({
   const t = useT();
 
   const handleAdd = () => {
-    const cleanVar = cssVar.startsWith("--") ? cssVar : `--${cssVar}`;
-    onAdd(cleanVar, value);
+    onAdd(normalizeCssVarName(cssVar), value.trim());
     setOpen(false);
     setMode("menu");
     setCssVar("--my-token");
     setValue("#000000");
+    setText("");
   };
 
   const runImport = async (
@@ -394,8 +406,14 @@ function NewTokenPopover({
   const closeOrReset = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
+      // Reset every draft field, not just mode/status, so reopening the
+      // popover after a dismissed (uncommitted) edit always starts fresh
+      // instead of silently resurrecting a stale cssVar/value/text draft.
       setMode("menu");
       setStatus(null);
+      setCssVar("--my-token");
+      setValue("#000000");
+      setText("");
     }
   };
 
@@ -487,7 +505,7 @@ function NewTokenPopover({
               type="button"
               className="h-7 w-full cursor-pointer !text-[11px]"
               onClick={handleAdd}
-              disabled={!cssVar || !value}
+              disabled={!cssVar.trim() || !value.trim()}
             >
               {t("designEditor.tokens.add")}
             </Button>
@@ -650,6 +668,15 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const applyMutation = useActionMutation("apply-design-token-edit");
   const importMutation = useActionMutation("import-design-tokens");
 
+  // This panel is reused across designs (the editor route swaps `designId`
+  // in place rather than remounting), so an apply/import mutation kicked off
+  // for one design can resolve after the user has already switched to
+  // another. Track the latest `designId` in a ref so a stale response can
+  // detect that and skip pushing its (now wrong-design) resolved CSS vars
+  // into the currently active design via `onTokensApplied`.
+  const designIdRef = useRef(designId);
+  designIdRef.current = designId;
+
   // ------------------------------------------------------------------
   // Local edit state
   // ------------------------------------------------------------------
@@ -666,6 +693,24 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     setEditDraft("");
   };
 
+  /** Shared apply path for both inline row edits and "Add one token". */
+  const applyTokenEdit = (cssVar: string, value: string) => {
+    const requestDesignId = designId;
+    applyMutation.mutate(
+      { designId, edits: [{ cssVar, value }] },
+      {
+        onSuccess: (result) => {
+          if (designIdRef.current !== requestDesignId) return;
+          void refetch();
+          const r = result as { resolvedCssVars?: Record<string, string> };
+          if (r?.resolvedCssVars && onTokensApplied) {
+            onTokensApplied(r.resolvedCssVars);
+          }
+        },
+      },
+    );
+  };
+
   const commitEdit = () => {
     if (!editingKey || !editDraft.trim()) {
       cancelEdit();
@@ -674,36 +719,18 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     const cssVar = editingKey;
     const value = editDraft.trim();
     cancelEdit();
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value }] },
-      {
-        onSuccess: (result) => {
-          void refetch();
-          const r = result as { resolvedCssVars?: Record<string, string> };
-          if (r?.resolvedCssVars && onTokensApplied) {
-            onTokensApplied(r.resolvedCssVars);
-          }
-        },
-      },
-    );
+    applyTokenEdit(cssVar, value);
   };
 
   const handleNewToken = (cssVar: string, value: string) => {
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value }] },
-      {
-        onSuccess: (result) => {
-          void refetch();
-          const r = result as { resolvedCssVars?: Record<string, string> };
-          if (r?.resolvedCssVars && onTokensApplied) {
-            onTokensApplied(r.resolvedCssVars);
-          }
-        },
-      },
-    );
+    applyTokenEdit(cssVar, value);
   };
 
-  const handleImportSuccess = (result: ImportDesignTokensResult) => {
+  const handleImportSuccess = (
+    result: ImportDesignTokensResult,
+    requestDesignId: string,
+  ) => {
+    if (designIdRef.current !== requestDesignId) return result;
     void refetch();
     if (result.resolvedCssVars && onTokensApplied) {
       onTokensApplied(result.resolvedCssVars);
@@ -712,29 +739,32 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   };
 
   const importFiles = async (files: TokenImportFile[]) => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "files",
       files,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   const importText = async (text: string) => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "paste",
       text,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   const importCurrentDesign = async () => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "current-design",
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   // ------------------------------------------------------------------
@@ -821,22 +851,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
                 onDraftChange={setEditDraft}
                 onCommit={commitEdit}
                 onCancelEdit={cancelEdit}
-                onEdit={(cssVar, value) =>
-                  applyMutation.mutate(
-                    { designId, edits: [{ cssVar, value }] },
-                    {
-                      onSuccess: (result) => {
-                        void refetch();
-                        const r = result as {
-                          resolvedCssVars?: Record<string, string>;
-                        };
-                        if (r?.resolvedCssVars && onTokensApplied) {
-                          onTokensApplied(r.resolvedCssVars);
-                        }
-                      },
-                    },
-                  )
-                }
               />
             ))}
           </div>

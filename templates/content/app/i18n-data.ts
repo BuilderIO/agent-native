@@ -2463,6 +2463,8 @@ const enUS = {
     couldNotSaveLocalFile: "Could not save local file",
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
+    liveDocumentSaveBeforeSyncFailed:
+      "The live document could not be saved before syncing.",
     documentTitle: "Document title",
     builderBodySyncing: "Content is still syncing from Builder",
     builderBodySyncingDescription:
@@ -4843,6 +4845,7 @@ const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
     collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
+    liveDocumentSaveBeforeSyncFailed: "实时文档无法在同步前保存。",
     builderBodySyncing: "内容仍在从 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
@@ -5169,6 +5172,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Ningún documento seleccionado",
     collabConnectingReadOnly:
       "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
+    liveDocumentSaveBeforeSyncFailed:
+      "No se pudo guardar el documento activo antes de sincronizarlo.",
     builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
     builderBodySyncingDescription:
       "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
@@ -5506,6 +5511,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Aucun document sélectionné",
     collabConnectingReadOnly:
       "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Le document actif n’a pas pu être enregistré avant la synchronisation.",
     builderBodySyncing:
       "Le contenu est encore en cours de synchronisation depuis Builder",
     builderBodySyncingDescription:
@@ -5846,6 +5853,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Kein Dokument ausgewählt",
     collabConnectingReadOnly:
       "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Das aktive Dokument konnte vor der Synchronisierung nicht gespeichert werden.",
     builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
     builderBodySyncingDescription:
       "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
@@ -6190,6 +6199,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "ドキュメントが選択されていません",
     collabConnectingReadOnly:
       "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
+    liveDocumentSaveBeforeSyncFailed:
+      "同期前にライブドキュメントを保存できませんでした。",
     builderBodySyncing: "コンテンツはまだ Builder から同期中です",
     builderBodySyncingDescription:
       "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
@@ -6524,6 +6535,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "선택한 문서가 없습니다.",
     collabConnectingReadOnly:
       "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
+    liveDocumentSaveBeforeSyncFailed:
+      "동기화하기 전에 실시간 문서를 저장하지 못했습니다.",
     builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
     builderBodySyncingDescription:
       "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
@@ -6857,6 +6870,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Nenhum documento selecionado",
     collabConnectingReadOnly:
       "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Não foi possível salvar o documento ativo antes da sincronização.",
     builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
     builderBodySyncingDescription:
       "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
@@ -7196,6 +7211,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
     collabConnectingReadOnly:
       "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
+    liveDocumentSaveBeforeSyncFailed:
+      "सिंक करने से पहले लाइव दस्तावेज़ सहेजा नहीं जा सका।",
     builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
     builderBodySyncingDescription:
       "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
@@ -7525,6 +7542,7 @@ const editorMessagesByLocale = {
     noDocumentSelected: "لم يتم تحديد أي مستند",
     collabConnectingReadOnly:
       "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
+    liveDocumentSaveBeforeSyncFailed: "تعذّر حفظ المستند المباشر قبل المزامنة.",
     builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
     builderBodySyncingDescription:
       "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",

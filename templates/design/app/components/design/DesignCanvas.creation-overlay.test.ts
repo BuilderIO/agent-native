@@ -57,6 +57,37 @@ describe("getScreenContentPointFromClient", () => {
     );
     expect(point).toEqual({ x: 100, y: 50 });
   });
+
+  it("lands a shape at the correct content position on a scrolled screen (unscaled)", () => {
+    // A click 25px into an unzoomed iframe, with the embedded screen
+    // scrolled 600px down internally, must resolve to content y = 620 —
+    // matching where that click actually landed in the full document, not
+    // just the currently-visible viewport slice.
+    const point = getScreenContentPointFromClient(
+      325,
+      420,
+      { left: 300, top: 400, width: 800, height: 600 },
+      { width: 800, height: 600 },
+      { left: 0, top: 600 },
+    );
+    expect(point).toEqual({ x: 25, y: 620 });
+  });
+
+  it("adds a scrolled screen's scroll offset unscaled, not divided by the outer zoom", () => {
+    // 50% host zoom (rect half the content size). A click at the iframe's
+    // top edge on a screen scrolled 600px down must map to content y = 600:
+    // the (clientY - rect.top) term is 0 here, so the entire result comes
+    // from the scroll offset, proving it is added as-is rather than being
+    // divided by scale (which would wrongly give 1200).
+    const point = getScreenContentPointFromClient(
+      100,
+      50,
+      { left: 100, top: 50, width: 400, height: 300 },
+      { width: 800, height: 600 },
+      { left: 0, top: 600 },
+    );
+    expect(point).toEqual({ x: 0, y: 600 });
+  });
 });
 
 describe("collapseDoubleClickPenAnchor", () => {

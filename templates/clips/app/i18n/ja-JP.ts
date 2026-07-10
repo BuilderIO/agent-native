@@ -381,6 +381,7 @@ const messages = {
     searchPlaceholder: "トランスクリプトの検索",
     copyTranscript: "トランスクリプトをコピーする",
     downloadSrt: ".srtをダウンロード",
+    regenerate: "トランスクリプトを再生成",
     cleanupRunning:
       "バックグラウンドでトランスクリプトをクリーンアップしています。",
     noMatches: "一致はありません。",

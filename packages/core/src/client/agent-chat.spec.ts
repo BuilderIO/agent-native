@@ -3,7 +3,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
-const dispatchEventSpy = vi.fn();
+const windowListeners = new Map<
+  string,
+  Set<EventListenerOrEventListenerObject>
+>();
+const addEventListenerSpy = vi.fn(
+  (type: string, listener: EventListenerOrEventListenerObject) => {
+    const listeners = windowListeners.get(type) ?? new Set();
+    listeners.add(listener);
+    windowListeners.set(type, listeners);
+  },
+);
+const removeEventListenerSpy = vi.fn(
+  (type: string, listener: EventListenerOrEventListenerObject) => {
+    windowListeners.get(type)?.delete(listener);
+  },
+);
+const dispatchEventSpy = vi.fn((event: Event) => {
+  for (const listener of windowListeners.get(event.type) ?? []) {
+    if (typeof listener === "function") listener(event);
+    else listener.handleEvent(event);
+  }
+  return true;
+});
 const fetchSpy = vi.fn(() =>
   Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") }),
 );
@@ -21,30 +43,39 @@ vi.mock("./mcp-app-host.js", () => ({
   sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
-vi.stubGlobal("window", {
+const windowStub = {
   parent: { postMessage: parentPostMessageSpy },
-  addEventListener: vi.fn(),
+  addEventListener: addEventListenerSpy,
+  removeEventListener: removeEventListenerSpy,
   dispatchEvent: dispatchEventSpy,
   postMessage: selfPostMessageSpy,
+  setTimeout: (...args: Parameters<typeof setTimeout>) => setTimeout(...args),
+  clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   location: {
     origin: "http://localhost:3000",
     pathname: "/",
     search: "",
   },
-});
+};
+vi.stubGlobal("window", windowStub);
 vi.stubGlobal("fetch", fetchSpy);
 
 const {
   _resetAgentChatContextForTests,
+  _resetAgentChatSubmitBufferForTests,
   addContextToAgentChat,
+  claimAgentChatSubmit,
   clearAgentChatContext,
+  drainBufferedAgentChatSubmits,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
   removeAgentChatContextItem,
+  reportAgentChatSubmitResult,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   setAgentChatContextItem,
   setContextToAgentChat,
 } = await import("./agent-chat.js");
@@ -75,6 +106,7 @@ function createMemoryStorage(): Storage {
 
 describe("sendToAgentChat", () => {
   beforeEach(() => {
+    windowListeners.clear();
     frameState.inBuilderFrame = false;
     (window as unknown as { parent: unknown }).parent = {
       postMessage: parentPostMessageSpy,
@@ -99,6 +131,7 @@ describe("sendToAgentChat", () => {
     window.sessionStorage?.clear();
     _resetEmbedAuthForTests();
     _resetAgentChatContextForTests();
+    _resetAgentChatSubmitBufferForTests();
   });
 
   afterEach(() => {
@@ -477,6 +510,115 @@ describe("sendToAgentChat", () => {
     const id1 = sendToAgentChat({ message: "a" });
     const id2 = sendToAgentChat({ message: "b" });
     expect(id1).not.toBe(id2);
+  });
+
+  it("confirms a local submit after the receiving chat accepts it", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "apply these annotations",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    vi.advanceTimersByTime(0);
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
+    reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("preserves an explicit local rejection reason", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "apply these annotations",
+      submit: true,
+      chatTarget: "local",
+    });
+    vi.advanceTimersByTime(0);
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
+
+    await expect(resultPromise).resolves.toMatchObject({
+      delivered: false,
+      reason: "missing-engine",
+    });
+  });
+
+  it("rejects non-local confirmation targets without sending", async () => {
+    const result = await sendToAgentChatAndConfirm({
+      message: "route to a parent chat",
+      submit: true,
+    });
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits safely without window", async () => {
+    vi.stubGlobal("window", undefined);
+    const result = await sendToAgentChatAndConfirm({
+      message: "server render",
+      submit: true,
+      chatTarget: "local",
+    });
+    vi.stubGlobal("window", windowStub);
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "no-window",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("tombstones a timed-out submit so a late receiver cannot claim it", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "do not arrive late",
+        submit: true,
+        chatTarget: "local",
+      },
+      { timeoutMs: 5 },
+    );
+    vi.advanceTimersByTime(0);
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+
+    vi.advanceTimersByTime(5);
+    await expect(resultPromise).resolves.toMatchObject({
+      delivered: false,
+      reason: "timeout",
+    });
+    expect(drainBufferedAgentChatSubmits()).toEqual([]);
+    expect(claimAgentChatSubmit(submitMessageId)).toBe(false);
+  });
+
+  it("keeps the default confirmation alive beyond the replay buffer TTL", async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "wait for the lazy panel",
+      submit: true,
+      chatTarget: "local",
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    vi.advanceTimersByTime(8001);
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, true);
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });
 
   it("keeps legacy context helper names as aliases", () => {

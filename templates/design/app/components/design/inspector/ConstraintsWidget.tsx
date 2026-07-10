@@ -15,13 +15,15 @@ export type HorizontalConstraint =
   | "right"
   | "left-right"
   | "center"
-  | "scale";
+  | "scale"
+  | "mixed";
 export type VerticalConstraint =
   | "top"
   | "bottom"
   | "top-bottom"
   | "center"
-  | "scale";
+  | "scale"
+  | "mixed";
 
 export interface ConstraintsValue {
   horizontal: HorizontalConstraint;
@@ -40,6 +42,7 @@ export interface ConstraintsWidgetLabels {
   topBottom: string;
   center: string;
   scale: string;
+  mixed: string;
 }
 
 export interface ConstraintsWidgetProps {
@@ -71,6 +74,7 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
   topBottom: "Top and bottom", // i18n-ignore fallback component label
   center: "Center", // i18n-ignore fallback component label
   scale: "Scale", // i18n-ignore fallback component label
+  mixed: "Mixed", // i18n-ignore fallback component label
 };
 
 // ── pin-box geometry ────────────────────────────────────────────────────────
@@ -479,6 +483,10 @@ function ConstraintSelect({
           { value: "center", label: labels.center },
           { value: "scale", label: labels.scale },
         ];
+  const renderedOptions =
+    value === "mixed"
+      ? [{ value: "mixed", label: labels.mixed, disabled: true }, ...options]
+      : options;
 
   return (
     <Select
@@ -492,14 +500,15 @@ function ConstraintSelect({
         className="h-8 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 [&>svg]:size-3"
         aria-label={axis === "horizontal" ? labels.horizontal : labels.vertical}
       >
-        <SelectValue />
+        {value === "mixed" ? labels.mixed : <SelectValue />}
       </SelectTrigger>
       <SelectContent className="z-[270]">
         <SelectGroup>
-          {options.map((option) => (
+          {renderedOptions.map((option) => (
             <SelectItem
               key={option.value}
               value={option.value}
+              disabled={"disabled" in option && option.disabled}
               className="text-[12px]"
             >
               {option.label}
