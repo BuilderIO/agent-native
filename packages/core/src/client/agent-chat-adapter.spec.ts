@@ -5269,18 +5269,32 @@ describe("createAgentChatAdapter", () => {
       expectedErrorCode: "missing_credentials",
       expectedMessage: "No LLM provider is connected",
       dispatchesMissingKey: true,
+      activeRunId: "run-bg-missing-key",
+      initialEvents: undefined,
     },
     {
       terminalReason: "error:missing_credentials",
       expectedErrorCode: "missing_credentials",
       expectedMessage: "No LLM provider is connected",
       dispatchesMissingKey: true,
+      activeRunId: "run-bg-missing-key",
+      initialEvents: undefined,
     },
     {
       terminalReason: "error:provider_failed",
       expectedErrorCode: "provider_failed",
       expectedMessage: "background run failed",
       dispatchesMissingKey: false,
+      activeRunId: "run-bg-provider-failure",
+      initialEvents: [
+        { type: "text", text: "Checking credentials" },
+        {
+          type: "error",
+          error: "An earlier chunk timed out",
+          errorCode: "old_chunk_timeout",
+          recoverable: true,
+        },
+      ],
     },
   ])(
     "surfaces $terminalReason from a terminal background run instead of completing successfully",
@@ -5289,6 +5303,8 @@ describe("createAgentChatAdapter", () => {
       expectedErrorCode,
       expectedMessage,
       dispatchesMissingKey,
+      activeRunId,
+      initialEvents,
     }) => {
       vi.useFakeTimers();
       const dispatchEvent = vi.fn();
@@ -5310,7 +5326,7 @@ describe("createAgentChatAdapter", () => {
         if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
           postCount += 1;
           return backgroundSseResponse(
-            [
+            initialEvents ?? [
               { type: "text", text: "Checking credentials" },
               { type: "auto_continue", reason: "run_timeout" },
             ],
@@ -5320,7 +5336,7 @@ describe("createAgentChatAdapter", () => {
         if (url.includes("/runs/active")) {
           return jsonResponse({
             active: true,
-            runId: "run-bg-missing-key",
+            runId: activeRunId,
             threadId: "thread-bg-missing-key",
             status: "completed",
             terminalReason,
@@ -5381,6 +5397,9 @@ describe("createAgentChatAdapter", () => {
         expectedErrorCode,
       );
       expect(last.content.at(-1).text).toContain(expectedMessage);
+      expect(last.content.at(-1).text).not.toContain(
+        "An earlier chunk timed out",
+      );
     },
   );
 

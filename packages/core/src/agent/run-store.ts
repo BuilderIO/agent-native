@@ -907,6 +907,8 @@ function isRealFailureTerminalEvent(event: AgentChatEvent): boolean {
   return event.errorCode !== STALE_RUN_ERROR_EVENT.errorCode;
 }
 
+const RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT = 100;
+
 async function getRunEventForReconciliation(runId: string): Promise<{
   event: AgentChatEvent;
   eventAt: number | null;
@@ -923,8 +925,9 @@ async function getRunEventForReconciliation(runId: string): Promise<{
               OR event_data LIKE '{"type":"loop_limit"%'
               OR event_data LIKE '{"type":"auto_continue"%'
             )
-          ORDER BY seq DESC`,
-    args: [runId],
+          ORDER BY seq DESC
+          LIMIT ?`,
+    args: [runId, RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT],
   });
   let latestTerminal: {
     event: AgentChatEvent;

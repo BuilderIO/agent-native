@@ -452,6 +452,11 @@ describe("run store", () => {
     expect(repair?.args[3]).toBe("model returned 500");
     expect(repair?.args[4]).toBe("error:provider_failed");
     expect(repair?.args[5]).toBe("run-error-then-done");
+    const eventLookup = execCalls.find((call) =>
+      /SELECT seq, event_data, event_at/i.test(call.sql),
+    );
+    expect(eventLookup?.sql).toMatch(/ORDER BY seq DESC\s+LIMIT \?/i);
+    expect(eventLookup?.args).toEqual(["run-error-then-done", 100]);
   });
 
   it("keeps an earlier missing credential event from reconciling as a later successful terminal event", async () => {

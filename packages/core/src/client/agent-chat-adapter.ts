@@ -1769,6 +1769,11 @@ export function createAgentChatAdapter(
         nextRunId: string,
         previousRunId: string | null,
       ) => {
+        if (previousRunId !== nextRunId) {
+          lastAutoContinueReason = null;
+          lastRecoverableRunError = null;
+          lastActivityTrail = [];
+        }
         const rememberedSeq = seenRunSeqs.get(nextRunId);
         if (rememberedSeq !== undefined) {
           lastSeq = rememberedSeq;
