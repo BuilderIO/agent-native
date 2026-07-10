@@ -8,6 +8,8 @@ description: "通过 Slack、Microsoft Teams、Discord 交互、电子邮件、T
 将您的代理连接到 Slack、Microsoft Teams、Discord 交互、电子邮件、Telegram 或 WhatsApp。它仍使用相同的记忆、工具和对话历史。
 
 > **准确的支持范围：** Teams 会验证官方 Bot Framework JWT，并回复原始会话。Discord 支持通过 Ed25519 签名的 HTTP 交互执行斜杠命令和延迟确认；普通服务器消息和私信仍需要 Gateway 运行时。Telegram 会保留 `message_thread_id`，WhatsApp 会使用传入的 `wamid` 发送上下文回复。
+>
+> Teams 需要 `MICROSOFT_TEAMS_APP_ID`、`MICROSOFT_TEAMS_APP_PASSWORD` 和 `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`。Discord 需要 `DISCORD_APPLICATION_ID` 和 `DISCORD_PUBLIC_KEY`。Telegram 还需要 `TELEGRAM_WEBHOOK_SECRET`，WhatsApp 还需要 `WHATSAPP_APP_SECRET`。
 
 > **使用调度模板？** 所有这些都已在 **设置 → 消息传送** 中为您做好准备。单击以连接每个平台 - 您无需阅读本页的其余部分，除非您正在自定义或构建自己的模板。请参阅 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
 

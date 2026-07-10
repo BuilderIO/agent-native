@@ -8,6 +8,8 @@ description: "Fale com seu agente pelo Slack, Microsoft Teams, interações do D
 Conecte seu agente ao Slack, Microsoft Teams, interações do Discord, e-mail, Telegram ou WhatsApp. É o mesmo agente, com a mesma memória, ferramentas e histórico.
 
 > **Escopo exato:** o Teams valida os JWTs oficiais do Bot Framework e responde na conversa original. O Discord oferece comandos de barra por interações HTTP assinadas com Ed25519 e confirmação adiada; mensagens comuns de servidor e DMs ainda exigem um runtime Gateway. O Telegram preserva `message_thread_id`, e o WhatsApp usa o `wamid` recebido em respostas contextuais.
+>
+> O Teams exige `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` e `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. O Discord exige `DISCORD_APPLICATION_ID` e `DISCORD_PUBLIC_KEY`. O Telegram também exige `TELEGRAM_WEBHOOK_SECRET`, e o WhatsApp, `WHATSAPP_APP_SECRET`.
 
 > **Usando o modelo Dispatch?** Tudo isso está configurado para você em **Configurações → Mensagens**. Clique para conectar cada plataforma — você não precisa ler o restante desta página, a menos que esteja personalizando ou construindo seu próprio modelo. Consulte [Dispatch](/docs/dispatch) ou [Dispatch template reference](/docs/template-dispatch).
 
