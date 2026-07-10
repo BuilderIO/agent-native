@@ -6,8 +6,12 @@ search: "adapters sandbox adapter cli adapter run-code SandboxAdapter CliAdapter
 
 # Adapters
 
-> **Who is this for:** host authors extending the runtime. App developers rarely
-> need this — the defaults work out of the box.
+<Callout id="doc-block-adap1who" tone="info">
+
+**Who is this for:** host authors extending the runtime. App developers rarely
+need this — the defaults work out of the box.
+
+</Callout>
 
 Agent-Native has two adapter seams that factor a concern out behind a narrow,
 swappable interface:
@@ -26,15 +30,15 @@ not run on edge/worker runtimes — see [Edge and serverless](#edge-serverless).
 | You want to…                                                               | Use                                          |
 | -------------------------------------------------------------------------- | -------------------------------------------- |
 | Swap the backend that runs the agent's **`run-code` tool**                 | **Sandbox adapters** (this page)             |
-| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | **CLI adapters** (this page)                 |
+| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | [CLI Adapters](/docs/cli-adapters)           |
 | Render a Claude-Code/Codex-style **coding workspace UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
 | Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | [Harness Agents](/docs/harness-agents)       |
 
-# Sandbox Adapters
+## Sandbox Adapters {#sandbox-adapters}
 
 The `run-code` tool runs agent-supplied JavaScript in an isolated environment. **Sandbox adapters** factor the _execution_ concern out of that tool so the backend can be swapped — a local child process by default, or a Docker / remote / durable runner — without touching the agent loop, `run-code.ts`, the localhost bridge, the env scrub, or the output formatting.
 
-## Why a seam {#why}
+### Why a seam {#why}
 
 The default backend spawns a locked-down local Node child process. That's bounded by the hosting process: on the hosted platform it shares the agent loop's soft execution ceiling (~40s before timeout/continuation thrash). A remote or durable adapter is the lever to exceed that ceiling — it runs large data jobs to completion independently of the request lifecycle.
 
@@ -86,14 +90,13 @@ Keeping the contract narrow means a remote adapter inherits the same security po
 
 </Diagram>
 
-## The interface {#interface}
+### The interface {#interface}
 
 The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (the contract), `index.ts` (selection: `getSandboxAdapter()` / `registerSandboxAdapter()`), and `local-child-process-adapter.ts` (the default). It is wired in-package by `run-code.ts`; a host plugs in a different backend through the `index.ts` registration helper (or, for a Docker backend, via the [blueprint](/docs/blueprint-installer) that edits these files directly).
 
 <FileTree
   id="doc-block-b1k8n3"
   title="The sandbox seam in core"
-  title="packages/core/src/coding-tools/sandbox/"
   entries={[
     {
       path: "adapter.ts",
