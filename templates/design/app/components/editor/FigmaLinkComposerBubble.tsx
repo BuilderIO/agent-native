@@ -51,6 +51,8 @@ export function FigmaLinkComposerBubble({
   designId,
 }: FigmaLinkComposerBubbleProps) {
   const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [connection, setConnection] = useState<FigmaConnectionStatus | null>(
     null,
   );
@@ -71,13 +73,13 @@ export function FigmaLinkComposerBubble({
         setError(
           reason instanceof Error
             ? reason.message
-            : t("chat.figmaLink.connectionCheckFailed"),
+            : tRef.current("chat.figmaLink.connectionCheckFailed"),
         );
       }
     } finally {
       if (!signal?.aborted) setChecking(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();

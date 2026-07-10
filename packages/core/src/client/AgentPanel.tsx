@@ -2500,6 +2500,10 @@ export interface AgentSidebarProps {
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   /** Optional controls rendered in the chat composer toolbar. */
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
+  /** Optional contextual content rendered just above the chat composer. */
+  composerSlot?: AssistantChatProps["composerSlot"];
+  /** Observe the active chat composer's current plain text. */
+  onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
   /** Optional content rendered at the bottom of the chat thread. */
@@ -2553,6 +2557,8 @@ export function AgentSidebar({
   suggestions,
   dynamicSuggestions,
   composerToolbarSlot,
+  composerSlot,
+  onComposerTextChange,
   imageModelMenu,
   threadFooterSlot,
   defaultSidebarWidth,
@@ -3090,6 +3096,8 @@ export function AgentSidebar({
             suggestions={suggestions}
             dynamicSuggestions={dynamicSuggestions}
             composerToolbarSlot={composerToolbarSlot}
+            composerSlot={composerSlot}
+            onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
             threadFooterSlot={threadFooterSlot}
             missingApiKeySetupLayout="sidebar"
