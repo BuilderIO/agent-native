@@ -1487,7 +1487,7 @@ const ptBR = {
     toolkitObservability: "Observabilidade",
     featureKits: "Kits de recursos",
     appChrome: "Estrutura do app",
-    appsAndTemplates: "Apps e modelos",
+    templatesOverview: "Modelos",
     pureAgentApps: "Apps focados em automação",
     faq: "FAQ",
     server: "Servidor",

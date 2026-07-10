@@ -1481,7 +1481,7 @@ const hiIN = {
     toolkitObservability: "ऑब्जर्वेबिलिटी",
     featureKits: "फ़ीचर किट्स",
     appChrome: "ऐप फ्रेम",
-    appsAndTemplates: "Apps और टेम्पलेट्स",
+    templatesOverview: "टेम्पलेट्स",
     pureAgentApps: "ऑटोमेशन-फर्स्ट Apps",
     faq: "FAQ",
     server: "Server",

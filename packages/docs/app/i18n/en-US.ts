@@ -1481,7 +1481,7 @@ const enUS = {
     toolkitObservability: "Observability",
     featureKits: "Feature Kits",
     appChrome: "App Chrome",
-    appsAndTemplates: "Apps & Templates",
+    templatesOverview: "Templates",
     pureAgentApps: "Automation-First Apps",
     faq: "FAQ",
     server: "Server",

@@ -1491,7 +1491,7 @@ const frFR = {
     toolkitObservability: "Observabilité",
     featureKits: "Kits de fonctionnalités",
     appChrome: "Cadre de l'app",
-    appsAndTemplates: "Apps et modèles",
+    templatesOverview: "Modèles",
     pureAgentApps: "Apps orientées automatisation",
     faq: "FAQ",
     server: "Serveur",

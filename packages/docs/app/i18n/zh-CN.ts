@@ -1464,7 +1464,7 @@ const zhCN = {
     toolkitObservability: "可观测性",
     featureKits: "功能套件",
     appChrome: "应用外壳",
-    appsAndTemplates: "应用与模板",
+    templatesOverview: "模板",
     pureAgentApps: "自动化优先应用",
     faq: "常见问题",
     server: "服务器",

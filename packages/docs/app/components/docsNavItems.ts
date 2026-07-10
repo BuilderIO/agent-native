@@ -51,7 +51,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "cloneable-saas",
-        labelKey: "appsAndTemplates",
+        labelKey: "templatesOverview",
         slug: "cloneable-saas",
       },
       {
