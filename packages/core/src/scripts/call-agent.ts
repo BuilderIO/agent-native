@@ -62,6 +62,26 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
 
+function integrationSourceContextHint(): string {
+  const integration = getIntegrationRequestContext();
+  const incoming = integration?.incoming;
+  if (incoming?.platform !== "slack" || !incoming.sourceUrl) return "";
+
+  try {
+    const sourceUrl = new URL(incoming.sourceUrl);
+    const isSlackHost =
+      sourceUrl.hostname === "slack.com" ||
+      sourceUrl.hostname.endsWith(".slack.com");
+    if (sourceUrl.protocol !== "https:" || !isSlackHost) return "";
+    return (
+      `\n\n[Source Slack thread: ${sourceUrl.toString()} ` +
+      "Preserve this exact URL as request provenance when creating an intake record or other artifact.]"
+    );
+  } catch {
+    return "";
+  }
+}
+
 function formatDownstreamLlmCredentialFailure(
   agentName: string,
   value: unknown,
@@ -125,7 +145,7 @@ export async function run(
   // suspenders with the receiver hint — but it works against any current
   // deployment, no redeploy required.
   const messageWithHint =
-    `${message}\n\n` +
+    `${message}${integrationSourceContextHint()}\n\n` +
     `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
     `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
     `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts.]`;

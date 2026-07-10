@@ -38,14 +38,13 @@ describe("extractFigmaLink", () => {
 });
 
 describe("buildFigmaLinkChatPrompt", () => {
-  it("routes a node link toward exact frame import with hidden design context", () => {
+  it("routes a node link toward exact frame import without internal context markup", () => {
     const link = extractFigmaLink(
       "https://www.figma.com/design/FileKey1/Name?node-id=1-2",
     )!;
     expect(buildFigmaLinkChatPrompt("import", link, "design-1")).toEqual({
       message:
         "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Name?node-id=1-2",
-      context: "Current Design id: design-1",
     });
   });
 

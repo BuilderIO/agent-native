@@ -60,6 +60,9 @@ describe("DesignImportPanel", () => {
     expect(source).toContain('autoComplete="new-password"');
     expect(source).toContain('setFigmaAccessToken("")');
     expect(source).toContain(
+      "A rejected credential should not linger in component state or the DOM.",
+    );
+    expect(source).toContain(
       "figmaConnectionChecked && !figmaConnected && !figmaConnectionError",
     );
     expect(source).not.toContain("FIGMA_ACCESS_TOKEN:");

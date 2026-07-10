@@ -1576,9 +1576,12 @@ export function createIntegrationsPlugin(
             return "ok";
           }
           let owner = `integration@${platform}`;
-          if (options?.resolveOwner) {
+          const resolveOwner = options?.resolveOwner;
+          if (resolveOwner) {
             try {
-              owner = await options.resolveOwner(incoming);
+              owner = await withCredentialContext(credentialContext, () =>
+                Promise.resolve(resolveOwner(incoming)),
+              );
             } catch (err) {
               console.error(
                 `[integrations] resolveOwner failed, using default:`,

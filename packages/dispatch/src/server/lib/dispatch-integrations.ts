@@ -1,13 +1,21 @@
 import crypto from "node:crypto";
 
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
-import { withConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+  withConfiguredAppBasePath,
+} from "@agent-native/core/server";
 import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
 
 import { handleRemoteCodeCommand } from "./dispatch-remote-commands.js";
+import {
+  dispatchIntegrationRoutingHint,
+  type DispatchIntegrationRoutingHint,
+} from "./dispatch-routing.js";
 import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
 
 type SlackSenderProfile = {
@@ -116,7 +124,9 @@ async function resolveSlackSenderProfile(
   incoming: IncomingMessage,
 ): Promise<SlackSenderProfile> {
   if (incoming.platform !== "slack") return { email: null, name: null };
-  const token = process.env.SLACK_BOT_TOKEN;
+  const token =
+    (await resolveSecret("SLACK_BOT_TOKEN")) ??
+    readDeployCredentialEnv("SLACK_BOT_TOKEN");
   const userId = contextString(incoming.senderId);
   const teamId = contextString(incoming.platformContext.teamId);
   if (!token || !userId) return { email: null, name: null };
@@ -263,6 +273,10 @@ export async function beforeDispatchProcess(
     contextString(incoming.platformContext.rawText) || trimmed;
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
   if (!match) {
+    const routedIncoming = incoming as IncomingMessage & {
+      routingHint?: DispatchIntegrationRoutingHint;
+    };
+    routedIncoming.routingHint ??= dispatchIntegrationRoutingHint(trimmed);
     if (platformRequiresExplicitLink(incoming)) {
       const owner = await resolveLinkedOwner(
         incoming.platform,

@@ -110,6 +110,7 @@ export function databaseNavigationState({
     | "wrapCells"
     | "rowDensity"
     | "openPagesIn"
+    | "formQuestions"
   >;
   searchQuery?: string;
   sorts?: DatabaseSort[];
@@ -218,6 +219,8 @@ export function databaseNavigationState({
       activeView.openPagesIn === "full_page"
         ? activeView.openPagesIn
         : undefined,
+    databaseFormQuestions:
+      activeView.type === "form" ? activeView.formQuestions : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(

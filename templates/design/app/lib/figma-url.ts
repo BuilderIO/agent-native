@@ -51,9 +51,7 @@ export function buildFigmaLinkChatPrompt(
   action: FigmaLinkChatAction,
   link: FigmaLink,
   designId?: string | null,
-): { message: string; context?: string } {
-  const context = designId ? `Current Design id: ${designId}` : undefined;
-
+): { message: string } {
   if (action === "import") {
     const destination = designId
       ? "the current Design"
@@ -63,20 +61,17 @@ export function buildFigmaLinkChatPrompt(
         link.kind === "frame"
           ? `Import this Figma frame into ${destination} and report any fidelity differences: ${link.url}`
           : `Open this Figma file, list its top-level frames, and ask me which frame to import: ${link.url}`,
-      context,
     };
   }
 
   if (action === "inspect") {
     return {
       message: `Inspect this Figma ${link.kind} and summarize its structure, components, styles, and reusable tokens: ${link.url}`,
-      context,
     };
   }
 
   return {
     message:
       "Export the current Design screen as Figma-compatible SVG and explain which text, auto-layout, component, variable, and prototype behavior will not stay live in Figma.",
-    context,
   };
 }

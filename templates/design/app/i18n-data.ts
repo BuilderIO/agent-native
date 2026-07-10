@@ -7,6 +7,7 @@ import {
   keyboardShortcutLabels,
 } from "./i18n-keyboard-shortcuts";
 import { motionDockOverrides } from "./i18n-motion";
+import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -14274,6 +14275,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
+      designTemplateFeatureOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
@@ -14295,6 +14297,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
+      designTemplateFeatureOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
       designFillStylesComingSoonOverrides["zh-CN"],
       designFramePresetsOverrides["zh-CN"],
@@ -14369,6 +14372,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
+      designTemplateFeatureOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
       designFillStylesComingSoonOverrides["es-ES"],
       designFramePresetsOverrides["es-ES"],
@@ -14445,6 +14449,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
+      designTemplateFeatureOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
       designFillStylesComingSoonOverrides["fr-FR"],
       designFramePresetsOverrides["fr-FR"],
@@ -14521,6 +14526,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
+      designTemplateFeatureOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
       designFillStylesComingSoonOverrides["de-DE"],
       designFramePresetsOverrides["de-DE"],
@@ -14597,6 +14603,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
+      designTemplateFeatureOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
       designFillStylesComingSoonOverrides["ja-JP"],
       designFramePresetsOverrides["ja-JP"],
@@ -14674,6 +14681,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
+      designTemplateFeatureOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
       designFillStylesComingSoonOverrides["ko-KR"],
       designFramePresetsOverrides["ko-KR"],
@@ -14749,6 +14757,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
+      designTemplateFeatureOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
       designFillStylesComingSoonOverrides["pt-BR"],
       designFramePresetsOverrides["pt-BR"],
@@ -14825,6 +14834,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
+      designTemplateFeatureOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
       designFillStylesComingSoonOverrides["hi-IN"],
       designFramePresetsOverrides["hi-IN"],
@@ -14901,6 +14911,7 @@ export const messagesByLocale = {
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
+      designTemplateFeatureOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
       designFillStylesComingSoonOverrides["ar-SA"],
       designFramePresetsOverrides["ar-SA"],

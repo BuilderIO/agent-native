@@ -46,6 +46,20 @@ function notifySecretsChanged(): void {
   );
 }
 
+function redactSubmittedSecret(message: string, secret: string): string {
+  const encoded = encodeURIComponent(secret);
+  const jsonEscaped = JSON.stringify(secret).slice(1, -1);
+  return [secret, encoded, jsonEscaped]
+    .filter(
+      (candidate, index, values) =>
+        Boolean(candidate) && values.indexOf(candidate) === index,
+    )
+    .reduce(
+      (sanitized, candidate) => sanitized.split(candidate).join("[redacted]"),
+      message,
+    );
+}
+
 /**
  * Read Figma connection metadata without ever returning the token value.
  * Both the chat URL affordance and Import panel should share this helper.
@@ -108,7 +122,7 @@ export async function saveFigmaAccessToken(
     const message = await responseError(response, "Could not connect Figma");
     // The server already redacts validator/storage errors. Keep a final client
     // boundary so a misbehaving intermediary cannot reflect the submitted key.
-    throw new Error(message.split(token).join("[redacted]"));
+    throw new Error(redactSubmittedSecret(message, token));
   }
 
   notifySecretsChanged();

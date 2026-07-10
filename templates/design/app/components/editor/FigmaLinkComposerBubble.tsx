@@ -60,26 +60,67 @@ export function FigmaLinkComposerBubble({
   const [token, setToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshVersionRef = useRef(0);
+  const refreshAbortRef = useRef<AbortController | null>(null);
 
-  const refreshConnection = useCallback(async (signal?: AbortSignal) => {
-    setChecking(true);
-    setError(null);
-    try {
-      const result = await getFigmaConnectionStatus({ signal });
-      if (!signal?.aborted) setConnection(result);
-    } catch (reason) {
-      if (!signal?.aborted) {
-        setConnection(null);
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : tRef.current("chat.figmaLink.connectionCheckFailed"),
-        );
+  const refreshConnection = useCallback(
+    async (externalSignal?: AbortSignal) => {
+      refreshAbortRef.current?.abort();
+      const controller = new AbortController();
+      refreshAbortRef.current = controller;
+      const version = ++refreshVersionRef.current;
+      const abortFromExternal = () => controller.abort();
+      if (externalSignal?.aborted) controller.abort();
+      else
+        externalSignal?.addEventListener("abort", abortFromExternal, {
+          once: true,
+        });
+      setChecking(true);
+      setError(null);
+      try {
+        const result = await getFigmaConnectionStatus({
+          signal: controller.signal,
+        });
+        if (
+          !controller.signal.aborted &&
+          version === refreshVersionRef.current
+        ) {
+          setConnection(result);
+        }
+      } catch (reason) {
+        if (
+          !controller.signal.aborted &&
+          version === refreshVersionRef.current
+        ) {
+          // Preserve the last known status on a transient refresh failure. A
+          // failed GET must never turn a connected user into an apparent
+          // disconnected user and prompt them to paste their token again.
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : tRef.current("chat.figmaLink.connectionCheckFailed"),
+          );
+        }
+      } finally {
+        externalSignal?.removeEventListener("abort", abortFromExternal);
+        if (
+          !controller.signal.aborted &&
+          version === refreshVersionRef.current
+        ) {
+          setChecking(false);
+        }
       }
-    } finally {
-      if (!signal?.aborted) setChecking(false);
-    }
-  }, []);
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      refreshVersionRef.current += 1;
+      refreshAbortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -112,9 +153,14 @@ export function FigmaLinkComposerBubble({
     setError(null);
     try {
       const result = await saveFigmaAccessToken(token);
+      refreshVersionRef.current += 1;
+      refreshAbortRef.current?.abort();
       setConnection(result);
+      setChecking(false);
       setToken("");
     } catch (reason) {
+      // Do not retain a rejected credential in component state or the DOM.
+      setToken("");
       setError(
         reason instanceof Error
           ? reason.message
@@ -171,7 +217,7 @@ export function FigmaLinkComposerBubble({
           <IconLoader2 className="size-3 animate-spin" />
           {t("chat.figmaLink.checkingConnection")}
         </div>
-      ) : connection?.connected ? (
+      ) : !connection ? null : connection.connected ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Button
             type="button"

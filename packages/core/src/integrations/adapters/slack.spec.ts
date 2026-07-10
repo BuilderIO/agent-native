@@ -84,6 +84,71 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("preserves Slack's canonical permalink for the source thread", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const parsed = new URL(String(url));
+        expect(parsed.pathname).toBe("/api/chat.getPermalink");
+        expect(parsed.searchParams.get("channel")).toBe("C123");
+        expect(parsed.searchParams.get("message_ts")).toBe("111.222");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              permalink:
+                "https://example-workspace.slack.com/archives/C123/p111222?thread_ts=111.222&cid=C123",
+            }),
+          ),
+        );
+      }),
+    );
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({
+        event: {
+          type: "app_mention",
+          channel: "C123",
+          user: "U123",
+          text: "<@BOT> add this design ask",
+          thread_ts: "111.222",
+          ts: "123.456",
+        },
+      }),
+    );
+
+    expect(parsed?.sourceUrl).toBe(
+      "https://example-workspace.slack.com/archives/C123/p111222?thread_ts=111.222&cid=C123",
+    );
+    expect(parsed?.platformContext.threadPermalink).toBe(parsed?.sourceUrl);
+  });
+
+  it("ignores non-Slack permalink responses", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              permalink: "https://example.invalid/archives/C123/p123456",
+            }),
+          ),
+      ),
+    );
+
+    const parsed = await slackAdapter().parseIncomingMessage(slackEvent());
+
+    expect(parsed?.sourceUrl).toBeUndefined();
+    expect(parsed?.platformContext.threadPermalink).toBeUndefined();
+  });
+
   it("aborts hung Slack delivery requests", async () => {
     vi.useFakeTimers();
     process.env.SLACK_BOT_TOKEN = "xoxb-test";

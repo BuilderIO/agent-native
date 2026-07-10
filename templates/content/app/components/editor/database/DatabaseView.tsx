@@ -64,6 +64,7 @@ import {
   type ContentDatabaseFilter,
   type ContentDatabaseFilterMode,
   type ContentDatabaseFilterOperator,
+  type ContentDatabaseFormQuestion,
   type ContentDatabaseOpenPagesIn,
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
@@ -75,6 +76,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "@shared/api";
+import { contentDatabaseFormQuestions } from "@shared/database-form";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -108,6 +110,7 @@ import {
   IconEyeOff,
   IconFilter,
   IconFileText,
+  IconForms,
   IconGripVertical,
   IconLayoutKanban,
   IconLayoutGrid,
@@ -219,6 +222,7 @@ import {
   updatePropertyOptionColor,
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
+import { DatabaseFormView } from "./FormView";
 import {
   createPreviewDocumentSaveController,
   skippedPreviewDocumentSave,
@@ -266,6 +270,7 @@ const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "list",
   "timeline",
   "calendar",
+  "form",
 ];
 const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
@@ -1330,6 +1335,10 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, openPagesIn }));
   }
 
+  function setFormQuestions(formQuestions: ContentDatabaseFormQuestion[]) {
+    updateActiveView((view) => ({ ...view, formQuestions }));
+  }
+
   function setGroupCollapsed(groupId: string, collapsed: boolean) {
     updateActiveView((view) =>
       setDatabaseViewCollapsedGroup(view, groupId, collapsed),
@@ -1805,7 +1814,16 @@ function DatabaseTable({
         }}
       />
 
-      {activeView.type === "board" ? (
+      {activeView.type === "form" ? (
+        <DatabaseFormView
+          databaseId={databaseId}
+          databaseDocumentId={document.id}
+          databaseTitle={data?.database.title ?? document.title}
+          view={activeView}
+          properties={orderedProperties}
+          canEdit={canEdit}
+        />
+      ) : activeView.type === "board" ? (
         <DatabaseBoardView
           activeView={activeView}
           properties={orderedProperties}
@@ -2177,6 +2195,7 @@ function DatabaseTable({
         }
         onWrapCellsChange={setWrapCells}
         onOpenPagesInChange={setOpenPagesIn}
+        onFormQuestionsChange={setFormQuestions}
         onPropertyHiddenChange={setPropertyHiddenInActiveView}
         onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
         onGroupByChange={(propertyId) =>
@@ -5445,6 +5464,7 @@ function DatabaseSettingsPanelSheet({
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
+  onFormQuestionsChange,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
   onGroupByChange,
@@ -5487,6 +5507,9 @@ function DatabaseSettingsPanelSheet({
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+  onFormQuestionsChange: (
+    formQuestions: ContentDatabaseFormQuestion[],
+  ) => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
   onGroupByChange: (propertyId: string | null) => void;
@@ -5586,9 +5609,11 @@ function DatabaseSettingsPanelSheet({
         ) : panel === "layout" ? (
           <DatabaseSettingsLayoutPanel
             activeView={activeView}
+            properties={properties}
             onViewTypeChange={onViewTypeChange}
             onWrapCellsChange={onWrapCellsChange}
             onOpenPagesInChange={onOpenPagesInChange}
+            onFormQuestionsChange={onFormQuestionsChange}
           />
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
@@ -8206,14 +8231,20 @@ function DatabaseSettingsSwitch({
 
 function DatabaseSettingsLayoutPanel({
   activeView,
+  properties,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
+  onFormQuestionsChange,
 }: {
   activeView: ContentDatabaseView;
+  properties: DocumentProperty[];
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+  onFormQuestionsChange: (
+    formQuestions: ContentDatabaseFormQuestion[],
+  ) => void;
 }) {
   const wrapCells = activeView.wrapCells === true;
   const openPagesIn = activeView.openPagesIn ?? "preview";
@@ -8251,6 +8282,130 @@ function DatabaseSettingsLayoutPanel({
         value={openPagesIn}
         onChange={onOpenPagesInChange}
       />
+      {activeView.type === "form" ? (
+        <DatabaseFormQuestionsSetting
+          activeView={activeView}
+          properties={properties}
+          onChange={onFormQuestionsChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DatabaseFormQuestionsSetting({
+  activeView,
+  properties,
+  onChange,
+}: {
+  activeView: ContentDatabaseView;
+  properties: DocumentProperty[];
+  onChange: (questions: ContentDatabaseFormQuestion[]) => void;
+}) {
+  const questions = contentDatabaseFormQuestions(activeView, properties);
+  const propertyById = new Map(
+    properties.map((property) => [property.definition.id, property]),
+  );
+
+  function updateQuestion(
+    key: string,
+    patch: Partial<ContentDatabaseFormQuestion>,
+  ) {
+    onChange(
+      questions.map((question) =>
+        question.key === key ? { ...question, ...patch } : question,
+      ),
+    );
+  }
+
+  function moveQuestion(index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= questions.length) return;
+    const next = [...questions];
+    const target = next[targetIndex];
+    next[targetIndex] = next[index];
+    next[index] = target;
+    onChange(next);
+  }
+
+  return (
+    <div className="grid gap-2 border-t border-border pt-4">
+      <div className="grid gap-0.5">
+        <div className="text-sm font-medium text-foreground">
+          {dbText("formQuestions")}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {dbText("formQuestionsDescription")}
+        </div>
+      </div>
+      <div className="grid gap-1">
+        {questions.map((question, index) => {
+          const label =
+            question.key === "name"
+              ? dbText("formName")
+              : (propertyById.get(question.key)?.definition.name ?? question.key);
+          return (
+            <div
+              key={question.key}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-2"
+            >
+              <div className="min-w-0 truncate text-sm text-foreground">
+                {label}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-label={dbText("formMoveQuestionUp", { name: label })}
+                  disabled={index === 0}
+                  className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={() => moveQuestion(index, -1)}
+                >
+                  <IconArrowUp className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={dbText("formMoveQuestionDown", { name: label })}
+                  disabled={index === questions.length - 1}
+                  className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={() => moveQuestion(index, 1)}
+                >
+                  <IconArrowDown className="size-3.5" />
+                </button>
+              </div>
+              <div className="col-span-2 flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={question.enabled}
+                    onChange={(event) =>
+                      updateQuestion(question.key, {
+                        enabled: event.target.checked,
+                        required: event.target.checked
+                          ? question.required
+                          : false,
+                      })
+                    }
+                  />
+                  {dbText("formShowQuestion")}
+                </label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={question.required}
+                    disabled={!question.enabled}
+                    onChange={(event) =>
+                      updateQuestion(question.key, {
+                        required: event.target.checked,
+                      })
+                    }
+                  />
+                  {dbText("formRequired")}
+                </label>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -11922,6 +12077,7 @@ export function createDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -12076,6 +12232,7 @@ export function duplicateDatabaseView(
       wrapCells: view.wrapCells,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
+      formQuestions: view.formQuestions,
     },
     view.type,
   );
@@ -12168,7 +12325,8 @@ function normalizeClientDatabaseView(
     value.type === "list" ||
     value.type === "gallery" ||
     value.type === "calendar" ||
-    value.type === "timeline"
+    value.type === "timeline" ||
+    value.type === "form"
       ? value.type
       : "table";
   return createDatabaseView(
@@ -12203,9 +12361,29 @@ function normalizeClientDatabaseView(
       wrapCells: value.wrapCells === true,
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
+      formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
     },
     type,
   );
+}
+
+function normalizeClientDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as Partial<ContentDatabaseFormQuestion>;
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeClientCalculations(value: unknown) {
@@ -12683,6 +12861,7 @@ function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "gallery") return IconLayoutGrid;
   if (type === "calendar") return IconCalendar;
   if (type === "timeline") return IconTimeline;
+  if (type === "form") return IconForms;
   return IconTable;
 }
 
@@ -12692,6 +12871,7 @@ function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "gallery") return "Gallery";
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
+  if (type === "form") return "Form";
   return "Table";
 }
 

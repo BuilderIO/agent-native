@@ -13,9 +13,12 @@ const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-designs",
+  "list-design-templates",
   "get-design",
   "get-design-snapshot",
   "create-design",
+  "create-design-from-template",
+  "save-design-as-template",
   "open-visual-edit",
   "add-localhost-screens",
   "list-localhost-connections",
@@ -50,6 +53,8 @@ export default createAgentChatPlugin({
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
+
+When the user asks to start from a template, call list-design-templates and then create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 
 When the user asks you to refine an existing design, call view-screen if the open design is unclear, then read the live current file with get-design-snapshot before editing. For small localized changes, call edit-design with exact search/replace edits. For broad copy-only changes such as translating all visible text, call edit-design in replace-file mode with the complete updated file content from the snapshot so the HTML structure, scripts, styles, and tweaks are preserved without dozens of fragile search blocks. Do not claim the design is updated until the mutating action succeeds.
 

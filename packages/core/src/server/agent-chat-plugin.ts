@@ -2898,6 +2898,35 @@ export interface AgentChatPluginOptions {
   toolLimits?: { timeoutMs?: number; maxResultChars?: number };
 }
 
+type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
+
+/**
+ * Run an A2A-delegated agent turn with the same final-response guard used by
+ * the app's interactive chat surface.
+ *
+ * Keeping this in one helper prevents delegated calls from silently bypassing
+ * template guarantees such as Analytics' requirement to query real data
+ * before presenting metrics or exhaustive provider conclusions.
+ */
+export function runA2AAgentLoop(
+  runOptions: Parameters<A2AAgentLoopRunner>[0],
+  pluginOptions: Pick<
+    AgentChatPluginOptions,
+    "finalResponseGuard" | "runSoftTimeoutMs"
+  >,
+  timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
+  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
+) {
+  return runner(
+    {
+      ...runOptions,
+      finalResponseGuard: pluginOptions.finalResponseGuard,
+    },
+    pluginOptions.runSoftTimeoutMs,
+    timeoutOptions,
+  );
+}
+
 /**
  * Verbose framework sections returned by the `get-framework-context` tool.
  * Keyed by topic so the agent can request specific sections.
@@ -5008,7 +5037,7 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runAgentLoopDirectWithSoftTimeout(
+          await runA2AAgentLoop(
             {
               engine: a2aEngine,
               model,
@@ -5058,7 +5087,10 @@ export function createAgentChatPlugin(
               },
               signal: controller.signal,
             },
-            options?.runSoftTimeoutMs,
+            {
+              finalResponseGuard: options?.finalResponseGuard,
+              runSoftTimeoutMs: options?.runSoftTimeoutMs,
+            },
             {
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&

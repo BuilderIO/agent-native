@@ -9,6 +9,7 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconDots,
   IconLock,
@@ -43,7 +44,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { derivePromptTitle } from "@shared/prompt-title";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -127,15 +127,14 @@ export default function Templates() {
   ) => {
     setCreating(true);
     try {
-      const title = prompt?.trim()
-        ? derivePromptTitle(prompt)
-        : template.title;
+      const title = prompt?.trim() ? derivePromptTitle(prompt) : template.title;
       const result = (await createMutation.mutateAsync({
         templateId: template.id,
         title,
         ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
       })) as { id?: string; title?: string };
-      if (!result.id) throw new Error("Template copy did not return a design ID");
+      if (!result.id)
+        throw new Error("Template copy did not return a design ID");
       if (prompt?.trim()) {
         writePendingGeneration(result.id, {
           prompt: prompt.trim(),
@@ -146,7 +145,9 @@ export default function Templates() {
           ...options,
         });
       }
-      await queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["action", "list-designs"],
+      });
       navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
@@ -179,7 +180,9 @@ export default function Templates() {
       toast.success(t("templatesPage.deleted"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t("templatesPage.deleteFailed"),
+        error instanceof Error
+          ? error.message
+          : t("templatesPage.deleteFailed"),
       );
     }
   };
@@ -246,7 +249,9 @@ export default function Templates() {
         }}
         title={selected?.title ?? t("templatesPage.useTemplate")}
         placeholder={t("templatesPage.promptPlaceholder")}
-        onSkip={() => selected && void createFromTemplate(selected)}
+        onSkip={() => {
+          if (selected) void createFromTemplate(selected);
+        }}
         skipLabel={t("templatesPage.useAsIs")}
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
@@ -259,7 +264,9 @@ export default function Templates() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("templatesPage.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("templatesPage.deleteTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("templatesPage.deleteDescription", {
                 title: deleteTemplate?.title ?? "",
@@ -356,9 +363,15 @@ function TemplateCard({
           {template.source === "saved" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="-me-2 -mt-2 size-8">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="-me-2 -mt-2 size-8"
+                >
                   <IconDots className="size-4" />
-                  <span className="sr-only">{t("templatesPage.templateActions")}</span>
+                  <span className="sr-only">
+                    {t("templatesPage.templateActions")}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

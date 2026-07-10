@@ -44,6 +44,7 @@ vi.mock("../server/request-context.js", () => ({
       platform: "slack",
       externalThreadId: "C123:123.456",
       text: "make a deck",
+      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
       platformContext: {},
       timestamp: 123,
     },
@@ -98,5 +99,12 @@ describe("call-agent action", () => {
       }),
     );
     expect(dispatchA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.stringContaining(
+        "Source Slack thread: https://example-workspace.slack.com/archives/C123/p123456",
+      ),
+      expect.any(Object),
+    );
   });
 });

@@ -215,6 +215,12 @@ describe("integration webhook handler engine resolution", () => {
             externalThreadId: "thread-1",
             text: "hello from slack",
             senderName: "QA User",
+            sourceUrl:
+              "https://example-workspace.slack.com/archives/C123/p1001",
+            routingHint: {
+              targetAgent: "content",
+              instruction: "Delegate structured intake to Content.",
+            },
             platformContext: { channel: "C123" },
             timestamp: 1001,
           },
@@ -250,6 +256,15 @@ describe("integration webhook handler engine resolution", () => {
           model: "claude-sonnet-4-6",
           systemPrompt: expect.stringContaining("<runtime-context>"),
         }),
+      );
+      const engineUserText =
+        runAgentLoopMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0]?.text;
+      expect(engineUserText).toContain(
+        "Source thread: https://example-workspace.slack.com/archives/C123/p1001",
+      );
+      expect(engineUserText).toContain("Required target agent: content");
+      expect(engineUserText).toContain(
+        "Routing instruction: Delegate structured intake to Content.",
       );
       expect(sendResponse).toHaveBeenCalledWith(
         expect.objectContaining({

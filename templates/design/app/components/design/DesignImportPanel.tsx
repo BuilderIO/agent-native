@@ -198,6 +198,8 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       })) as ImportResult;
       await finishImport(result, t("designEditor.import.figmaUrlSuccess"));
     } catch (error) {
+      // A rejected credential should not linger in component state or the DOM.
+      setFigmaAccessToken("");
       toast.error(t("designEditor.import.errors.figmaImportFailed"), {
         description:
           error instanceof Error ? error.message : t("common.genericError"),

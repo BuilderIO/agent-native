@@ -412,11 +412,31 @@ describe("integrations plugin routes", () => {
         timestamp: Date.now(),
       }),
     };
+    let activeCredentialContext: unknown = null;
+    runWithRequestContextMock.mockImplementation(
+      async (context: unknown, fn: () => unknown) => {
+        const previous = activeCredentialContext;
+        activeCredentialContext = context;
+        try {
+          return await fn();
+        } finally {
+          activeCredentialContext = previous;
+        }
+      },
+    );
+    const resolveOwner = vi.fn(async () => {
+      expect(activeCredentialContext).toEqual({
+        userEmail: "owner+qa@example.com",
+        orgId: "org-owner",
+        isIntegrationCaller: true,
+      });
+      return "owner+qa@example.com";
+    });
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({
       adapters: [incomingAdapter],
       systemPrompt: "Base prompt.",
-      resolveOwner: async () => "owner+qa@example.com",
+      resolveOwner,
     })(nitroApp);
 
     const result = await dispatch(
@@ -439,6 +459,7 @@ describe("integrations plugin routes", () => {
       expect.any(Function),
     );
     expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    expect(resolveOwner).toHaveBeenCalledTimes(1);
     const [, options] = handleWebhookMock.mock.calls[0];
     expect(options.systemPrompt).toBe("Base prompt.");
     expect(options.ownerEmail).toBe("owner+qa@example.com");

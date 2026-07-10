@@ -39,6 +39,21 @@ export interface IncomingMessage {
   responseContext?: Record<string, unknown>;
   /** Provider-native thread/topic reference, when one exists. */
   threadRef?: string;
+  /**
+   * Canonical provider URL for the originating message thread, when the
+   * provider can resolve one. This is safe agent-visible provenance (not a
+   * credential) and should be preserved across A2A delegation so created
+   * artifacts can link back to their request source.
+   */
+  sourceUrl?: string;
+  /**
+   * Trusted app-side routing guidance added after provider parsing. Adapters
+   * should not copy this from user-controlled webhook payload fields.
+   */
+  routingHint?: {
+    targetAgent: string;
+    instruction: string;
+  };
   /** Provider-native message/activity reference for contextual replies. */
   replyRef?: string;
   /** Message timestamp (epoch ms) */

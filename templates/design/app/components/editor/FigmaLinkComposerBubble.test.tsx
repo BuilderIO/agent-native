@@ -113,7 +113,38 @@ describe("FigmaLinkComposerBubble", () => {
     expect(container!.textContent).toContain("chat.figmaLink.importFrame");
   });
 
-  it("prefills an explicit import request with scoped design context", async () => {
+  it("clears a rejected token from the password field", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: false,
+      status: "unset",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    connectionMocks.save.mockRejectedValue(
+      new Error("Figma rejected this token (401)."),
+    );
+    await renderBubble("design-1");
+
+    const input = container!.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "figma-token-example");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("chat.figmaLink.connect").click();
+      await Promise.resolve();
+    });
+
+    expect(input.value).toBe("");
+    expect(container!.textContent).toContain("Figma rejected this token (401).");
+  });
+
+  it("prefills an explicit import request without exposing internal context markup", async () => {
     connectionMocks.get.mockResolvedValue({
       connected: true,
       status: "set",
@@ -128,10 +159,62 @@ describe("FigmaLinkComposerBubble", () => {
     expect(sendToDesignAgentChat).toHaveBeenCalledWith({
       message:
         "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
-      context: "Current Design id: design-42",
       submit: false,
       openSidebar: false,
     });
+  });
+
+  it("keeps the newest connection result when status checks finish out of order", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    let resolveSecond!: (value: unknown) => void;
+    connectionMocks.get
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+      );
+    await renderBubble("design-1");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-engine:configured-changed", {
+          detail: { key: "FIGMA_ACCESS_TOKEN" },
+        }),
+      );
+      resolveSecond({
+        connected: true,
+        status: "set",
+        key: "FIGMA_ACCESS_TOKEN",
+        label: "Figma access token",
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveFirst({
+        connected: false,
+        status: "unset",
+        key: "FIGMA_ACCESS_TOKEN",
+        label: "Figma access token",
+      });
+      await Promise.resolve();
+    });
+
+    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
+    expect(container!.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("does not ask for a token when connection status is unknown", async () => {
+    connectionMocks.get.mockRejectedValue(new Error("status unavailable"));
+    await renderBubble("design-1");
+
+    expect(container!.textContent).toContain("status unavailable");
+    expect(container!.querySelector('input[type="password"]')).toBeNull();
+    expect(container!.textContent).toContain("chat.figmaLink.retry");
   });
 
   it("does not offer an export action when no Design is open", async () => {

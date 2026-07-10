@@ -103,6 +103,17 @@ patterns live in `.agents/skills/`.
   `generate-design` for new files. For broad rewrites of an existing selected
   file, use `edit-design` with `mode: "replace-file"` and the exact `fileId`;
   never resend files you aren't changing.
+- For reusable starting points, call `list-design-templates`. Use
+  `save-design-as-template` to snapshot an editable inline design, including
+  its screens, canvas dimensions, defaults, and locked layers. Use
+  `create-design-from-template` to instantiate a normal design. If the user
+  supplies a prompt, call `get-design-snapshot` once and refine the copied
+  files with `edit-design`; never regenerate the template from scratch.
+- Treat `data-agent-native-locked="true"` as an authoritative template
+  boundary. Locked backgrounds, logos, and their descendants must remain
+  byte-for-byte unchanged during agent edits. The server rejects attempts to
+  change or remove them; ask the user to unlock the layer in the Layers panel
+  if they explicitly want it changed.
 - When the user asks to add tweak controls, preserve existing useful tweaks,
   add or update the requested `tweaks` definitions, and make sure each control
   is backed by a CSS custom property the rendered file actually uses. If source

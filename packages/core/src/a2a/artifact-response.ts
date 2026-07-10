@@ -181,6 +181,40 @@ function imageIdValue(parsed: Record<string, unknown>): string | undefined {
   );
 }
 
+function contentDatabaseSubmissionArtifact(
+  parsed: Record<string, unknown>,
+): CreatedDocumentArtifact | null {
+  const id = stringValue(parsed.createdDocumentId);
+  if (!id) return null;
+
+  const verification = asRecord(parsed.verification);
+  const candidates = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.createdDocumentUrl),
+    stringValue(verification?.url),
+    stringValue(verification?.urlPath),
+  ].filter((value): value is string => !!value);
+  const url = candidates.find((candidate) =>
+    artifactUrlReferencesId(candidate, "document", id),
+  );
+
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  const createdItem = items.map(asRecord).find((item) => {
+    const document = asRecord(item?.document);
+    return stringValue(document?.id) === id;
+  });
+  const createdDocument = asRecord(createdItem?.document);
+
+  return {
+    id,
+    title:
+      stringValue(parsed.createdDocumentTitle) ??
+      stringValue(createdDocument?.title),
+    url,
+  };
+}
+
 function addImageArtifact(
   images: Map<string, CreatedImageArtifact>,
   parsed: Record<string, unknown>,
@@ -296,6 +330,15 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
+
+    if (
+      toolResult.tool === "submit-content-database-form" ||
+      toolResult.tool === "add-database-item"
+    ) {
+      const artifact = contentDatabaseSubmissionArtifact(parsed);
+      if (artifact) documents.set(artifact.id, artifact);
+      continue;
+    }
 
     if (
       toolResult.tool === "create-document" ||

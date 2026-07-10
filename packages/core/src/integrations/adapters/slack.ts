@@ -15,6 +15,10 @@ import type {
 const SLACK_MAX_LENGTH = 4000;
 const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SLACK_API_TIMEOUT_MS = 10_000;
+// Permalink lookup happens on Slack's acknowledgement path, so keep it well
+// inside Slack's three-second Events API deadline. Failure is non-fatal: the
+// normalized message still carries channel/thread ids for replies.
+const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
 
 /**
  * Create a Slack platform adapter.
@@ -156,6 +160,10 @@ export function slackAdapter(): PlatformAdapter {
         // Thread ID: use thread_ts if in a thread, otherwise message ts
         const threadTs = e.thread_ts || e.ts;
         const externalThreadId = `${e.channel}:${threadTs}`;
+        const threadPermalink = await resolveSlackThreadPermalink(
+          e.channel,
+          threadTs,
+        );
 
         return {
           platform: "slack",
@@ -169,7 +177,9 @@ export function slackAdapter(): PlatformAdapter {
             messageTs: e.ts,
             teamId: payload.team_id,
             eventId: payload.event_id,
+            ...(threadPermalink ? { threadPermalink } : {}),
           },
+          ...(threadPermalink ? { sourceUrl: threadPermalink } : {}),
           timestamp: Math.floor(parseFloat(e.ts) * 1000),
         };
       }
@@ -671,11 +681,12 @@ async function postFresh(
 async function slackApiFetch(
   url: string,
   init: RequestInit,
+  timeoutMs = SLACK_API_TIMEOUT_MS,
 ): Promise<Response> {
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : undefined;
   const timer = controller
-    ? setTimeout(() => controller.abort(), SLACK_API_TIMEOUT_MS)
+    ? setTimeout(() => controller.abort(), timeoutMs)
     : undefined;
   try {
     return await fetch(url, {
@@ -684,5 +695,41 @@ async function slackApiFetch(
     });
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+async function resolveSlackThreadPermalink(
+  channelId: unknown,
+  threadTs: unknown,
+): Promise<string | undefined> {
+  if (typeof channelId !== "string" || typeof threadTs !== "string") {
+    return undefined;
+  }
+  const token = await resolveSecret("SLACK_BOT_TOKEN");
+  if (!token) return undefined;
+
+  try {
+    const url = new URL("https://slack.com/api/chat.getPermalink");
+    url.searchParams.set("channel", channelId);
+    url.searchParams.set("message_ts", threadTs);
+    const res = await slackApiFetch(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      SLACK_PERMALINK_TIMEOUT_MS,
+    );
+    const data = (await res.json()) as {
+      ok?: boolean;
+      permalink?: unknown;
+    };
+    if (!data.ok || typeof data.permalink !== "string") return undefined;
+
+    const permalink = new URL(data.permalink);
+    const isSlackHost =
+      permalink.hostname === "slack.com" ||
+      permalink.hostname.endsWith(".slack.com");
+    if (permalink.protocol !== "https:" || !isSlackHost) return undefined;
+    return permalink.toString();
+  } catch {
+    return undefined;
   }
 }

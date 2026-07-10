@@ -134,6 +134,26 @@ describe("Figma connection client", () => {
     );
   });
 
+  it("redacts URL-encoded and JSON-escaped reflections of a failed token", async () => {
+    const token = '<FIGMA "ACCESS" \\ TOKEN>';
+    const jsonEscaped = JSON.stringify(token).slice(1, -1);
+    const reflected = `${encodeURIComponent(token)} ${jsonEscaped}`;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ error: reflected }, { status: 400 })),
+    );
+
+    const error = await saveFigmaAccessToken(token).catch(
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain(token);
+    expect((error as Error).message).not.toContain(encodeURIComponent(token));
+    expect((error as Error).message).not.toContain(jsonEscaped);
+  });
+
   it("fails clearly when the template forgot to register Figma", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
 

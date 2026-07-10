@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   consumeLinkToken: vi.fn(),
   resolveLinkedOwner: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
+  resolveSecret: vi.fn(),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -14,6 +15,16 @@ vi.mock("./dispatch-store.js", () => ({
 vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
+
+vi.mock("@agent-native/core/server", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/server")
+  >("@agent-native/core/server");
+  return {
+    ...actual,
+    resolveSecret: mocks.resolveSecret,
+  };
+});
 
 import type {
   IncomingMessage,
@@ -94,6 +105,9 @@ beforeEach(() => {
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
   mocks.resolveOrgIdForEmail.mockResolvedValue(null);
+  mocks.resolveSecret.mockImplementation(
+    async (key: string) => process.env[key] ?? null,
+  );
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ ok: false }))),
@@ -130,6 +144,7 @@ describe("resolveDispatchOwner", () => {
 
   it("uses the verified Slack email for org members", async () => {
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-token");
+    mocks.resolveSecret.mockResolvedValueOnce(null);
     mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org_123");
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(
@@ -151,6 +166,37 @@ describe("resolveDispatchOwner", () => {
     expect(incoming.senderEmail).toBe("user@example.test");
     expect(incoming.senderName).toBe("User");
     expect(incoming.platformContext.senderEmail).toBe("user@example.test");
+  });
+
+  it("uses the request-scoped Slack token when no env token exists", async () => {
+    mocks.resolveSecret.mockResolvedValueOnce("configured-slack-token");
+    mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org_123");
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            profile: { email: "member@example.test", display_name: "Member" },
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      resolveDispatchOwner(
+        slackIncoming({
+          senderId: "U999",
+          platformContext: { teamId: "T999", channelId: "C1" },
+        }),
+      ),
+    ).resolves.toBe("member@example.test");
+    expect(mocks.resolveSecret).toHaveBeenCalledWith("SLACK_BOT_TOKEN");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://slack.com/api/users.info?user=U999",
+      {
+        headers: { Authorization: "Bearer configured-slack-token" },
+      },
+    );
   });
 
   it("falls back to the configured Slack owner when the sender is not an org member", async () => {
@@ -226,6 +272,19 @@ describe("resolveDispatchOwner", () => {
 });
 
 describe("beforeDispatchProcess", () => {
+  it("attaches a trusted Content routing hint for structured design intake", async () => {
+    const incoming = slackIncoming({
+      text: "File a design ask with priority and deadline",
+    });
+
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      { handled: false },
+    );
+    expect((incoming as any).routingHint).toMatchObject({
+      targetAgent: "content",
+    });
+  });
+
   it("asks unlinked Telegram users to link before using org context", async () => {
     vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
 

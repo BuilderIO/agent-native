@@ -3,6 +3,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
   root: {
@@ -365,6 +366,7 @@ const messages = {
     },
   },
   designEditor: {
+    ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
     componentInstances: {
       selectLayer: "選取圖層",
@@ -1012,6 +1014,7 @@ const messages = {
     designPreview: "Design 預覽",
   },
   templatesPage: {
+    ...designTemplateFeatureOverrides["zh-TW"].templatesPage,
     title: "行銷範本",
     description:
       "用於發布、廣告、簡報、活動和 PDF 講義的尺寸可編輯的入門設計。",

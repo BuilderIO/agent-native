@@ -246,9 +246,11 @@ function defaultDatabaseView(
             ? "Gallery"
             : type === "calendar"
               ? "Calendar"
-              : type === "timeline"
-                ? "Timeline"
-                : "Table",
+            : type === "timeline"
+              ? "Timeline"
+              : type === "form"
+                ? "Form"
+              : "Table",
     type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
@@ -265,6 +267,7 @@ function defaultDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -277,7 +280,8 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     view.type === "list" ||
     view.type === "gallery" ||
     view.type === "calendar" ||
-    view.type === "timeline"
+    view.type === "timeline" ||
+    view.type === "form"
       ? view.type
       : "table";
   return {
@@ -313,7 +317,31 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     wrapCells: view.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
   };
+}
+
+function normalizeDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as {
+      key?: unknown;
+      enabled?: unknown;
+      required?: unknown;
+    };
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeDatabaseFilterMode(
