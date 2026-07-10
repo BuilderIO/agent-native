@@ -5,7 +5,11 @@ description: "Claude – Personalização em nível de código por usuário — 
 
 # Espaço de trabalho
 
-> **Qual documento do espaço de trabalho?** Esta página aborda a **camada de personalização** — o que _é_ um espaço de trabalho. Para o formato de implantação (um monorepo, muitos aplicativos), consulte [Multi-App Workspaces](/docs/multi-app-workspace); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
+<Callout tone="info">
+
+**Qual documento do espaço de trabalho?** Esta página aborda a **camada de personalização** — o que _é_ um espaço de trabalho. Para o formato de implantação (um monorepo, muitos aplicativos), consulte [Multi-App Workspaces](/docs/multi-app-workspace); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
+
+</Callout>
 
 Todo aplicativo nativo do agente vem com um **espaço de trabalho**: a camada de personalização que torna o agente seu. Ele contém instruções de equipe (`AGENTS.md`), aprendizados compartilhados (`LEARNINGS.md`), memória estruturada pessoal (`memory/MEMORY.md`), skills que o agente recebe sob demanda, subagentes personalizados, trabalhos agendados e servidores MCP conectados — tudo o que você esperaria de uma configuração do Código Claude/Codex.
 
@@ -82,7 +86,7 @@ A diferença: **são linhas SQL, não arquivos do sistema de arquivos.** Cada us
 | `CLAUDE.md`/skills por projeto       | `AGENTS.md` por aplicativo + recursos de memória do espaço de trabalho |
 | Configuração MCP em um arquivo JSON  | Configuração MCP em JSON _ou_ as configurações UI, por escopo          |
 
-Mesmas capacidades. Economia diferente. Consulte [Templates](/docs/cloneable-saas) para saber por que isso é importante para SaaS.
+Mesmas capacidades. Economia diferente. Consulte [Aplicativos](/docs/cloneable-saas) para saber por que isso é importante para SaaS.
 
 ## Visão geral {#overview}
 
@@ -219,11 +223,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-Mantenha os arquivos `context/` curtos e factuais – alguns pontos que o agente pode ler:
+Por exemplo:
 
-```text
-<!-- context/brand.md -->
-
+```text filename="context/brand.md"
 # Marca
 
 - Voice: direct, warm, concrete
@@ -388,15 +390,9 @@ Existem dois tipos de agentes no Workspace:
 
 Use agentes personalizados para delegação em um aplicativo. Use agentes conectados quando precisar ligar para outro aplicativo por A2A.
 
-## @ Marcação {#at-tagging}
+## Marcação @ e comandos / {#at-tagging}
 
-Digite `@` na entrada do chat para fazer referência aos itens do espaço de trabalho. Um menu suspenso aparece no cursor mostrando agentes e arquivos correspondentes. Use as teclas de seta para navegar e Enter para selecionar. O item selecionado aparece como um chip embutido na entrada.
-
-Quando você envia uma mensagem, **arquivos/recursos** são passados como referências que o agente pode ler, **agentes personalizados** são executados localmente com suas instruções de perfil e **agentes conectados** são chamados por A2A.
-
-## /Comandos de barra {#slash-commands}
-
-Digite `/` no início de uma linha para invocar uma habilidade. Um menu suspenso mostra os skills disponíveis com seus nomes e descrições; selecionar um adiciona um chip embutido e inclui seu conteúdo como contexto quando a mensagem é enviada. Se nenhum skills estiver configurado, o menu suspenso leva a esses documentos.
+Digite `@` na entrada do chat para referenciar um agente, arquivo ou recurso, ou `/` para invocar um skill. Ambos abrem uma lista suspensa no cursor e adicionam um chip em linha quando você seleciona um item. Consulte [Menções de agentes](/docs/agent-mentions) para conhecer toda a mecânica (roteamento, `MentionProvider`, seleção de subagente) e o [Guia Skills](/docs/skills-guide) para saber como os skills são criados e descobertos.
 
 ## Modo Código versus Modo Aplicativo {#dev-vs-prod}
 
@@ -415,10 +411,6 @@ O sistema de recursos funciona de forma idêntica em ambos os modos. O que difer
 O Workspace Connections permite que os aplicativos compartilhem a mesma conta de provedor (Slack, GitHub, HubSpot etc.) sem duplicar credenciais. Uma conexão registra a identidade do provedor, rótulos de conta, status, escopos, concessões de aplicativos e referências de credenciais em SQL. Os segredos ficam no armazenamento de credenciais; conexões apontam apenas para nomes de chaves de credenciais, como `SLACK_BOT_TOKEN`.
 
 Consulte [Workspace Connections](/docs/workspace-connections) para obter o início rápido, conexão/concessão/redencialRef API e exemplos concretos de Slack, HubSpot e GitHub.
-
----
-
-# Referência
 
 ## Recurso API {#resource-api}
 
@@ -463,3 +455,12 @@ pnpm action resource-write --path "notes/meeting.md" --content "# Notas da reuni
 # Excluir um recurso
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+## Próximos passos {#whats-next}
+
+- [**Guia Skills**](/docs/skills-guide) — criar e definir o escopo dos arquivos de skill referenciados em `skills/`
+- [**Menções de agentes**](/docs/agent-mentions) — mecânica completa das menções `@` e dos comandos `/`
+- [**Trabalhos recorrentes**](/docs/recurring-jobs) — agendar os prompts criados a partir de tarefas agendadas
+- [**Governança do Workspace**](/docs/workspace-management) — quem revisa, aprova e é responsável pelas alterações no workspace
+- [**Workspaces de vários aplicativos**](/docs/multi-app-workspace) — a forma de implantação abrangida por um workspace
+- [**Conexões do Workspace**](/docs/workspace-connections) — compartilhar credenciais de provedores entre aplicativos

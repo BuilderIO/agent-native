@@ -108,10 +108,12 @@ When your app is connected to Builder.io, file uploads are automatically routed 
 
 Register a custom provider in a server plugin to use any storage backend (S3, Cloudflare R2, GCS, etc.):
 
-```ts
-// server/plugins/file-upload.ts
+```ts filename="server/plugins/file-upload.ts"
+import { S3 } from "@aws-sdk/client-s3";
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
-import { resolveSecret } from "@agent-native/core/server";
+import { defineNitroPlugin, resolveSecret } from "@agent-native/core/server";
+
+const s3Client = new S3({ region: process.env.AWS_REGION });
 
 export default defineNitroPlugin(() => {
   const readBucket = () => resolveSecret("S3_BUCKET");
@@ -184,3 +186,10 @@ if (result) {
   // No provider configured — handle SQL fallback yourself, or skip
 }
 ```
+
+## What's next
+
+- [**Database**](/docs/database) — why binary blobs stay out of SQL and go through this provider abstraction instead
+- [**Security — Secrets Management**](/docs/security#secrets) — how `resolveSecret()` and the credential vault encrypt provider keys at rest
+- [**Onboarding**](/docs/onboarding) — registering a custom provider's setup step in the sidebar checklist
+- [**Deployment**](/docs/deployment) — connecting Builder.io or a custom provider in production

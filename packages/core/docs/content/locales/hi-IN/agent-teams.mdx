@@ -239,6 +239,7 @@ interface AgentTask {
   summary: string; // full summary once completed
   currentStep: string; // latest step label (updated while running)
   createdAt: number;
+  delegationDepth?: number; // 1 for a direct sub-agent, 2 for a sub-agent of that sub-agent, etc.
   // Additional fields: parentThreadId, name, updatedAt, startedAt,
   // completedAt, runId, error
 }

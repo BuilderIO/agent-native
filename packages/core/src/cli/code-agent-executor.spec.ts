@@ -12,6 +12,7 @@ import {
   buildRepoInstructionsBlock,
   buildStructuredMessagesFromEvents,
   classifyCodeAgentCommandPermission,
+  codeAgentMcpInvocationPolicy,
   codeAgentSystemPrompt,
   executeCodeAgentRun,
   executePendingCodeAgentApproval,
@@ -469,6 +470,23 @@ describe("classifyCodeAgentCommandPermission", () => {
       kind: "approval-required",
     });
   });
+});
+
+describe("codeAgentMcpInvocationPolicy", () => {
+  it("enforces read-only MCP calls in Plan mode", () => {
+    expect(codeAgentMcpInvocationPolicy("read-only")).toEqual({
+      mode: "read-only",
+    });
+  });
+
+  it.each(["ask-before-edit", "auto-edit", "full-auto"] as const)(
+    "does not impose the Plan MCP policy in %s mode",
+    (permissionMode) => {
+      expect(codeAgentMcpInvocationPolicy(permissionMode)).toEqual({
+        mode: "allow-all",
+      });
+    },
+  );
 });
 
 function createStringOutput(): {

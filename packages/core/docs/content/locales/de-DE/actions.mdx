@@ -11,7 +11,7 @@ Actions sind die einzige Quelle der Wahrheit für alles, was Ihre App tut. Defin
 - **Typsichere React-Hooks** – `useActionQuery("name")` und `useActionMutation("name")` im Frontend, Typen aus dem Schema abgeleitet.
 - **Imperative Client-Aufrufe** – `callAction("name", params)`, wenn ein Hook nicht passt.
 - **Framework-Transport** – wird automatisch vom Framework hinter diesen Hooks bereitgestellt und ist für externe HTTP-Clients verfügbar.
-- **Ein MCP-Tool** – verfügbar für benutzerdefinierte MCP-Apps von Claude, ChatGPT, Claude Desktop/Code, Cursor, Codex und alle anderen MCP-Clients.
+- **Ein MCP-Tool** – verfügbar für benutzerdefinierte MCP-Apps von Claude, ChatGPT, Claude Desktop/Code, Cursor, Codex und alle anderen MCP-Hosts.
 - **Ein A2A-Tool** – wird von anderen agentennativen Apps über A2A aufgerufen.
 - **Ein CLI-Befehl** – `pnpm action <name>` für Skripterstellung und Entwicklungsschleifen.
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-Behalten Sie `link` als Fallback für CLI- und Nicht-UI-MCP-Clients bei; Es ist auch das Startziel der Einbettung. Die Embed Bridge – die signierte Embed-Start-Sitzung, Transplantation vs. Controlled-Frame-Rendering, die `ui/*` Host Bridge, CSP und Height Clamping – ist Eigentum von [External Agents](/docs/external-agents#mcp-app-bridge).
+Behalten Sie `link` als Fallback für CLI- und Nicht-UI-MCP-Hosts bei; Es ist auch das Startziel der Einbettung. Die Embed Bridge – die signierte Embed-Start-Sitzung, Transplantation vs. Controlled-Frame-Rendering, die `ui/*` Host Bridge, CSP und Height Clamping – ist Eigentum von [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Standard actions {#standard-actions}
 

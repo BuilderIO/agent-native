@@ -5,7 +5,11 @@ import {
   retryOnDdlRace,
 } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
-import type { RemoteRunEvent } from "./remote-types.js";
+import { serializeBoundedRemoteJson } from "./remote-json-safety.js";
+import type { RemoteLiveViewEvent, RemoteRunEvent } from "./remote-types.js";
+
+const MAX_EVENT_JSON_BYTES = 256_000;
+const MAX_EVENT_BATCH_JSON_BYTES = 1_000_000;
 
 let _initPromise: Promise<void> | undefined;
 
@@ -79,28 +83,56 @@ export async function insertRemoteRunEvents(input: {
   events: Array<{ seq: number; event: unknown }>;
 }): Promise<{ inserted: number }> {
   await ensureTable();
+  if (input.events.length === 0) return { inserted: 0 };
+  if (input.events.length > 1_000) {
+    throw new Error("A remote run event batch cannot exceed 1,000 events");
+  }
   const client = getDbExec();
   const now = Date.now();
-  let inserted = 0;
-
-  for (const event of input.events) {
-    const result = await client.execute({
-      sql: `INSERT INTO integration_remote_run_events
-              (device_id, remote_run_id, seq, event_json, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(device_id, remote_run_id, seq) DO NOTHING`,
-      args: [
-        input.deviceId,
-        input.remoteRunId,
-        event.seq,
-        JSON.stringify(event.event ?? null),
-        now,
-      ],
+  const values = input.events.map(() => "(?, ?, ?, ?, ?)").join(", ");
+  let batchBytes = 0;
+  const args = input.events.flatMap((event) => {
+    const value = isLiveViewEvent(event.event)
+      ? normalizeLiveViewEvent(event.event)
+      : (event.event ?? null);
+    const eventJson = serializeBoundedRemoteJson(value, {
+      label: "Remote run event",
+      maxBytes: MAX_EVENT_JSON_BYTES,
     });
-    inserted += result.rowsAffected ?? (result as any).rowCount ?? 0;
-  }
+    batchBytes += new TextEncoder().encode(eventJson).byteLength;
+    if (batchBytes > MAX_EVENT_BATCH_JSON_BYTES) {
+      throw new Error(
+        `Remote run event batch exceeds ${MAX_EVENT_BATCH_JSON_BYTES} JSON bytes`,
+      );
+    }
+    return [input.deviceId, input.remoteRunId, event.seq, eventJson, now];
+  });
+  const result = await client.execute({
+    sql: `INSERT INTO integration_remote_run_events
+            (device_id, remote_run_id, seq, event_json, created_at)
+          VALUES ${values}
+          ON CONFLICT(device_id, remote_run_id, seq) DO NOTHING`,
+    args,
+  });
+  return {
+    inserted:
+      result.rowsAffected ??
+      Number((result as { rowCount?: unknown }).rowCount ?? 0),
+  };
+}
 
-  return { inserted };
+export async function insertRemoteLiveViewEvents(input: {
+  deviceId: string;
+  remoteRunId: string;
+  events: Array<{ seq: number; event: RemoteLiveViewEvent }>;
+}): Promise<{ inserted: number }> {
+  return insertRemoteRunEvents({
+    ...input,
+    events: input.events.map(({ seq, event }) => ({
+      seq,
+      event: normalizeLiveViewEvent(event),
+    })),
+  });
 }
 
 export async function listRemoteRunEvents(input: {
@@ -134,4 +166,57 @@ function parseJson(value: unknown, fallback: unknown): unknown {
   } catch {
     return fallback;
   }
+}
+
+function normalizeLiveViewEvent(
+  event: RemoteLiveViewEvent,
+): RemoteLiveViewEvent {
+  if (!event || event.type !== "computer.live-view") {
+    throw new Error("Invalid computer live-view event");
+  }
+  const frameHandle = sanitizeString(event.frameHandle, 240);
+  if (/^data:/i.test(frameHandle) || looksLikeLargeBase64(frameHandle)) {
+    throw new Error(
+      "Live-view frames must use ephemeral handles, not image data",
+    );
+  }
+  if (!Number.isSafeInteger(event.capturedAt) || event.capturedAt < 0) {
+    throw new Error("Live-view capturedAt must be an epoch timestamp");
+  }
+  return {
+    type: "computer.live-view",
+    frameHandle,
+    capturedAt: event.capturedAt,
+    width: boundedDimension(event.width),
+    height: boundedDimension(event.height),
+    targetLabel:
+      event.targetLabel == null ? null : sanitizeString(event.targetLabel, 240),
+  };
+}
+
+function isLiveViewEvent(value: unknown): value is RemoteLiveViewEvent {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "computer.live-view"
+  );
+}
+
+function boundedDimension(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 100_000) {
+    throw new Error("Live-view dimensions must be positive integers");
+  }
+  return value;
+}
+
+function sanitizeString(value: unknown, max: number): string {
+  if (typeof value !== "string" || !value.trim() || value.length > max) {
+    throw new Error(`Expected a non-empty string of at most ${max} chars`);
+  }
+  return value.trim();
+}
+
+function looksLikeLargeBase64(value: string): boolean {
+  return value.length > 512 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 }

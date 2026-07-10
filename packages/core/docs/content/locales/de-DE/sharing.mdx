@@ -1,13 +1,13 @@
 ---
 title: "Freigabe und Datenschutz"
-description: "Freigabe im Google-Docs-Stil, in das Framework integriert. Jede vom Benutzer erstellte Ressource – Dokumente, Dashboards, Designs, Decks, Clips, Aufzeichnungen, Formulare – erhält standardmäßig dasselbe private Modell mit einer einheitlichen Freigabe UI."
+description: "Vertrautes, einheitliches Teilen, direkt in das Framework integriert. Jede benutzererstellte Ressource – Dokumente, Dashboards, Designs, Decks, Clips, Aufzeichnungen und Formulare – erhält dasselbe standardmäßig private Modell mit einer einheitlichen Freigabeoberfläche."
 ---
 
 # Freigabe und Datenschutz
 
 Jede Ressource, die ein Benutzer in einer agentennativen App erstellt – ein Dokument, ein Dashboard, ein Design, eine Präsentation, eine Bildschirmaufzeichnung, ein Besprechungsprotokoll, ein Formular, ein Buchungslink – ist **standardmäßig privat für den Ersteller**. Andere sehen es nur, wenn der Ersteller es ausdrücklich teilt oder seine Sichtbarkeit in `org` oder `public` ändert.
 
-Es sieht aus und funktioniert wie Google Docs. Die gleiche Schaltfläche zum Teilen, derselbe Dialog, das gleiche dreistufige Sichtbarkeitsmodell, die gleichen Gewährungen pro Benutzer/pro Organisation – für jede Vorlage, ohne Neuerfindung pro App.
+Es gibt überall ein vertrautes Freigabemodell: dieselbe Freigabeschaltfläche, derselbe Dialog, dasselbe dreistufige Sichtbarkeitsmodell und dieselben Berechtigungen pro Benutzer und Organisation – in jeder Vorlage, ohne Neuerfindung pro App.
 
 ## Warum ein Modell {#why}
 
@@ -92,7 +92,7 @@ Jede Vorlage, die vom Benutzer erstellte Arbeiten speichert, verwendet dieses Mo
 - **Inhalt** – Dokumente
 - **Folien** – Decks
 - **Design** – Designs und Assets
-- **Clips** – Bildschirmaufnahmen (Loom-Stil)
+- **Clips** – Bildschirmaufnahmen
 - **Plan** — visual plans and PR recaps
 - **Formulare** – Formulardefinitionen
 - **Kalender** – Veranstaltungen und Buchungslinks
@@ -115,7 +115,7 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 
 - Sichtbarkeitsauswahl (`Private` / `Organization` / `Public link`).
 - Autovervollständigung „Personen oder Teams hinzufügen“ – Benutzer in der Organisation suchen oder eine E-Mail einfügen.
-- Ein `Benachrichtigen people`-Kontrollkästchen im Google Docs-Stil für individuelle E-Mail-Genehmigungen.
+- Ein Kontrollkästchen `Personen benachrichtigen` für individuelle E-Mail-Berechtigungen.
 - Eine Liste aktueller Gewährungen mit Rollenauswahl und einer Entfernungskontrolle.
 - Eine Schaltfläche zum Kopieren von Links, die die aktuelle Sichtbarkeit berücksichtigt.
 
@@ -270,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Ein Registrierungsaufruf in `server/db/index.ts`:
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -315,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Die gemeinsame Nutzung erfolgt auf dem umfassenderen Datenscoping-Modell des Frameworks – der Listen-/Lese-/Schreibzugriff auf besitzbare Tabellen erfolgt über `accessFilter()` / `resolveAccess()` / `assertAccess()`, und mit `org_id` gekennzeichnete Ressourcen sind organisationsübergreifend unsichtbar. Siehe [Security → Data Scoping](/docs/security#data-scoping) für die vollständige Pipeline, den CI-Schutz und die Bedrohungsoberfläche.
 
-## Siehe auch {#see-also}
+## Wie geht es weiter? {#see-also}
 
-- [Security & Data Scoping](/docs/security) – das Zugriffsfilter- und Eigentumsmodell, auf dem das Teilen basiert.
-- [Authentication](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt.
-- [Extensions](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche.
-- [Creating Templates](/docs/creating-templates) – Verknüpfen von `ownableColumns` mit dem Schema einer neuen Vorlage.
+- [**Sicherheit – Datenscoping**](/docs/security#data-scoping) – das Zugriffsfilter- und Eigentumsmodell, auf dem das Teilen basiert
+- [**Authentifizierung**](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt
+- [**Erweiterungen**](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche
+- [**Vorlagen erstellen**](/docs/creating-templates) – `ownableColumns` mit dem Schema einer neuen Vorlage verbinden

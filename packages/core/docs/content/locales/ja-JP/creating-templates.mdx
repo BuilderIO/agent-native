@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-a0ipml"
   title={"テンプレートプロジェクトの構成"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 フレームワーク Drizzle ヘルパーを使用してドメイン テーブルを定義し、SQLite、Postgres、D1、Turso、Supabase、Neon、およびその他のサポートされているバックエンド間でスキーマの移植性を維持します。
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 アプリの読み取りと書き込みには、Drizzle のクエリ ビルダーと `drizzle-orm` のポータブル オペレーターを使用します。 Drizzle でクエリを表現できる場合は、生の SQL を使用して製品コードを記述しないでください。また、テンプレートで `drizzle-orm/sqlite-core` または `drizzle-orm/pg-core` からインポートしないでください。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -349,8 +346,7 @@ URL クエリ パラメータで共有可能なフィルターを保持します
 `path` (URL が既知の場合)。同じ動きに対して `__set_url__` も書き込まないでください。
 そのキーは、フレームワーク URL ツールおよび URL のみのフィルター変更用に予約されています。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

@@ -248,10 +248,27 @@ notes, then pass that summary to `index-design-system-with-builder` as an
 uploaded text context file. Do not build a local design system from the Figma
 summary unless the user explicitly asks for a manual local fallback.
 
-**When the user uploads a raw `.fig` file**, send it to Builder design-system
-indexing through the setup page upload route. Do not parse `.fig` files locally
-and do not call `create-design-system` from raw `.fig` output; Builder owns the
-indexed brand kit, generated docs, and usage guidance.
+**When the user uploads a raw `.fig` file on the Design System Setup page**,
+send it to Builder design-system indexing through the setup page upload route.
+Do not parse `.fig` files locally for this flow and do not call
+`create-design-system` from raw `.fig` output; Builder owns the indexed brand
+kit, generated docs, and usage guidance. This is unchanged and is specifically
+about **token/brand-kit extraction**.
+
+**When the user uploads a raw `.fig` file in the Design editor's Import panel**
+(not Design System Setup), it takes a different, narrower path: the server
+decodes the container/Kiwi document locally (`fig-file-decoder.ts`) and maps
+its `NodeChange` tree to editable HTML screens (`fig-file-to-html.ts`,
+`fig-file-import.ts`) through the same `saveImportedDesignFiles` path as other
+Design imports — no Builder connection required. This is explicitly scoped to
+**screens only**, not tokens: it does not create or update a design system, and
+it is separate from (and does not reopen) the Design System Setup `.fig`
+upload above. Treat it as experimental — the `.fig` container is a proprietary,
+undocumented format, so unsupported node types, geometry, or schema variants
+fail closed with an explicit warning/placeholder rather than a silent
+approximation. Read the returned `fidelityReport` (`stats`, `warnings`) back to
+the user, and see `FIGMA_INTEROPERABILITY.md`'s "`.fig` upload" row for the
+current fidelity contract and required verification corpus.
 
 **When the user wants a Figma Assets-style native component drawer inside
 Design**, do not use Figma or media assets. Use `list-design-native-assets` to

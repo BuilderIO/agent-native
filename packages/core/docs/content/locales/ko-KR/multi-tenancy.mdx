@@ -17,7 +17,7 @@ description: "모든 에이전트 기반 앱은 구성이 필요 없는 조직, 
 - **조직 전환** — 세션은 활성 조직(`session.orgId`)을 추적하고 이를 전환하면 사용자와 상담원이 보는 데이터가 변경됩니다.
 - **조직별 데이터 격리** — 모든 쿼리는 자동으로 활성 조직으로 범위가 지정됩니다.
 
-CRM, 프로젝트 추적기, 지원 받은 편지함 또는 모든 팀 도구에 대한 에이전트 기반을 평가하는 경우 다중 테넌트 기반이 이미 존재합니다. 모든 자사 템플릿은 다중 테넌트입니다. 목록은 [Cloneable SaaS templates](/docs/cloneable-saas)를 참조하세요.
+CRM, 프로젝트 추적기, 지원 받은 편지함 또는 모든 팀 도구에 대한 에이전트 기반을 평가하는 경우 다중 테넌트 기반이 이미 존재합니다. 모든 자사 템플릿은 다중 테넌트입니다. 목록은 [템플릿](/docs/cloneable-saas)를 참조하세요.
 
 <Diagram id="doc-block-7qqrxz" title={"조직 멤버십 및 격리"} summary={"사용자는 owner/admin/member로 조직에 가입합니다. 모든 소유 가능 행은 이를 소유한 테넌트의 org_id을 전달하며 경계를 넘어 누출되는 행은 없습니다."}>
 
@@ -117,8 +117,8 @@ CRM, 프로젝트 추적기, 지원 받은 편지함 또는 모든 팀 도구에
 
 이것은 사용자별 범위 지정에 사용되는 것과 동일한 파이프라인입니다. SQL 수준 메커니즘, `ownableColumns()` 계약 및 `accessFilter` / `resolveAccess` / `assertAccess` 가드에 대해서는 범위 지정 파이프라인을 위한 단일 정보 소스인 [Security → Data Scoping](/docs/security#data-scoping)를 참조하세요.
 
-## 관련 문서 {#related}
+## 다음 단계 {#related}
 
-- [Authentication](/docs/authentication#organizations) — 세션, 소셜 제공자 및 조직 관리 표면
-- [Security → Data Scoping](/docs/security#data-scoping) — SQL 수준 격리, `ownableColumns()` 계약 및 액세스 가드
-- [Multi-App Workspace](/docs/multi-app-workspace) — 공유 인증 및 RBAC를 사용하여 하나의 단일 저장소에서 여러 에이전트 기반 앱 호스팅
+- [**Authentication**](/docs/authentication#organizations) — 세션, 소셜 제공자 및 조직 관리 표면
+- [**Security — Data Scoping**](/docs/security#data-scoping) — SQL 수준 격리, `ownableColumns()` 계약 및 액세스 가드
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 공유 인증 및 RBAC로 하나의 monorepo에서 여러 Agent-Native 앱을 호스팅합니다

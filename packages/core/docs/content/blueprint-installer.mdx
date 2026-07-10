@@ -5,8 +5,12 @@ description: "agent-native add prints a curated Markdown integration recipe to s
 
 # Blueprint Installer
 
-> **Who is this for:** host authors and integrators adding a provider, channel,
-> sandbox backend, or action to a repo by piping a recipe into their coding agent.
+<Callout id="doc-block-bpin1who" tone="info">
+
+**Who is this for:** host authors and integrators adding a provider, channel,
+sandbox backend, or action to a repo by piping a recipe into their coding agent.
+
+</Callout>
 
 `agent-native add` is **not** a dumb scaffolder that writes files for you. It emits a curated Markdown _integration blueprint_ to stdout. You pipe that blueprint into your own coding agent (Claude Code, Codex, …), which applies the changes against the live repo with full context.
 
@@ -111,8 +115,11 @@ Write each blueprint as an instruction set for a coding agent with no other cont
 4. **Framework rules to honor** — actions-first, no hardcoded secrets, scope ownable data, add a changeset for publishable-package source.
 5. **Verify** — typecheck, a focused `*.spec.ts`, and an end-to-end check.
 
-> [!TIP]
-> A new curated blueprint under an existing kind needs no code — but if you create a brand-new kind directory, that kind shows up in `--list` automatically too.
+<Callout id="doc-block-bpin1tip" tone="info">
+
+A new curated blueprint under an existing kind needs no code — but if you create a brand-new kind directory, that kind shows up in `--list` automatically too.
+
+</Callout>
 
 ## What's next
 

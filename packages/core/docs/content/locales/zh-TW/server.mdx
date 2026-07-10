@@ -92,8 +92,7 @@ server/routes/
 
 每條路由匯出一個`defineEventHandler`：
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -133,8 +132,7 @@ export default defineEventHandler(() => ({
 
 對於唯讀狀態 endpoint，請保持為 action：
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -167,8 +165,7 @@ GET /_agent-native/actions/get-status?service=billing
 工具、聊天紀錄或執行狀態，使用 `completeText()` 作為顯式轉義
 孵化。
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -233,8 +230,7 @@ Actions 由框架自動安裝並與請求脈絡一起執行。自訂路由則不
 
 外掛位於 `server/plugins/` 中並在啟動時執行。將它們用於遷移、提供者設定、重複作業、整合轉接器和框架外掛設定。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -412,8 +408,10 @@ Agent-Native 不依賴於檔案系統觀察程式或置頂記憶狀態。當 act
 
 </Diagram>
 
-> [!WARNING]
-> 不要依賴返回回應後未等待的承諾 — 無伺服器主機會凍結執行。請參閱 [Messaging](/docs/messaging) 以了解規範整合佇列。
+<Callout tone="warning">
+  不要依賴返回回應後未等待的承諾 — 無伺服器主機會凍結執行。請參閱
+  [Messaging](/docs/messaging) 以了解規範整合佇列。
+</Callout>
 
 ## 進階：逃生艙口 {#advanced-escape-hatches}
 
@@ -455,3 +453,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## 後續步驟
+
+- [**Actions**](/docs/actions) — 預設操作介面；只有在不適用時才使用自訂路由
+- [**資料庫**](/docs/database) — 自訂路由和 actions 都會匯入的 `getDb()`/`schema` 模式
+- [**安全性**](/docs/security#access-guards) — `accessFilter`/`assertAccess` 和完整的資料範圍模型
+- [**訊息傳遞**](/docs/messaging) — 傳入 webhook 的標準整合佇列模式
+- [**MCP 通訊協定**](/docs/mcp-protocol) — 此伺服器自動掛載的 `/_agent-native/mcp` 端點

@@ -139,8 +139,12 @@ Defaults are conservative. An operator can dial compaction at deploy time with `
 
 The Observer and Reflector output caps (4000 / 2000 tokens) keep a single compaction pass from itself blowing the budget; they are tunable in code via `resolveObservationalMemoryConfig({ ... })` but not env-exposed.
 
-> [!TIP]
-> Lower the thresholds to compact sooner (cheaper long threads, slightly more summarization); raise them to keep more raw history in context before compacting. Set `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT` higher if your workflows need a longer verbatim tail.
+<Callout tone="info">
+  Lower the thresholds to compact sooner (cheaper long threads, slightly more
+  summarization); raise them to keep more raw history in context before
+  compacting. Set `AGENT_NATIVE_OM_RECENT_RAW_MESSAGE_COUNT` higher if your
+  workflows need a longer verbatim tail.
+</Callout>
 
 ## When it kicks in {#when}
 
@@ -151,7 +155,7 @@ OM only changes behavior for threads long enough to have produced at least one o
 
 The injection is best-effort and boundary-safe — if a safe trim point can't be found (e.g. a pending tool-use/result pair sits at the window edge), OM injects the memory block _additively_ without trimming rather than risk dropping a pending tool result.
 
-## Related
+## What's next
 
 - [**Using Your Agent**](/docs/using-your-agent) — the day-to-day loop of working with the agent docked next to your app.
 - [**Observability**](/docs/observability) — token and cost metrics per run, where OM's savings show up.

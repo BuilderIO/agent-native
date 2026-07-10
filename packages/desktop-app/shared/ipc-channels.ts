@@ -757,6 +757,18 @@ export interface CodeAgentHostMetadata {
     configuredProviders?: string[];
     missingEnvVars?: string[];
   };
+  computerControl?: {
+    available: boolean;
+    desktop: {
+      accessibility: boolean;
+      screenRecording: string;
+    };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;

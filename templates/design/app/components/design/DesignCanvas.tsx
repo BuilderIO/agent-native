@@ -912,6 +912,25 @@ function contentHash(value: string): string {
   return `${value.length}:${hash >>> 0}`;
 }
 
+const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
+
+/**
+ * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
+ * intentionally preserves the iframe browsing context but cannot execute
+ * newly inserted or changed scripts. Reload only when source script elements
+ * change; ordinary markup/style edits continue through the no-flash bridge.
+ */
+function runtimeDocumentNeedsReload(
+  previousContent: string,
+  nextContent: string,
+): boolean {
+  const scriptSignature = (html: string) =>
+    Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
+      "\n",
+    );
+  return scriptSignature(previousContent) !== scriptSignature(nextContent);
+}
+
 /**
  * Safely reads an embedded screen iframe's own internal document scroll
  * position, in the iframe's own unscaled content pixels — the same units
@@ -1053,6 +1072,11 @@ export function DesignCanvas({
   const runtimeReplacementContentRef = useRef(runtimeReplacementContent);
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
+  // The key also includes updatedAt, so a save acknowledgement can change it
+  // while the rendered bytes are identical. Track the bytes separately to
+  // avoid a redundant forced document replacement that would terminate an
+  // in-progress text edit/caret after every save echo.
+  const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
   // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
   // agent-native:editor-chrome-ready post on install). One-shot commands —
   // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
@@ -1906,6 +1930,7 @@ export function DesignCanvas({
     if (previousContentKeyRef.current !== contentKey) {
       previousContentKeyRef.current = contentKey;
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       // A content-key change rebuilds srcdoc, which reloads the iframe with a
       // brand-new document. The previous document's ready handshake (and any
       // one-shot commands still queued against it) no longer apply — reset
@@ -1922,7 +1947,7 @@ export function DesignCanvas({
     // reloads the iframe, flashes unstyled content, and drops selection. Only a
     // content-key change (screen switch / explicit remount) should replace the
     // iframe document here; the bridge replays inspector state after that load.
-  }, [content, contentKey, runtimeReplacementKey]);
+  }, [content, contentKey, runtimeReplacementContent, runtimeReplacementKey]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -2104,11 +2129,25 @@ export function DesignCanvas({
     waitingForLiveEditBridge,
   ]);
 
+  // PERF (soak measurement 2): contentHash walks the full srcdoc string
+  // char-by-char. `srcdoc` is already memoized above, but this call site
+  // was NOT — so every board-wide re-render (e.g. `renderScreenContent`'s
+  // identity churns on any screen's hover/selection change, invalidating
+  // every screen's cached content node — see MultiScreenCanvas.tsx's PF21
+  // comment) re-hashed every unaffected screen's full content again, with
+  // cost scaling with total board content rather than the actual edit.
+  // Profiling a 10-click selection sequence over a 31-screen board (one
+  // screen with ~30KB of HTML) showed `contentHash` alone consuming
+  // 300-2300ms of self time depending on board content size, and was the
+  // single largest named JS contributor to the resulting 300-600ms
+  // long tasks. Memoizing on the (already-stable) `srcdoc` reference
+  // makes unrelated re-renders skip this entirely.
+  const srcdocHash = useMemo(() => contentHash(srcdoc ?? ""), [srcdoc]);
   const iframeDocumentIdentity = externalPreviewUrl
     ? `src:${externalPreviewUrl}`
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
-      : `srcdoc:${contentKey ?? ""}:${contentHash(srcdoc ?? "")}`;
+      : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
@@ -3443,7 +3482,10 @@ export function DesignCanvas({
       nextContent: string,
       selector?: string | null,
       candidates?: string[],
-      options?: { forceFullDocument?: boolean },
+      options?: {
+        forceFullDocument?: boolean;
+        preserveTextEditingSession?: boolean;
+      },
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
@@ -3453,9 +3495,39 @@ export function DesignCanvas({
         selectedSelector: selector ?? "",
         selectorCandidates: candidates ?? [],
         forceFullDocument: options?.forceFullDocument === true,
+        preserveTextEditingSession:
+          options?.preserveTextEditingSession === true,
       });
     },
     [postOneShotBridgeMessage],
+  );
+
+  const replacePreviewContentFromHost = useCallback(
+    (
+      nextContent: string,
+      selector?: string | null,
+      candidates?: string[],
+      options?: {
+        forceFullDocument?: boolean;
+        preserveTextEditingSession?: boolean;
+      },
+    ) => {
+      const replaced = replacePreviewContent(
+        nextContent,
+        selector,
+        candidates,
+        options,
+      );
+      if (replaced) {
+        // The orchestrator applied these exact bytes imperatively before the
+        // React props carrying their new runtimeReplacementKey rendered.
+        // Remember them so that render can acknowledge the new key without
+        // applying the same forced replacement a second time.
+        lastRuntimeReplacementContentRef.current = nextContent;
+      }
+      return replaced;
+    },
+    [replacePreviewContent],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
@@ -3471,7 +3543,13 @@ export function DesignCanvas({
         }),
         null,
         [],
-        { forceFullDocument: true },
+        {
+          forceFullDocument: true,
+          // Prop/save echoes are synchronization, not a user command. If a
+          // text draft is active, buffer the newest generation until commit
+          // instead of tearing down its caret mid-keystroke.
+          preserveTextEditingSession: true,
+        },
       );
     },
     [
@@ -3492,11 +3570,39 @@ export function DesignCanvas({
     ) {
       return;
     }
+    if (
+      lastRuntimeReplacementContentRef.current === runtimeReplacementContent
+    ) {
+      lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      return;
+    }
+    const previousRuntimeContent =
+      lastRuntimeReplacementContentRef.current ?? renderedContent;
+    if (
+      runtimeDocumentNeedsReload(
+        previousRuntimeContent,
+        runtimeReplacementContent,
+      )
+    ) {
+      // `replaceRuntimeDocument` cannot execute scripts introduced through
+      // innerHTML. A real srcdoc rebuild is required for transitions such as a
+      // static variant becoming an Alpine app with `body[x-cloak]`; otherwise
+      // Alpine never starts and the entire editable canvas remains hidden
+      // while Interact mode (which does reload) appears to work.
+      lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
+      bridgeReadyRef.current = false;
+      pendingOneShotMessagesRef.current = [];
+      setRenderedContent(runtimeReplacementContent);
+      return;
+    }
     if (replaceRuntimeContentInPlace(runtimeReplacementContent)) {
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
     }
   }, [
     replaceRuntimeContentInPlace,
+    renderedContent,
     runtimeReplacementContent,
     runtimeReplacementKey,
   ]);
@@ -3511,6 +3617,7 @@ export function DesignCanvas({
       if (nextContent === undefined) return;
       if (replaceRuntimeContentInPlace(nextContent)) {
         lastRuntimeReplacementKeyRef.current = runtimeReplacementKeyRef.current;
+        lastRuntimeReplacementContentRef.current = nextContent;
       }
     };
     iframe.addEventListener("load", replaceLatestRuntimeContent);
@@ -3537,7 +3644,8 @@ export function DesignCanvas({
     (window as any).__designCanvasSendStyle = sendStyleChange;
     (window as any).__designCanvasSendInteractionStatePreviewStyle =
       sendInteractionStatePreviewStyle;
-    (window as any).__designCanvasReplaceContent = replacePreviewContent;
+    (window as any).__designCanvasReplaceContent =
+      replacePreviewContentFromHost;
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
@@ -3561,7 +3669,8 @@ export function DesignCanvas({
         delete (window as any).__designCanvasSendInteractionStatePreviewStyle;
       }
       if (
-        (window as any).__designCanvasReplaceContent === replacePreviewContent
+        (window as any).__designCanvasReplaceContent ===
+        replacePreviewContentFromHost
       ) {
         delete (window as any).__designCanvasReplaceContent;
       }
@@ -3599,7 +3708,7 @@ export function DesignCanvas({
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
-    replacePreviewContent,
+    replacePreviewContentFromHost,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
     sendMotionPreview,

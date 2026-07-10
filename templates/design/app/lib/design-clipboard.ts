@@ -24,6 +24,10 @@ export interface DesignClipboardEnvironment {
   clipboard?: ClipboardLike | null;
   ClipboardItem?: ClipboardItemConstructor | null;
   legacyCopy?: (representations: DesignClipboardRepresentations) => boolean;
+  preferLegacyCopy?: boolean;
+  /** Per-installation secret used to reject marker-shaped HTML authored by
+   * arbitrary external clipboard sources. `null` fails closed. */
+  trustToken?: string | null;
 }
 
 export interface DesignClipboardRepresentations {
@@ -75,7 +79,40 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
               document.removeEventListener("copy", handleCopy, true);
             }
           },
+    // A navigation immediately after Cmd+C can cancel Chromium's pending
+    // async clipboard.write promise. The copy-event path completes before the
+    // key handler returns, matching Figma's durable copy-before-leave behavior.
+    preferLegacyCopy: true,
+    trustToken: getDesignClipboardTrustToken(),
   };
+}
+
+const DESIGN_CLIPBOARD_TRUST_TOKEN_KEY =
+  "agent-native.design.clipboard-trust-token.v1";
+
+/**
+ * A stable, origin-local capability for rich Design clipboard markers. Plain
+ * HTML copied from another page can imitate our public marker syntax; without
+ * this capability it could smuggle script/event-handler markup into a srcdoc
+ * preview that intentionally supports executable Alpine designs. localStorage
+ * makes the token available to independent Design files and browser tabs while
+ * keeping ordinary clipboard contents from forging it.
+ */
+export function getDesignClipboardTrustToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const existing = window.localStorage.getItem(
+      DESIGN_CLIPBOARD_TRUST_TOKEN_KEY,
+    );
+    if (existing) return existing;
+    const token = globalThis.crypto.randomUUID();
+    window.localStorage.setItem(DESIGN_CLIPBOARD_TRUST_TOKEN_KEY, token);
+    return token;
+  } catch {
+    // If durable origin storage is unavailable, rich external marker parsing
+    // is disabled. Same-editor copy/paste still works through in-memory refs.
+    return null;
+  }
 }
 
 function supportsClipboardType(
@@ -100,6 +137,13 @@ export async function writeDesignClipboard(
   const clipboard = environment.clipboard;
   const ClipboardItemCtor = environment.ClipboardItem;
   let richWriteError: unknown;
+
+  if (
+    environment.preferLegacyCopy &&
+    environment.legacyCopy?.(representations)
+  ) {
+    return;
+  }
 
   if (
     clipboard?.write &&
@@ -135,6 +179,10 @@ export async function writeDesignClipboard(
 
 export function readDesignClipboardPayloadFromDataTransfer(
   clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
+  environment: Pick<
+    DesignClipboardEnvironment,
+    "trustToken"
+  > = browserClipboardEnvironment(),
 ): ReadDesignClipboardPayload | null {
   if (!clipboardData) return null;
   const plainText = clipboardData.getData("text/plain") ?? "";
@@ -142,7 +190,10 @@ export function readDesignClipboardPayloadFromDataTransfer(
     clipboardData.getData("text/html") ?? "",
     plainText,
   ]) {
-    const payload = parseDesignClipboardMarker(markerText);
+    const payload = parseDesignClipboardMarker(
+      markerText,
+      environment.trustToken,
+    );
     if (payload) return { payload, markerText, plainText };
   }
   return null;
@@ -164,7 +215,10 @@ export async function readDesignClipboardPayloadFromSystem(
         for (const type of ["text/html", "text/plain"]) {
           if (!item.types.includes(type)) continue;
           const markerText = await (await item.getType(type)).text();
-          const payload = parseDesignClipboardMarker(markerText);
+          const payload = parseDesignClipboardMarker(
+            markerText,
+            environment.trustToken,
+          );
           if (payload) return { payload, markerText, plainText };
         }
       }
@@ -177,7 +231,10 @@ export async function readDesignClipboardPayloadFromSystem(
   if (!clipboard.readText) return null;
   try {
     const markerText = await clipboard.readText();
-    const payload = parseDesignClipboardMarker(markerText);
+    const payload = parseDesignClipboardMarker(
+      markerText,
+      environment.trustToken,
+    );
     return payload ? { payload, markerText, plainText: markerText } : null;
   } catch {
     return null;

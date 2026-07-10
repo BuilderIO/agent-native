@@ -12,11 +12,30 @@ const SOURCE_HTML = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <title>Keyboard Source</title>
+    <style data-agent-native-breakpoints>
+      @media (max-width: 1279px) {
+        [data-agent-native-node-id="source-card"][data-agent-native-node-id="source-card"] { padding: 18px; }
+        [data-agent-native-node-id="source-peer"][data-agent-native-node-id="source-peer"] { opacity: 0.5; }
+      }
+      @media (max-width: 809px) {
+        [data-agent-native-node-id="source-card-title"][data-agent-native-node-id="source-card-title"] { font-size: 22px; }
+      }
+    </style>
+    <style data-agent-native-states>
+      [data-agent-native-node-id="source-card"]:hover { background-color: black !important; }
+      [data-agent-native-node-id="source-peer"]:focus { color: orange !important; }
+    </style>
+    <style data-agent-native-state-breakpoints>
+      @media (max-width: 809px) {
+        [data-agent-native-node-id="source-card-child"][data-agent-native-node-id="source-card-child"]:focus-visible { color: yellow !important; }
+      }
+    </style>
   </head>
   <body style="margin:0;font-family:system-ui,sans-serif;background:#111827;color:#f9fafb">
     <main data-agent-native-node-id="source-root" data-agent-native-layer-name="Source Root" style="position:relative;min-height:560px;padding:48px">
-      <section data-agent-native-node-id="source-card" data-agent-native-layer-name="Copy Card" style="position:absolute;left:40px;top:60px;width:260px;padding:20px;border-radius:16px;background:#1f2937">
+      <section data-agent-native-node-id="source-card" data-agent-native-layer-name="Copy Card" class="max-[1279px]:p-6" style="position:absolute;left:40px;top:60px;width:260px;padding:20px;border-radius:16px;background:#1f2937;display:flex;flex-direction:column;gap:12px;transform:rotate(2deg);font-family:'IBM Plex Sans',sans-serif">
         <h2 data-agent-native-node-id="source-card-title" data-agent-native-layer-name="Copy Card Title" style="margin:0 0 12px;font-size:24px">Copy Card Title</h2>
+        <img data-agent-native-node-id="source-card-image" data-agent-native-layer-name="Card Image" src="/favicon.ico" alt="Card art" style="width:32px;height:32px" />
         <button data-agent-native-node-id="source-card-child" data-agent-native-layer-name="Nested CTA" style="padding:10px 16px;border:0;border-radius:10px;background:#38bdf8;color:#082f49">Nested CTA</button>
       </section>
       <button data-agent-native-node-id="source-peer" data-agent-native-layer-name="Source Peer" style="position:absolute;left:340px;top:80px;padding:12px 18px;border:0;border-radius:10px;background:#a78bfa;color:#1f1147">Source Peer</button>
@@ -29,6 +48,11 @@ const TARGET_HTML = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <title>Keyboard Target</title>
+    <style data-agent-native-breakpoints>
+      @media (max-width: 999px) {
+        [data-agent-native-node-id="target-heading"][data-agent-native-node-id="target-heading"] { letter-spacing: 1px; }
+      }
+    </style>
   </head>
   <body style="margin:0;font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a">
     <main data-agent-native-node-id="target-root" data-agent-native-layer-name="Target Root" style="position:relative;min-height:560px;padding:48px">
@@ -95,8 +119,35 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
         expect(count(html, ">Nested CTA<")).toBe(1);
         expect(html).toContain("border-radius: 16px");
+        expect(html).toContain("transform: rotate(2deg)");
+        expect(html).toContain("IBM Plex Sans");
+        expect(html).toContain('src="/favicon.ico"');
+        expect(html).not.toContain("agent-native-clipboard-v1");
+        expect(html).toContain("max-width: 1279px");
+        expect(html).toContain("max-width: 999px");
+        expect(html).toContain("max-width: 809px");
+        expect(count(html, "font-size: 22px")).toBe(1);
+        expect(count(html, "background-color: black")).toBe(2);
+        expect(count(html, "color: yellow")).toBe(2);
+        expect(html).toContain("letter-spacing: 1px");
+        expect(html).toContain("max-[1279px]:p-6");
+        expect(html).not.toContain("opacity: 0.5");
+        expect(html).not.toContain("color: orange");
         expect(html).not.toContain('data-agent-native-node-id="source-card"');
         expect(allNodeIdsAreUnique(html)).toBe(true);
+      },
+    );
+
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(html).toContain("letter-spacing: 1px");
       },
     );
 
@@ -116,9 +167,12 @@ test.describe("editor keyboard layer clipboard", () => {
       targetDesignId,
       "target.html",
       (html) => {
-        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
-        expect(count(html, ">Nested CTA<")).toBe(2);
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, ">Nested CTA<")).toBe(1);
         expect(allNodeIdsAreUnique(html)).toBe(true);
+        expect(count(html, "font-size: 22px")).toBe(1);
+        expect(count(html, "background-color: black")).toBe(2);
+        expect(count(html, "color: yellow")).toBe(2);
       },
     );
 
@@ -129,10 +183,193 @@ test.describe("editor keyboard layer clipboard", () => {
       targetDesignId,
       "target.html",
       (html) => {
-        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
-        expect(count(html, ">Nested CTA<")).toBe(1);
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(count(html, "background-color: black")).toBe(0);
+        expect(count(html, "color: yellow")).toBe(0);
+        expect(html).toContain("max-width: 999px");
+        expect(html).toContain("letter-spacing: 1px");
       },
     );
+    // Rapid consecutive undo: paste two distinct clones from the same live
+    // system clipboard, then remove the latest and the prior clone with two
+    // immediate Cmd+Z presses.
+    await pressPrimaryShortcut(page, "v");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+      },
+    );
+    await pressPrimaryShortcut(page, "v");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
+        expect(count(html, "font-size: 22px")).toBe(2);
+      },
+    );
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, "font-size: 22px")).toBe(1);
+      },
+    );
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(html).toContain("letter-spacing: 1px");
+      },
+    );
+
+    // Repeat after the route-remount, cross-tab copy, and rapid undo cycles.
+    // Prior history depth must not collapse the next pair into one entry.
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "v");
+      await expectFileContent(
+        request,
+        baseURL,
+        targetDesignId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, "font-size: 22px")).toBe(1);
+      },
+    );
+    await page.waitForTimeout(1_000);
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(html).toContain("letter-spacing: 1px");
+      },
+    );
+  });
+
+  test("keeps two responsive pastes distinct across settled undo and redo", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    designId = await createKeyboardDesign(
+      request,
+      baseURL,
+      "E2E Settled Clipboard Undo",
+    );
+    await gotoEditor(page, designId);
+    await selectLayerRow(page, "Copy Card");
+    await pressPrimaryShortcut(page, "c");
+    const createdDesign = await getDesign(request, baseURL, designId);
+    const targetFileId = createdDesign.files.find(
+      (file: { filename?: string }) => file.filename === "target.html",
+    )?.id;
+    expect(targetFileId).toBeTruthy();
+    await page.goto(
+      appPath(`/design/${designId}?view=overview&screen=${targetFileId}`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await expect(
+      designFrame(page, targetFileId).getByText("Target Screen", {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "v");
+      await expectFileContent(
+        request,
+        baseURL,
+        designId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
+
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      designId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, "font-size: 22px")).toBe(1);
+      },
+    );
+    await page.waitForTimeout(1_000);
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      designId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(0);
+        expect(count(html, "font-size: 22px")).toBe(0);
+        expect(html).toContain("letter-spacing: 1px");
+      },
+    );
+
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "z", { shift: true });
+      await expectFileContent(
+        request,
+        baseURL,
+        designId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
   });
 
   test("pastes a nested selected layer on the same screen and another screen with fresh ids after reload", async ({
@@ -159,10 +396,8 @@ test.describe("editor keyboard layer clipboard", () => {
       (html) => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
         expect(count(html, ">Nested CTA<")).toBe(2);
-        expect(count(html, 'data-agent-native-node-id="source-card"')).toBe(1);
-        expect(
-          count(html, 'data-agent-native-node-id="source-card-child"'),
-        ).toBe(1);
+        expect(actualNodeIdCount(html, "source-card")).toBe(1);
+        expect(actualNodeIdCount(html, "source-card-child")).toBe(1);
         expect(allNodeIdsAreUnique(html)).toBe(true);
       },
     );
@@ -263,7 +498,7 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(count(html, 'data-agent-native-layer-name="Source Peer"')).toBe(
           2,
         );
-        expect(count(html, 'data-agent-native-node-id="source-peer"')).toBe(1);
+        expect(actualNodeIdCount(html, "source-peer")).toBe(1);
         expect(allNodeIdsAreUnique(html)).toBe(true);
       },
     );
@@ -607,10 +842,24 @@ function count(value: string, needle: string): number {
 }
 
 function allNodeIdsAreUnique(html: string): boolean {
+  const markupOnly = htmlWithoutRawTextBodies(html);
   const ids = Array.from(
-    html.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+    markupOnly.matchAll(/data-agent-native-node-id="([^"]+)"/g),
   ).map((match) => match[1]);
   return ids.length === new Set(ids).size;
+}
+
+function actualNodeIdCount(html: string, nodeId: string): number {
+  return count(
+    htmlWithoutRawTextBodies(html),
+    `data-agent-native-node-id="${nodeId}"`,
+  );
+}
+
+function htmlWithoutRawTextBodies(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
 }
 
 function cssString(value: string) {

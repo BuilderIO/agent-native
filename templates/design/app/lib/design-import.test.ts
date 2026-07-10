@@ -227,6 +227,43 @@ describe("design clipboard marker round-trip", () => {
     expect(parsed).toEqual(payload);
   });
 
+  it("round-trips bounded managed responsive and interaction rules", () => {
+    const responsivePayload: DesignClipboardPayload = {
+      version: 1,
+      entries: [
+        {
+          html: '<div data-agent-native-node-id="card">Card</div>',
+          rootNodeId: "card",
+          sourceFileId: "file-1",
+          managedStyleSnapshot: {
+            version: 1,
+            breakpoints: [
+              {
+                maxWidthPx: 809,
+                nodeId: "card",
+                property: "padding",
+                value: "16px",
+              },
+            ],
+            interactionStates: [
+              {
+                nodeId: "card",
+                state: "hover",
+                property: "color",
+                value: "red",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    expect(
+      parseDesignClipboardMarker(
+        serializeDesignClipboardPayload("Card", responsivePayload),
+      ),
+    ).toEqual(responsivePayload);
+  });
+
   it("keeps the visible text human-readable ahead of the marker", () => {
     const clipboardText = serializeDesignClipboardPayload(
       "<div>Hello</div>",
@@ -267,6 +304,15 @@ describe("design clipboard marker round-trip", () => {
     expect(
       parseDesignClipboardMarker(
         "<div>Hi</div>\n<!--agent-native-clipboard-v1:not-valid-base64!!!-->",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an oversized marker before attempting to decode it", () => {
+    const oversizedData = "A".repeat(16_000_001);
+    expect(
+      parseDesignClipboardMarker(
+        `<!--agent-native-clipboard-v1:${oversizedData}-->`,
       ),
     ).toBeNull();
   });

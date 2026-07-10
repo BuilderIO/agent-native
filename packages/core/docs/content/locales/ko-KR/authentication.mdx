@@ -15,7 +15,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 - **원격 MCP OAuth:** Claude 코드 및 ChatGPT 커넥터와 같은 MCP 호스트용 표준 OAuth 2.1.
 - **사용자 정의:** `getSession` 콜백을 통해 자신만의 인증을 가져옵니다.
 
-<Diagram id="doc-block-14pt28n" title={"세 가지 방법으로 하나의 세션"} summary={"브라우저 방문자, 프로그래밍 방식의 MCP 클라이언트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."}>
+<Diagram id="doc-block-14pt28n" title={"세 가지 방법으로 하나의 세션"} summary={"브라우저 방문자, MCP 호스트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."}>
 
 ```html
 <div class="auth-modes">

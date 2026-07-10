@@ -177,6 +177,16 @@ pub(crate) mod macos {
         }
     }
 
+    fn native_speech_voice_processing_mode(owner: SessionOwner) -> MicVoiceProcessingMode {
+        match owner {
+            // Meeting-owned native speech is the last-resort path after local
+            // Whisper capture fails. It still needs a VPIO allocation to share
+            // the mic with call apps, but must not process their live uplink.
+            SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
+            SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
+        }
+    }
+
     /// One in-flight dictation. Holds strong references to the AppKit objects
     /// so they don't drop while the recognition task is still emitting
     /// results.
@@ -625,13 +635,28 @@ pub(crate) mod macos {
         Ok(())
     }
 
-    fn enable_voice_processing(input_node: &AVAudioInputNode) {
-        if let Err(err) = unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
-            eprintln!(
-                "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
-                ns_error_message(&err)
-            );
+    fn enable_voice_processing(input_node: &AVAudioInputNode) -> Result<(), String> {
+        match unsafe { input_node.setVoiceProcessingEnabled_error(true) } {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                let message = ns_error_message(&err);
+                eprintln!("[whisper-mic] voice processing enable failed: {message}");
+                Err(format!("VoiceProcessingIO enable failed: {message}"))
+            }
         }
+    }
+
+    fn enable_bypassed_voice_processing(input_node: &AVAudioInputNode) -> Result<(), String> {
+        enable_voice_processing(input_node)?;
+        // VPIO owns a shareable voice input path, but Clips should receive and
+        // forward the unprocessed microphone signal. This also prevents AGC
+        // from changing the level seen by the live-call app.
+        unsafe {
+            input_node.setVoiceProcessingBypassed(true);
+            input_node.setVoiceProcessingAGCEnabled(false);
+        }
+        eprintln!("[whisper-mic] VoiceProcessingIO enabled in bypass mode for meeting fallback");
+        Ok(())
     }
 
     fn disable_voice_processing_ducking(input_node: &AVAudioInputNode) {
@@ -793,7 +818,7 @@ pub(crate) mod macos {
         let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
         configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
         let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
-        enable_voice_processing(&input_node);
+        let _ = enable_voice_processing(&input_node);
         // Finalize input format negotiation once. Dictation-owned Whisper starts
         // can then reuse this stopped VPIO engine instead of paying the
         // per-press VoiceProcessingIO setup cost.
@@ -995,6 +1020,15 @@ pub(crate) mod macos {
             mic_device_label.as_deref(),
         )?;
         let input_node = unsafe { engine.inputNode() };
+        let native_voice_processing = native_speech_voice_processing_mode(owner);
+        let voice_processing_enabled = match native_voice_processing {
+            MicVoiceProcessingMode::Bypassed => {
+                enable_bypassed_voice_processing(&input_node)?;
+                true
+            }
+            MicVoiceProcessingMode::Enabled => enable_voice_processing(&input_node).is_ok(),
+            MicVoiceProcessingMode::Disabled => false,
+        };
         // `prepare()` must run after pinning the device so the AUHAL adopts
         // the new hardware format before we install a tap. It can throw
         // NSException when a Bluetooth device (e.g. AirPods) is mid-SCO↔A2DP
@@ -1078,6 +1112,10 @@ pub(crate) mod macos {
             unsafe { input_node.removeTapOnBus(0) };
             msg
         })?;
+
+        if voice_processing_enabled {
+            disable_voice_processing_ducking(&input_node);
+        }
 
         // Cancel + stop flags shared with the result handler.
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -1338,18 +1376,29 @@ pub(crate) mod macos {
         })
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) enum MicVoiceProcessingMode {
+        Disabled,
+        Enabled,
+        /// Allocate VoiceProcessingIO so a live-call app cannot starve this
+        /// parallel mic tap, but bypass its uplink processing so Clips does not
+        /// alter the microphone signal Zoom, Meet, or Teams receives.
+        Bypassed,
+    }
+
     /// Start mic capture and forward a mono mix of every available channel to
-    /// `on_samples`. Recording transcription can disable VPIO so the tap does
-    /// not precondition the shared mic before ScreenCaptureKit opens it.
+    /// `on_samples`. Recordings can keep VPIO disabled before ScreenCaptureKit
+    /// opens the microphone; legacy meeting capture uses bypassed VPIO so it
+    /// receives buffers without processing the live-call uplink.
     pub(crate) fn start_raw_mic_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
         mic_device_label: Option<String>,
-        voice_processing: bool,
+        voice_processing: MicVoiceProcessingMode,
         reuse_voice_processing_engine: bool,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
     ) -> Result<RawMicCapture, String> {
-        if voice_processing && reuse_voice_processing_engine {
+        if voice_processing == MicVoiceProcessingMode::Enabled && reuse_voice_processing_engine {
             return start_warmed_raw_mic_capture(app, mic_device_id, mic_device_label, on_samples);
         }
         clear_warmed_raw_mic_engine();
@@ -1364,11 +1413,21 @@ pub(crate) mod macos {
         )?;
         let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
 
-        if voice_processing {
-            enable_voice_processing(&input_node);
-        } else {
-            eprintln!("[whisper-mic] voice processing disabled for shared mic capture");
-        }
+        let voice_processing_enabled = match voice_processing {
+            MicVoiceProcessingMode::Bypassed => {
+                // This mode exists specifically to close the shared-mic gap.
+                // If VPIO cannot be allocated, fail loudly so the caller can
+                // move to its next transcription fallback instead of silently
+                // running the known-unreliable raw meeting tap.
+                enable_bypassed_voice_processing(&input_node)?;
+                true
+            }
+            MicVoiceProcessingMode::Enabled => enable_voice_processing(&input_node).is_ok(),
+            MicVoiceProcessingMode::Disabled => {
+                eprintln!("[whisper-mic] voice processing disabled for shared mic capture");
+                false
+            }
+        };
         // Finalize input format negotiation.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
@@ -1430,7 +1489,7 @@ pub(crate) mod macos {
             unsafe { format.channelCount() }
         );
 
-        if voice_processing {
+        if voice_processing_enabled {
             disable_voice_processing_ducking(&input_node);
         }
 
@@ -1487,5 +1546,26 @@ pub(crate) mod macos {
         // SAFETY: `cancel()` discards any pending result and halts the task.
         unsafe { session.task.cancel() };
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{native_speech_voice_processing_mode, MicVoiceProcessingMode, SessionOwner};
+
+        #[test]
+        fn meeting_native_speech_fallback_uses_bypassed_voice_processing() {
+            assert_eq!(
+                native_speech_voice_processing_mode(SessionOwner::Meeting),
+                MicVoiceProcessingMode::Bypassed
+            );
+        }
+
+        #[test]
+        fn dictation_native_speech_keeps_raw_input() {
+            assert_eq!(
+                native_speech_voice_processing_mode(SessionOwner::Dictation),
+                MicVoiceProcessingMode::Disabled
+            );
+        }
     }
 }

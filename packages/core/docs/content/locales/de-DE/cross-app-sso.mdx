@@ -9,7 +9,11 @@ Jede gehostete App bei `*.agent-native.com` führt ihre eigene Bereitstellung mi
 
 Dies ist das gleiche Vertrauensprimitiv, das [A2A](/docs/a2a-protocol) und [External Agents](/docs/external-agents) bereits verwenden – ein `A2A_SECRET`-signiertes JWT, das an der Anforderungsgrenze überprüft wird – angewendet auf den menschlichen Anmeldepfad anstelle von Agent-zu-Agent-Aufrufen.
 
-> **Einheitliche Bereitstellung vs. Bereitstellung pro Domäne.** Wenn Sie alle Apps an einem Ursprung hosten (`your-agents.com/mail`, `your-agents.com/calendar`), erhalten Sie bereits eine gemeinsame Anmeldung über eine einzige Cookie-Domäne – kein Verbund erforderlich. Cross-App SSO ist nur erforderlich, wenn Apps auf separaten Domänen ausgeführt werden. Siehe [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+<Callout tone="info">
+
+**Einheitliche Bereitstellung vs. Bereitstellung pro Domäne.** Wenn Sie alle Apps an einem Ursprung hosten (`your-agents.com/mail`, `your-agents.com/calendar`), erhalten Sie bereits eine gemeinsame Anmeldung über eine einzige Cookie-Domäne – kein Verbund erforderlich. Cross-App SSO ist nur erforderlich, wenn Apps auf separaten Domänen ausgeführt werden. Siehe [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+</Callout>
 
 ## Was und warum {#what-why}
 
@@ -86,14 +90,16 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
 
 </Diagram>
 
-1. **App → Versenden (autorisieren).** Die App sendet den Benutzer an die Identitätsbehörde:
+1. **App → Dispatch (Autorisierung).** Die app-seitige Route `GET /_agent-native/identity/login` (auf die die Schaltfläche „Mit Agent-Native anmelden“ verweist) erstellt die Weiterleitung und sendet den Benutzer an die Identitätsautorität:
 
-   ```
+   ```http
    GET https://dispatch.agent-native.com/_agent-native/identity/authorize
        ?app=<requesting-app>
        &redirect_uri=<app-callback-url>
        &state=<csrf-state>
    ```
+
+   `redirect_uri` ist die app-eigene Route `GET /_agent-native/identity/callback` – die Route, die in Schritt 3 das signierte Token empfängt.
 
 <Endpoint id="cross-app-sso-identity-authorize-de-de" title="Identity Authorize Endpoint" method="GET" path="/_agent-native/identity/authorize" summary={"Dispatch (Identitätsbehörde) authentifiziert den Menschen und leitet ihn mit einem signierten Identitätstoken zurück"} auth="Sitzung weiterleiten (interaktive Anmeldung, falls keine)" params={[
   {
@@ -143,7 +149,7 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
    | `scope`      | Immer `"identity"` – dieses Token autorisiert nur die Anmeldung                  |
    | `exp`        | **≤ 2 Minuten** ab Problem                                                       |
 
-4. **App verifiziert und JIT-Links per E-Mail.** Die App überprüft die Token-Signatur mit ihrem eigenen `A2A_SECRET`, überprüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung ausschließlich per verifizierter E-Mail** durch:
+4. **Die App überprüft und verknüpft Just-in-Time per E-Mail.** Die Route `GET /_agent-native/identity/callback` überprüft die Token-Signatur mit `A2A_SECRET`, prüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung ausschließlich anhand der verifizierten E-Mail-Adresse** durch:
    - Wenn ein lokaler Benutzer mit dieser E-Mail existiert → unverändert wiederverwenden.
    - Wenn nicht → erstellen Sie einen lokalen Benutzer für diese E-Mail.
 
@@ -290,9 +296,13 @@ Sobald eine App verifiziert ist, wiederholen Sie die Schritte 2–3 für die nä
 **5. Rollback = Deaktivieren Sie die Umgebungsvariable bei der Bereitstellung dieser App.**
 Um eine App zurückzusetzen, **entfernen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` aus der Umgebung dieser App und stellen Sie sie erneut bereit/starten Sie sie neu.** Die App kehrt sofort zu ihrem vorherigen Authentifizierungsverhalten zurück. Es gibt **keine Datenänderung, die rückgängig gemacht werden kann** – Identitätszeilen wurden immer nur hinzugefügt, und das Deaktivieren der Variablen macht den Verbundpfad einfach wieder in den Ruhezustand. Die Umstellung und das Rollback jeder App sind unabhängig und umkehrbar.
 
-> Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authentifizieren sich erneut über Dispatch), aber sie melden sich immer wieder beim **gleichen E-Mail-abgeglichenen Konto mit intakten Daten** an, da Identitätszeilen nie zerstört oder umbenannt, sondern nur hinzugefügt werden.
+<Callout tone="info">
 
-## Verwandt {#related}
+Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authentifizieren sich erneut über Dispatch), aber sie melden sich immer wieder beim **gleichen E-Mail-abgeglichenen Konto mit intakten Daten** an, da Identitätszeilen nie zerstört oder umbenannt, sondern nur hinzugefügt werden.
+
+</Callout>
+
+## Wie geht es weiter? {#whats-next}
 
 - [Authentication](/docs/authentication) – lokale Authentifizierungsmodi, Sitzungen, Organisationen, die `A2A_SECRET`-Umgebungsvariable.
 - [A2A Protocol](/docs/a2a-protocol) – das signierte JWT-Vertrauensmodell mit Überprüfung an der Grenze, das hier wiederverwendet wird.

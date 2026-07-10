@@ -11,7 +11,7 @@ Actions são a única fonte de verdade para tudo o que seu aplicativo faz. Defin
 - **Ganchos Typesafe React** — `useActionQuery("name")` e `useActionMutation("name")` no frontend, tipos inferidos do esquema.
 - **Chamadas de cliente imperativas** — `callAction("name", params)` quando um gancho não cabe.
 - **Transporte de estrutura** — montado automaticamente pela estrutura por trás desses ganchos e disponível para clientes HTTP externos.
-- **Uma ferramenta MCP** — exposta a aplicativos Claude ChatGPT personalizados MCP, Claude Desktop/Code, Cursor, Codex e qualquer outro cliente MCP.
+- **Uma ferramenta MCP** — exposta a aplicativos Claude ChatGPT personalizados MCP, Claude Desktop/Code, Cursor, Codex e qualquer outro host MCP.
 - **Uma ferramenta A2A** — chamada por outros aplicativos nativos do agente em A2A.
 - **Um comando CLI** — `pnpm action <name>` para scripts e loops de desenvolvimento.
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-Mantenha `link` como substituto para clientes CLI e não UI MCP; é também o alvo de lançamento da incorporação. A ponte de incorporação (a sessão de início de incorporação assinada, transplante vs. renderização de quadro controlado, a ponte de host `ui/*`, CSP e fixação de altura) é propriedade de [External Agents](/docs/external-agents#mcp-app-bridge).
+Mantenha `link` como substituto para a CLI e hosts MCP sem interface de usuário; é também o alvo de lançamento da incorporação. A ponte de incorporação (a sessão de início de incorporação assinada, transplante vs. renderização de quadro controlado, a ponte de host `ui/*`, CSP e fixação de altura) é propriedade de [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## actions padrão {#standard-actions}
 

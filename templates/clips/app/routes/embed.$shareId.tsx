@@ -123,6 +123,7 @@ export default function EmbedRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const comments = dataQ.data?.data?.comments ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
   const ctas = dataQ.data?.data?.ctas ?? [];
@@ -201,6 +202,7 @@ export default function EmbedRoute() {
         defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
         autoPlay={autoplay}
         startMs={startMs}
+        comments={comments}
         chapters={chapters}
         transcriptSegments={transcriptSegments}
         cta={firstCta}

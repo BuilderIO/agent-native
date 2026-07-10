@@ -91,6 +91,39 @@ describe("renderMarkdownToHtml", () => {
     expect(html).toContain("Show 2 more lines");
   });
 
+  it("renders a filename label bar for fences with a filename attribute", () => {
+    const html = renderMarkdownToHtml(
+      '```ts filename="actions/foo.ts"\nexport const foo = 1;\n```',
+    );
+
+    expect(html).toContain('data-filename="true"');
+    expect(html).toContain('class="code-block-filename"');
+    expect(html).toContain("actions/foo.ts");
+    expect(html).toContain('class="language-typescript"');
+  });
+
+  it("supports bare (unquoted) filename attribute values", () => {
+    const html = renderMarkdownToHtml(
+      "```bash filename=scripts/setup.sh\necho hi\n```",
+    );
+
+    expect(html).toContain("scripts/setup.sh");
+    expect(html).toContain('class="code-block-filename"');
+  });
+
+  it("omits the filename bar when no filename attribute is present", () => {
+    const html = renderMarkdownToHtml("```ts\nconst x = 1;\n```");
+
+    expect(html).not.toContain("code-block-filename");
+    expect(html).not.toContain('data-filename="true"');
+  });
+
+  it("does not confuse filename with the language token", () => {
+    expect(
+      resolveCodeBlockLanguage('tsx filename="app/root.tsx"', "const x = 1"),
+    ).toBe("tsx");
+  });
+
   it("supports per-fence max line overrides and showAll", () => {
     const code = Array.from(
       { length: 12 },

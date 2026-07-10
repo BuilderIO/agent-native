@@ -94,6 +94,18 @@ Lorsque vous ouvrez l'application, la bibliothèque sélectionnée, l'invite, le
 - **D'autres applications nécessitent un sélecteur ou un générateur d'éléments** : Slides, Design, Content, un éditeur de blog ou un créateur de site peuvent intégrer le sélecteur ou appeler des éléments via A2A.
 - **Vous souhaitez que les médias de marque soient disponibles auprès de votre agent de codage** : Codex, Claude Code, Claude ou ChatGPT peuvent générer et sélectionner des éléments sans quitter le chat.
 
+## Ce que vous pouvez en faire
+
+- **Créez des bibliothèques d'éléments.** Regroupez les images de référence, les vidéos, les logos canoniques, les notes de style, les palettes, les dossiers et les résultats générés par marque, campagne, produit ou catégorie.
+- **Générer via le chat.** Les contrôles de génération du composeur d'accueil et de la bibliothèque envoient l'invite à l'agent avec `sendToAgentChat()`, afin que les utilisateurs puissent inspecter les variantes, donner leur avis et itérer.
+- **Générer des images et des vidéos.** La génération d'images gérée par Builder est disponible lorsqu'elle est activée, et Gemini alimente la génération vidéo ainsi que le repli manuel des images.
+- **Téléchargez et décrivez les références.** Ajoutez des images ou des vidéos de la bibliothèque UI ou du bouton de pièce jointe du compositeur d'invite, puis recherchez par titre, description, texte alternatif, invite, modèle, type de média, statut, rôle, dossier ou collection.
+- **Conservez un journal d'audit de génération.** Chaque exécution enregistre les invites, le modèle, les proportions, les références, l'actif source, le lignage, les actifs générés, l'état, les erreurs et les horodatages pour une révision ultérieure de la conception.
+- **Préserver la précision du logo.** L'agent peut générer une zone d'espace réservé et le serveur compose le logo canonique téléchargé sur l'image finale au lieu de s'appuyer sur le modèle d'image pour le redessiner.
+- **Intégrer en tant que sélecteur.** D'autres applications peuvent iframer `/picker` et écouter l'événement `chooseAsset` de `@agent-native/embedding`, transformant ainsi les ressources en un sélecteur/générateur d'actifs pour les éditeurs de blogs, les créateurs de sites, les présentations de diapositives et les applications personnalisées. Le sélecteur émet également l'ancien alias `chooseImage` pour les hôtes d'images uniquement existants.
+- **Installer en tant que compétence basée sur une application.** Le manifeste `agent-native.app-skill.json` exporte une compétence Actifs ainsi que les métadonnées du connecteur MCP afin que les places de marché puissent installer ensemble l'application, ses instructions et son sélecteur.
+- **Servir d'autres agents.** Slides, Design, Content, Mail et Dispatch peuvent appeler des ressources via A2A pour répertorier les bibliothèques, générer des lots, créer des vidéos, affiner une ressource, récupérer des exportations et afficher des aperçus en ligne là où l'intégration est autorisée.
+
 ## Démarrer
 
 Démo en direct : [assets.agent-native.com](https://assets.agent-native.com).
@@ -115,18 +127,6 @@ Démo en direct : [assets.agent-native.com](https://assets.agent-native.com).
 - "Rechercher tous les éléments approuvés pour la refonte de l'intégration."
 - "Transformez ce diagramme téléchargé en une image explicative du produit plus claire."
 - "Créez un storyboard vidéo et enregistrez le meilleur ensemble d'images dans cette bibliothèque."
-
-## Ce que vous pouvez en faire
-
-- **Créez des bibliothèques d'éléments.** Regroupez les images de référence, les vidéos, les logos canoniques, les notes de style, les palettes, les dossiers et les résultats générés par marque, campagne, produit ou catégorie.
-- **Générer via le chat.** Les contrôles de génération du composeur d'accueil et de la bibliothèque envoient l'invite à l'agent avec `sendToAgentChat()`, afin que les utilisateurs puissent inspecter les variantes, donner leur avis et itérer.
-- **Générer des images et des vidéos.** La génération d'images gérée par Builder est disponible lorsqu'elle est activée, et Gemini alimente la génération vidéo ainsi que le repli manuel des images.
-- **Téléchargez et décrivez les références.** Ajoutez des images ou des vidéos de la bibliothèque UI ou du bouton de pièce jointe du compositeur d'invite, puis recherchez par titre, description, texte alternatif, invite, modèle, type de média, statut, rôle, dossier ou collection.
-- **Conservez un journal d'audit de génération.** Chaque exécution enregistre les invites, le modèle, les proportions, les références, l'actif source, le lignage, les actifs générés, l'état, les erreurs et les horodatages pour une révision ultérieure de la conception.
-- **Préserver la précision du logo.** L'agent peut générer une zone d'espace réservé et le serveur compose le logo canonique téléchargé sur l'image finale au lieu de s'appuyer sur le modèle d'image pour le redessiner.
-- **Intégrer en tant que sélecteur.** D'autres applications peuvent iframer `/picker` et écouter l'événement `chooseAsset` de `@agent-native/embedding`, transformant ainsi les ressources en un sélecteur/générateur d'actifs pour les éditeurs de blogs, les créateurs de sites, les présentations de diapositives et les applications personnalisées. Le sélecteur émet également l'ancien alias `chooseImage` pour les hôtes d'images uniquement existants.
-- **Installer en tant que compétence basée sur une application.** Le manifeste `agent-native.app-skill.json` exporte une compétence Actifs ainsi que les métadonnées du connecteur MCP afin que les places de marché puissent installer ensemble l'application, ses instructions et son sélecteur.
-- **Servir d'autres agents.** Slides, Design, Content, Mail et Dispatch peuvent appeler des ressources via A2A pour répertorier les bibliothèques, générer des lots, créer des vidéos, affiner une ressource, récupérer des exportations et afficher des aperçus en ligne là où l'intégration est autorisée.
 
 ## L'utiliser depuis votre agent de codage
 
@@ -170,10 +170,13 @@ Générez et sélectionnez des médias de marque sans quitter le code Codex, Cla
 
 Le reste de ce document s'adresse à toute personne qui crée ou étend le modèle Assets.
 
-### Échafaudage
+### Démarrage rapide
 
 ```bash
 npx @agent-native/core@latest create my-assets --standalone --template assets
+cd my-assets
+pnpm install
+pnpm dev
 ```
 
 ### Modèle de données

@@ -14,6 +14,12 @@ files:
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
 
+extraResources:
+  - from: native/bin/agent-native-computer-helper
+    to: native/agent-native-computer-helper
+  - from: ../agent-chrome-extension/dist
+    to: chrome-extension
+
 protocols:
   - name: Agent Native
     schemes:

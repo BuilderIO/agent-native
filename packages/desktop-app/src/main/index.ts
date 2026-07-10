@@ -110,6 +110,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -117,6 +118,7 @@ import {
   Notification,
   session,
   shell,
+  systemPreferences,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -137,6 +139,15 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
+import { installBrowserNativeHost } from "./browser-control/native-host";
+import {
+  ComputerControlBroker,
+  DesktopComputerMcpBridge,
+  EphemeralScreenObserver,
+  getComputerPermissionStatus,
+  SwiftDesktopHelperClient,
+} from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   initializeDesktopSentry,
@@ -207,6 +218,9 @@ if (IS_DEV) {
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
+let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
+let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
@@ -1925,6 +1939,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   const invocation = resolveRemoteConnectorCliInvocation();
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
+    const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
       detached: false,
@@ -1933,6 +1948,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         ...invocation.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+        ...computerEnv,
       },
     });
     remoteConnectorProcess = child;
@@ -1946,6 +1962,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       if (text) console.error(`[remote-code-agent] ${text}`);
     });
     child.on("exit", (code, signal) => {
+      revokeRemoteConnectorComputerControl();
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       remoteConnectorLastExitAt = new Date().toISOString();
       remoteConnectorLastExitCode = code;
@@ -1955,6 +1972,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
     child.on("error", (err) => {
+      revokeRemoteConnectorComputerControl();
       remoteConnectorError = err instanceof Error ? err.message : String(err);
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       if (!appIsQuitting && remoteConnectorEnabled) {
@@ -1962,6 +1980,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
   } catch (err) {
+    revokeRemoteConnectorComputerControl();
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
   }
@@ -3198,6 +3217,138 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 
+function desktopComputerHelperPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "native", "agent-native-computer-helper")
+    : path.resolve(__dirname, "../../native/bin/agent-native-computer-helper");
+}
+
+async function initializeDesktopComputerMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
+  const helperPath = desktopComputerHelperPath();
+  if (!fs.existsSync(helperPath)) {
+    console.warn("[computer-control] bundled macOS helper is unavailable.");
+    return;
+  }
+  const helper = new SwiftDesktopHelperClient(helperPath);
+  const broker = new ComputerControlBroker({
+    helper,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const screenObserver = new EphemeralScreenObserver({
+    desktopCapturer,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const browserBridge = new BrowserControlLoopbackBridge();
+  const browserHost = await browserBridge.start();
+  desktopBrowserControlBridge = browserBridge;
+  const hostEntryPath = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        "app.asar",
+        "out/main/browser-control-host.js",
+      )
+    : path.resolve(__dirname, "browser-control-host.js");
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  try {
+    browserNativeHostManifestPath = installBrowserNativeHost({
+      ...browserHost,
+      executablePath: process.execPath,
+      hostEntryPath,
+      stateDirectory: path.join(app.getPath("userData"), "browser-control"),
+    }).manifestPath;
+  } catch (error) {
+    await browserBridge.close();
+    desktopBrowserControlBridge = null;
+    broker.close();
+    console.warn(
+      "[browser-control] Chrome native host installation failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return;
+  }
+  const bridge = new DesktopComputerMcpBridge({
+    broker,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+    screenObserver,
+    browserBridge,
+    browserNativeHostInstalled: () =>
+      Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+    browserExtensionPath: () =>
+      fs.existsSync(extensionPath) ? extensionPath : undefined,
+  });
+  try {
+    await bridge.start();
+    desktopComputerMcpBridge = bridge;
+  } catch (error) {
+    await browserBridge.close();
+    desktopBrowserControlBridge = null;
+    broker.close();
+    console.warn(
+      "[computer-control] authenticated loopback bridge could not start:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+function desktopComputerChildEnv(
+  runId: string,
+  permissionMode: CodeAgentPermissionMode,
+): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerRun(
+      runId,
+      permissionMode,
+    );
+    return {
+      AGENT_NATIVE_DESKTOP_CHILD: "1",
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL: registration.url,
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN: registration.bearerToken,
+    };
+  } catch (error) {
+    console.warn(
+      "[computer-control] task registration failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return {};
+  }
+}
+
+function revokeDesktopComputerRun(runId: string): void {
+  void desktopComputerMcpBridge?.revokeRun(runId).catch(() => undefined);
+}
+
+function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerConnector();
+    return {
+      AGENT_NATIVE_COMPUTER_BRIDGE_URL: registration.url,
+      AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN: registration.bearerToken,
+      AGENT_NATIVE_COMPUTER_CAPABILITIES: JSON.stringify({
+        browser: {
+          observe: true,
+          control: true,
+          provider: "chrome-extension",
+          version: "1",
+        },
+      }),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function revokeRemoteConnectorComputerControl(): void {
+  revokeDesktopComputerRun("__remote_connector__");
+}
+
 function signalCodeAgentProcess(pid: number, signal: NodeJS.Signals): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   if (process.platform !== "win32") {
@@ -3220,6 +3371,7 @@ function pauseActiveCodeAgentProcessesForShutdown(): void {
   for (const [runId, active] of activeCodeAgentProcesses) {
     if (active.pid) signalCodeAgentProcess(active.pid, "SIGTERM");
     reconcileInterruptedCodeAgentRun(runId, "shutdown");
+    revokeDesktopComputerRun(runId);
     activeCodeAgentProcesses.delete(runId);
   }
 }
@@ -3295,6 +3447,10 @@ function spawnCodeAgentRunner(
         runId,
       ];
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3303,6 +3459,7 @@ function spawnCodeAgentRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3335,6 +3492,7 @@ function spawnCodeAgentRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       codeAgentAssistantDeltaSeq.delete(runId);
       appendCodeAgentStatusEvent(
@@ -3370,6 +3528,7 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     appendCodeAgentStatusEvent(
       runId,
       "Could not start Agent-Native Code process.",
@@ -3445,6 +3604,10 @@ function spawnCodeAgentApprovalRunner(
       ];
 
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3453,6 +3616,7 @@ function spawnCodeAgentApprovalRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3492,6 +3656,7 @@ function spawnCodeAgentApprovalRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       appendCodeAgentStatusEvent(
         runId,
@@ -3531,6 +3696,7 @@ function spawnCodeAgentApprovalRunner(
       message: "Approval command started.",
     };
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
       source: "desktop-approval-runner",
@@ -3705,6 +3871,7 @@ async function controlDesktopCodeBackgroundAgentRun(
   }
 
   if (input.command === "stop") {
+    revokeDesktopComputerRun(input.runId);
     const active = activeCodeAgentProcesses.get(input.runId);
     const status = getRecordString(runRecord, "status");
     const phase = getRecordString(runRecord, "phase");
@@ -7274,6 +7441,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         available: fs.existsSync(cliEntry),
       },
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: true,
@@ -7301,6 +7469,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: false,
@@ -7314,6 +7483,31 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function getDesktopComputerControlMetadata(): NonNullable<
+  CodeAgentHostMetadata["computerControl"]
+> {
+  const permissions =
+    process.platform === "darwin"
+      ? getComputerPermissionStatus(systemPreferences)
+      : { accessibility: false, screenRecording: "unknown" as const };
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  return {
+    available: Boolean(desktopComputerMcpBridge),
+    desktop: permissions,
+    browser: {
+      nativeHostInstalled: Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+      extensionBundled: fs.existsSync(extensionPath),
+      connected:
+        desktopBrowserControlBridge?.status().nativeHostConnected ?? false,
+    },
+  };
 }
 
 function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
@@ -9401,7 +9595,8 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -9613,6 +9808,9 @@ app.on("before-quit", () => {
   }
   remoteConnectorProcess?.kill("SIGTERM");
   remoteConnectorProcess = null;
+  void desktopComputerMcpBridge?.close();
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
 });
 
 app.on("will-quit", () => {

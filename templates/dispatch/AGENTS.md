@@ -31,13 +31,21 @@ specific essentials.
   setup item is unclear.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
+- `/operations` is the focused operator console. Its Monitoring tab reuses the
+  shared observability dashboard for traces, conversations, evaluations,
+  experiments, and feedback; its Database tab reuses the Code-mode database
+  admin. Use `navigate --view operations|monitoring|observability|database` and
+  `view-screen` to align with the active tab. Use Thread Debug, Audit, and
+  Destinations for concrete thread, change-history, and delivery investigations;
+  Dispatch does not invent a separate issue tracker when those framework
+  surfaces contain the operational evidence.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
   approval, route, or settings panel.
-- `navigate` moves the UI to setup, vault, integrations, resources, routing, and
-  approval surfaces.
+- `navigate` moves the UI to setup, vault, integrations, resources, routing,
+  approval, and operator surfaces.
 
 ## Skills
 

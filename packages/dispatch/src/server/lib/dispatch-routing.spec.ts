@@ -6,6 +6,8 @@ describe("dispatchIntegrationRoutingHint", () => {
   it.each([
     "File a security review request for the platform team",
     "Add this hiring ask to the intake board",
+    "Add two design tasks for the launch page",
+    "Create a design task for the new onboarding flow",
     "Create a vendor request form with the required fields",
     "What is currently in the editorial requests queue?",
   ])(

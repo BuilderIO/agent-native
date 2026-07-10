@@ -1,13 +1,13 @@
 ---
 title: "共用和隱私"
-description: "Google Docs 風格的共用，內建於框架中。每個使用者建立的資源（檔案、儀表板、設計、簡報、剪輯、錄音、表單）都會獲得相同的預設私人模型以及一致的共用 UI。"
+description: "框架內建了熟悉且一致的共享方式。使用者建立的每種資源（文件、儀表板、設計、簡報、剪輯、錄音和表單）都採用相同的預設私人模型和一致的共享 UI。"
 ---
 
 # 共用和隱私
 
 使用者在 Agent-Native 應用程式中建立的每個資源（檔案、儀表板、設計、簡報、螢幕錄製、會議紀錄、表單、預訂連結）**預設情況下對建立者來說是私人的**。僅當建立者明確共用它或將其可見性更改為 `org` 或 `public` 時，其他人才能看到它。
 
-它的外觀和工作方式與 Google 檔案類似。相同的共用按鈕、相同的對話框、相同的三層可見性模型、相同的每使用者/每組織授權 - 跨每個範本，無需針對每個應用進行重新設計。
+所有地方都使用一種熟悉的共享模型：相同的共享按鈕、相同的對話框、相同的三級可見性模型，以及相同的按使用者和按組織授權，涵蓋每個範本，無需為每個應用程式重新實作。
 
 ## 為什麼選取一種模型 {#why}
 
@@ -92,7 +92,7 @@ description: "Google Docs 風格的共用，內建於框架中。每個使用者
 - **內容** — 檔案
 - **幻燈片** — 幻燈片
 - **設計** — 設計和資產
-- **剪輯** — 螢幕錄製（Loom 風格）
+- **剪輯** — 螢幕錄製
 - **Plan** — visual plans and PR recaps
 - **表單** — 表單定義
 - **行事曆** — 活動和預訂連結
@@ -115,7 +115,7 @@ description: "Google Docs 風格的共用，內建於框架中。每個使用者
 
 - 可見性選取器（`Private` / `Organization` / `Public link`）。
 - “新增人員或團隊”自動完成 - 搜尋組織中的使用者或貼上電子郵件。
-- 用於個人電子郵件授權的 Google 檔案樣式 `通知 people` 核取方塊。
+- 用於個別電子郵件授權的 `通知人員` 核取方塊。
 - 包含角色選取器和刪除控制項的目前授權清單。
 - 尊重目前可見性的複製連結按鈕。
 
@@ -270,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 `server/db/index.ts` 中的一次註冊電話：
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -315,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 共用依賴於框架更廣泛的資料範圍模型 - 對可擁有表的清單/讀/寫存取透過 `accessFilter()` / `resolveAccess()` / `assertAccess()`，並且 `org_id` 標記的資源在組織中不可見。有關完整管道、CI 防護和威脅面，請參閱 [Security → Data Scoping](/docs/security#data-scoping)。
 
-## 另請參閱 {#see-also}
+## 後續步驟 {#see-also}
 
-- [Security & Data Scoping](/docs/security) - 共用所依賴的存取過濾器和所有權模型。
-- [Authentication](/docs/authentication) — 工作階段、組織以及身分如何流入請求脈絡。
-- [Extensions](/docs/extensions#sharing) — 在沙盒迷你應用表面中共用。
-- [Creating Templates](/docs/creating-templates) — 將 `ownableColumns` 連線到新範本的架構中。
+- [**安全性 — 資料範圍**](/docs/security#data-scoping) — 共享所依賴的存取篩選和擁有權模型
+- [**驗證**](/docs/authentication) — 工作階段、組織，以及身分如何流入要求內容
+- [**Extensions**](/docs/extensions#sharing) — 沙箱化迷你應用程式介面中的共享
+- [**建立範本**](/docs/creating-templates) — 將 `ownableColumns` 接入新範本的結構描述

@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-1a8slw0"
   title={"模板项目结构"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 使用框架 Drizzle 帮助程序定义域表，以便架构在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支持的后端之间保持可移植性：
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的可移植运算符。当Drizzle可以表达查询时，不要使用原始SQL编写产品代码，并且不要在模板中从`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`导入。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -349,8 +346,7 @@ export function useNavigationState() {
 `path`（当 URL 已知时）。同一动作不要写为 `__set_url__`；
 该密钥是为框架 URL 工具和仅 URL 过滤器更改保留的。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

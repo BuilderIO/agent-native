@@ -173,6 +173,56 @@ describe("slackAdapter", () => {
     });
   });
 
+  it("accepts one scoped clarification reply without opening ambient channel intake", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const isThreadActive = vi.fn(async () => false);
+    const consumeAwaitingInput = vi.fn(async () => true);
+    const adapter = slackAdapter({ isThreadActive, consumeAwaitingInput });
+
+    await expect(
+      adapter.parseIncomingMessage(
+        slackEvent({
+          event: {
+            type: "message",
+            channel: "C123",
+            channel_type: "channel",
+            user: "U123",
+            text: "ambient chatter",
+            ts: "123.456",
+          },
+        }),
+      ),
+    ).resolves.toBeNull();
+    expect(consumeAwaitingInput).not.toHaveBeenCalled();
+
+    const parsed = await adapter.parseIncomingMessage(
+      slackEvent({
+        event: {
+          type: "message",
+          channel: "C123",
+          channel_type: "channel",
+          user: "U123",
+          text: "New prospects",
+          thread_ts: "111.222",
+          ts: "123.456",
+        },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "New prospects",
+      triggerKind: "thread_reply",
+    });
+    expect(consumeAwaitingInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: "A123:T123:C123:111.222",
+        senderId: "U123",
+      }),
+    );
+  });
+
   it("accepts Agent View direct messages and preserves same-workspace app context", async () => {
     process.env.NODE_ENV = "development";
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -589,6 +639,82 @@ describe("slackAdapter", () => {
         ts: "999.000",
         markdown_text: "Report complete.",
       },
+    });
+  });
+
+  it("keeps one Slack task card updated with downstream A2A progress", async () => {
+    vi.useFakeTimers();
+    const requests: Array<{ method: string; body: Record<string, any> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        requests.push({
+          method,
+          body: init?.body ? JSON.parse(String(init.body)) : {},
+        });
+        return new Response(
+          JSON.stringify(
+            method === "chat.startStream"
+              ? { ok: true, ts: "999.001" }
+              : { ok: true },
+          ),
+        );
+      }),
+    );
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "analyze launch performance",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    await progress?.onEvent({
+      type: "agent_call",
+      agent: "Analytics",
+      status: "start",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await progress?.onEvent({
+      type: "agent_call_progress",
+      agent: "Analytics",
+      state: "working",
+      elapsedSeconds: 30,
+      detail: "Joining HubSpot and BigQuery data",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await progress?.onEvent({
+      type: "agent_call",
+      agent: "Analytics",
+      status: "done",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await progress?.complete({ text: "Report complete.", platformContext: {} });
+
+    const agentUpdates = requests
+      .filter((request) => request.method === "chat.appendStream")
+      .flatMap((request) => request.body.chunks ?? [])
+      .filter(
+        (chunk) =>
+          chunk.type === "task_update" && chunk.title === "Ask Analytics",
+      );
+
+    expect(agentUpdates).toHaveLength(3);
+    expect(new Set(agentUpdates.map((chunk) => chunk.id))).toEqual(
+      new Set([agentUpdates[0]?.id]),
+    );
+    expect(agentUpdates.map((chunk) => chunk.status)).toEqual([
+      "in_progress",
+      "in_progress",
+      "complete",
+    ]);
+    expect(agentUpdates[1]).toMatchObject({
+      details: "Joining HubSpot and BigQuery data",
     });
   });
 

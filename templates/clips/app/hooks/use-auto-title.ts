@@ -49,10 +49,12 @@ interface AiRequest {
   recordingId?: string;
   requestedAt?: string;
   currentTitle?: string;
+  currentDescription?: string;
   transcriptStatus?: string;
   transcriptText?: string;
   segmentsJson?: string;
   agentsContext?: string;
+  includeSummary?: boolean;
   thresholdMs?: number;
   message?: string;
   includeFullVideoInAi?: boolean;
@@ -60,6 +62,7 @@ interface AiRequest {
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
+  "generate-metadata",
   "regenerate-title",
   "regenerate-summary",
   "regenerate-chapters",
@@ -142,6 +145,15 @@ export function useAutoTitleBridge(): void {
             }`;
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
+            if (
+              request.kind === "generate-metadata" ||
+              request.kind === "regenerate-title"
+            ) {
+              // The temporary title remains replaceable while the background
+              // agent runs. Suppress the old-recording fallback in this tab so
+              // clearing the request does not immediately launch a duplicate.
+              dispatched.current.add(`${rec.id}:fallback`);
+            }
 
             dispatchAiRequest(rec, request);
 
@@ -194,11 +206,13 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
   return {
     recordingId: rec.id,
     currentTitle: request.currentTitle ?? rec.title,
+    currentDescription: request.currentDescription ?? "",
     transcript: request.transcriptText ?? "",
     agentsContext: request.agentsContext ?? "",
     transcriptStatus: request.transcriptStatus ?? "ready",
     transcriptSegments: parseJsonArray(request.segmentsJson),
     includeFullVideoInAi: request.includeFullVideoInAi === true,
+    includeSummary: request.includeSummary === true,
     request,
   };
 }

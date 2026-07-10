@@ -22,6 +22,7 @@ export interface StoredAgentHarnessSession {
   resumeState?: unknown;
   workspaceRef?: string | null;
   pendingApproval?: unknown;
+  resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
   createdAt: number;
@@ -39,6 +40,7 @@ export interface SaveAgentHarnessSessionInput {
   resumeState?: unknown;
   workspaceRef?: string | null;
   pendingApproval?: unknown;
+  resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
   stoppedAt?: number | null;
@@ -61,6 +63,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           resume_state TEXT,
           workspace_ref TEXT,
           pending_approval TEXT,
+          resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
           created_at ${intType()} NOT NULL,
@@ -79,6 +82,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           "resume_state",
           "workspace_ref",
           "pending_approval",
+          "resolved_approval_ids",
           "owner_email",
           "org_id",
         ] as const) {
@@ -116,6 +120,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         "resume_state",
         "workspace_ref",
         "pending_approval",
+        "resolved_approval_ids",
         "owner_email",
         "org_id",
       ] as const) {
@@ -185,6 +190,8 @@ export async function saveAgentHarnessSession(
       input.pendingApproval !== undefined
         ? input.pendingApproval
         : existing?.pendingApproval,
+    resolvedApprovalIds:
+      input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
     orgId: input.orgId ?? existing?.orgId ?? null,
     createdAt: existing?.createdAt ?? now,
@@ -195,9 +202,9 @@ export async function saveAgentHarnessSession(
   await client.execute({
     sql: `INSERT INTO agent_harness_sessions (
             id, harness_name, thread_id, run_id, provider_session_id, status,
-            resume_state, workspace_ref, pending_approval, owner_email, org_id,
-            created_at, updated_at, stopped_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            resume_state, workspace_ref, pending_approval, resolved_approval_ids,
+            owner_email, org_id, created_at, updated_at, stopped_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             harness_name = excluded.harness_name,
             thread_id = excluded.thread_id,
@@ -207,6 +214,7 @@ export async function saveAgentHarnessSession(
             resume_state = excluded.resume_state,
             workspace_ref = excluded.workspace_ref,
             pending_approval = excluded.pending_approval,
+            resolved_approval_ids = excluded.resolved_approval_ids,
             owner_email = excluded.owner_email,
             org_id = excluded.org_id,
             updated_at = excluded.updated_at,
@@ -221,6 +229,7 @@ export async function saveAgentHarnessSession(
       serializeJson(record.resumeState),
       record.workspaceRef ?? null,
       serializeJson(record.pendingApproval),
+      serializeJson(record.resolvedApprovalIds),
       record.ownerEmail ?? null,
       record.orgId ?? null,
       record.createdAt,
@@ -254,6 +263,8 @@ export async function updateAgentHarnessSession(
       patch.pendingApproval !== undefined
         ? patch.pendingApproval
         : existing.pendingApproval,
+    resolvedApprovalIds:
+      patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
     ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
     orgId: patch.orgId ?? existing.orgId ?? null,
     stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
@@ -397,6 +408,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     resumeState: parseJson(record.resume_state),
     workspaceRef: stringOrNull(record.workspace_ref),
     pendingApproval: parseJson(record.pending_approval),
+    resolvedApprovalIds: stringArray(record.resolved_approval_ids),
     ownerEmail: stringOrNull(record.owner_email),
     orgId: stringOrNull(record.org_id),
     createdAt: numberValue(record.created_at),
@@ -436,6 +448,13 @@ function parseJson(value: unknown): unknown {
   } catch {
     return undefined;
   }
+}
+
+function stringArray(value: unknown): string[] {
+  const parsed = parseJson(value);
+  return Array.isArray(parsed)
+    ? parsed.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function stringOrNull(value: unknown): string | null {

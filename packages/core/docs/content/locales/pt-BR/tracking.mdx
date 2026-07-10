@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -349,5 +352,5 @@ A estrutura também rastreia `builder connect clicked` de CTAs do Connect Builde
 ## O que vem a seguir
 
 - [**Actions**](/docs/actions) — onde se origina a maioria das chamadas de rastreamento
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
-- [**Secrets**](/docs/security) — gerencie chaves API para provedores de rastreamento
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
+- [**Segurança — Gerenciamento de segredos**](/docs/security#secrets) — gerencie chaves API para provedores de rastreamento

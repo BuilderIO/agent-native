@@ -5,14 +5,15 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 # MCP Clients
 
-**This page: give your agent more tools.** Point an agent-native app at MCP servers — local or remote — so their tools show up in the agent chat. This is the _client_ direction, the mirror image of [MCP Protocol](/docs/mcp-protocol) (which makes your app an MCP _server_).
+**This page: give your agent more tools.** Point an agent-native app at MCP servers — local or remote — so their tools show up in the agent chat. This is the _client_ direction, the mirror image of [MCP Server](/docs/mcp-protocol) (which makes your app an MCP _server_). Note the dual use of "client" here: this page is about your app acting as an MCP client of _other_ servers — a different sense from an "MCP host" like Claude or Cursor connecting to your app (see [MCP Server](/docs/mcp-protocol) for that direction).
 
 | If you want to…                                              | Read                                     |
 | ------------------------------------------------------------ | ---------------------------------------- |
 | Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
 | Give your agent more tools (consume other MCP servers)       | **This page** — MCP Clients              |
 | Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
-| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol)       |
+| Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui)     |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Server](/docs/mcp-protocol)         |
 
 With one config file, every agent-native app in your workspace gains access to tools provided by MCP servers on your machine: `claude-in-chrome` for browser automation, `@modelcontextprotocol/server-filesystem` for reading files, `@playwright/mcp` for browser testing, and anything else that speaks MCP.
 
@@ -96,7 +97,7 @@ Every source resolves into one runtime **MCP manager**, and every tool it learns
 
 </Diagram>
 
-> The opposite direction — making _your_ app an MCP server that other hosts consume — lives in [MCP Protocol](/docs/mcp-protocol) and [External Agents](/docs/external-agents).
+> The opposite direction — making _your_ app an MCP server that other hosts consume — lives in [MCP Server](/docs/mcp-protocol) and [External Agents](/docs/external-agents).
 
 ## Built-in browser and computer-use capabilities {#built-in-capabilities}
 
@@ -309,9 +310,43 @@ Stdio servers are still a no-op outside Node runtimes, but remote HTTP MCP serve
 
 ## Shared MCP servers via a hub {#hub}
 
-If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips), you can configure **one** app as the hub and have the others pull its org-scope MCP servers automatically. No per-app copy-paste of URLs and bearer tokens. See [Multi-App Workspace](/docs/multi-app-workspace) for the canonical approach using Dispatch workspace MCP resources.
+If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips), share MCP servers across all of them without per-app copy-pasting of URLs and bearer tokens. See [Multi-App Workspace](/docs/multi-app-workspace) for the full deployment picture.
 
-Dispatch is the conventional hub — it already coordinates across apps.
+### Recommended: Dispatch workspace MCP resources {#hub-recommended}
+
+For new workspace setups, prefer **Dispatch workspace MCP resources** — the
+same All-app vs selected-app grant model used by workspace skills,
+instructions, and reference resources. Add a workspace resource with:
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
+  },
+  "description": "Shared MCP tools for workspace apps"
+}
+```
+
+Save it under `mcp-servers/<name>.json` with kind `mcp-server`. All-app
+resources are loaded by every workspace app; selected resources load only in
+apps with an active Dispatch grant. Secret placeholders resolve from the app
+secret store, so put raw bearer tokens in Dispatch Vault and reference them
+with `${keys.NAME}` instead of storing them in the resource body.
+
+Apps refresh their merged MCP config about once a minute, so central resource
+edits, grant changes, and removals take effect without a deploy. Set
+`AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0` to disable that background refresh, or
+set it to a value of at least `5000` milliseconds to tune the interval.
+
+### Legacy: self-hosted hub mode {#hub-legacy}
+
+The mode below remains useful for coarse "share every org-scope MCP server
+from Dispatch" setups and for deployments that already use the MCP settings UI
+as the source of truth. You configure **one** app as the hub and the others
+pull its org-scope MCP servers automatically. Dispatch is the conventional hub
+— it already coordinates across apps.
 
 <Diagram id="doc-block-1dnioze" title="Hub model: one app serves org-scope MCP servers" summary={"Dispatch holds the org-scope MCP servers; consumer apps pull and merge them as mcp__hub_<orgId>_<name>__*. Only org-scope rows are shared — personal credentials stay put."}>
 
@@ -376,36 +411,6 @@ Dispatch is the conventional hub — it already coordinates across apps.
 
 </Diagram>
 
-For new workspace setups, prefer **Dispatch workspace MCP resources** when you
-want the same All-app vs selected-app grant model used by workspace skills,
-instructions, and reference resources. Add a workspace resource with:
-
-```json
-{
-  "type": "http",
-  "url": "https://example.com/mcp",
-  "headers": {
-    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
-  },
-  "description": "Shared MCP tools for workspace apps"
-}
-```
-
-Save it under `mcp-servers/<name>.json` with kind `mcp-server`. All-app
-resources are loaded by every workspace app; selected resources load only in
-apps with an active Dispatch grant. Secret placeholders resolve from the app
-secret store, so put raw bearer tokens in Dispatch Vault and reference them
-with `${keys.NAME}` instead of storing them in the resource body.
-
-Apps refresh their merged MCP config about once a minute, so central resource
-edits, grant changes, and removals take effect without a deploy. Set
-`AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0` to disable that background refresh, or
-set it to a value of at least `5000` milliseconds to tune the interval.
-
-The older hub mode below remains useful for coarse “share every org-scope MCP
-server from Dispatch” setups and for deployments that already use the MCP
-settings UI as the source of truth.
-
 ### 1. Enable hub-serve on the hub app (dispatch)
 
 Set an env var in dispatch's deployment:
@@ -456,27 +461,9 @@ Every app exposes `GET /_agent-native/mcp/status` for tooling and onboarding:
   }
 ]}>
 
-Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build "detected — your agent can now drive X" hints or to debug connection problems.
+Reports which configured servers connected, the total live tool count, the merged prefixed tool list, and any per-server connection errors. Use it to build "detected — your agent can now drive X" hints (e.g. "claude-in-chrome detected — your agent can now drive Chrome") or to debug connection problems.
 
 </Endpoint>
-
-```json
-{
-  "configuredServers": ["claude-in-chrome", "playwright"],
-  "connectedServers": ["claude-in-chrome", "playwright"],
-  "totalTools": 21,
-  "tools": [
-    {
-      "source": "claude-in-chrome",
-      "name": "mcp__claude-in-chrome__navigate",
-      "description": "Navigate the browser to a URL"
-    }
-  ],
-  "errors": {}
-}
-```
-
-Use this to build "claude-in-chrome detected — your agent can now drive Chrome" onboarding hints, or debug MCP connection problems.
 
 ## Failure modes {#failures}
 
@@ -491,3 +478,10 @@ Agent-native will always boot; broken MCP configuration just means fewer tools.
 ## Security {#security}
 
 MCP tools run on your machine with whatever permissions the spawned process has. Treat `mcp.config.json` like any other list of executables you're willing to let the agent drive. Tools from MCP servers appear in the agent's tool-use loop just like your template's own actions, so make sure you trust every server you configure.
+
+## What's next {#whats-next}
+
+- [**MCP Server**](/docs/mcp-protocol) — the opposite direction: making your app an MCP server other hosts consume
+- [**External Agents**](/docs/external-agents) — connecting Claude, Cursor, and other hosts to your app
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the shared-resource model behind Dispatch workspace MCP resources
+- [**Actions**](/docs/actions) — how your own actions show up alongside MCP tools in the agent's registry

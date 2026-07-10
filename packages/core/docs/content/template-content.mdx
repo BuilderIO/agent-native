@@ -1,15 +1,15 @@
 ---
 title: "Content"
-description: "Open-source Obsidian for MDX: edit local Markdown/MDX files, generate rich interactive custom blocks, and write with an AI agent."
+description: "A local-file-friendly document workspace: edit Markdown/MDX files, generate rich interactive custom blocks, and write together with an AI agent."
 ---
 
 # Content
 
-Content is open-source Obsidian for MDX: a local-file-friendly document
-workspace where the agent can read, write, reorganize, and publish pages for
-you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a
-page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" - same
-result whether you do it yourself or ask.
+Content is a local-file-friendly document workspace where the agent can read,
+write, reorganize, and publish pages for you. Open a doc, ask "rewrite this
+paragraph to be more concise" or "create a page called Q4 Planning with
+sub-pages for Goals, Metrics, and Risks" - same result whether you do it
+yourself or ask.
 
 <WireframeBlock id="doc-block-1i1ubpx">
   <Screen
@@ -90,7 +90,7 @@ When you open the app, you'll see a page tree next to the editor. The agent alwa
 - **Write rich text** with headings, lists, tables, code blocks, images, and links. Slash commands (`/`) insert blocks; selecting text pops up a formatting toolbar.
 - **Organize pages in a tree** — nest infinitely, drag to reorder, favorite pages you use often.
 - **Search across everything** with full-text search across titles and content.
-- **Edit local Markdown/MDX files like Obsidian.** Use the `/local-files` view
+- **Edit local Markdown/MDX files with your own tools.** Use the `/local-files` view
   to export your workspace to files, edit them in your own tools, preview
   changes, and import them back. In Local File Mode, Content writes straight to
   the selected `.md` or `.mdx` file.
@@ -119,11 +119,10 @@ Select text and hit Cmd+I to focus the agent with that selection pre-loaded — 
 ## Local Markdown/MDX files {#local-files}
 
 Content can round-trip documents through local files without cloning or running
-the Content app locally. It feels like Obsidian for MDX: files stay inspectable
-and editable, while the app gives you a rich editor, agent actions, sharing, and
-custom blocks. Open `/local-files`, choose a folder in your browser or Agent
-Native Desktop, and export the current document tree as Markdown/MDX under
-`content/`.
+the Content app locally. Files stay inspectable and editable on disk, while the
+app gives you a rich editor, agent actions, sharing, and custom blocks. Open
+`/local-files`, choose a folder in your browser or Agent Native Desktop, and
+export the current document tree as Markdown/MDX under `content/`.
 
 Each exported file contains frontmatter for document metadata (`id`, `title`,
 `parentId`, `position`, favorite/search/visibility flags, and `updatedAt`) plus
@@ -142,9 +141,8 @@ truth instead of SQL documents. Add `agent-native.json` to a repo, set
 `content/`, and `resources/`. The standard Content editor then populates its
 left sidebar from those local `.md`/`.mdx` files and writes edits back to the
 selected file through the normal document actions. Use this for repo-first docs,
-blogs, resource libraries, or Obsidian-style personal content with MDX-powered
-components; switch back to database mode when you want hosted collaboration and
-SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
+blogs, resource libraries, or a personal MDX-powered notes vault; switch back to
+database mode when you want hosted collaboration and SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
 standalone repo layout, configuration, custom MDX components, local
 `extensions/` widgets, and production safety guide.
 
@@ -220,13 +218,12 @@ Local file workspaces can also provide repo-local React components through the
 configured `components` folder. The Content dev server imports PascalCase
 exports from those files, renders matching MDX tags such as `<ImpactCounter />`
 inside the editor, and exposes them in the slash menu under Local components.
-This is the "Obsidian for MDX" layer: custom MDX blocks stay local to the
+This is the local-first custom-block layer: custom MDX blocks stay local to the
 workspace, but the editor can render them and the agent can generate or update
 their source without cloning the Content app. A minimal workspace component can
 be:
 
-```tsx
-// components/ImpactCounter.tsx
+```tsx filename="components/ImpactCounter.tsx"
 import { useState } from "react";
 
 export function ImpactCounter({
@@ -671,3 +668,11 @@ The four places to look when changing behavior:
 - **`shared/notion-markdown.ts`** — markdown-to-Notion-blocks conversion. Extend this if you add new block types that need to round-trip through Notion.
 
 The agent can make all of these changes itself — ask it to "add a tags column to documents and expose it in the sidebar" and it will update the schema, migrate, wire the UI, and write the action.
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Local File Mode**](/docs/local-file-mode) — the standalone repo layout, config, and production safety guide
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline documents share with other collaborative surfaces
+- [**Sharing**](/docs/sharing) — the share-grant model documents build on

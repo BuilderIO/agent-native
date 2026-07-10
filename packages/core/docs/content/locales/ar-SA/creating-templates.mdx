@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-15r9qt6"
   title={"بنية مشروع ال template"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 حدد جداول المجال باستخدام إطار العمل المساعد Drizzle بحيث تظل المخططات قابلة للنقل عبر SQLite، وPostgres، وD1، وTurso، وSupabase، وNeon، والواجهات الخلفية المدعومة الأخرى:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 لقراءة التطبيق وكتابته، استخدم منشئ الاستعلامات والمشغلات المحمولة Drizzle من `drizzle-orm`. لا تكتب رمز المنتج باستخدام SQL الخام عندما يتمكن Drizzle من التعبير عن الاستعلام، ولا تستورد من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core` في القوالب.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -349,8 +346,7 @@ export function useNavigationState() {
 `path` عندما يكون URL معروفًا. ولا تكتب أيضًا `__set_url__` لنفس الحركة؛
 هذا المفتاح محجوز لأدوات إطار العمل URL وتغييرات مرشح URL فقط.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

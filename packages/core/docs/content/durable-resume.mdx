@@ -5,9 +5,13 @@ description: "When a hosted agent run is interrupted and resumes, completed side
 
 # Durable Resume
 
-> **Who is this for:** anyone who wants to understand how the framework's run
-> recovery avoids duplicate side effects. This is built-in behavior — there is
-> nothing to wire up.
+<Callout id="doc-block-dres1who" tone="info">
+
+**Who is this for:** anyone who wants to understand how the framework's run
+recovery avoids duplicate side effects. This is built-in behavior — there is
+nothing to wire up.
+
+</Callout>
 
 Hosted agent runs get interrupted: a serverless function hits its hard timeout mid-stream, a gateway drops the connection at 45s, a socket hangs up, the platform cold-starts. The framework already recovers from these by saving the conversation prefix and re-running the LLM call ("continue from where you left off"). But recovery alone has a sharp edge: if the interrupted attempt **already sent an email or created a ticket**, a naive resume could do it again.
 
@@ -100,8 +104,9 @@ Together the two layers mean an interrupted run that already had a real side eff
 
 </Callout>
 
-## Related
+## What's next
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) — how the durable run ledger streams to the client and replays on reconnect.
 - [**Actions**](/docs/actions) — `readOnly` marks reads as safe to re-run; everything else is treated as side-effecting.
 - [**In-Loop Processors**](/docs/processors) — another loop-internal hardening seam.
+- [**Durable Background Runs**](/docs/durable-background-runs) — moving a long turn onto a separate background function.

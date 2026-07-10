@@ -14,6 +14,7 @@ import {
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
+  WorkedForSummary,
   toolInputPayload,
 } from "./tool-call-display.js";
 import {
@@ -751,5 +752,94 @@ describe("ReasoningCell", () => {
     });
 
     expect(container.textContent).toContain("verify the join keys first.");
+  });
+
+  it("renders reasoning directly inside the shared work disclosure", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary>
+          <ReasoningCell text="I should verify the join keys first." />
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.textContent).not.toContain("verify the join keys first.");
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.textContent).toContain("verify the join keys first.");
+    expect(container.textContent).not.toContain("Thought");
+  });
+
+  it('shows a shimmering "Thinking" label while streaming', () => {
+    act(() => {
+      root.render(<ReasoningCell text="Weighing options…" isStreaming />);
+    });
+
+    expect(container.textContent).toContain("Thinking");
+    const shimmer = container.querySelector(".agent-thinking-indicator__text");
+    expect(shimmer?.textContent).toBe("Thinking");
+  });
+
+  it('falls back to a plain "Thought" label with no live timing', () => {
+    act(() => {
+      root.render(<ReasoningCell text="Some finished reasoning." />);
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.querySelector(".agent-thinking-indicator__text")).toBe(
+      null,
+    );
+  });
+
+  it('shows "Thought for Xs" once a duration is known', () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="Some finished reasoning." durationMs={4200} />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought for 4s");
+  });
+
+  it("ignores sub-second durations and shows plain Thought", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="Some finished reasoning." durationMs={400} />,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("Thought");
+  });
+
+  it("clamps to a tail view while streaming and open, and unclamps once done", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="Line one\nLine two\nLine three"
+          isStreaming
+          defaultOpen
+        />,
+      );
+    });
+
+    expect(container.querySelector(".reasoning-cell-tail")).not.toBe(null);
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="Line one\nLine two\nLine three"
+          isStreaming={false}
+          defaultOpen
+        />,
+      );
+    });
+
+    expect(container.querySelector(".reasoning-cell-tail")).toBe(null);
   });
 });

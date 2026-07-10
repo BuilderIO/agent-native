@@ -17,7 +17,7 @@ Ya se envía un andamio `npx @agent-native/core@latest create` nuevo con:
 - **Cambio de organización**: la sesión realiza un seguimiento de la organización activa (`session.orgId`) y al cambiarla se cambian los datos que ven el usuario y el agente.
 - **Aislamiento de datos por organización**: cada consulta se limita automáticamente a la organización activa.
 
-Si está evaluando un agente nativo para un CRM, un rastreador de proyectos, una bandeja de entrada de soporte o cualquier herramienta de equipo, la base multiinquilino ya está ahí. Todas las plantillas propias son multiinquilino; consulte [Cloneable SaaS templates](/docs/cloneable-saas) para ver la lista.
+Si está evaluando un agente nativo para un CRM, un rastreador de proyectos, una bandeja de entrada de soporte o cualquier herramienta de equipo, la base multiinquilino ya está ahí. Todas las plantillas propias son multiinquilino; consulte [Plantillas](/docs/cloneable-saas) para ver la lista.
 
 <Diagram id="doc-block-3yhq1v" title={"Membresía y aislamiento de la organización"} summary={"Los usuarios se unen a organizaciones como owner/admin/member. Cada fila poseíble lleva el org_id del inquilino propietario y ninguna fila cruza el límite."}>
 
@@ -117,8 +117,8 @@ Los datos del inquilino están aislados mediante una columna `org_id` (agregada 
 
 Esta es la misma canalización utilizada para el alcance por usuario. Para conocer las mecánicas de nivel SQL, el contrato `ownableColumns()` y los guardias `accessFilter` / `resolveAccess` / `assertAccess`, consulte [Security → Data Scoping](/docs/security#data-scoping): la única fuente de verdad para el proceso de alcance.
 
-## Documentos relacionados {#related}
+## Qué sigue {#related}
 
-- [Authentication](/docs/authentication#organizations): sesiones, proveedores sociales y la superficie de gestión de la organización
-- [Security → Data Scoping](/docs/security#data-scoping): aislamiento de nivel SQL, contrato `ownableColumns()` y guardias de acceso
-- [Multi-App Workspace](/docs/multi-app-workspace): aloja múltiples aplicaciones nativas del agente en un monorepo con autenticación compartida y RBAC
+- [**Authentication**](/docs/authentication#organizations) — sesiones, proveedores sociales y la superficie de gestión de la organización
+- [**Security — Data Scoping**](/docs/security#data-scoping) — aislamiento de nivel SQL, contrato `ownableColumns()` y protecciones de acceso
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — aloja múltiples aplicaciones Agent-Native en un monorepo con autenticación compartida y RBAC

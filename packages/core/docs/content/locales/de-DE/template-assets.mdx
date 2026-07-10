@@ -90,6 +90,18 @@ Wenn Sie die App öffnen, bleiben die ausgewählte Bibliothek, die Eingabeauffor
 - **Andere Apps benötigen eine Asset-Auswahl oder einen Asset-Generator** – Folien, Design, Inhalte, ein Blog-Editor oder ein Website-Builder können die Auswahl einbetten oder Assets über A2A aufrufen.
 - **Sie möchten, dass Markenmedien von Ihrem Coding-Agenten verfügbar sind** – Codex, Claude Code, Claude oder ChatGPT können Assets generieren und auswählen, ohne den Chat zu verlassen.
 
+## Was Sie damit machen können
+
+- **Erstellen Sie Asset-Bibliotheken.** Gruppieren Sie Referenzbilder, Videos, kanonische Logos, Stilhinweise, Paletten, Ordner und generierte Ausgaben nach Marke, Kampagne, Produkt oder Kategorie.
+- **Generieren über Chat.** Die Home Verfassenr- und Bibliotheks-Generate-Steuerelemente senden die Eingabeaufforderung mit `sendToAgentChat()` an den Agenten, sodass Benutzer Varianten prüfen, Feedback geben und iterieren können.
+- **Generieren Sie Bilder und Videos.** Die von Builder verwaltete Bildgenerierung ist verfügbar, wenn sie aktiviert ist, und Gemini unterstützt die Videogenerierung sowie den manuellen Bild-Fallback.
+- **Referenzen hochladen und beschreiben.** Fügen Sie Bilder oder Videos aus der Bibliothek UI oder der Schaltfläche zum Anhängen des Prompt Verfassenr hinzu und suchen Sie dann nach Titel, Beschreibung, Alternativtext, Prompt, Modell, Medientyp, Status, Rolle, Ordner oder Sammlung.
+- **Führen Sie ein Generierungs-Audit-Protokoll.** Bei jedem Lauf werden Eingabeaufforderungen, Modell, Seitenverhältnis, Referenzen, Quell-Asset, Herkunft, generierte Assets, Status, Fehler und Zeitstempel für eine spätere Entwurfsüberprüfung aufgezeichnet.
+- **Behalten Sie die Genauigkeit des Logos bei.** Der Agent kann einen Platzhalterbereich generieren und der Server fügt das hochgeladene kanonische Logo zum endgültigen Bild zusammen, anstatt sich beim Neuzeichnen auf das Bildmodell zu verlassen.
+- **Als Picker einbetten.** Andere Apps können `/picker` iframen und auf das `chooseAsset`-Ereignis von `@agent-native/embedding` warten, wodurch Assets in einen Asset-Picker/Generator für Blog-Editoren, Website-Builder, Foliendecks und benutzerdefinierte Apps umgewandelt werden. Der Picker gibt auch den Legacy-Alias `chooseImage` für vorhandene Nur-Image-Hosts aus.
+- **Als app-gestützten Skill installieren.** Das `agent-native.app-skill.json`-Manifest exportiert einen Assets-Skill plus MCP-Connector-Metadaten, damit Marktplätze die App, ihre Anweisungen und ihre Auswahl gemeinsam installieren können.
+- **Andere Agenten bedienen.** Folien, Design, Inhalt, E-Mail und Versand können Assets über A2A aufrufen, um Bibliotheken aufzulisten, Stapel zu generieren, Videos zu erstellen, ein Asset zu verfeinern, Exporte abzurufen und Inline-Vorschauen zu rendern, wo das Einbetten zulässig ist.
+
 ## Erste Schritte
 
 Live-Demo: [assets.agent-native.com](https://assets.agent-native.com).
@@ -111,18 +123,6 @@ Live-Demo: [assets.agent-native.com](https://assets.agent-native.com).
 - „Finden Sie alle genehmigten Assets für die Onboarding-Neugestaltung.“
 - „Verwandeln Sie dieses hochgeladene Diagramm in ein klareres Produkterklärungsbild.“
 - „Erstellen Sie ein Video-Storyboard und speichern Sie den besten Framesatz in dieser Bibliothek.“
-
-## Was Sie damit machen können
-
-- **Erstellen Sie Asset-Bibliotheken.** Gruppieren Sie Referenzbilder, Videos, kanonische Logos, Stilhinweise, Paletten, Ordner und generierte Ausgaben nach Marke, Kampagne, Produkt oder Kategorie.
-- **Generieren über Chat.** Die Home Verfassenr- und Bibliotheks-Generate-Steuerelemente senden die Eingabeaufforderung mit `sendToAgentChat()` an den Agenten, sodass Benutzer Varianten prüfen, Feedback geben und iterieren können.
-- **Generieren Sie Bilder und Videos.** Die von Builder verwaltete Bildgenerierung ist verfügbar, wenn sie aktiviert ist, und Gemini unterstützt die Videogenerierung sowie den manuellen Bild-Fallback.
-- **Referenzen hochladen und beschreiben.** Fügen Sie Bilder oder Videos aus der Bibliothek UI oder der Schaltfläche zum Anhängen des Prompt Verfassenr hinzu und suchen Sie dann nach Titel, Beschreibung, Alternativtext, Prompt, Modell, Medientyp, Status, Rolle, Ordner oder Sammlung.
-- **Führen Sie ein Generierungs-Audit-Protokoll.** Bei jedem Lauf werden Eingabeaufforderungen, Modell, Seitenverhältnis, Referenzen, Quell-Asset, Herkunft, generierte Assets, Status, Fehler und Zeitstempel für eine spätere Entwurfsüberprüfung aufgezeichnet.
-- **Behalten Sie die Genauigkeit des Logos bei.** Der Agent kann einen Platzhalterbereich generieren und der Server fügt das hochgeladene kanonische Logo zum endgültigen Bild zusammen, anstatt sich beim Neuzeichnen auf das Bildmodell zu verlassen.
-- **Als Picker einbetten.** Andere Apps können `/picker` iframen und auf das `chooseAsset`-Ereignis von `@agent-native/embedding` warten, wodurch Assets in einen Asset-Picker/Generator für Blog-Editoren, Website-Builder, Foliendecks und benutzerdefinierte Apps umgewandelt werden. Der Picker gibt auch den Legacy-Alias `chooseImage` für vorhandene Nur-Image-Hosts aus.
-- **Als app-gestützten Skill installieren.** Das `agent-native.app-skill.json`-Manifest exportiert einen Assets-Skill plus MCP-Connector-Metadaten, damit Marktplätze die App, ihre Anweisungen und ihre Auswahl gemeinsam installieren können.
-- **Andere Agenten bedienen.** Folien, Design, Inhalt, E-Mail und Versand können Assets über A2A aufrufen, um Bibliotheken aufzulisten, Stapel zu generieren, Videos zu erstellen, ein Asset zu verfeinern, Exporte abzurufen und Inline-Vorschauen zu rendern, wo das Einbetten zulässig ist.
 
 ## Verwenden Sie es von Ihrem Codierungsagenten
 
@@ -166,10 +166,13 @@ Generieren und wählen Sie Markenmedien aus, ohne Codex, Claude Code, Claude ode
 
 Der Rest dieses Dokuments richtet sich an alle, die die Assets-Vorlage verzweigen oder erweitern.
 
-### Gerüst
+### Schnellstart
 
 ```bash
 npx @agent-native/core@latest create my-assets --standalone --template assets
+cd my-assets
+pnpm install
+pnpm dev
 ```
 
 ### Datenmodell

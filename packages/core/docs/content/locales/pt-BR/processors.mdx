@@ -51,8 +51,11 @@ Um `Processor` é um **observador/guardrail** interno de loop para a execução 
 
 </Diagram>
 
-> [!WARNING]
-> Um processador é **configuração**, não é uma ferramenta, não é uma ação e não é um DSL de autoria. Os processadores apenas observam, alteram seu próprio estado com escopo de fluxo e `abort()`. Eles nunca definem o comportamento do aplicativo, substituem actions ou aparecem para o modelo. As operações do aplicativo pertencem a [actions](/docs/actions).
+<Callout id="doc-block-proc1cfg" tone="warning">
+
+Um processador é **configuração**, não é uma ferramenta, não é uma ação e não é um DSL de autoria. Os processadores apenas observam, alteram seu próprio estado com escopo de fluxo e `abort()`. Eles nunca definem o comportamento do aplicativo, substituem actions ou aparecem para o modelo. As operações do aplicativo pertencem a [actions](/docs/actions).
+
+</Callout>
 
 ## Os ganchos {#hooks}
 
@@ -133,10 +136,13 @@ await runAgentLoop({
 
 **Zero sobrecarga quando não utilizado.** O loop cria a cadeia do processador somente quando pelo menos um processador é fornecido; quando `processors` é omitido ou vazio, nenhum código de costura é executado e o loop permanece inalterado byte por byte. Os ganchos são executados em ordem de registro e podem ser sincronizados ou assíncronos.
 
-> [!NOTE]
-> A junção em nível de loop é entregue hoje e pode ser chamada diretamente por subagentes, A2A, MCP e testes. Encadear `processors` por meio do manipulador de bate-papo HTTP (para que um resolvedor por solicitação possa configurá-los sem chamar `runAgentLoop` diretamente) é um encanamento de conveniência que ainda não está conectado. Configure os processadores no site de chamada `runAgentLoop` por enquanto.
+<Callout id="doc-block-proc1note" tone="info">
 
-## Relacionado
+A junção em nível de loop é entregue hoje e pode ser chamada diretamente por subagentes, A2A, MCP e testes. Encadear `processors` por meio do manipulador de bate-papo HTTP (para que um resolvedor por solicitação possa configurá-los sem chamar `runAgentLoop` diretamente) é um encanamento de conveniência que ainda não está conectado. Configure os processadores no site de chamada `runAgentLoop` por enquanto.
+
+</Callout>
+
+## O que vem a seguir
 
 - [**Durable Resume**](/docs/durable-resume) — como o loop sobrevive a interrupções sem executar novamente os efeitos colaterais concluídos.
 - [**Custom Agents & Teams**](/docs/agent-teams) — os subagentes executam o mesmo loop e podem carregar seus próprios processadores.

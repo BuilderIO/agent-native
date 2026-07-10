@@ -93,12 +93,10 @@ coherent kit instead of exposing package boundaries in the app.
 
 ## Foundation Pieces {#foundation-pieces}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
+- [UI Primitives](/docs/toolkit-ui) covers the shared shadcn-style primitives
+  under `@agent-native/toolkit/ui/*`, the local app-adapter pattern every
+  template wraps them in, and the shared shell hooks (header actions, mobile
+  detection, toasts).
 - [Component API](/docs/components) remains the lower-level reference for the
   public React exports.
 
@@ -108,3 +106,14 @@ Use a toolkit when the behavior repeats across apps and users expect it to feel
 standard: sharing, settings, teams, comments, history, and agent progress should
 not be slightly different in every template. Keep domain-specific data,
 workflows, labels, and visual styling in the app.
+
+## What's next
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — the shared primitives, app
+  adapters, and shell hooks every kit builds on.
+- [**Sharing Kit**](/docs/toolkit-sharing) — a good first kit to adopt: ownable
+  resources, share dialogs, and visibility.
+- [**Creating Templates**](/docs/creating-templates) — build a template end to
+  end and see where kits fit alongside your own domain model.
+- [**Component API**](/docs/components) — the generated reference for every
+  public React export, including kit components.

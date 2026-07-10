@@ -92,6 +92,18 @@ Ao abrir o aplicativo, a biblioteca selecionada, o prompt, as referências e os 
 - **Outros aplicativos precisam de um seletor ou gerador de recursos** — Slides, Design, Conteúdo, um editor de blog ou um construtor de sites podem incorporar o seletor ou chamar Assets por A2A.
 - **Você deseja que a mídia da marca seja disponibilizada pelo seu agente de codificação** — Codex, Claude Code, Claude ou ChatGPT podem gerar e selecionar recursos sem sair do chat.
 
+## O que você pode fazer com isso
+
+- **Crie bibliotecas de recursos.** Agrupe imagens de referência, vídeos, logotipos canônicos, notas de estilo, paletas, pastas e resultados gerados por marca, campanha, produto ou categoria.
+- **Gerar por meio de bate-papo.** O compositor inicial e os controles Gerar da biblioteca enviam o prompt ao agente com `sendToAgentChat()`, para que os usuários possam inspecionar variantes, fornecer feedback e iterar.
+- **Gere imagens e vídeos.** A geração de imagens gerenciadas pelo Builder está disponível quando ativada, e o Gemini potencializa a geração de vídeo e o substituto manual de imagens.
+- **Carregue e descreva referências.** Adicione imagens ou vídeos da biblioteca UI ou solicite o botão de anexo do compositor e pesquise por título, descrição, texto alternativo, prompt, modelo, tipo de mídia, status, função, pasta ou coleção.
+- **Mantenha um registro de auditoria de geração.** Cada execução registra prompts, modelo, proporção, referências, ativo de origem, linhagem, ativos gerados, status, erros e carimbos de data/hora para revisão posterior do projeto.
+- **Preserva a precisão do logotipo.** O agente pode gerar uma área de espaço reservado e o servidor compõe o logotipo canônico carregado na imagem final, em vez de depender do modelo de imagem para redesenhá-lo.
+- **Incorporado como um seletor.** Outros aplicativos podem criar iframe `/picker` e ouvir o evento `chooseAsset` de `@agent-native/embedding`, transformando o Assets em um seletor/gerador de ativos para editores de blog, construtores de sites, apresentações de slides e aplicativos personalizados. O seletor também emite o alias herdado `chooseImage` para hosts somente de imagem existentes.
+- **Instalar como uma habilidade apoiada por aplicativo.** O manifesto `agent-native.app-skill.json` exporta uma habilidade de Ativos mais metadados do conector MCP para que os mercados possam instalar o aplicativo, suas instruções e seu seletor juntos.
+- **Servir outros agentes.** Slides, Design, Content, Mail e Dispatch podem chamar recursos por meio de A2A para listar bibliotecas, gerar lotes, criar vídeos, refinar um recurso, buscar exportações e renderizar visualizações in-line onde a incorporação é permitida.
+
 ## Primeiros passos
 
 Demonstração ao vivo: [assets.agent-native.com](https://assets.agent-native.com).
@@ -113,18 +125,6 @@ Demonstração ao vivo: [assets.agent-native.com](https://assets.agent-native.co
 - "Encontre todos os recursos aprovados para a reformulação da integração."
 - "Transforme este diagrama enviado em uma imagem explicativa do produto mais limpa."
 - "Crie um storyboard de vídeo e salve o melhor conjunto de quadros nesta biblioteca."
-
-## O que você pode fazer com isso
-
-- **Crie bibliotecas de recursos.** Agrupe imagens de referência, vídeos, logotipos canônicos, notas de estilo, paletas, pastas e resultados gerados por marca, campanha, produto ou categoria.
-- **Gerar por meio de bate-papo.** O compositor inicial e os controles Gerar da biblioteca enviam o prompt ao agente com `sendToAgentChat()`, para que os usuários possam inspecionar variantes, fornecer feedback e iterar.
-- **Gere imagens e vídeos.** A geração de imagens gerenciadas pelo Builder está disponível quando ativada, e o Gemini potencializa a geração de vídeo e o substituto manual de imagens.
-- **Carregue e descreva referências.** Adicione imagens ou vídeos da biblioteca UI ou solicite o botão de anexo do compositor e pesquise por título, descrição, texto alternativo, prompt, modelo, tipo de mídia, status, função, pasta ou coleção.
-- **Mantenha um registro de auditoria de geração.** Cada execução registra prompts, modelo, proporção, referências, ativo de origem, linhagem, ativos gerados, status, erros e carimbos de data/hora para revisão posterior do projeto.
-- **Preserva a precisão do logotipo.** O agente pode gerar uma área de espaço reservado e o servidor compõe o logotipo canônico carregado na imagem final, em vez de depender do modelo de imagem para redesenhá-lo.
-- **Incorporado como um seletor.** Outros aplicativos podem criar iframe `/picker` e ouvir o evento `chooseAsset` de `@agent-native/embedding`, transformando o Assets em um seletor/gerador de ativos para editores de blog, construtores de sites, apresentações de slides e aplicativos personalizados. O seletor também emite o alias herdado `chooseImage` para hosts somente de imagem existentes.
-- **Instalar como uma habilidade apoiada por aplicativo.** O manifesto `agent-native.app-skill.json` exporta uma habilidade de Ativos mais metadados do conector MCP para que os mercados possam instalar o aplicativo, suas instruções e seu seletor juntos.
-- **Servir outros agentes.** Slides, Design, Content, Mail e Dispatch podem chamar recursos por meio de A2A para listar bibliotecas, gerar lotes, criar vídeos, refinar um recurso, buscar exportações e renderizar visualizações in-line onde a incorporação é permitida.
 
 ## Usando-o do seu agente de codificação
 
@@ -168,10 +168,13 @@ Gere e escolha mídia de marca sem sair do código Codex, Claude, Claude ou Chat
 
 O restante deste documento é para qualquer pessoa que faça bifurcação do modelo Assets ou estenda-o.
 
-### Andaimes
+### Início rápido
 
 ```bash
 npx @agent-native/core@latest create my-assets --standalone --template assets
+cd my-assets
+pnpm install
+pnpm dev
 ```
 
 ### Modelo de dados

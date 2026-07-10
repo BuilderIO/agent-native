@@ -136,13 +136,9 @@ Snapshot, bis Sie ihn erneut aktualisieren/überprüfen, also scannen Sie den Co
 Tool- oder MCP-App-Metadatenänderungen. Wenn Sie noch alte Pro-App-Konnektoren haben
 neben Dispatch aktiviert, jeden veralteten Connector aktualisieren oder erneut verbinden; Aktualisierung
 Dispatch schreibt den zwischengespeicherten Kalender/Mail/usw. von ChatGPT oder Claude nicht neu.
-Schnappschüsse. Die Bereiche sind:
-
-| Geltungsbereich | Was es ermöglicht                                        |
-| --------------- | -------------------------------------------------------- |
-| `mcp:read`      | Schreibgeschützte Tools und Tool-/Ressourcenerkennung    |
-| `mcp:write`     | Entwurf, Aktualisierung und andere Änderungen actions    |
-| `mcp:apps`      | Inline-MCP-Apps, Diagramme, Dashboards, Entwürfe und UIs |
+Schnappschüsse. Die Bereiche `mcp:read` / `mcp:write` / `mcp:apps` sind
+dieselben, die unten unter [Standard-OAuth für Remote-MCP](#standard-oauth)
+beschrieben werden.
 
 Cursor, Goose, Postman, MCPJam und VS Code GitHub Copilot verwenden dieselbe Fernbedienung
 MCP URL über ihre eigenen MCP-Server UIs, wenn ihr Build Remote-OAuth unterstützt

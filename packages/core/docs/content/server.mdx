@@ -96,8 +96,7 @@ server/routes/
 
 Each route exports a `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -137,8 +136,7 @@ Use the action `http` option to shape direct HTTP access: actions are `POST` by 
 
 For a read-only status endpoint, keep it as an action:
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -171,8 +169,7 @@ what happened. For narrow server-side transforms that intentionally do not need
 tools, chat history, or run state, use `completeText()` as an explicit escape
 hatch.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -237,8 +234,7 @@ Actions mounted by the framework automatically run with request context. Custom 
 
 Plugins live in `server/plugins/` and run at startup. Use them for migrations, provider setup, recurring jobs, integration adapters, and framework plugin configuration.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -416,8 +412,11 @@ Inbound webhooks should verify, persist, and return quickly. Long-running agent 
 
 </Diagram>
 
-> [!WARNING]
-> Do not rely on unawaited promises after returning a response — serverless hosts freeze the execution. See [Messaging](/docs/messaging) for the canonical integration queue.
+<Callout tone="warning">
+  Do not rely on unawaited promises after returning a response — serverless
+  hosts freeze the execution. See [Messaging](/docs/messaging) for the canonical
+  integration queue.
+</Callout>
 
 ## Advanced: Escape Hatches {#advanced-escape-hatches}
 
@@ -459,3 +458,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## What's next
+
+- [**Actions**](/docs/actions) — the default operation surface; reach for a custom route only when it doesn't fit
+- [**Database**](/docs/database) — the `getDb()`/`schema` pattern custom routes and actions both import
+- [**Security**](/docs/security#access-guards) — `accessFilter`/`assertAccess` and the full data-scoping model
+- [**Messaging**](/docs/messaging) — the canonical inbound-webhook integration queue pattern
+- [**MCP Protocol**](/docs/mcp-protocol) — the `/_agent-native/mcp` endpoint this server mounts automatically

@@ -1,5 +1,5 @@
 const STRUCTURED_INTAKE_PATTERNS = [
-  /\b(?:file|submit|add|log|track|triage|prioriti[sz]e)\b.{0,64}\b(?:asks?|requests?|tickets?|intake)\b/i,
+  /\b(?:file|submit|add|log|track|triage|prioriti[sz]e|create)\b.{0,64}\b(?:asks?|requests?|tickets?|tasks?|intake)\b/i,
   /\b(?:asks?|requests?|tickets?|intake)\b.{0,64}\b(?:database|table|board|form|queue|priority|deadline|urgency)\b/i,
   /\b(?:database|table|board|form|queue)\b.{0,64}\b(?:asks?|requests?|tickets?|intake|priority|deadline|urgency)\b/i,
 ];

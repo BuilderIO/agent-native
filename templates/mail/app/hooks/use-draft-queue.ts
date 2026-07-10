@@ -51,7 +51,7 @@ export function useQueuedDrafts(params?: {
 }) {
   const query = useActionQuery("list-queued-drafts", params ?? {}, {
     staleTime: 5_000,
-    refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const data = query.data as DraftListResponse | null | undefined;

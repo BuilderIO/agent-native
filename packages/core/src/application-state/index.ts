@@ -1,6 +1,7 @@
 // Store
 export {
   appStateGet,
+  appStateGetMany,
   appStatePut,
   appStateDelete,
   appStateList,

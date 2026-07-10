@@ -11,7 +11,7 @@ Actions are the single source of truth for anything your app does. Define an act
 - **Typesafe React hooks** — `useActionQuery("name")` and `useActionMutation("name")` on the frontend, types inferred from the schema.
 - **Imperative client calls** — `callAction("name", params)` when a hook does not fit.
 - **Framework transport** — auto-mounted by the framework behind those hooks and available to external HTTP clients.
-- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
+- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP host.
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
@@ -146,23 +146,23 @@ around actions, not a required prerequisite for the action itself.
   filename="actions/reply-to-email.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
   annotations={[
     {
-      lines: "5",
+      lines: "7",
       label: "Tool surface",
       note: "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too.",
     },
     {
-      lines: "6-9",
+      lines: "8-11",
       label: "Typed contract",
       note: "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`.",
     },
     {
-      lines: "10-13",
+      lines: "12-16",
       label: "One implementation",
-      note: "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this.",
+      note: "The `run` body is the single source of truth — the UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts` — see [Database](/docs/database).",
     },
   ]}
 />
@@ -392,23 +392,9 @@ For list and read actions, use `accessFilter` to scope the query to the current 
 
 ### Human-in-the-loop approval {#needs-approval}
 
-A handful of actions are too consequential to let the agent run autonomously — sending an email, charging a card, deleting an account. For those, set `needsApproval` to pause the loop and require a human to approve the specific call before `run()` executes:
+A handful of actions are too consequential to let the agent run autonomously — sending an email, charging a card, deleting an account. Set `needsApproval: true` (or a predicate `(args, ctx) => boolean | Promise<boolean>`) on `defineAction` and the loop pauses before `run()`, requiring a human to approve that specific call. The default is **off**, and almost every action should stay that way.
 
-```ts
-export default defineAction({
-  description: "Send an email via Gmail.",
-  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
-  needsApproval: true, // pause; a human must approve this specific send
-  run: async (args) => {
-    /* ...actually send... */
-  },
-});
-```
-
-`needsApproval` also accepts a predicate `(args, ctx) => boolean | Promise<boolean>` to gate conditionally (e.g. only external recipients, only above a threshold); it **fails closed**, so a throw counts as "approval required". When the gate is truthy and unapproved, the loop stops the turn and the side effect never fires until a human approves in the chat UI.
-
-> [!WARNING]
-> Keep approvals rare. Each gated action is a hard stop in the agent loop. The default is **off**, and almost every action should leave it off. See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full flow.
+See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full end-to-end flow.
 
 ### Audit logging {#audit}
 
@@ -554,7 +540,7 @@ export default defineAction({
 });
 ```
 
-Keep `link` as the fallback for CLI and non-UI MCP clients; it is also the embed's launch target. The embed bridge — the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping — is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
+Keep `link` as the fallback for CLI and non-UI MCP hosts; it is also the embed's launch target. The embed bridge — the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping — is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Standard actions {#standard-actions}
 
