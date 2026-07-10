@@ -384,6 +384,13 @@ import {
   writeDesignClipboard,
 } from "@/lib/design-clipboard";
 import {
+  acknowledgeClipboardContentMutation,
+  publishClipboardContentMutation,
+  type ClipboardContentLineage,
+  type ClipboardContentMutationOrigin,
+  type ClipboardContentMutationPublication,
+} from "@/lib/clipboard-content-lineage";
+import {
   applyDesignClipboardManagedStyles,
   extractDesignClipboardManagedStyles,
   type DesignClipboardManagedStyleSnapshot,
@@ -4468,16 +4475,15 @@ function DesignEditor() {
   // authoritative host-sync snapshots; the latter replaces, rather than
   // clears, the known content so there is never an undefined gap.
   const latestClipboardMutationContentRef = useRef<
-    Map<string, { content: string; generation: number }>
+    Map<string, ClipboardContentLineage>
   >(new Map());
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
-  const clipboardUndoBaselineRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const debugWindow = window as typeof window & {
       __designClipboardLineageForQa?: () => Array<
-        [string, { content: string; generation: number }]
+        [string, ClipboardContentLineage]
       >;
     };
     debugWindow.__designClipboardLineageForQa = () =>
@@ -5148,7 +5154,6 @@ function DesignEditor() {
     clipboardPasteUndoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     latestClipboardMutationContentRef.current.clear();
-    clipboardUndoBaselineRef.current.clear();
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, []);
@@ -11329,6 +11334,53 @@ function DesignEditor() {
     [selectedCanvasSelector, selectedCanvasSelectorCandidates],
   );
 
+  const publishAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      baseContent: string;
+      nextContent: string;
+      origin: ClipboardContentMutationOrigin;
+    }): ClipboardContentMutationPublication | null => {
+      const nextLineage = publishClipboardContentMutation({
+        current: latestClipboardMutationContentRef.current.get(args.fileId),
+        baseContentHash: sourceContentHash(args.baseContent),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        origin: args.origin,
+      });
+      if (!nextLineage) return null;
+      latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
+      return {
+        mutationId: nextLineage.mutationId,
+        contentHash: nextLineage.contentHash,
+        origin: nextLineage.origin,
+      };
+    },
+    [],
+  );
+
+  const acknowledgeAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      nextContent: string;
+      publication?: ClipboardContentMutationPublication;
+    }) => {
+      const nextLineage = acknowledgeClipboardContentMutation({
+        current: latestClipboardMutationContentRef.current.get(args.fileId),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        publication: args.publication,
+      });
+      if (nextLineage) {
+        latestClipboardMutationContentRef.current.set(
+          args.fileId,
+          nextLineage,
+        );
+      }
+    },
+    [],
+  );
+
   const applyLocalContentUpdate = useCallback(
     (
       nextContent: string,
@@ -11341,6 +11393,7 @@ function DesignEditor() {
         recordHistory?: boolean;
         historyBeforeContent?: string;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -11365,37 +11418,29 @@ function DesignEditor() {
         });
         return;
       }
-      const clipboardLineage = latestClipboardMutationContentRef.current.get(
-        activeFile.id,
-      );
-      const clipboardUndoBaseline = clipboardUndoBaselineRef.current.get(
-        activeFile.id,
-      );
-      const explicitLocalMutation =
-        !options.updatedAt && options.recordHistory !== false;
-      const mutationStartsAtUndoGeneration =
-        clipboardUndoBaseline === undefined ||
-        previousContent === clipboardUndoBaseline ||
-        nextContent === clipboardUndoBaseline;
-      if (explicitLocalMutation && mutationStartsAtUndoGeneration) {
-        clipboardUndoBaselineRef.current.delete(activeFile.id);
-      }
-      const staleUntrackedReplay =
-        clipboardUndoBaseline !== undefined &&
-        nextContent !== clipboardUndoBaseline &&
-        !mutationStartsAtUndoGeneration;
-      if (staleUntrackedReplay) {
-        // A pre-undo untracked rewrite arrived late. It is neither an explicit
-        // user mutation nor an acknowledgement of the current generation.
-      } else if (!options.updatedAt || !clipboardLineage) {
-        latestClipboardMutationContentRef.current.set(activeFile.id, {
-          content: nextContent,
-          generation: (clipboardLineage?.generation ?? 0) + 1,
+      if (options.clipboardMutation) {
+        acknowledgeAuthoritativeClipboardMutation({
+          fileId: activeFile.id,
+          nextContent,
+          publication: options.clipboardMutation,
         });
-      } else if (clipboardLineage.content === nextContent) {
-        latestClipboardMutationContentRef.current.set(activeFile.id, {
-          content: nextContent,
-          generation: clipboardLineage.generation,
+      } else if (!options.updatedAt && options.recordHistory !== false) {
+        // Existing user-edit callers publish at this central seam. The
+        // previous-content hash is a compare-and-swap guard: an edit computed
+        // from a pre-undo snapshot may still render, but cannot become the
+        // authoritative base for a later paste.
+        publishAuthoritativeClipboardMutation({
+          fileId: activeFile.id,
+          baseContent: previousContent,
+          nextContent,
+          origin: "user",
+        });
+      } else {
+        // Save/query/Yjs echoes and other untracked rewrites never advance
+        // lineage. Exact-content acknowledgements preserve the current id.
+        acknowledgeAuthoritativeClipboardMutation({
+          fileId: activeFile.id,
+          nextContent,
         });
       }
       const yjsHistoryAvailable = Boolean(
@@ -11456,6 +11501,8 @@ function DesignEditor() {
       }
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
+      collabContentRef.current = nextContent;
+      collabContentFileIdRef.current = activeFile.id;
       lastLocalContentRef.current = nextContent;
       latestActiveContentRef.current = nextContent;
       if (id) {
@@ -11549,11 +11596,13 @@ function DesignEditor() {
     },
     [
       activeFile,
+      acknowledgeAuthoritativeClipboardMutation,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
       id,
       isSynced,
       markPendingLocalFileContent,
+      publishAuthoritativeClipboardMutation,
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
@@ -11577,6 +11626,7 @@ function DesignEditor() {
         persist?: boolean;
         recordHistory?: boolean;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!canEditDesignRef.current) return;
@@ -11614,35 +11664,21 @@ function DesignEditor() {
         });
         return;
       }
-      const clipboardLineage =
-        latestClipboardMutationContentRef.current.get(fileId);
-      const clipboardUndoBaseline =
-        clipboardUndoBaselineRef.current.get(fileId);
-      const explicitLocalMutation =
-        !options.updatedAt && options.recordHistory !== false;
-      const mutationStartsAtUndoGeneration =
-        clipboardUndoBaseline === undefined ||
-        previousContent === clipboardUndoBaseline ||
-        nextContent === clipboardUndoBaseline;
-      if (explicitLocalMutation && mutationStartsAtUndoGeneration) {
-        clipboardUndoBaselineRef.current.delete(fileId);
-      }
-      const staleUntrackedReplay =
-        clipboardUndoBaseline !== undefined &&
-        nextContent !== clipboardUndoBaseline &&
-        !mutationStartsAtUndoGeneration;
-      if (staleUntrackedReplay) {
-        // Same generation rule as the active-file path above.
-      } else if (!options.updatedAt || !clipboardLineage) {
-        latestClipboardMutationContentRef.current.set(fileId, {
-          content: nextContent,
-          generation: (clipboardLineage?.generation ?? 0) + 1,
+      if (options.clipboardMutation) {
+        acknowledgeAuthoritativeClipboardMutation({
+          fileId,
+          nextContent,
+          publication: options.clipboardMutation,
         });
-      } else if (clipboardLineage.content === nextContent) {
-        latestClipboardMutationContentRef.current.set(fileId, {
-          content: nextContent,
-          generation: clipboardLineage.generation,
+      } else if (!options.updatedAt && options.recordHistory !== false) {
+        publishAuthoritativeClipboardMutation({
+          fileId,
+          baseContent: previousContent,
+          nextContent,
+          origin: "user",
         });
+      } else {
+        acknowledgeAuthoritativeClipboardMutation({ fileId, nextContent });
       }
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
@@ -11729,6 +11765,7 @@ function DesignEditor() {
     },
     [
       activeFile?.id,
+      acknowledgeAuthoritativeClipboardMutation,
       applyLocalContentUpdate,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
@@ -11740,6 +11777,7 @@ function DesignEditor() {
       overviewIsSynced,
       overviewPresenceFileId,
       overviewYdoc,
+      publishAuthoritativeClipboardMutation,
       queryClient,
       recordContentHistoryEntry,
       saveFileContent,
@@ -16820,7 +16858,6 @@ function DesignEditor() {
       // removes both. Prefer the pending snapshot exactly like primitive and
       // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
-        clipboardUndoBaselineRef.current.get(targetFileId) ??
         latestClipboardMutationContentRef.current.get(targetFileId)?.content ??
         pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
         (targetFileId === activeFile?.id
@@ -16835,7 +16872,13 @@ function DesignEditor() {
         (entry) => entry.managedStyleSnapshot,
       );
       const applyPasteContentUpdate = (nextContent: string) => {
-        clipboardUndoBaselineRef.current.delete(targetFileId);
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: targetFileId,
+          baseContent,
+          nextContent,
+          origin: "clipboard-paste",
+        });
+        if (!clipboardMutation) return false;
         const usesOverviewHistory = viewModeRef.current === "overview";
         if (usesOverviewHistory && nextContent !== baseContent) {
           // Capture the exact immutable pre-paste document here, before the
@@ -16861,14 +16904,17 @@ function DesignEditor() {
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
             forcePreviewFullDocument: true,
+            clipboardMutation,
             ...(usesOverviewHistory ? { recordHistory: false } : {}),
           });
-          return;
+          return true;
         }
         applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
+          clipboardMutation,
           ...(usesOverviewHistory ? { recordHistory: false } : {}),
         });
+        return true;
       };
 
       // B7 fix: when an element is selected and no explicit canvas position was
@@ -16892,7 +16938,7 @@ function DesignEditor() {
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyPasteContentUpdate(result.content);
+          if (!applyPasteContentUpdate(result.content)) return;
           remapMotionTracksForClone(result.nodeIdMap, targetFileId);
           selectInsertedLayers(
             targetFileId,
@@ -16976,7 +17022,7 @@ function DesignEditor() {
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyPasteContentUpdate(result.content);
+      if (!applyPasteContentUpdate(result.content)) return;
       remapMotionTracksForClone(result.nodeIdMap, targetFileId);
       selectInsertedLayers(targetFileId, result.content, result.rootNodeIds);
     },
@@ -16991,6 +17037,7 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       pasteCopiedScreens,
+      publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
       remapMotionTracksForClone,
       selectInsertedLayers,
@@ -20952,16 +20999,13 @@ function DesignEditor() {
       // history below gets first chance; once that edit is undone back to
       // `after`, the next Cmd+Z reaches this immutable paste entry.
       if (currentContent === clipboardPasteUndo.after) {
-        const previousLineage = latestClipboardMutationContentRef.current.get(
-          clipboardPasteUndo.fileId,
-        );
-        latestClipboardMutationContentRef.current.set(
-          clipboardPasteUndo.fileId,
-          {
-            content: clipboardPasteUndo.before,
-            generation: (previousLineage?.generation ?? 0) + 1,
-          },
-        );
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteUndo.fileId,
+          baseContent: clipboardPasteUndo.after,
+          nextContent: clipboardPasteUndo.before,
+          origin: "clipboard-undo",
+        });
+        if (!clipboardMutation) return;
         clipboardPasteUndoStackRef.current =
           clipboardPasteUndoStackRef.current.slice(0, -1);
         clipboardPasteRedoStackRef.current = [
@@ -20970,15 +21014,12 @@ function DesignEditor() {
           ),
           clipboardPasteUndo,
         ];
-        clipboardUndoBaselineRef.current.set(
-          clipboardPasteUndo.fileId,
-          clipboardPasteUndo.before,
-        );
         if (clipboardPasteUndo.fileId === activeFile?.id) {
           applyLocalContentUpdate(clipboardPasteUndo.before, {
             recordHistory: false,
             forcePreviewFullDocument: true,
             immediateSave: true,
+            clipboardMutation,
           });
         } else {
           applyFileContentUpdate(
@@ -20987,6 +21028,7 @@ function DesignEditor() {
             {
               recordHistory: false,
               forcePreviewFullDocument: true,
+              clipboardMutation,
             },
           );
         }
@@ -21437,6 +21479,7 @@ function DesignEditor() {
     liveScreenSnapshotsById,
     markPendingLocalFileContent,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     replacePreviewContent,
@@ -21625,16 +21668,13 @@ function DesignEditor() {
           ? getFreshActiveContent()
           : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
       if (currentContent === clipboardPasteRedo.before) {
-        const previousLineage = latestClipboardMutationContentRef.current.get(
-          clipboardPasteRedo.fileId,
-        );
-        latestClipboardMutationContentRef.current.set(
-          clipboardPasteRedo.fileId,
-          {
-            content: clipboardPasteRedo.after,
-            generation: (previousLineage?.generation ?? 0) + 1,
-          },
-        );
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteRedo.fileId,
+          baseContent: clipboardPasteRedo.before,
+          nextContent: clipboardPasteRedo.after,
+          origin: "clipboard-redo",
+        });
+        if (!clipboardMutation) return;
         clipboardPasteRedoStackRef.current =
           clipboardPasteRedoStackRef.current.slice(0, -1);
         clipboardPasteUndoStackRef.current = [
@@ -21643,15 +21683,12 @@ function DesignEditor() {
           ),
           clipboardPasteRedo,
         ];
-        clipboardUndoBaselineRef.current.set(
-          clipboardPasteRedo.fileId,
-          clipboardPasteRedo.after,
-        );
         if (clipboardPasteRedo.fileId === activeFile?.id) {
           applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,
             forcePreviewFullDocument: true,
             immediateSave: true,
+            clipboardMutation,
           });
         } else {
           applyFileContentUpdate(
@@ -21660,6 +21697,7 @@ function DesignEditor() {
             {
               recordHistory: false,
               forcePreviewFullDocument: true,
+              clipboardMutation,
             },
           );
         }
@@ -22110,6 +22148,7 @@ function DesignEditor() {
     optimisticallyInsertCreatedFile,
     overviewScreens.length,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     recordLocalContentHistoryChangeFallback,

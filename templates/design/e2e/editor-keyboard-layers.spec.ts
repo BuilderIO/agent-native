@@ -197,7 +197,7 @@ test.describe("editor keyboard layer clipboard", () => {
           const entries = (
             window as typeof window & {
               __designClipboardLineageForQa?: () => Array<
-                [string, { content: string; generation: number }]
+                [string, { content: string; mutationId: number }]
               >;
             }
           ).__designClipboardLineageForQa?.();
@@ -210,12 +210,12 @@ test.describe("editor keyboard layer clipboard", () => {
                   target.content.split(
                     'data-agent-native-layer-name="Copy Card"',
                   ).length - 1,
-                generation: target.generation,
+                mutationId: target.mutationId,
               }
             : null;
         }),
       )
-      .toMatchObject({ cards: 0, generation: expect.any(Number) });
+      .toMatchObject({ cards: 0, mutationId: expect.any(Number) });
 
     // Rapid consecutive undo: paste two distinct clones from the same live
     // system clipboard, then remove the latest and the prior clone with two
