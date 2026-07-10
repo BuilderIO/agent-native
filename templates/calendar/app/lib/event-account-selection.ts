@@ -20,10 +20,13 @@ export function reconcileEventAccountEmail(
   currentAccountEmail?: string,
   draftAccountEmail?: string,
 ): string | undefined {
-  return resolveEventAccountEmail(
-    accounts,
-    draftAccountEmail ?? currentAccountEmail,
-  );
+  if (
+    currentAccountEmail &&
+    accounts.some((account) => account.email === currentAccountEmail)
+  ) {
+    return currentAccountEmail;
+  }
+  return resolveEventAccountEmail(accounts, draftAccountEmail);
 }
 
 export function shouldShowEventAccountSelector(

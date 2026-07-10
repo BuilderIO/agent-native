@@ -206,6 +206,11 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
       version: 20,
       sql: `ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS hosts TEXT`,
     },
+    {
+      version: 21,
+      name: "bookings-calendar-account-id",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS calendar_account_id TEXT`,
+    },
   ],
   { table: "calendar_migrations" },
 );

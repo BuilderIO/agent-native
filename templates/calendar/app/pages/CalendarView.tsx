@@ -1283,7 +1283,7 @@ export default function CalendarView() {
   );
 
   const handleQuickEditSave = useCallback(
-    async (eventId: string, title: string) => {
+    async (eventId: string, title: string, accountEmail?: string) => {
       setQuickEditEventId(null);
       if (calendarDraftIdFromEventId(eventId)) {
         updateDraftEvent(eventId, { title: title.trim() });
@@ -1307,7 +1307,7 @@ export default function CalendarView() {
         if (!guestNotification) return;
         updateEvent.mutate({
           id: eventId,
-          accountEmail: event?.accountEmail,
+          accountEmail: event?.accountEmail ?? accountEmail,
           ...updates,
           ...guestNotification,
         });
@@ -1317,7 +1317,7 @@ export default function CalendarView() {
   );
 
   const handleTitleSave = useCallback(
-    async (eventId: string, title: string) => {
+    async (eventId: string, title: string, accountEmail?: string) => {
       if (calendarDraftIdFromEventId(eventId)) {
         updateDraftEvent(eventId, { title });
         return;
@@ -1334,7 +1334,7 @@ export default function CalendarView() {
       if (!guestNotification) return;
       updateEvent.mutate({
         id: eventId,
-        accountEmail: event?.accountEmail,
+        accountEmail: event?.accountEmail ?? accountEmail,
         ...updates,
         ...guestNotification,
       });

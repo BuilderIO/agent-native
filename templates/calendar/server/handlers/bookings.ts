@@ -98,23 +98,50 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+export async function resolveBookingCalendarAccount({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "slug" | "ownerEmail" | "calendarAccountId"
+  >;
+  hostEmail?: string;
+}) {
+  const ownerEmail =
+    booking.ownerEmail ||
+    hostEmail ||
+    (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  if (booking.calendarAccountId) {
+    return {
+      ownerEmail,
+      accountEmail: booking.calendarAccountId,
+    };
+  }
+
+  return googleCalendar.getDefaultAccountSelection(ownerEmail);
+}
+
 async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
   booking: Pick<
     typeof schema.bookings.$inferSelect,
-    "id" | "slug" | "googleEventId"
+    "id" | "slug" | "googleEventId" | "ownerEmail" | "calendarAccountId"
   >;
   hostEmail?: string;
 }) {
   if (!booking.googleEventId) return;
-  const ownerEmail =
-    hostEmail ?? (await getBookingLinkOwnerEmail(booking.slug));
-  if (!ownerEmail) return;
 
   try {
-    const account = await googleCalendar.getDefaultAccountSelection(ownerEmail);
+    const account = await resolveBookingCalendarAccount({
+      booking,
+      hostEmail,
+    });
+    if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
       sendUpdates: "none",
     });
@@ -974,6 +1001,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
+    let calendarAccountId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1069,6 +1097,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         });
         // Google Meet link is returned by the API when created
         googleEventId = result.id;
+        calendarAccountId = account.accountEmail;
         if (result.meetLink) {
           meetingLink = result.meetLink;
         }
@@ -1086,9 +1115,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
+        calendarAccountId?: string;
       } = {};
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (googleEventId && calendarAccountId) {
+        providerUpdates.calendarAccountId = calendarAccountId;
+      }
       await getDb()
         .update(schema.bookings)
         .set(providerUpdates)

@@ -48,17 +48,27 @@ describe("event account selection", () => {
     );
   });
 
-  it("keeps a valid draft or user-selected account as accounts change", () => {
+  it("keeps a valid user selection as accounts refetch", () => {
     expect(
       reconcileEventAccountEmail(
         accounts,
         "primary@example.com",
         "secondary@example.com",
       ),
-    ).toBe("secondary@example.com");
+    ).toBe("primary@example.com");
     expect(reconcileEventAccountEmail(accounts, "secondary@example.com")).toBe(
       "secondary@example.com",
     );
+  });
+
+  it("falls back to a valid draft account when the current selection disconnects", () => {
+    expect(
+      reconcileEventAccountEmail(
+        accounts,
+        "missing@example.com",
+        "secondary@example.com",
+      ),
+    ).toBe("secondary@example.com");
     expect(
       reconcileEventAccountEmail(
         accounts,

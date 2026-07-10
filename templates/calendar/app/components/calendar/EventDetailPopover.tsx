@@ -460,7 +460,7 @@ interface EventDetailPopoverProps {
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
-  onTitleSave?: (eventId: string, title: string) => void;
+  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
   onDismissNew?: (eventId: string) => void;
   onDraftUpdate?: (
@@ -1190,12 +1190,12 @@ export function EventDetailPopover({
         ? { title: editingTitle.trim() }
         : undefined;
     if (updates) {
-      onTitleSave?.(event.id, updates.title);
+      onTitleSave?.(event.id, updates.title, event.accountEmail);
       setIsEditingTitle(false);
       isNewEventRef.current = false;
     }
     onDraftCreate(event.id, updates);
-  }, [editingTitle, event.id, isEditingTitle, onDraftCreate, onTitleSave]);
+  }, [editingTitle, event, isEditingTitle, onDraftCreate, onTitleSave]);
 
   // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
@@ -1242,7 +1242,7 @@ export function EventDetailPopover({
         // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle && trimmedTitle !== "(No title)") {
-            onTitleSave?.(event.id, trimmedTitle);
+            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1282,6 +1282,7 @@ export function EventDetailPopover({
       isEditingTitle,
       editingTitle,
       event.id,
+      event.accountEmail,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1391,7 +1392,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== "(No title)") {
-                        onTitleSave?.(event.id, trimmed);
+                        onTitleSave?.(event.id, trimmed, event.accountEmail);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1421,7 +1422,7 @@ export function EventDetailPopover({
                       trimmed !== "(No title)" &&
                       trimmed !== event.title
                     ) {
-                      onTitleSave?.(event.id, trimmed);
+                      onTitleSave?.(event.id, trimmed, event.accountEmail);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
