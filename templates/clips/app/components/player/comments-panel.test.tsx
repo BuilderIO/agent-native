@@ -139,7 +139,7 @@ describe("CommentsPanel reply composer", () => {
     });
 
     const sendReply = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Send reply"]',
+      'button[aria-label="commentsPanel.writeReply"]',
     );
     act(() => sendReply?.click());
 

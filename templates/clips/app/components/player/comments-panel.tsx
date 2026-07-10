@@ -654,7 +654,7 @@ function InlineReplyComposer({
           size="icon"
           onClick={onSubmit}
           disabled={!draft.trim()}
-          aria-label="Send reply"
+          aria-label={t("commentsPanel.writeReply")}
           className="size-8 bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <IconSend className="size-4" />

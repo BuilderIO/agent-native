@@ -912,7 +912,7 @@ function contentHash(value: string): string {
   return `${value.length}:${hash >>> 0}`;
 }
 
-const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
 /**
  * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
