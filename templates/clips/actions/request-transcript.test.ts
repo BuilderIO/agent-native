@@ -173,6 +173,7 @@ import {
   builderTranscriptionTimeoutMs,
   importLoomTranscriptForRecording,
   recordingMediaFetchTimeoutMs,
+  transcribeWithBuilderModelFallback,
 } from "./request-transcript";
 import requestTranscript from "./request-transcript";
 
@@ -216,6 +217,51 @@ describe("recordingMediaFetchTimeoutMs", () => {
 
     vi.stubEnv("CLIPS_TRANSCRIPTION_MEDIA_FETCH_TIMEOUT_MS", "300000");
     expect(recordingMediaFetchTimeoutMs(null, null)).toBe(120_000);
+  });
+});
+
+describe("Builder model fallback", () => {
+  const options = {
+    audioBytes: new Uint8Array([1, 2, 3]),
+    mimeType: "audio/webm",
+    diarize: false,
+  };
+
+  beforeEach(() => {
+    mockTranscribeWithBuilder.mockReset();
+  });
+
+  it("retries with the Builder gateway default when the selected model is unavailable", async () => {
+    const fallbackResult = {
+      text: "Recovered transcript.",
+      language: "en",
+      durationSeconds: 1,
+      segments: [],
+    };
+    mockTranscribeWithBuilder
+      .mockRejectedValueOnce(
+        new Error("Required AI model is not available in your region"),
+      )
+      .mockResolvedValueOnce(fallbackResult);
+
+    await expect(transcribeWithBuilderModelFallback(options)).resolves.toEqual(
+      fallbackResult,
+    );
+    expect(mockTranscribeWithBuilder).toHaveBeenNthCalledWith(1, {
+      ...options,
+      model: "gemini-3-1-flash-lite",
+    });
+    expect(mockTranscribeWithBuilder).toHaveBeenNthCalledWith(2, options);
+  });
+
+  it("does not duplicate non-model failures", async () => {
+    const error = new Error("Builder transcription timed out after 45 seconds");
+    mockTranscribeWithBuilder.mockRejectedValueOnce(error);
+
+    await expect(transcribeWithBuilderModelFallback(options)).rejects.toBe(
+      error,
+    );
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
   });
 });
 

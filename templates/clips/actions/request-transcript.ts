@@ -9,7 +9,8 @@
  *
  * Cloud fallback provider selection:
  *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
- *      proxy) when Builder is connected.
+ *      proxy) when Builder is connected; if that model is unavailable in the
+ *      deployment region, retry the Builder gateway's default model.
  *   2. `GROQ_API_KEY` → Groq's fast speech-to-text fallback.
  *   3. Neither → keep any native transcript or fail with a clear reason.
  *
@@ -136,6 +137,49 @@ const MEDIA_FETCH_MAX_TIMEOUT_MS = 120_000;
 const MEDIA_FETCH_BASE_TIMEOUT_MS = 30_000;
 const MEDIA_FETCH_PER_50MB_MS = 10_000;
 const ESTIMATED_VIDEO_BYTES_PER_MINUTE = 5 * 1024 * 1024;
+
+function builderErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    return `${error.message} ${cause ? builderErrorText(cause) : ""}`.trim();
+  }
+  return String(error);
+}
+
+export function isBuilderModelAvailabilityError(error: unknown): boolean {
+  const message = builderErrorText(error).toLowerCase();
+  const identifiesModel =
+    message.includes("model") || message.includes("gemini");
+  const identifiesAvailability =
+    message.includes("not available") ||
+    message.includes("unavailable") ||
+    message.includes("unsupported") ||
+    message.includes("not supported") ||
+    message.includes("not found") ||
+    message.includes("region") ||
+    message.includes("location");
+  return identifiesModel && identifiesAvailability;
+}
+
+export async function transcribeWithBuilderModelFallback(
+  options: Omit<Parameters<typeof transcribeWithBuilder>[0], "model">,
+) {
+  try {
+    return await transcribeWithBuilder({
+      ...options,
+      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+    });
+  } catch (error) {
+    if (!isBuilderModelAvailabilityError(error)) throw error;
+    console.warn(
+      `[clips] Builder transcription model ${BUILDER_GEMINI_TRANSCRIPTION_MODEL} is unavailable; retrying the gateway default model.`,
+    );
+    // `model` is optional on the Builder transcription endpoint. Omitting it
+    // restores the gateway's region-aware default that Clips used before the
+    // explicit Gemini model was introduced.
+    return transcribeWithBuilder(options);
+  }
+}
 
 function clampTimeoutMs(value: number): number {
   return Math.max(
@@ -1207,10 +1251,9 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilder({
+        const builderResult = await transcribeWithBuilderModelFallback({
           audioBytes: audioMedia.audioBytes,
           mimeType: audioMedia.mimeType,
-          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
           instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
           timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),

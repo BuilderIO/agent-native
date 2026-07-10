@@ -55,4 +55,22 @@ describe("meeting microphone capture", () => {
       owner: "meeting",
     });
   });
+
+  it("falls back to native speech when the local Whisper capture cannot start", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("local meeting capture unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    const engine = await startTranscriptionEngine({
+      mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+    });
+
+    expect(engine).toBe("macos-native");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "native_speech_start", {
+      locale: "en-US",
+      micDeviceId: "mic-1",
+      micDeviceLabel: "Built-in Microphone",
+      owner: "meeting",
+    });
+  });
 });

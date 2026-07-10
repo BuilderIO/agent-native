@@ -109,7 +109,9 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-    use crate::native_speech::macos::{start_raw_mic_capture, RawMicCapture};
+    use crate::native_speech::macos::{
+        start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
+    };
     use crate::system_audio::macos::{
         start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
         RawSckAudioCapture,
@@ -583,6 +585,35 @@ mod macos {
         owner == SessionOwner::Meeting && microphone_capture_supported
     }
 
+    #[derive(Debug, PartialEq, Eq)]
+    struct SplitMicCaptureOptions {
+        voice_processing: MicVoiceProcessingMode,
+        reuse_voice_processing_engine: bool,
+    }
+
+    fn split_mic_capture_options(
+        owner: SessionOwner,
+        capture_system: bool,
+        requested_voice_processing: bool,
+    ) -> SplitMicCaptureOptions {
+        let voice_processing = match owner {
+            // If SCK microphone capture is unavailable or fails, keep a VPIO
+            // allocation so Zoom/Meet/Teams cannot starve Clips of mic buffers,
+            // but bypass its uplink processing to preserve call volume/quality.
+            SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
+            SessionOwner::Dictation if requested_voice_processing => {
+                MicVoiceProcessingMode::Enabled
+            }
+            SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
+        };
+        SplitMicCaptureOptions {
+            voice_processing,
+            reuse_voice_processing_engine: owner == SessionOwner::Dictation
+                && !capture_system
+                && voice_processing == MicVoiceProcessingMode::Enabled,
+        }
+    }
+
     struct Session {
         // macOS 15+ meetings use a combined SCK capture, so there is no
         // competing AVAudioEngine / VoiceProcessingIO mic input to stop.
@@ -723,13 +754,13 @@ mod macos {
             mic_stream.set_src_rate(48000.0);
             (None, Some(combined_cap))
         } else {
-            let reuse_voice_processing_engine = owner == SessionOwner::Dictation && !capture_system;
+            let mic_options = split_mic_capture_options(owner, capture_system, voice_processing);
             let mic_cap = start_raw_mic_capture(
                 app.clone(),
                 mic_device_id,
                 mic_device_label,
-                voice_processing,
-                reuse_voice_processing_engine,
+                mic_options.voice_processing,
+                mic_options.reuse_voice_processing_engine,
                 mic_callback,
             )
             .map_err(|e| {
@@ -832,7 +863,8 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
-        use super::{should_use_combined_sck_capture, SessionOwner};
+        use super::{should_use_combined_sck_capture, split_mic_capture_options, SessionOwner};
+        use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
         fn combined_sck_capture_is_only_selected_for_supported_meetings() {
@@ -845,6 +877,42 @@ mod macos {
                 SessionOwner::Dictation,
                 true
             ));
+        }
+
+        #[test]
+        fn meeting_split_capture_uses_bypassed_voice_processing() {
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Meeting, true, false),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Bypassed,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Meeting, false, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Bypassed,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+        }
+
+        #[test]
+        fn dictation_split_capture_preserves_requested_processing() {
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, false, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Enabled,
+                    reuse_voice_processing_engine: true,
+                }
+            );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, true, false),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Disabled,
+                    reuse_voice_processing_engine: false,
+                }
+            );
         }
     }
 }
